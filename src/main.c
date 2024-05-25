@@ -359,6 +359,7 @@ static Token *lexer_next(Lexer *l) {
 typedef enum {
   ND_ERR, // Error
   ND_NUM, // Number
+  ND_NEG, // '-'
   ND_ADD, // '+'
   ND_SUB, // '-'
   ND_MUL, // '*
@@ -415,6 +416,7 @@ typedef enum {
   PREC_LOW = 1,
   PREC_ADD = 2, // '+' and '-'
   PREC_MUL = 3, // '*' and '/'
+  PREC_HIGH = 4,
 } Precedence;
 
 static Node *parse_expr(Arena *a, Lexer *l, Precedence p);
@@ -424,8 +426,10 @@ static Node *parse_primary(Arena *a, Lexer *l) {
   switch (t->kind) {
   case TK_NUM:
     return new_node_num(a, t);
+  case TK_PLUS:
+    return parse_primary(a, l);
   case TK_MINUS:
-    return new_node_unary(a, t, ND_SUB, parse_expr(a, l, PREC_LOW));
+    return new_node_unary(a, t, ND_NEG, parse_expr(a, l, PREC_HIGH));
   case TK_LPAREN: {
     Node *node = parse_expr(a, l, PREC_LOW);
     if (lexer_peek(l)->kind != TK_RPAREN) {
@@ -514,6 +518,10 @@ static void gen_asm(Node *node) {
   switch (node->kind) {
   case ND_NUM:
     printf("  mov $%d, %%rax\n", node->val.i);
+    return;
+  case ND_NEG:
+    gen_asm(node->lhs);
+    printf("  neg %%rax\n");
     return;
   case ND_ADD:
     gen_asm(node->rhs);

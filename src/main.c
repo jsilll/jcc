@@ -233,6 +233,12 @@ typedef enum {
   TK_MINUS,  // '-'
   TK_MUL,    // '*'
   TK_DIV,    // '/'
+  TK_EQ,     // '=='
+  TK_NE,     // '!='
+  TK_LT,     // '<'
+  TK_LE,     // '<='
+  TK_GT,     // '>'
+  TK_GE,     // '>='
   TK_LPAREN, // '('
   TK_RPAREN, // ')'
 } TokenKind;
@@ -246,8 +252,19 @@ typedef struct {
   } val;
 } Token;
 
+static Token tokenize_single_char(char *p, TokenKind k) {
+  return (Token){.kind = k, .lex = {p, 1}};
+}
+
+static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
+  if (p[1] == c) {
+    return (Token){.kind = k1, .lex = {p, 2}};
+  } else {
+    return (Token){.kind = k2, .lex = {p, 1}};
+  }
+}
+
 static Token tokenize(char *p) {
-  Token t = {0};
   while (*p) {
     // Skip whitespace
     if (isspace(*p)) {
@@ -257,6 +274,7 @@ static Token tokenize(char *p) {
 
     // Numeric literal
     if (isdigit(*p)) {
+      Token t = {0};
       t.kind = TK_NUM;
       t.lex.ptr = p;
       t.val.i = strtol(p, &p, 10);
@@ -267,52 +285,31 @@ static Token tokenize(char *p) {
     // Punctuation
     switch (*p) {
     case '+':
-      t.kind = TK_PLUS;
-      t.lex.ptr = p;
-      t.lex.len = 1;
-      ++p;
-      return t;
+      return tokenize_single_char(p, TK_PLUS);
     case '-':
-      t.kind = TK_MINUS;
-      t.lex.ptr = p;
-      t.lex.len = 1;
-      ++p;
-      return t;
+      return tokenize_single_char(p, TK_MINUS);
     case '*':
-      t.kind = TK_MUL;
-      t.lex.ptr = p;
-      t.lex.len = 1;
-      ++p;
-      return t;
+      return tokenize_single_char(p, TK_MUL);
     case '/':
-      t.kind = TK_DIV;
-      t.lex.ptr = p;
-      t.lex.len = 1;
-      ++p;
-      return t;
+      return tokenize_single_char(p, TK_DIV);
     case '(':
-      t.kind = TK_LPAREN;
-      t.lex.ptr = p;
-      t.lex.len = 1;
-      ++p;
-      return t;
+      return tokenize_single_char(p, TK_LPAREN);
     case ')':
-      t.kind = TK_RPAREN;
-      t.lex.ptr = p;
-      t.lex.len = 1;
-      ++p;
-      return t;
+      return tokenize_single_char(p, TK_RPAREN);
+    case '=':
+      return tokenize_double_char(p, '=', TK_EQ, TK_ERR);
+    case '!':
+      return tokenize_double_char(p, '=', TK_NE, TK_ERR);
+    case '<':
+      return tokenize_double_char(p, '=', TK_LE, TK_LT);
+    case '>':
+      return tokenize_double_char(p, '=', TK_GE, TK_GT);
     }
 
-    // Error
-    t.kind = TK_ERR;
-    t.lex.ptr = p;
-    t.lex.len = 1;
-    return t;
+    return tokenize_single_char(p, TK_ERR);
   }
 
-  t.kind = TK_EOF;
-  return t;
+  return tokenize_single_char(p, TK_EOF);
 }
 
 typedef struct {
@@ -364,6 +361,12 @@ typedef enum {
   ND_SUB, // '-'
   ND_MUL, // '*
   ND_DIV, // '/'
+  ND_EQ,  // '=='
+  ND_NE,  // '!='
+  ND_LT,  // '<'
+  ND_LE,  // '<='
+  ND_GT,  // '>'
+  ND_GE,  // '>='
 } NodeKind;
 
 typedef struct Node {
@@ -377,35 +380,35 @@ typedef struct Node {
   } val;
 } Node;
 
-static Node *new_node(Arena *a, NodeKind kind) {
+static Node *node_create(Arena *a, NodeKind kind) {
   Node *node = arena_alloc(a, sizeof(Node));
   node->kind = kind;
   return node;
 }
 
-static Node *new_node_err(Arena *a, Token *t) {
-  Node *node = new_node(a, ND_ERR);
+static Node *node_create_err(Arena *a, Token *t) {
+  Node *node = node_create(a, ND_ERR);
   node->lex = t->lex;
   return node;
 }
 
-static Node *new_node_num(Arena *a, Token *t) {
-  Node *node = new_node(a, ND_NUM);
+static Node *node_create_num(Arena *a, Token *t) {
+  Node *node = node_create(a, ND_NUM);
   node->val.i = t->val.i;
   node->lex = t->lex;
   return node;
 }
 
-static Node *new_node_unary(Arena *a, Token *t, NodeKind kind, Node *lhs) {
-  Node *node = new_node(a, kind);
+static Node *node_create_unary(Arena *a, Token *t, NodeKind kind, Node *lhs) {
+  Node *node = node_create(a, kind);
   node->lex = t->lex;
   node->lhs = lhs;
   return node;
 }
 
-static Node *new_node_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
-                             Node *rhs) {
-  Node *node = new_node(a, kind);
+static Node *node_create_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
+                                Node *rhs) {
+  Node *node = node_create(a, kind);
   node->lex = t->lex;
   node->lhs = lhs;
   node->rhs = rhs;
@@ -414,10 +417,44 @@ static Node *new_node_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
 
 typedef enum {
   PREC_LOW = 1,
-  PREC_ADD = 2, // '+' and '-'
-  PREC_MUL = 3, // '*' and '/'
-  PREC_HIGH = 4,
+  PREC_REL = 2, // '<' and '>'
+  PREC_EQ = 3,  // '==' and '!='
+  PREC_ADD = 4, // '+' and '-'
+  PREC_MUL = 5, // '*' and '/'
+  PREC_HIGH = 6,
 } Precedence;
+
+typedef struct {
+  NodeKind kind;
+  Precedence prec;
+} PrecedencePair;
+
+static PrecedencePair get_precedence(TokenKind kind) {
+  switch (kind) {
+  case TK_PLUS:
+    return (PrecedencePair){ND_ADD, PREC_ADD};
+  case TK_MINUS:
+    return (PrecedencePair){ND_SUB, PREC_ADD};
+  case TK_MUL:
+    return (PrecedencePair){ND_MUL, PREC_MUL};
+  case TK_DIV:
+    return (PrecedencePair){ND_DIV, PREC_MUL};
+  case TK_EQ:
+    return (PrecedencePair){ND_EQ, PREC_MUL};
+  case TK_NE:
+    return (PrecedencePair){ND_NE, PREC_EQ};
+  case TK_LT:
+    return (PrecedencePair){ND_LT, PREC_REL};
+  case TK_LE:
+    return (PrecedencePair){ND_LE, PREC_REL};
+  case TK_GT:
+    return (PrecedencePair){ND_GT, PREC_REL};
+  case TK_GE:
+    return (PrecedencePair){ND_GE, PREC_REL};
+  default:
+    return (PrecedencePair){ND_ERR, PREC_LOW};
+  }
+}
 
 static Node *parse_expr(Arena *a, Lexer *l, Precedence p);
 
@@ -425,21 +462,21 @@ static Node *parse_primary(Arena *a, Lexer *l) {
   Token *t = lexer_next(l);
   switch (t->kind) {
   case TK_NUM:
-    return new_node_num(a, t);
+    return node_create_num(a, t);
   case TK_PLUS:
     return parse_primary(a, l);
   case TK_MINUS:
-    return new_node_unary(a, t, ND_NEG, parse_expr(a, l, PREC_HIGH));
+    return node_create_unary(a, t, ND_NEG, parse_expr(a, l, PREC_HIGH));
   case TK_LPAREN: {
     Node *node = parse_expr(a, l, PREC_LOW);
     if (lexer_peek(l)->kind != TK_RPAREN) {
-      return new_node_err(a, lexer_peek(l));
+      return node_create_err(a, lexer_peek(l));
     }
     lexer_next(l);
     return node;
   }
   default:
-    return new_node_err(a, t);
+    return node_create_err(a, t);
   }
 }
 
@@ -447,38 +484,12 @@ static Node *parse_expr(Arena *a, Lexer *l, Precedence p) {
   Node *lhs = parse_primary(a, l);
   while (true) {
     Token *t = lexer_peek(l);
-    switch (l->token.kind) {
-    case TK_PLUS:
-      if (p >= PREC_ADD) {
-        return lhs;
-      }
-      lexer_next(l);
-      lhs = new_node_binary(a, t, ND_ADD, lhs, parse_expr(a, l, PREC_ADD));
-      break;
-    case TK_MINUS:
-      if (p >= PREC_ADD) {
-        return lhs;
-      }
-      lexer_next(l);
-      lhs = new_node_binary(a, t, ND_SUB, lhs, parse_expr(a, l, PREC_ADD));
-      break;
-    case TK_MUL:
-      if (p >= PREC_MUL) {
-        return lhs;
-      }
-      lexer_next(l);
-      lhs = new_node_binary(a, t, ND_MUL, lhs, parse_expr(a, l, PREC_MUL));
-      break;
-    case TK_DIV:
-      if (p >= PREC_MUL) {
-        return lhs;
-      }
-      lexer_next(l);
-      lhs = new_node_binary(a, t, ND_DIV, lhs, parse_expr(a, l, PREC_MUL));
-      break;
-    default:
+    PrecedencePair pp = get_precedence(t->kind);
+    if (pp.kind == ND_ERR || p >= pp.prec) {
       return lhs;
     }
+    lexer_next(l);
+    lhs = node_create_binary(a, t, pp.kind, lhs, parse_expr(a, l, pp.prec));
   }
   return lhs;
 }
@@ -515,46 +526,70 @@ static void error_at(char *start, char *loc, char *fmt, ...) {
 // -----------------------------------------------------------------------------
 
 static void gen_asm(Node *node) {
-  switch (node->kind) {
-  case ND_NUM:
+  if (node->kind == ND_NUM) {
     printf("  mov $%d, %%rax\n", node->val.i);
     return;
-  case ND_NEG:
+  }
+  if (node->kind == ND_NEG) {
     gen_asm(node->lhs);
     printf("  neg %%rax\n");
     return;
+  }
+  gen_asm(node->rhs);
+  printf("  push %%rax\n");
+  gen_asm(node->lhs);
+  printf("  pop %%rdi\n");
+  switch (node->kind) {
   case ND_ADD:
-    gen_asm(node->rhs);
-    printf("  push %%rax\n");
-    gen_asm(node->lhs);
-    printf("  pop %%rdi\n");
     printf("  add %%rdi, %%rax\n");
-    return;
+    break;
   case ND_SUB:
-    gen_asm(node->rhs);
-    printf("  push %%rax\n");
-    gen_asm(node->lhs);
-    printf("  pop %%rdi\n");
     printf("  sub %%rdi, %%rax\n");
-    return;
+    break;
   case ND_MUL:
-    gen_asm(node->rhs);
-    printf("  push %%rax\n");
-    gen_asm(node->lhs);
-    printf("  pop %%rdi\n");
     printf("  imul %%rdi, %%rax\n");
-    return;
+    break;
   case ND_DIV:
-    gen_asm(node->rhs);
-    printf("  push %%rax\n");
-    gen_asm(node->lhs);
-    printf("  pop %%rdi\n");
     printf("  cqo\n");
     printf("  idiv %%rdi\n");
-    return;
+    break;
+  case ND_EQ:
+    printf("  cmp %%rdi, %%rax\n");
+    printf("  sete %%al\n");
+    printf("  movzb %%al, %%rax\n");
+    break;
+  case ND_NE:
+    printf("  cmp %%rdi, %%rax\n");
+    printf("  setne %%al\n");
+    printf("  movzb %%al, %%rax\n");
+    break;
+  case ND_LT:
+    printf("  cmp %%rdi, %%rax\n");
+    printf("  setl %%al\n");
+    printf("  movzb %%al, %%rax\n");
+    break;
+  case ND_LE:
+    printf("  cmp %%rdi, %%rax\n");
+    printf("  setle %%al\n");
+    printf("  movzb %%al, %%rax\n");
+    break;
+  case ND_GT:
+    printf("  cmp %%rdi, %%rax\n");
+    printf("  setg %%al\n");
+    printf("  movzb %%al, %%rax\n");
+    break;
+  case ND_GE:
+    printf("  cmp %%rdi, %%rax\n");
+    printf("  setge %%al\n");
+    printf("  movzb %%al, %%rax\n");
+    break;
+  case ND_NEG:
+  case ND_NUM:
   case ND_ERR:
-    error_at(node->lex.ptr, node->lex.ptr + node->lex.len, "unexpected token");
-    return;
+    error_at(node->lex.ptr, node->lex.ptr + node->lex.len,
+             "unexpected token during code generation '%.*s'\n",
+             (int)node->lex.len, node->lex.ptr);
+    break;
   }
 }
 
@@ -586,6 +621,24 @@ int main(int argc, char *argv[]) {
     case TK_DIV:
       fprintf(stderr, "TK_DIV\n");
       break;
+    case TK_EQ:
+      fprintf(stderr, "TK_EQ\n");
+      break;
+    case TK_NE:
+      fprintf(stderr, "TK_NE\n");
+      break;
+    case TK_LT:
+      fprintf(stderr, "TK_LT\n");
+      break;
+    case TK_LE:
+      fprintf(stderr, "TK_LE\n");
+      break;
+    case TK_GT:
+      fprintf(stderr, "TK_GT\n");
+      break;
+    case TK_GE:
+      fprintf(stderr, "TK_GE\n");
+      break;
     case TK_LPAREN:
       fprintf(stderr, "TK_LPAREN\n");
       break;
@@ -610,8 +663,9 @@ int main(int argc, char *argv[]) {
   Node *node = parse_expr(&arena, &lexer, PREC_LOW);
 
   if (lexer.token.kind != TK_EOF) {
-    error_at(start, lexer.token.lex.ptr, "unexpected token: '%.*s'\n",
-             lexer.token.lex.len, lexer.token.lex.ptr);
+    error_at(start, lexer.token.lex.ptr,
+             "unexpected token during parsing: '%.*s'\n", lexer.token.lex.len,
+             lexer.token.lex.ptr);
     return EXIT_FAILURE;
   }
 

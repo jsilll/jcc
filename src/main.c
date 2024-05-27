@@ -10,6 +10,14 @@
 #include <stdlib.h>
 
 // -----------------------------------------------------------------------------
+// Enum macros
+// -----------------------------------------------------------------------------
+
+#define GENERATE_ENUM(ENUM) ENUM,
+
+#define GENERATE_STRING(STRING) #STRING,
+
+// -----------------------------------------------------------------------------
 // Debug macros
 // -----------------------------------------------------------------------------
 
@@ -17,6 +25,32 @@
 
 #define DEBUGF(fmt, ...)                                                       \
   fprintf(stderr, "%s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+
+// -----------------------------------------------------------------------------
+// Error handling
+// -----------------------------------------------------------------------------
+
+static void error(char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+}
+
+static void verror_at(char *start, char *loc, char *fmt, va_list ap) {
+  int pos = loc - start;
+  fprintf(stderr, "%s\n", start);
+  fprintf(stderr, "%*s", pos, "");
+  fprintf(stderr, "^ ");
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+}
+
+static void error_at(char *start, char *loc, char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  verror_at(start, loc, fmt, ap);
+}
 
 // -----------------------------------------------------------------------------
 // Platform
@@ -155,7 +189,23 @@ static void arena_clear(Arena *arena) {
   arena->used = NULL;
 }
 
-static size_t arena_total_allocated(Arena *arena) {
+static uint32_t arena_total_blocks_allocated(Arena *arena) {
+  uint32_t total = 0;
+  ArenaBlock *block = arena->used;
+  while (block != NULL) {
+    ++total;
+    block = block->next;
+  }
+  block = arena->free;
+  while (block != NULL) {
+    ++total;
+    block = block->next;
+  }
+  total += arena->ptr != NULL ? 1 : 0;
+  return total;
+}
+
+static size_t arena_total_bytes_allocated(Arena *arena) {
   size_t total = arena->allocated_size;
   ArenaBlock *block = arena->used;
   while (block != NULL) {
@@ -218,33 +268,38 @@ static void *arena_alloc(Arena *arena, size_t size) {
 
 typedef struct {
   char *ptr;
-  size_t len;
+  uint32_t len;
 } StringView;
 
 // -----------------------------------------------------------------------------
-// Tokenizer
+// Lexer
 // -----------------------------------------------------------------------------
 
-typedef enum {
-  TK_ERR,    // Error
-  TK_EOF,    // End of file
-  TK_NUM,    // Number
-  TK_SEMI,   // ';'
-  TK_LPAREN, // '('
-  TK_RPAREN, // ')'
-  TK_LBRACE, // '{'
-  TK_RBRACE, // '}'
-  TK_PLUS,   // '+'
-  TK_MINUS,  // '-'
-  TK_MUL,    // '*'
-  TK_DIV,    // '/'
-  TK_EQ,     // '=='
-  TK_NE,     // '!='
-  TK_LT,     // '<'
-  TK_LE,     // '<='
-  TK_GT,     // '>'
-  TK_GE,     // '>='
-} TokenKind;
+#define ENUMERATE_TOKENS(M)                                                    \
+  M(TK_ERR)                                                                    \
+  M(TK_EOF)                                                                    \
+  M(TK_SEMI)                                                                   \
+  M(TK_LPAREN)                                                                 \
+  M(TK_RPAREN)                                                                 \
+  M(TK_LBRACE)                                                                 \
+  M(TK_RBRACE)                                                                 \
+  M(TK_PLUS)                                                                   \
+  M(TK_MINUS)                                                                  \
+  M(TK_MUL)                                                                    \
+  M(TK_DIV)                                                                    \
+  M(TK_EQ)                                                                     \
+  M(TK_EQEQ)                                                                   \
+  M(TK_NE)                                                                     \
+  M(TK_LT)                                                                     \
+  M(TK_LE)                                                                     \
+  M(TK_GT)                                                                     \
+  M(TK_GE)                                                                     \
+  M(TK_NUM)                                                                    \
+  M(TK_IDENT)
+
+typedef enum { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;
+
+static const char *TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
 
 typedef struct {
   StringView lex;
@@ -267,6 +322,26 @@ static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
   }
 }
 
+static Token tokenize_identifier(char *p) {
+  Token t = {0};
+  t.kind = TK_IDENT;
+  t.lex.ptr = p;
+  while (isalnum(*p)) {
+    ++p;
+  }
+  t.lex.len = p - t.lex.ptr;
+  return t;
+}
+
+static Token tokenize_numeric_literal(char *p) {
+  Token t = {0};
+  t.kind = TK_NUM;
+  t.lex.ptr = p;
+  t.val.i = strtol(p, &p, 10);
+  t.lex.len = p - t.lex.ptr;
+  return t;
+}
+
 static Token tokenize(char *p) {
   while (*p) {
     // Skip whitespace
@@ -275,14 +350,10 @@ static Token tokenize(char *p) {
       continue;
     }
 
-    // Numeric literal
-    if (isdigit(*p)) {
-      Token t = {0};
-      t.kind = TK_NUM;
-      t.lex.ptr = p;
-      t.val.i = strtol(p, &p, 10);
-      t.lex.len = p - t.lex.ptr;
-      return t;
+    if (isalpha(*p)) {
+      return tokenize_identifier(p);
+    } else if (isdigit(*p)) {
+      return tokenize_numeric_literal(p);
     }
 
     // Punctuation
@@ -305,17 +376,17 @@ static Token tokenize(char *p) {
       return tokenize_single_char(p, TK_MUL);
     case '/':
       return tokenize_single_char(p, TK_DIV);
-    case '=':
-      return tokenize_double_char(p, '=', TK_EQ, TK_ERR);
-    case '!':
-      return tokenize_double_char(p, '=', TK_NE, TK_ERR);
     case '<':
       return tokenize_double_char(p, '=', TK_LE, TK_LT);
     case '>':
       return tokenize_double_char(p, '=', TK_GE, TK_GT);
+    case '!':
+      return tokenize_double_char(p, '=', TK_NE, TK_ERR);
+    case '=':
+      return tokenize_double_char(p, '=', TK_EQEQ, TK_EQ);
+    default:
+      return tokenize_single_char(p, TK_ERR);
     }
-
-    return tokenize_single_char(p, TK_ERR);
   }
 
   return tokenize_single_char(p, TK_EOF);
@@ -362,25 +433,71 @@ static Token *lexer_next(Lexer *l) {
 // Parser
 // -----------------------------------------------------------------------------
 
-typedef enum {
-  ND_ERR,       // Error
-  ND_EXPR_NUM,  // Number
-  ND_EXPR_NEG,  // '-'
-  ND_EXPR_ADD,  // '+'
-  ND_EXPR_SUB,  // '-'
-  ND_EXPR_MUL,  // '*
-  ND_EXPR_DIV,  // '/'
-  ND_EXPR_EQ,   // '=='
-  ND_EXPR_NE,   // '!='
-  ND_EXPR_LT,   // '<'
-  ND_EXPR_LE,   // '<='
-  ND_EXPR_GT,   // '>'
-  ND_EXPR_GE,   // '>='
-  ND_STMT_EXPR, // Statement
-} NodeKind;
+#define ENUMERATE_EXPRS(M)                                                     \
+  M(EXPR_NUM)                                                                  \
+  M(EXPR_VAR)                                                                  \
+  M(EXPR_NEG)                                                                  \
+  M(EXPR_ADD)                                                                  \
+  M(EXPR_SUB)                                                                  \
+  M(EXPR_MUL)                                                                  \
+  M(EXPR_DIV)                                                                  \
+  M(EXPR_EQ)                                                                   \
+  M(EXPR_NE)                                                                   \
+  M(EXPR_LT)                                                                   \
+  M(EXPR_LE)                                                                   \
+  M(EXPR_GT)                                                                   \
+  M(EXPR_GE)                                                                   \
+  M(EXPR_ASSIGN)
+
+typedef enum { ENUMERATE_EXPRS(GENERATE_ENUM) } ExprKind;
+
+static const char *EXPR_KIND_STR[] = {ENUMERATE_EXPRS(GENERATE_STRING)};
+
+#define ERROR_EXPR_KIND(node)                                                  \
+  error(                                                                       \
+      "unexpected expression kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n",  \
+      __FUNCTION__, EXPR_KIND_STR[node->tag.expr], (int)node->lex.len,         \
+      node->lex.ptr)
+
+#define ENUMERATE_STMTS(M)                                                     \
+  M(STMT_EXPR)                                                                 \
+  M(STMT_RETURN)                                                               \
+  M(STMT_VAR_DECL)                                                             \
+  M(STMT_BLOCK)                                                                \
+  M(STMT_IF)                                                                   \
+  M(STMT_WHILE)                                                                \
+  M(STMT_FOR)
+
+typedef enum { ENUMERATE_STMTS(GENERATE_ENUM) } StmtKind;
+
+static const char *STMT_KIND_STR[] = {ENUMERATE_STMTS(GENERATE_STRING)};
+
+#define ERROR_STMT_KIND(node)                                                  \
+  error("unexpected statement kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n", \
+        __FUNCTION__, STMT_KIND_STR[node->tag.stmt], (int)node->lex.len,       \
+        node->lex.ptr)
+
+#define ENUMERATE_NODES(M)                                                     \
+  M(ND_ERR)                                                                    \
+  M(ND_EXPR)                                                                   \
+  M(ND_STMT)
+
+typedef enum { ENUMERATE_NODES(GENERATE_ENUM) } NodeKind;
+
+static const char *NODE_KIND_STR[] = {ENUMERATE_NODES(GENERATE_STRING)};
+
+#define ERROR_NODE_KIND(node)                                                  \
+  error("unexpected node kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n",      \
+        __FUNCTION__, NODE_KIND_STR[node->kind], (int)node->lex.len,           \
+        node->lex.ptr)
 
 typedef struct Node {
-  NodeKind kind;     // Node kind
+  NodeKind kind;
+  union {
+    ExprKind expr;
+    StmtKind stmt;
+  } tag;
+
   StringView lex;    // Token lexeme
   struct Node *lhs;  // Left-hand side
   struct Node *rhs;  // Right-hand side
@@ -404,228 +521,379 @@ static Node *node_create_err(Arena *a, Token *t) {
 }
 
 static Node *node_create_expr_num(Arena *a, Token *t) {
-  Node *node = node_create(a, ND_EXPR_NUM);
+  Node *node = node_create(a, ND_EXPR);
+  node->tag.expr = EXPR_NUM;
   node->val.i = t->val.i;
   node->lex = t->lex;
   return node;
 }
 
-static Node *node_create_unary(Arena *a, Token *t, NodeKind kind, Node *lhs) {
-  Node *node = node_create(a, kind);
+static Node *node_create_expr_var(Arena *a, Token *t) {
+  Node *node = node_create(a, ND_EXPR);
+  node->tag.expr = EXPR_VAR;
+  node->lex = t->lex;
+  return node;
+}
+
+static Node *node_create_expr_unary(Arena *a, Token *t, ExprKind kind,
+                                    Node *lhs) {
+  Node *node = node_create(a, ND_EXPR);
+  node->tag.expr = kind;
   node->lex = t->lex;
   node->lhs = lhs;
   return node;
 }
 
-static Node *node_create_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
-                                Node *rhs) {
-  Node *node = node_create(a, kind);
+static Node *node_create_expr_binary(Arena *a, Token *t, ExprKind kind,
+                                     Node *lhs, Node *rhs) {
+  Node *node = node_create(a, ND_EXPR);
+  node->tag.expr = kind;
   node->lex = t->lex;
   node->lhs = lhs;
   node->rhs = rhs;
   return node;
 }
 
-typedef enum {
-  PREC_LOW = 1,
-  PREC_REL = 2, // '<' and '>'
-  PREC_EQ = 3,  // '==' and '!='
-  PREC_ADD = 4, // '+' and '-'
-  PREC_MUL = 5, // '*' and '/'
-  PREC_HIGH = 6,
-} Precedence;
+static Node *node_create_stmt_expr(Arena *a, Token *t, Node *lhs) {
+  Node *node = node_create(a, ND_STMT);
+  node->tag.stmt = STMT_EXPR;
+  node->lex = t->lex;
+  node->lhs = lhs;
+  return node;
+}
+
+// PUMA'S REBL TAC
+//
+// The following table shows the precedence and associativity of all the C
+// operators. The operators are listed in order of precedence, from lowest to
+// highest. Operators in the same box have the same precedence and
+// associativity.
+//
+// -----------------------------------------------------------------------------
+//   Precedence  |      Operator     |     Description     |   Associativity   |
+// -----------------------------------------------------------------------------
+//      1        |         ,         |    Expr. separator  |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//      2        |         =         |    Assignment       |    Right-to-Left  |
+//               |      +=, -=       |    Add/Sub assign   |                   |
+//               |      *=, /=       |    Mul/Div assign   |                   |
+//               |      %=, &=       |    Mod/BitAnd asgn  |                   |
+//               |      ^=, |=       |    BitXOR/BitOR a.  |                   |
+//               |    <<=, >>=       |    BitSHL/BitSHR a. |                   |
+// -----------------------------------------------------------------------------
+//      3        |       ?, :        | Ternary Conditional |    Right-to-Left  |
+// -----------------------------------------------------------------------------
+//      4        |        ||         |      Logical OR     |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//      5        |        &&         |      Logical AND    |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//      6        |        |          |        BitOR        |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//      7        |        ^          |        BitXOR       |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//      8        |        &          |        BitAND       |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//      9        |     ==, !=        |  Relational Equal   |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//     10        |    >, >=, <, <=   |  Relational Compare |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//     11        |     <<, >>        |      Bit Shifts     |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//     12        |    +, -           |       Addition      |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//     13        |    *, /, %        |    Multiplication   |    Left-to-Right  |
+// -----------------------------------------------------------------------------
+//     14        |    ++, --         |  Prefix Inc/Dec     |    Right-to-Left  |
+//               |     +, -          |  Unary Plus/Minus   |                   |
+//               |     !, ~          |  Logical NOT/BitNOT |                   |
+//               |     (type)        |    Cast Operator    |                   |
+//               |       *           |   Deref Operator    |                   |
+//               |       &           |   AddrOf Operator   |                   |
+//               |     sizeof        |   SizeOf Operator   |                   |
+// -----------------------------------------------------------------------------
+//     15        |       ()          |    Function Call    |    Left-to-Right  |
+//               |       []          |    Array Subscript  |                   |
+//               |       .           |   Struct Member Acc |                   |
+//               |       ->          |  Struct Ptr Member  |                   |
+//               |      ++, --       |  Postfix Inc/Dec    |                   |
+// -----------------------------------------------------------------------------
 
 typedef struct {
-  NodeKind kind;
-  Precedence prec;
-} PrecedencePair;
+  uint8_t lhs;
+  uint8_t rhs;
+} BindingPower;
 
-static PrecedencePair get_precedence(TokenKind kind) {
+typedef struct {
+  ExprKind kind;
+  BindingPower power;
+} BinOpPair;
+
+#define PREC_MIN 0
+#define PREC_MAX 11
+
+static BinOpPair try_into_binop(TokenKind kind) {
   switch (kind) {
-  case TK_PLUS:
-    return (PrecedencePair){ND_EXPR_ADD, PREC_ADD};
-  case TK_MINUS:
-    return (PrecedencePair){ND_EXPR_SUB, PREC_ADD};
-  case TK_MUL:
-    return (PrecedencePair){ND_EXPR_MUL, PREC_MUL};
-  case TK_DIV:
-    return (PrecedencePair){ND_EXPR_DIV, PREC_MUL};
   case TK_EQ:
-    return (PrecedencePair){ND_EXPR_EQ, PREC_MUL};
+    return (BinOpPair){EXPR_ASSIGN, (BindingPower){2, 1}};
+  case TK_EQEQ:
+    return (BinOpPair){EXPR_EQ, (BindingPower){3, 4}};
   case TK_NE:
-    return (PrecedencePair){ND_EXPR_NE, PREC_EQ};
+    return (BinOpPair){EXPR_NE, (BindingPower){3, 4}};
   case TK_LT:
-    return (PrecedencePair){ND_EXPR_LT, PREC_REL};
+    return (BinOpPair){EXPR_LT, (BindingPower){5, 6}};
   case TK_LE:
-    return (PrecedencePair){ND_EXPR_LE, PREC_REL};
+    return (BinOpPair){EXPR_LE, (BindingPower){5, 6}};
   case TK_GT:
-    return (PrecedencePair){ND_EXPR_GT, PREC_REL};
+    return (BinOpPair){EXPR_GT, (BindingPower){5, 6}};
   case TK_GE:
-    return (PrecedencePair){ND_EXPR_GE, PREC_REL};
+    return (BinOpPair){EXPR_GE, (BindingPower){5, 6}};
+  case TK_PLUS:
+    return (BinOpPair){EXPR_ADD, (BindingPower){7, 8}};
+  case TK_MINUS:
+    return (BinOpPair){EXPR_SUB, (BindingPower){7, 8}};
+  case TK_MUL:
+    return (BinOpPair){EXPR_MUL, (BindingPower){9, 10}};
+  case TK_DIV:
+    return (BinOpPair){EXPR_DIV, (BindingPower){9, 10}};
   default:
-    return (PrecedencePair){ND_ERR, PREC_LOW};
+    return (BinOpPair){EXPR_NUM, (BindingPower){0, 0}};
   }
 }
 
-static Node *parse_expr(Arena *a, Lexer *l, Precedence p);
+typedef struct {
+  Arena *a;
+  Lexer *l;
+} ParseCtx;
 
-static Node *parse_primary(Arena *a, Lexer *l) {
-  Token *t = lexer_next(l);
+static Node *parse_expr(ParseCtx *ctx, uint8_t prec);
+
+static Node *parse_expr_primary(ParseCtx *ctx) {
+  Token *t = lexer_next(ctx->l);
   switch (t->kind) {
   case TK_NUM:
-    return node_create_expr_num(a, t);
+    return node_create_expr_num(ctx->a, t);
+  case TK_IDENT:
+    return node_create_expr_var(ctx->a, t);
   case TK_PLUS:
-    return parse_primary(a, l);
+    return parse_expr_primary(ctx);
   case TK_MINUS:
-    return node_create_unary(a, t, ND_EXPR_NEG, parse_expr(a, l, PREC_HIGH));
+    return node_create_expr_unary(ctx->a, t, EXPR_NEG,
+                                  parse_expr(ctx, PREC_MAX));
   case TK_LPAREN: {
-    Node *node = parse_expr(a, l, PREC_LOW);
-    if (lexer_peek(l)->kind != TK_RPAREN) {
-      return node_create_err(a, lexer_peek(l));
+    Node *node = parse_expr(ctx, 0);
+    if (lexer_peek(ctx->l)->kind != TK_RPAREN) {
+      return node_create_err(ctx->a, lexer_peek(ctx->l));
     }
-    lexer_next(l);
+    lexer_next(ctx->l);
     return node;
   }
   default:
-    return node_create_err(a, t);
+    return node_create_err(ctx->a, t);
   }
 }
 
-static Node *parse_expr(Arena *a, Lexer *l, Precedence p) {
-  Node *lhs = parse_primary(a, l);
+static Node *parse_expr(ParseCtx *ctx, uint8_t prec) {
+  Node *lhs = parse_expr_primary(ctx);
   while (true) {
-    Token *t = lexer_peek(l);
-    PrecedencePair pp = get_precedence(t->kind);
-    if (pp.kind == ND_ERR || p >= pp.prec) {
+    Token t = *lexer_peek(ctx->l);
+    BinOpPair bp = try_into_binop(t.kind);
+    if (bp.kind == EXPR_NUM || bp.power.lhs <= prec) {
       return lhs;
     }
-    lexer_next(l);
-    lhs = node_create_binary(a, t, pp.kind, lhs, parse_expr(a, l, pp.prec));
+    lexer_next(ctx->l);
+    lhs = node_create_expr_binary(ctx->a, &t, bp.kind, lhs,
+                                  parse_expr(ctx, bp.power.rhs));
   }
   return lhs;
 }
 
-static Node *parse_stmt(Arena *a, Lexer *l) {
-  Node *node = parse_expr(a, l, PREC_LOW);
-  if (lexer_peek(l)->kind != TK_SEMI) {
-    return node_create_err(a, lexer_peek(l));
+static Node *parse_stmt(ParseCtx *ctx) {
+  Node *node = parse_expr(ctx, PREC_MIN);
+  if (lexer_peek(ctx->l)->kind != TK_SEMI) {
+    return node_create_err(ctx->a, lexer_peek(ctx->l));
   }
-  return node_create_unary(a, lexer_next(l), ND_STMT_EXPR, node);
+  return node_create_stmt_expr(ctx->a, lexer_next(ctx->l), node);
 }
 
 static Node *parse(Arena *a, Lexer *l) {
+  ParseCtx ctx = {a, l};
   Node head = {0};
   Node *cur = &head;
   while (lexer_peek(l)->kind != TK_EOF) {
-    cur->next = parse_stmt(a, l);
+    cur->next = parse_stmt(&ctx);
     cur = cur->next;
   }
   return head.next;
 }
 
 // -----------------------------------------------------------------------------
-// Error handling
+// AST printing
 // -----------------------------------------------------------------------------
 
-static void error(char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
-  va_end(ap);
+static void ast_print_expr(Node *node, uint8_t indent) {
+  if (node->kind != ND_EXPR) {
+    ERROR_NODE_KIND(node);
+    return;
+  }
+  for (uint8_t i = 0; i < indent; ++i) {
+    fprintf(stderr, "  ");
+  }
+  switch (node->tag.expr) {
+  case EXPR_VAR:
+    fprintf(stderr, "%s: '%.*s'\n", EXPR_KIND_STR[node->tag.expr],
+            (int)node->lex.len, node->lex.ptr);
+    return;
+  case EXPR_NUM:
+    fprintf(stderr, "%s: %d\n", EXPR_KIND_STR[node->tag.expr], node->val.i);
+    return;
+  case EXPR_NEG:
+    fprintf(stderr, "%s:\n", EXPR_KIND_STR[node->tag.expr]);
+    ast_print_expr(node->lhs, indent + 1);
+    return;
+  case EXPR_ADD:
+  case EXPR_SUB:
+  case EXPR_MUL:
+  case EXPR_DIV:
+  case EXPR_EQ:
+  case EXPR_NE:
+  case EXPR_LT:
+  case EXPR_LE:
+  case EXPR_GT:
+  case EXPR_GE:
+  case EXPR_ASSIGN:
+    fprintf(stderr, "%s:\n", EXPR_KIND_STR[node->tag.expr]);
+    break;
+  default:
+    ERROR_NODE_KIND(node);
+    break;
+  }
+  ast_print_expr(node->lhs, indent + 1);
+  ast_print_expr(node->rhs, indent + 1);
 }
 
-static void verror_at(char *start, char *loc, char *fmt, va_list ap) {
-  int pos = loc - start;
-  fprintf(stderr, "%s\n", start);
-  fprintf(stderr, "%*s", pos, "");
-  fprintf(stderr, "^ ");
-  vfprintf(stderr, fmt, ap);
-  fprintf(stderr, "\n");
+static void ast_print_stmt(Node *node) {
+  if (node->kind != ND_STMT) {
+    ERROR_NODE_KIND(node);
+    return;
+  } else if (node->tag.stmt != STMT_EXPR) {
+    ERROR_STMT_KIND(node);
+    return;
+  }
+  fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
+  ast_print_expr(node->lhs, 1);
 }
 
-static void error_at(char *start, char *loc, char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  verror_at(start, loc, fmt, ap);
+static void ast_print(Node *node) {
+  for (Node *n = node; n != NULL; n = n->next) {
+    ast_print_stmt(n);
+  }
 }
 
 // -----------------------------------------------------------------------------
 // Code generation
 // -----------------------------------------------------------------------------
 
+static void gen_addr(Node *node) {
+  if (node->kind != ND_EXPR) {
+    ERROR_NODE_KIND(node);
+    return;
+  } else if (node->tag.expr != EXPR_VAR) {
+    ERROR_EXPR_KIND(node);
+    return;
+  }
+  int offset = (node->lex.ptr[0] - 'a' + 1) * 8;
+  printf("  lea %d(%%rbp), %%rax\n", -offset);
+}
+
 static void gen_expr(Node *node) {
-  if (node->kind == ND_EXPR_NUM) {
+  if (node->kind != ND_EXPR) {
+    ERROR_NODE_KIND(node);
+    return;
+  }
+  switch (node->tag.expr) {
+  case EXPR_NUM:
     printf("  mov $%d, %%rax\n", node->val.i);
     return;
-  } else if (node->kind == ND_EXPR_NEG) {
+  case EXPR_VAR:
+    gen_addr(node);
+    printf("  mov (%%rax), %%rax\n");
+    return;
+  case EXPR_NEG:
     gen_expr(node->lhs);
     printf("  neg %%rax\n");
     return;
+  case EXPR_ASSIGN:
+    gen_addr(node->lhs);
+    printf("  push %%rax\n");
+    gen_expr(node->rhs);
+    printf("  pop %%rdi\n");
+    printf("  mov %%rax, (%%rdi)\n");
+    return;
+  default:
+    break;
   }
   gen_expr(node->rhs);
   printf("  push %%rax\n");
   gen_expr(node->lhs);
   printf("  pop %%rdi\n");
-  switch (node->kind) {
-  case ND_EXPR_ADD:
+  switch (node->tag.expr) {
+  case EXPR_ADD:
     printf("  add %%rdi, %%rax\n");
     break;
-  case ND_EXPR_SUB:
+  case EXPR_SUB:
     printf("  sub %%rdi, %%rax\n");
     break;
-  case ND_EXPR_MUL:
+  case EXPR_MUL:
     printf("  imul %%rdi, %%rax\n");
     break;
-  case ND_EXPR_DIV:
+  case EXPR_DIV:
     printf("  cqo\n");
     printf("  idiv %%rdi\n");
     break;
-  case ND_EXPR_EQ:
+  case EXPR_EQ:
     printf("  cmp %%rdi, %%rax\n");
     printf("  sete %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case ND_EXPR_NE:
+  case EXPR_NE:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setne %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case ND_EXPR_LT:
+  case EXPR_LT:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setl %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case ND_EXPR_LE:
+  case EXPR_LE:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setle %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case ND_EXPR_GT:
+  case EXPR_GT:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setg %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case ND_EXPR_GE:
+  case EXPR_GE:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setge %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case ND_ERR:
-  case ND_EXPR_NUM:
-  case ND_EXPR_NEG:
-  case ND_STMT_EXPR:
-    error(
-        "unexpected node kind during gen_stmt:\n-> kind: %d\n-> lex: '%.*s'\n",
-        node->kind, (int)node->lex.len, node->lex.ptr);
-    break;
+  case EXPR_NUM:
+  case EXPR_VAR:
+  case EXPR_NEG:
+  case EXPR_ASSIGN:
+    ERROR_EXPR_KIND(node);
   }
 }
 
 static void gen_stmt(Node *node) {
-  if (node->kind != ND_STMT_EXPR) {
-    error(
-        "unexpected node kind during gen_stmt:\n-> kind: %d\n-> lex: '%.*s'\n",
-        node->kind, (int)node->lex.len, node->lex.ptr);
+  if (node->kind != ND_STMT) {
+    ERROR_NODE_KIND(node);
+    return;
+  } else if (node->tag.stmt != STMT_EXPR) {
+    ERROR_STMT_KIND(node);
     return;
   }
   gen_expr(node->lhs);
@@ -634,10 +902,14 @@ static void gen_stmt(Node *node) {
 static void codegen(Node *node) {
   printf("  .globl main\n");
   printf("main:\n");
-  while (node != NULL) {
-    gen_stmt(node);
-    node = node->next;
+  printf("  push %%rbp\n");
+  printf("  mov %%rsp, %%rbp\n");
+  printf("  sub $208, %%rsp\n");
+  for (Node *n = node; n != NULL; n = n->next) {
+    gen_stmt(n);
   }
+  printf("  mov %%rbp, %%rsp\n");
+  printf("  pop %%rbp\n");
   printf("  ret\n");
 }
 
@@ -655,69 +927,27 @@ int main(int argc, char *argv[]) {
   Arena arena = arena_default();
 
   Lexer lexer = lexer_create(start);
-  while (lexer_peek(&lexer)->kind != TK_EOF) {
+  for (Token *t = lexer_peek(&lexer); t->kind != TK_EOF;
+       t = lexer_next(&lexer)) {
     switch (lexer_peek(&lexer)->kind) {
-    case TK_PLUS:
-      fprintf(stderr, "TK_PLUS\n");
-      break;
-    case TK_MINUS:
-      fprintf(stderr, "TK_MINUS\n");
-      break;
-    case TK_MUL:
-      fprintf(stderr, "TK_MUL\n");
-      break;
-    case TK_DIV:
-      fprintf(stderr, "TK_DIV\n");
-      break;
-    case TK_EQ:
-      fprintf(stderr, "TK_EQ\n");
-      break;
-    case TK_NE:
-      fprintf(stderr, "TK_NE\n");
-      break;
-    case TK_LT:
-      fprintf(stderr, "TK_LT\n");
-      break;
-    case TK_LE:
-      fprintf(stderr, "TK_LE\n");
-      break;
-    case TK_GT:
-      fprintf(stderr, "TK_GT\n");
-      break;
-    case TK_GE:
-      fprintf(stderr, "TK_GE\n");
-      break;
-    case TK_SEMI:
-      fprintf(stderr, "TK_SEMI\n");
-      break;
-    case TK_LPAREN:
-      fprintf(stderr, "TK_LPAREN\n");
-      break;
-    case TK_RPAREN:
-      fprintf(stderr, "TK_RPAREN\n");
-      break;
-    case TK_LBRACE:
-      fprintf(stderr, "TK_LBRACE\n");
-      break;
-    case TK_RBRACE:
-      fprintf(stderr, "TK_RBRACE\n");
+    case TK_ERR:
+    case TK_IDENT:
+      fprintf(stderr, "%s: '%.*s'\n", TOKEN_KIND_STR[t->kind],
+              (int)lexer_peek(&lexer)->lex.len, lexer_peek(&lexer)->lex.ptr);
       break;
     case TK_NUM:
-      fprintf(stderr, "TK_NUM: %d\n", lexer_peek(&lexer)->val.i);
+      fprintf(stderr, "%s: %d\n", TOKEN_KIND_STR[t->kind],
+              lexer_peek(&lexer)->val.i);
       break;
-    case TK_ERR:
-      fprintf(stderr, "TK_ERR: '%.*s'\n", (int)lexer_peek(&lexer)->lex.len,
-              lexer_peek(&lexer)->lex.ptr);
-      break;
-    case TK_EOF:
-      fprintf(stderr, "TK_EOF\n");
+    default:
+      fprintf(stderr, "%s\n", TOKEN_KIND_STR[t->kind]);
       break;
     }
-    lexer_next(&lexer);
   }
 
   lexer = lexer_create(start);
   Node *node = parse(&arena, &lexer);
+  ast_print(node);
 
   if (lexer.token.kind != TK_EOF) {
     error_at(start, lexer.token.lex.ptr,
@@ -728,9 +958,11 @@ int main(int argc, char *argv[]) {
 
   codegen(node);
 
-  DEBUGF("block committed: %zu", arena.commited_size);
-  DEBUGF("total allocated: %zu", arena_total_allocated(&arena));
+  DEBUGF("total blocks allocated: %u", arena_total_blocks_allocated(&arena));
+  DEBUGF("current bytes committed: %zu", arena.commited_size);
+  DEBUGF("total bytes allocated: %zu", arena_total_bytes_allocated(&arena));
+
   arena_destroy(&arena);
 
-  return 0;
+  return EXIT_SUCCESS;
 }

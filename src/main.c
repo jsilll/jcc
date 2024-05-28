@@ -2,29 +2,15 @@
 // Prelude
 // -----------------------------------------------------------------------------
 
-#include <ctype.h>
+#include "arena.h"
+#include "lexer.h"
+#include "string_view.h"
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-// -----------------------------------------------------------------------------
-// Enum macros
-// -----------------------------------------------------------------------------
-
-#define GENERATE_ENUM(ENUM) ENUM,
-
-#define GENERATE_STRING(STRING) #STRING,
-
-// -----------------------------------------------------------------------------
-// Debug macros
-// -----------------------------------------------------------------------------
-
-#define DEBUG(msg) fprintf(stderr, "%s:%d: " msg "\n", __FILE__, __LINE__)
-
-#define DEBUGF(fmt, ...)                                                       \
-  fprintf(stderr, "%s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 
 // -----------------------------------------------------------------------------
 // Error handling
@@ -50,198 +36,6 @@ static void error_at(char *start, char *loc, char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   verror_at(start, loc, fmt, ap);
-}
-
-// -----------------------------------------------------------------------------
-// Arena
-// -----------------------------------------------------------------------------
-
-#include "arena.h"
-
-// -----------------------------------------------------------------------------
-// String view
-// -----------------------------------------------------------------------------
-
-typedef struct {
-  char *ptr;
-  uint32_t len;
-} StringView;
-
-// possible useful methods for StringView
-// - starts_with
-// - ends_with
-// - contains
-// - find
-// - rfind
-// - split
-
-// -----------------------------------------------------------------------------
-// Lexer
-// -----------------------------------------------------------------------------
-
-#include <string.h>
-
-#define ENUMERATE_TOKENS(M)                                                    \
-  M(TK_ERR)                                                                    \
-  M(TK_EOF)                                                                    \
-  M(TK_SEMI)                                                                   \
-  M(TK_LPAREN)                                                                 \
-  M(TK_RPAREN)                                                                 \
-  M(TK_LBRACE)                                                                 \
-  M(TK_RBRACE)                                                                 \
-  M(TK_PLUS)                                                                   \
-  M(TK_MINUS)                                                                  \
-  M(TK_MUL)                                                                    \
-  M(TK_DIV)                                                                    \
-  M(TK_EQ)                                                                     \
-  M(TK_EQEQ)                                                                   \
-  M(TK_NE)                                                                     \
-  M(TK_LT)                                                                     \
-  M(TK_LE)                                                                     \
-  M(TK_GT)                                                                     \
-  M(TK_GE)                                                                     \
-  M(TK_NUM)                                                                    \
-  M(TK_RETURN)                                                                 \
-  M(TK_IDENT)
-
-typedef enum { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;
-
-static const char *TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
-
-typedef struct {
-  StringView lex;
-  TokenKind kind;
-  union {
-    float f;
-    int32_t i;
-  } val;
-} Token;
-
-static Token tokenize_single_char(char *p, TokenKind k) {
-  return (Token){.kind = k, .lex = {p, 1}};
-}
-
-static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
-  if (p[1] == c) {
-    return (Token){.kind = k1, .lex = {p, 2}};
-  } else {
-    return (Token){.kind = k2, .lex = {p, 1}};
-  }
-}
-
-static Token tokenize_word(char *p) {
-  Token t = {0};
-  t.lex.ptr = p;
-  while (isalnum(*p) || *p == '_') {
-    ++p;
-  }
-  t.lex.len = p - t.lex.ptr;
-  if (t.lex.len == 6 && strncmp(t.lex.ptr, "return", 6) == 0) {
-    t.kind = TK_RETURN;
-  } else {
-    t.kind = TK_IDENT;
-  }
-  return t;
-}
-
-static Token tokenize_numeric_literal(char *p) {
-  Token t = {0};
-  t.kind = TK_NUM;
-  t.lex.ptr = p;
-  t.val.i = strtol(p, &p, 10);
-  t.lex.len = p - t.lex.ptr;
-  return t;
-}
-
-static Token tokenize(char *p) {
-  while (*p) {
-    // Skip whitespace
-    if (isspace(*p)) {
-      ++p;
-      continue;
-    }
-
-    // Numeric literal
-    if (isdigit(*p)) {
-      return tokenize_numeric_literal(p);
-    }
-
-    // Identifier and keywords
-    if (isalpha(*p) || *p == '_') {
-      return tokenize_word(p);
-    }
-
-    // Punctuation
-    switch (*p) {
-    case ';':
-      return tokenize_single_char(p, TK_SEMI);
-    case '(':
-      return tokenize_single_char(p, TK_LPAREN);
-    case ')':
-      return tokenize_single_char(p, TK_RPAREN);
-    case '{':
-      return tokenize_single_char(p, TK_LBRACE);
-    case '}':
-      return tokenize_single_char(p, TK_RBRACE);
-    case '+':
-      return tokenize_single_char(p, TK_PLUS);
-    case '-':
-      return tokenize_single_char(p, TK_MINUS);
-    case '*':
-      return tokenize_single_char(p, TK_MUL);
-    case '/':
-      return tokenize_single_char(p, TK_DIV);
-    case '<':
-      return tokenize_double_char(p, '=', TK_LE, TK_LT);
-    case '>':
-      return tokenize_double_char(p, '=', TK_GE, TK_GT);
-    case '!':
-      return tokenize_double_char(p, '=', TK_NE, TK_ERR);
-    case '=':
-      return tokenize_double_char(p, '=', TK_EQEQ, TK_EQ);
-    default:
-      return tokenize_single_char(p, TK_ERR);
-    }
-  }
-
-  return tokenize_single_char(p, TK_EOF);
-}
-
-typedef struct {
-  bool consumed;
-  char *ptr;
-  Token token;
-} Lexer;
-
-static Lexer lexer_create(char *ptr) {
-  Lexer l = {0};
-  l.consumed = true;
-  l.ptr = ptr;
-  return l;
-}
-
-static Token *lexer_peek(Lexer *l) {
-  if (l->token.kind == TK_EOF) {
-    return &l->token;
-  }
-  if (l->consumed) {
-    l->consumed = false;
-    l->token = tokenize(l->ptr);
-    l->ptr = l->token.lex.ptr + l->token.lex.len;
-  }
-  return &l->token;
-}
-
-static Token *lexer_next(Lexer *l) {
-  if (l->token.kind == TK_EOF) {
-    return &l->token;
-  }
-  if (l->consumed) {
-    l->token = tokenize(l->ptr);
-    l->ptr = l->token.lex.ptr + l->token.lex.len;
-  }
-  l->consumed = true;
-  return &l->token;
 }
 
 // -----------------------------------------------------------------------------
@@ -521,7 +315,7 @@ typedef struct {
 
 static Object *parse_ctx_find_local(ParseCtx *ctx, StringView lex) {
   for (Object *o = ctx->locals; o != NULL; o = o->next) {
-    if (o->lex.len == lex.len && strncmp(o->lex.ptr, lex.ptr, lex.len) == 0) {
+    if (string_view_equals(o->lex, lex)) {
       return o;
     }
   }

@@ -45,7 +45,7 @@
 #define CC_MEMORY_L1_CACHE_LINE_SIZE 64
 #endif
 
-static inline void *alloc_aligned(size_t size) {
+static void *alloc_aligned(size_t size) {
 #if defined(CC_TARGET_LINUX)
   return memalign(CC_MEMORY_L1_CACHE_LINE_SIZE, size);
 #elif defined(CC_TARGET_WINDOWS)
@@ -61,7 +61,7 @@ static inline void *alloc_aligned(size_t size) {
 #endif
 }
 
-static inline void free_aligned(void *ptr) {
+static void free_aligned(void *ptr) {
 #if defined(CC_TARGET_WINDOWS)
   _aligned_free(ptr);
 #else

@@ -295,6 +295,7 @@ typedef struct {
   M(TK_GT)                                                                     \
   M(TK_GE)                                                                     \
   M(TK_NUM)                                                                    \
+  M(TK_RETURN)                                                                 \
   M(TK_IDENT)
 
 typedef enum { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;
@@ -322,14 +323,18 @@ static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
   }
 }
 
-static Token tokenize_identifier(char *p) {
+static Token tokenize_word(char *p) {
   Token t = {0};
-  t.kind = TK_IDENT;
   t.lex.ptr = p;
   while (isalnum(*p)) {
     ++p;
   }
   t.lex.len = p - t.lex.ptr;
+  if (t.lex.len == 6 && strncmp(t.lex.ptr, "return", 6) == 0) {
+    t.kind = TK_RETURN;
+  } else {
+    t.kind = TK_IDENT;
+  }
   return t;
 }
 
@@ -350,10 +355,14 @@ static Token tokenize(char *p) {
       continue;
     }
 
-    if (isalpha(*p)) {
-      return tokenize_identifier(p);
-    } else if (isdigit(*p)) {
+    // Numeric literal
+    if (isdigit(*p)) {
       return tokenize_numeric_literal(p);
+    }
+
+    // Identifier and keywords
+    if (isalpha(*p)) {
+      return tokenize_word(p);
     }
 
     // Punctuation
@@ -575,9 +584,10 @@ static Node *node_create_expr_binary(Arena *a, Token *t, ExprKind kind,
   return node;
 }
 
-static Node *node_create_stmt_expr(Arena *a, Token *t, Node *lhs) {
+static Node *node_create_stmt_unary(Arena *a, Token *t, StmtKind kind,
+                                    Node *lhs) {
   Node *node = node_create(a, ND_STMT);
-  node->tag.stmt = STMT_EXPR;
+  node->tag.stmt = kind;
   node->lex = t->lex;
   node->lhs = lhs;
   return node;
@@ -745,11 +755,25 @@ static Node *parse_expr(ParseCtx *ctx, uint8_t prec) {
 }
 
 static Node *parse_stmt(ParseCtx *ctx) {
-  Node *node = parse_expr(ctx, PREC_MIN);
-  if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
-    return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+  switch (lexer_peek(ctx->lexer)->kind) {
+  case TK_RETURN: {
+    lexer_next(ctx->lexer);
+    Node *node = parse_expr(ctx, PREC_MIN);
+    if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    return node_create_stmt_unary(ctx->arena, lexer_next(ctx->lexer),
+                                  STMT_RETURN, node);
   }
-  return node_create_stmt_expr(ctx->arena, lexer_next(ctx->lexer), node);
+  default: {
+    Node *node = parse_expr(ctx, PREC_MIN);
+    if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    return node_create_stmt_unary(ctx->arena, lexer_next(ctx->lexer), STMT_EXPR,
+                                  node);
+  }
+  }
 }
 
 static Function *parse(Arena *a, Lexer *l) {
@@ -815,12 +839,17 @@ static void ast_print_stmt(Node *node) {
   if (node->kind != ND_STMT) {
     ERROR_NODE_KIND(node);
     return;
-  } else if (node->tag.stmt != STMT_EXPR) {
+  }
+  switch (node->tag.stmt) {
+  case STMT_EXPR:
+  case STMT_RETURN:
+    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
+    ast_print_expr(node->lhs, 1);
+    break;
+  default:
     ERROR_STMT_KIND(node);
     return;
   }
-  fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
-  ast_print_expr(node->lhs, 1);
 }
 
 static void ast_print(Function *prog) {
@@ -948,11 +977,19 @@ static void gen_stmt(Node *node) {
   if (node->kind != ND_STMT) {
     ERROR_NODE_KIND(node);
     return;
-  } else if (node->tag.stmt != STMT_EXPR) {
+  }
+  switch (node->tag.stmt) {
+  case STMT_EXPR:
+    gen_expr(node->lhs);
+    return;
+  case STMT_RETURN:
+    gen_expr(node->lhs);
+    printf("  jmp .L.return\n");
+    return;
+  default:
     ERROR_STMT_KIND(node);
     return;
   }
-  gen_expr(node->lhs);
 }
 
 static void codegen(Function *prog) {
@@ -966,6 +1003,7 @@ static void codegen(Function *prog) {
   for (Node *n = prog->body; n != NULL; n = n->next) {
     gen_stmt(n);
   }
+  printf(".L.return:\n");
   printf("  mov %%rbp, %%rsp\n");
   printf("  pop %%rbp\n");
   printf("  ret\n");

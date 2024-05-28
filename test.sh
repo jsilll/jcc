@@ -56,4 +56,8 @@ assert 6 'a=b=3; a+b;'
 assert 3 'foo=3; foo;'
 assert 8 'foo123=3; bar=5; foo123+bar;'
 
+assert 1 'return 1; 2; 3;'
+assert 2 '1; return 2; 3;'
+assert 3 '1; 2; return 3;'
+
 echo OK

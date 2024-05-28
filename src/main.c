@@ -67,6 +67,14 @@ typedef struct {
   uint32_t len;
 } StringView;
 
+// possible useful methods for StringView
+// - starts_with
+// - ends_with
+// - contains
+// - find
+// - rfind
+// - split
+
 // -----------------------------------------------------------------------------
 // Lexer
 // -----------------------------------------------------------------------------
@@ -124,7 +132,7 @@ static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
 static Token tokenize_word(char *p) {
   Token t = {0};
   t.lex.ptr = p;
-  while (isalnum(*p)) {
+  while (isalnum(*p) || *p == '_') {
     ++p;
   }
   t.lex.len = p - t.lex.ptr;
@@ -159,7 +167,7 @@ static Token tokenize(char *p) {
     }
 
     // Identifier and keywords
-    if (isalpha(*p)) {
+    if (isalpha(*p) || *p == '_') {
       return tokenize_word(p);
     }
 
@@ -282,11 +290,7 @@ static const char *EXPR_KIND_STR[] = {ENUMERATE_EXPRS(GENERATE_STRING)};
 #define ENUMERATE_STMTS(M)                                                     \
   M(STMT_EXPR)                                                                 \
   M(STMT_RETURN)                                                               \
-  M(STMT_VAR_DECL)                                                             \
-  M(STMT_BLOCK)                                                                \
-  M(STMT_IF)                                                                   \
-  M(STMT_WHILE)                                                                \
-  M(STMT_FOR)
+  M(STMT_BLOCK)
 
 typedef enum { ENUMERATE_STMTS(GENERATE_ENUM) } StmtKind;
 
@@ -328,12 +332,6 @@ typedef struct Node {
     Object *obj;
   } val;
 } Node;
-
-typedef struct {
-  Node *body;
-  Object *locals;
-  uint32_t stack_size;
-} Function;
 
 static Node *node_create(Arena *a, NodeKind kind) {
   Node *node = arena_alloc(a, sizeof(Node));
@@ -389,6 +387,32 @@ static Node *node_create_stmt_unary(Arena *a, Token *t, StmtKind kind,
   node->lex = t->lex;
   node->lhs = lhs;
   return node;
+}
+
+#define ENUMERATE_FUNCTIONS(M)                                                 \
+  M(FK_ERROR)                                                                  \
+  M(FK_MAIN)                                                                   \
+  M(FK_FUNC)
+
+typedef enum FunctionKind { ENUMERATE_FUNCTIONS(GENERATE_ENUM) } FunctionKind;
+
+static const char *FUNCTION_KIND_STR[] = {ENUMERATE_FUNCTIONS(GENERATE_STRING)};
+
+#define ERROR_FUNCTION_KIND(f)                                                 \
+  error("unexpected function kind during %s:\n-> kind: %s\n", __FUNCTION__,    \
+        FUNCTION_KIND_STR[f->kind])
+
+typedef struct {
+  FunctionKind kind;
+  Node *body;
+  Object *locals;
+  uint32_t stack_size;
+} Function;
+
+static Function *function_create(Arena *a, FunctionKind kind) {
+  Function *f = arena_alloc(a, sizeof(Function));
+  f->kind = kind;
+  return f;
 }
 
 // PUMA'S REBL TAC
@@ -552,6 +576,21 @@ static Node *parse_expr(ParseCtx *ctx, uint8_t prec) {
   return lhs;
 }
 
+static Node *parse_stmt(ParseCtx *ctx);
+
+static Node *parse_stmt_block(ParseCtx *ctx) {
+  Token t = *lexer_next(ctx->lexer);
+  Node head = {0};
+  Node *cur = &head;
+  while (lexer_peek(ctx->lexer)->kind != TK_RBRACE) {
+    cur->next = parse_stmt(ctx);
+    cur = cur->next;
+  }
+  lexer_next(ctx->lexer);
+  Node *node = node_create_stmt_unary(ctx->arena, &t, STMT_BLOCK, head.next);
+  return node;
+}
+
 static Node *parse_stmt(ParseCtx *ctx) {
   switch (lexer_peek(ctx->lexer)->kind) {
   case TK_RETURN: {
@@ -563,6 +602,8 @@ static Node *parse_stmt(ParseCtx *ctx) {
     return node_create_stmt_unary(ctx->arena, lexer_next(ctx->lexer),
                                   STMT_RETURN, node);
   }
+  case TK_LBRACE:
+    return parse_stmt_block(ctx);
   default: {
     Node *node = parse_expr(ctx, PREC_MIN);
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
@@ -575,15 +616,14 @@ static Node *parse_stmt(ParseCtx *ctx) {
 }
 
 static Function *parse(Arena *a, Lexer *l) {
-  ParseCtx ctx = {a, l, NULL};
-  Node head = {0};
-  Node *cur = &head;
-  while (lexer_peek(l)->kind != TK_EOF) {
-    cur->next = parse_stmt(&ctx);
-    cur = cur->next;
+  if (lexer_peek(l)->kind != TK_LBRACE) {
+    error("unexpected token during parsing: '%.*s'\n", lexer_peek(l)->lex.len,
+          lexer_peek(l)->lex.ptr);
+    return function_create(a, FK_ERROR);
   }
-  Function *prog = arena_alloc(a, sizeof(Function));
-  prog->body = head.next;
+  ParseCtx ctx = {a, l, NULL};
+  Function *prog = function_create(a, FK_MAIN);
+  prog->body = parse_stmt_block(&ctx);
   prog->locals = ctx.locals;
   return prog;
 }
@@ -633,16 +673,25 @@ static void ast_print_expr(Node *node, uint8_t indent) {
   ast_print_expr(node->rhs, indent + 1);
 }
 
-static void ast_print_stmt(Node *node) {
+static void ast_print_stmt(Node *node, uint8_t indent) {
   if (node->kind != ND_STMT) {
     ERROR_NODE_KIND(node);
     return;
   }
+  for (uint8_t i = 0; i < indent; ++i) {
+    fprintf(stderr, "  ");
+  }
   switch (node->tag.stmt) {
+  case STMT_BLOCK:
+    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
+    for (Node *n = node->lhs; n != NULL; n = n->next) {
+      ast_print_stmt(n, indent + 1);
+    }
+    break;
   case STMT_EXPR:
   case STMT_RETURN:
     fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
-    ast_print_expr(node->lhs, 1);
+    ast_print_expr(node->lhs, indent + 1);
     break;
   default:
     ERROR_STMT_KIND(node);
@@ -651,8 +700,12 @@ static void ast_print_stmt(Node *node) {
 }
 
 static void ast_print(Function *prog) {
+  if (prog->kind == FK_ERROR) {
+    ERROR_FUNCTION_KIND(prog);
+    return;
+  }
   for (Node *n = prog->body; n != NULL; n = n->next) {
-    ast_print_stmt(n);
+    ast_print_stmt(n, 0);
   }
 }
 
@@ -665,6 +718,10 @@ static int align_to(int n, int align) {
 }
 
 static void assign_local_offsets(Function *prog) {
+  if (prog->kind == FK_ERROR) {
+    ERROR_FUNCTION_KIND(prog);
+    return;
+  }
   int offset = 0;
   for (Object *o = prog->locals; o != NULL; o = o->next) {
     offset += 8;
@@ -784,6 +841,11 @@ static void gen_stmt(Node *node) {
     gen_expr(node->lhs);
     printf("  jmp .L.return\n");
     return;
+  case STMT_BLOCK:
+    for (Node *n = node->lhs; n != NULL; n = n->next) {
+      gen_stmt(n);
+    }
+    break;
   default:
     ERROR_STMT_KIND(node);
     return;
@@ -818,10 +880,7 @@ int main(int argc, char *argv[]) {
   }
 
   char *start = argv[1];
-  Arena arena = arena_default();
-
   Lexer lexer = lexer_create(start);
-
   DEBUG("Tokens:");
   for (Token *t = lexer_peek(&lexer); t->kind != TK_EOF;
        t = lexer_next(&lexer)) {
@@ -842,12 +901,16 @@ int main(int argc, char *argv[]) {
   }
 
   lexer = lexer_create(start);
+  Arena arena = arena_default();
   Function *prog = parse(&arena, &lexer);
+  if (prog->kind == FK_ERROR) {
+    return EXIT_FAILURE;
+  }
 
   DEBUG("AST:");
   ast_print(prog);
 
-  if (lexer.token.kind != TK_EOF) {
+  if (lexer_peek(&lexer)->kind != TK_EOF) {
     error_at(start, lexer.token.lex.ptr,
              "unexpected token during parsing: '%.*s'\n", lexer.token.lex.len,
              lexer.token.lex.ptr);

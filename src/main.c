@@ -433,6 +433,19 @@ static Token *lexer_next(Lexer *l) {
 // Parser
 // -----------------------------------------------------------------------------
 
+typedef struct Object {
+  StringView lex;      // Token lexeme
+  int32_t offset;      // Offset from RBP
+  struct Object *next; // Next object
+} Object;
+
+static Object *object_create_local(Arena *a, Object *all, StringView lex) {
+  Object *o = arena_alloc(a, sizeof(Object));
+  o->lex = lex;
+  o->next = all;
+  return o;
+}
+
 #define ENUMERATE_EXPRS(M)                                                     \
   M(EXPR_NUM)                                                                  \
   M(EXPR_VAR)                                                                  \
@@ -505,8 +518,15 @@ typedef struct Node {
   union {
     float f;
     int32_t i;
+    Object *obj;
   } val;
 } Node;
+
+typedef struct {
+  Node *body;
+  Object *locals;
+  uint32_t stack_size;
+} Function;
 
 static Node *node_create(Arena *a, NodeKind kind) {
   Node *node = arena_alloc(a, sizeof(Node));
@@ -528,10 +548,11 @@ static Node *node_create_expr_num(Arena *a, Token *t) {
   return node;
 }
 
-static Node *node_create_expr_var(Arena *a, Token *t) {
+static Node *node_create_expr_var(Arena *a, Object *o) {
   Node *node = node_create(a, ND_EXPR);
   node->tag.expr = EXPR_VAR;
-  node->lex = t->lex;
+  node->lex = o->lex;
+  node->val.obj = o;
   return node;
 }
 
@@ -661,47 +682,63 @@ static BinOpPair try_into_binop(TokenKind kind) {
 }
 
 typedef struct {
-  Arena *a;
-  Lexer *l;
+  Arena *arena;
+  Lexer *lexer;
+  Object *locals;
 } ParseCtx;
+
+static Object *parse_ctx_find_local(ParseCtx *ctx, StringView lex) {
+  for (Object *o = ctx->locals; o != NULL; o = o->next) {
+    if (o->lex.len == lex.len && strncmp(o->lex.ptr, lex.ptr, lex.len) == 0) {
+      return o;
+    }
+  }
+  return NULL;
+}
 
 static Node *parse_expr(ParseCtx *ctx, uint8_t prec);
 
 static Node *parse_expr_primary(ParseCtx *ctx) {
-  Token *t = lexer_next(ctx->l);
+  Token *t = lexer_next(ctx->lexer);
   switch (t->kind) {
   case TK_NUM:
-    return node_create_expr_num(ctx->a, t);
-  case TK_IDENT:
-    return node_create_expr_var(ctx->a, t);
+    return node_create_expr_num(ctx->arena, t);
+  case TK_IDENT: {
+    Object *o = parse_ctx_find_local(ctx, t->lex);
+    if (o != NULL) {
+      return node_create_expr_var(ctx->arena, o);
+    }
+    ctx->locals = object_create_local(ctx->arena, ctx->locals, t->lex);
+    return node_create_expr_var(ctx->arena, ctx->locals);
+  }
   case TK_PLUS:
     return parse_expr_primary(ctx);
   case TK_MINUS:
-    return node_create_expr_unary(ctx->a, t, EXPR_NEG,
+    return node_create_expr_unary(ctx->arena, t, EXPR_NEG,
                                   parse_expr(ctx, PREC_MAX));
   case TK_LPAREN: {
     Node *node = parse_expr(ctx, 0);
-    if (lexer_peek(ctx->l)->kind != TK_RPAREN) {
-      return node_create_err(ctx->a, lexer_peek(ctx->l));
+    if (lexer_peek(ctx->lexer)->kind != TK_RPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
     }
-    lexer_next(ctx->l);
+    lexer_next(ctx->lexer);
     return node;
   }
   default:
-    return node_create_err(ctx->a, t);
+    return node_create_err(ctx->arena, t);
   }
 }
 
 static Node *parse_expr(ParseCtx *ctx, uint8_t prec) {
   Node *lhs = parse_expr_primary(ctx);
   while (true) {
-    Token t = *lexer_peek(ctx->l);
+    Token t = *lexer_peek(ctx->lexer);
     BinOpPair bp = try_into_binop(t.kind);
     if (bp.kind == EXPR_NUM || bp.power.lhs <= prec) {
       return lhs;
     }
-    lexer_next(ctx->l);
-    lhs = node_create_expr_binary(ctx->a, &t, bp.kind, lhs,
+    lexer_next(ctx->lexer);
+    lhs = node_create_expr_binary(ctx->arena, &t, bp.kind, lhs,
                                   parse_expr(ctx, bp.power.rhs));
   }
   return lhs;
@@ -709,21 +746,24 @@ static Node *parse_expr(ParseCtx *ctx, uint8_t prec) {
 
 static Node *parse_stmt(ParseCtx *ctx) {
   Node *node = parse_expr(ctx, PREC_MIN);
-  if (lexer_peek(ctx->l)->kind != TK_SEMI) {
-    return node_create_err(ctx->a, lexer_peek(ctx->l));
+  if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
+    return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
   }
-  return node_create_stmt_expr(ctx->a, lexer_next(ctx->l), node);
+  return node_create_stmt_expr(ctx->arena, lexer_next(ctx->lexer), node);
 }
 
-static Node *parse(Arena *a, Lexer *l) {
-  ParseCtx ctx = {a, l};
+static Function *parse(Arena *a, Lexer *l) {
+  ParseCtx ctx = {a, l, NULL};
   Node head = {0};
   Node *cur = &head;
   while (lexer_peek(l)->kind != TK_EOF) {
     cur->next = parse_stmt(&ctx);
     cur = cur->next;
   }
-  return head.next;
+  Function *prog = arena_alloc(a, sizeof(Function));
+  prog->body = head.next;
+  prog->locals = ctx.locals;
+  return prog;
 }
 
 // -----------------------------------------------------------------------------
@@ -783,10 +823,27 @@ static void ast_print_stmt(Node *node) {
   ast_print_expr(node->lhs, 1);
 }
 
-static void ast_print(Node *node) {
-  for (Node *n = node; n != NULL; n = n->next) {
+static void ast_print(Function *prog) {
+  for (Node *n = prog->body; n != NULL; n = n->next) {
     ast_print_stmt(n);
   }
+}
+
+// -----------------------------------------------------------------------------
+// Offset calculation
+// -----------------------------------------------------------------------------
+
+static int align_to(int n, int align) {
+  return (n + align - 1) / align * align;
+}
+
+static void assign_local_offsets(Function *prog) {
+  int offset = 0;
+  for (Object *o = prog->locals; o != NULL; o = o->next) {
+    offset += 8;
+    o->offset = -offset;
+  }
+  prog->stack_size = align_to(offset, 16);
 }
 
 // -----------------------------------------------------------------------------
@@ -801,8 +858,7 @@ static void gen_addr(Node *node) {
     ERROR_EXPR_KIND(node);
     return;
   }
-  int offset = (node->lex.ptr[0] - 'a' + 1) * 8;
-  printf("  lea %d(%%rbp), %%rax\n", -offset);
+  printf("  lea %d(%%rbp), %%rax\n", node->val.obj->offset);
 }
 
 static void gen_expr(Node *node) {
@@ -899,13 +955,15 @@ static void gen_stmt(Node *node) {
   gen_expr(node->lhs);
 }
 
-static void codegen(Node *node) {
+static void codegen(Function *prog) {
+  assign_local_offsets(prog);
+  DEBUGF("stack size: %d", prog->stack_size);
   printf("  .globl main\n");
   printf("main:\n");
   printf("  push %%rbp\n");
   printf("  mov %%rsp, %%rbp\n");
-  printf("  sub $208, %%rsp\n");
-  for (Node *n = node; n != NULL; n = n->next) {
+  printf("  sub $%d, %%rsp\n", prog->stack_size);
+  for (Node *n = prog->body; n != NULL; n = n->next) {
     gen_stmt(n);
   }
   printf("  mov %%rbp, %%rsp\n");
@@ -927,6 +985,8 @@ int main(int argc, char *argv[]) {
   Arena arena = arena_default();
 
   Lexer lexer = lexer_create(start);
+
+  DEBUG("Tokens:");
   for (Token *t = lexer_peek(&lexer); t->kind != TK_EOF;
        t = lexer_next(&lexer)) {
     switch (lexer_peek(&lexer)->kind) {
@@ -946,8 +1006,10 @@ int main(int argc, char *argv[]) {
   }
 
   lexer = lexer_create(start);
-  Node *node = parse(&arena, &lexer);
-  ast_print(node);
+  Function *prog = parse(&arena, &lexer);
+
+  DEBUG("AST:");
+  ast_print(prog);
 
   if (lexer.token.kind != TK_EOF) {
     error_at(start, lexer.token.lex.ptr,
@@ -956,7 +1018,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  codegen(node);
+  codegen(prog);
 
   DEBUGF("total blocks allocated: %u", arena_total_blocks_allocated(&arena));
   DEBUGF("current bytes committed: %zu", arena.commited_size);

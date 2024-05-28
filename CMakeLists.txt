@@ -6,7 +6,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
 set(CMAKE_C_EXTENSIONS OFF)
 
-add_executable(cc src/main.c)
+add_executable(cc src/main.c src/arena.c)
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(cc PRIVATE -Wall -Wextra -pedantic)

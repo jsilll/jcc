@@ -42,90 +42,14 @@ static void error_at(char *start, char *loc, char *fmt, ...) {
 // Parser
 // -----------------------------------------------------------------------------
 
-typedef struct Object {
-  StringView lex;      // Token lexeme
-  int32_t offset;      // Offset from RBP
-  struct Object *next; // Next object
-} Object;
+#include "parser.h"
 
-static Object *object_create_local(Arena *a, Object *all, StringView lex) {
+static Object *object_create(Arena *a, Object *all, StringView lex) {
   Object *o = arena_alloc(a, sizeof(Object));
   o->lex = lex;
   o->next = all;
   return o;
 }
-
-#define ENUMERATE_EXPRS(M)                                                     \
-  M(EXPR_NUM)                                                                  \
-  M(EXPR_VAR)                                                                  \
-  M(EXPR_NEG)                                                                  \
-  M(EXPR_ADD)                                                                  \
-  M(EXPR_SUB)                                                                  \
-  M(EXPR_MUL)                                                                  \
-  M(EXPR_DIV)                                                                  \
-  M(EXPR_EQ)                                                                   \
-  M(EXPR_NE)                                                                   \
-  M(EXPR_LT)                                                                   \
-  M(EXPR_LE)                                                                   \
-  M(EXPR_GT)                                                                   \
-  M(EXPR_GE)                                                                   \
-  M(EXPR_ASSIGN)
-
-typedef enum { ENUMERATE_EXPRS(GENERATE_ENUM) } ExprKind;
-
-static const char *EXPR_KIND_STR[] = {ENUMERATE_EXPRS(GENERATE_STRING)};
-
-#define ERROR_EXPR_KIND(node)                                                  \
-  error(                                                                       \
-      "unexpected expression kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n",  \
-      __FUNCTION__, EXPR_KIND_STR[node->tag.expr], (int)node->lex.len,         \
-      node->lex.ptr)
-
-#define ENUMERATE_STMTS(M)                                                     \
-  M(STMT_EXPR)                                                                 \
-  M(STMT_RETURN)                                                               \
-  M(STMT_BLOCK)
-
-typedef enum { ENUMERATE_STMTS(GENERATE_ENUM) } StmtKind;
-
-static const char *STMT_KIND_STR[] = {ENUMERATE_STMTS(GENERATE_STRING)};
-
-#define ERROR_STMT_KIND(node)                                                  \
-  error("unexpected statement kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n", \
-        __FUNCTION__, STMT_KIND_STR[node->tag.stmt], (int)node->lex.len,       \
-        node->lex.ptr)
-
-#define ENUMERATE_NODES(M)                                                     \
-  M(ND_ERR)                                                                    \
-  M(ND_EXPR)                                                                   \
-  M(ND_STMT)
-
-typedef enum { ENUMERATE_NODES(GENERATE_ENUM) } NodeKind;
-
-static const char *NODE_KIND_STR[] = {ENUMERATE_NODES(GENERATE_STRING)};
-
-#define ERROR_NODE_KIND(node)                                                  \
-  error("unexpected node kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n",      \
-        __FUNCTION__, NODE_KIND_STR[node->kind], (int)node->lex.len,           \
-        node->lex.ptr)
-
-typedef struct Node {
-  NodeKind kind;
-  union {
-    ExprKind expr;
-    StmtKind stmt;
-  } tag;
-
-  StringView lex;    // Token lexeme
-  struct Node *lhs;  // Left-hand side
-  struct Node *rhs;  // Right-hand side
-  struct Node *next; // Next node
-  union {
-    float f;
-    int32_t i;
-    Object *obj;
-  } val;
-} Node;
 
 static Node *node_create(Arena *a, NodeKind kind) {
   Node *node = arena_alloc(a, sizeof(Node));
@@ -140,74 +64,40 @@ static Node *node_create_err(Arena *a, Token *t) {
 }
 
 static Node *node_create_expr_num(Arena *a, Token *t) {
-  Node *node = node_create(a, ND_EXPR);
-  node->tag.expr = EXPR_NUM;
-  node->val.i = t->val.i;
+  Node *node = node_create(a, ND_EXPR_NUM);
+  node->value.i = t->value.i;
   node->lex = t->lex;
   return node;
 }
 
 static Node *node_create_expr_var(Arena *a, Object *o) {
-  Node *node = node_create(a, ND_EXPR);
-  node->tag.expr = EXPR_VAR;
+  Node *node = node_create(a, ND_EXPR_VAR);
   node->lex = o->lex;
-  node->val.obj = o;
+  node->value.obj = o;
   return node;
 }
 
-static Node *node_create_expr_unary(Arena *a, Token *t, ExprKind kind,
-                                    Node *lhs) {
-  Node *node = node_create(a, ND_EXPR);
-  node->tag.expr = kind;
+static Node *node_create_unary(Arena *a, Token *t, NodeKind kind, Node *lhs) {
+  Node *node = node_create(a, kind);
   node->lex = t->lex;
   node->lhs = lhs;
   return node;
 }
 
-static Node *node_create_expr_binary(Arena *a, Token *t, ExprKind kind,
-                                     Node *lhs, Node *rhs) {
-  Node *node = node_create(a, ND_EXPR);
-  node->tag.expr = kind;
+static Node *node_create_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
+                                Node *rhs) {
+  Node *node = node_create(a, kind);
   node->lex = t->lex;
   node->lhs = lhs;
   node->rhs = rhs;
   return node;
 }
 
-static Node *node_create_stmt_unary(Arena *a, Token *t, StmtKind kind,
-                                    Node *lhs) {
-  Node *node = node_create(a, ND_STMT);
-  node->tag.stmt = kind;
-  node->lex = t->lex;
-  node->lhs = lhs;
-  return node;
-}
-
-#define ENUMERATE_FUNCTIONS(M)                                                 \
-  M(FK_ERROR)                                                                  \
-  M(FK_MAIN)                                                                   \
-  M(FK_FUNC)
-
-typedef enum FunctionKind { ENUMERATE_FUNCTIONS(GENERATE_ENUM) } FunctionKind;
-
-static const char *FUNCTION_KIND_STR[] = {ENUMERATE_FUNCTIONS(GENERATE_STRING)};
-
-#define ERROR_FUNCTION_KIND(f)                                                 \
-  error("unexpected function kind during %s:\n-> kind: %s\n", __FUNCTION__,    \
-        FUNCTION_KIND_STR[f->kind])
-
 typedef struct {
-  FunctionKind kind;
   Node *body;
   Object *locals;
   uint32_t stack_size;
 } Function;
-
-static Function *function_create(Arena *a, FunctionKind kind) {
-  Function *f = arena_alloc(a, sizeof(Function));
-  f->kind = kind;
-  return f;
-}
 
 // PUMA'S REBL TAC
 //
@@ -271,7 +161,7 @@ typedef struct {
 } BindingPower;
 
 typedef struct {
-  ExprKind kind;
+  NodeKind kind;
   BindingPower power;
 } BinOpPair;
 
@@ -281,29 +171,29 @@ typedef struct {
 static BinOpPair try_into_binop(TokenKind kind) {
   switch (kind) {
   case TK_EQ:
-    return (BinOpPair){EXPR_ASSIGN, (BindingPower){2, 1}};
+    return (BinOpPair){ND_EXPR_ASSIGN, (BindingPower){2, 1}};
   case TK_EQEQ:
-    return (BinOpPair){EXPR_EQ, (BindingPower){3, 4}};
+    return (BinOpPair){ND_EXPR_EQ, (BindingPower){3, 4}};
   case TK_NE:
-    return (BinOpPair){EXPR_NE, (BindingPower){3, 4}};
+    return (BinOpPair){ND_EXPR_NE, (BindingPower){3, 4}};
   case TK_LT:
-    return (BinOpPair){EXPR_LT, (BindingPower){5, 6}};
+    return (BinOpPair){ND_EXPR_LT, (BindingPower){5, 6}};
   case TK_LE:
-    return (BinOpPair){EXPR_LE, (BindingPower){5, 6}};
+    return (BinOpPair){ND_EXPR_LE, (BindingPower){5, 6}};
   case TK_GT:
-    return (BinOpPair){EXPR_GT, (BindingPower){5, 6}};
+    return (BinOpPair){ND_EXPR_GT, (BindingPower){5, 6}};
   case TK_GE:
-    return (BinOpPair){EXPR_GE, (BindingPower){5, 6}};
+    return (BinOpPair){ND_EXPR_GE, (BindingPower){5, 6}};
   case TK_PLUS:
-    return (BinOpPair){EXPR_ADD, (BindingPower){7, 8}};
+    return (BinOpPair){ND_EXPR_ADD, (BindingPower){7, 8}};
   case TK_MINUS:
-    return (BinOpPair){EXPR_SUB, (BindingPower){7, 8}};
+    return (BinOpPair){ND_EXPR_SUB, (BindingPower){7, 8}};
   case TK_MUL:
-    return (BinOpPair){EXPR_MUL, (BindingPower){9, 10}};
+    return (BinOpPair){ND_EXPR_MUL, (BindingPower){9, 10}};
   case TK_DIV:
-    return (BinOpPair){EXPR_DIV, (BindingPower){9, 10}};
+    return (BinOpPair){ND_EXPR_DIV, (BindingPower){9, 10}};
   default:
-    return (BinOpPair){EXPR_NUM, (BindingPower){0, 0}};
+    return (BinOpPair){ND_ERR, (BindingPower){0, 0}};
   }
 }
 
@@ -334,14 +224,14 @@ static Node *parse_expr_primary(ParseCtx *ctx) {
     if (o != NULL) {
       return node_create_expr_var(ctx->arena, o);
     }
-    ctx->locals = object_create_local(ctx->arena, ctx->locals, t->lex);
+    ctx->locals = object_create(ctx->arena, ctx->locals, t->lex);
     return node_create_expr_var(ctx->arena, ctx->locals);
   }
   case TK_PLUS:
     return parse_expr_primary(ctx);
   case TK_MINUS:
-    return node_create_expr_unary(ctx->arena, t, EXPR_NEG,
-                                  parse_expr(ctx, PREC_MAX));
+    return node_create_unary(ctx->arena, t, ND_EXPR_NEG,
+                             parse_expr(ctx, PREC_MAX));
   case TK_LPAREN: {
     Node *node = parse_expr(ctx, 0);
     if (lexer_peek(ctx->lexer)->kind != TK_RPAREN) {
@@ -360,12 +250,12 @@ static Node *parse_expr(ParseCtx *ctx, uint8_t prec) {
   while (true) {
     Token t = *lexer_peek(ctx->lexer);
     BinOpPair bp = try_into_binop(t.kind);
-    if (bp.kind == EXPR_NUM || bp.power.lhs <= prec) {
+    if (bp.kind == ND_ERR || bp.power.lhs <= prec) {
       return lhs;
     }
     lexer_next(ctx->lexer);
-    lhs = node_create_expr_binary(ctx->arena, &t, bp.kind, lhs,
-                                  parse_expr(ctx, bp.power.rhs));
+    lhs = node_create_binary(ctx->arena, &t, bp.kind, lhs,
+                             parse_expr(ctx, bp.power.rhs));
   }
   return lhs;
 }
@@ -381,7 +271,7 @@ static Node *parse_stmt_block(ParseCtx *ctx) {
     cur = cur->next;
   }
   lexer_next(ctx->lexer);
-  Node *node = node_create_stmt_unary(ctx->arena, &t, STMT_BLOCK, head.next);
+  Node *node = node_create_unary(ctx->arena, &t, ND_STMT_BLOCK, head.next);
   return node;
 }
 
@@ -393,8 +283,8 @@ static Node *parse_stmt(ParseCtx *ctx) {
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
       return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
     }
-    return node_create_stmt_unary(ctx->arena, lexer_next(ctx->lexer),
-                                  STMT_RETURN, node);
+    return node_create_unary(ctx->arena, lexer_next(ctx->lexer), ND_STMT_RETURN,
+                             node);
   }
   case TK_LBRACE:
     return parse_stmt_block(ctx);
@@ -403,22 +293,22 @@ static Node *parse_stmt(ParseCtx *ctx) {
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
       return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
     }
-    return node_create_stmt_unary(ctx->arena, lexer_next(ctx->lexer), STMT_EXPR,
-                                  node);
+    return node_create_unary(ctx->arena, lexer_next(ctx->lexer), ND_STMT_EXPR,
+                             node);
   }
   }
 }
 
-static Function *parse(Arena *a, Lexer *l) {
+static Function parse(Arena *a, Lexer *l) {
   if (lexer_peek(l)->kind != TK_LBRACE) {
     error("unexpected token during parsing: '%.*s'\n", lexer_peek(l)->lex.len,
           lexer_peek(l)->lex.ptr);
-    return function_create(a, FK_ERROR);
+    return (Function){0};
   }
   ParseCtx ctx = {a, l, NULL};
-  Function *prog = function_create(a, FK_MAIN);
-  prog->body = parse_stmt_block(&ctx);
-  prog->locals = ctx.locals;
+  Function prog = {0};
+  prog.body = parse_stmt_block(&ctx);
+  prog.locals = ctx.locals;
   return prog;
 }
 
@@ -427,37 +317,33 @@ static Function *parse(Arena *a, Lexer *l) {
 // -----------------------------------------------------------------------------
 
 static void ast_print_expr(Node *node, uint8_t indent) {
-  if (node->kind != ND_EXPR) {
-    ERROR_NODE_KIND(node);
-    return;
-  }
   for (uint8_t i = 0; i < indent; ++i) {
     fprintf(stderr, "  ");
   }
-  switch (node->tag.expr) {
-  case EXPR_VAR:
-    fprintf(stderr, "%s: '%.*s'\n", EXPR_KIND_STR[node->tag.expr],
+  switch (node->kind) {
+  case ND_EXPR_VAR:
+    fprintf(stderr, "%s: '%.*s'\n", NODE_KIND_STR[node->kind],
             (int)node->lex.len, node->lex.ptr);
     return;
-  case EXPR_NUM:
-    fprintf(stderr, "%s: %d\n", EXPR_KIND_STR[node->tag.expr], node->val.i);
+  case ND_EXPR_NUM:
+    fprintf(stderr, "%s: %d\n", NODE_KIND_STR[node->kind], node->value.i);
     return;
-  case EXPR_NEG:
-    fprintf(stderr, "%s:\n", EXPR_KIND_STR[node->tag.expr]);
+  case ND_EXPR_NEG:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
     ast_print_expr(node->lhs, indent + 1);
     return;
-  case EXPR_ADD:
-  case EXPR_SUB:
-  case EXPR_MUL:
-  case EXPR_DIV:
-  case EXPR_EQ:
-  case EXPR_NE:
-  case EXPR_LT:
-  case EXPR_LE:
-  case EXPR_GT:
-  case EXPR_GE:
-  case EXPR_ASSIGN:
-    fprintf(stderr, "%s:\n", EXPR_KIND_STR[node->tag.expr]);
+  case ND_EXPR_ADD:
+  case ND_EXPR_SUB:
+  case ND_EXPR_MUL:
+  case ND_EXPR_DIV:
+  case ND_EXPR_EQ:
+  case ND_EXPR_NE:
+  case ND_EXPR_LT:
+  case ND_EXPR_LE:
+  case ND_EXPR_GT:
+  case ND_EXPR_GE:
+  case ND_EXPR_ASSIGN:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
     break;
   default:
     ERROR_NODE_KIND(node);
@@ -468,36 +354,28 @@ static void ast_print_expr(Node *node, uint8_t indent) {
 }
 
 static void ast_print_stmt(Node *node, uint8_t indent) {
-  if (node->kind != ND_STMT) {
-    ERROR_NODE_KIND(node);
-    return;
-  }
   for (uint8_t i = 0; i < indent; ++i) {
     fprintf(stderr, "  ");
   }
-  switch (node->tag.stmt) {
-  case STMT_BLOCK:
-    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
+  switch (node->kind) {
+  case ND_STMT_BLOCK:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
     for (Node *n = node->lhs; n != NULL; n = n->next) {
       ast_print_stmt(n, indent + 1);
     }
     break;
-  case STMT_EXPR:
-  case STMT_RETURN:
-    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->tag.stmt]);
+  case ND_STMT_EXPR:
+  case ND_STMT_RETURN:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
     ast_print_expr(node->lhs, indent + 1);
     break;
   default:
-    ERROR_STMT_KIND(node);
+    ERROR_NODE_KIND(node);
     return;
   }
 }
 
 static void ast_print(Function *prog) {
-  if (prog->kind == FK_ERROR) {
-    ERROR_FUNCTION_KIND(prog);
-    return;
-  }
   for (Node *n = prog->body; n != NULL; n = n->next) {
     ast_print_stmt(n, 0);
   }
@@ -512,10 +390,6 @@ static int align_to(int n, int align) {
 }
 
 static void assign_local_offsets(Function *prog) {
-  if (prog->kind == FK_ERROR) {
-    ERROR_FUNCTION_KIND(prog);
-    return;
-  }
   int offset = 0;
   for (Object *o = prog->locals; o != NULL; o = o->next) {
     offset += 8;
@@ -529,34 +403,27 @@ static void assign_local_offsets(Function *prog) {
 // -----------------------------------------------------------------------------
 
 static void gen_addr(Node *node) {
-  if (node->kind != ND_EXPR) {
+  if (node->kind != ND_EXPR_VAR) {
     ERROR_NODE_KIND(node);
     return;
-  } else if (node->tag.expr != EXPR_VAR) {
-    ERROR_EXPR_KIND(node);
-    return;
   }
-  printf("  lea %d(%%rbp), %%rax\n", node->val.obj->offset);
+  printf("  lea %d(%%rbp), %%rax\n", node->value.obj->offset);
 }
 
 static void gen_expr(Node *node) {
-  if (node->kind != ND_EXPR) {
-    ERROR_NODE_KIND(node);
+  switch (node->kind) {
+  case ND_EXPR_NUM:
+    printf("  mov $%d, %%rax\n", node->value.i);
     return;
-  }
-  switch (node->tag.expr) {
-  case EXPR_NUM:
-    printf("  mov $%d, %%rax\n", node->val.i);
-    return;
-  case EXPR_VAR:
+  case ND_EXPR_VAR:
     gen_addr(node);
     printf("  mov (%%rax), %%rax\n");
     return;
-  case EXPR_NEG:
+  case ND_EXPR_NEG:
     gen_expr(node->lhs);
     printf("  neg %%rax\n");
     return;
-  case EXPR_ASSIGN:
+  case ND_EXPR_ASSIGN:
     gen_addr(node->lhs);
     printf("  push %%rax\n");
     gen_expr(node->rhs);
@@ -570,78 +437,72 @@ static void gen_expr(Node *node) {
   printf("  push %%rax\n");
   gen_expr(node->lhs);
   printf("  pop %%rdi\n");
-  switch (node->tag.expr) {
-  case EXPR_ADD:
+  switch (node->kind) {
+  case ND_EXPR_ADD:
     printf("  add %%rdi, %%rax\n");
     break;
-  case EXPR_SUB:
+  case ND_EXPR_SUB:
     printf("  sub %%rdi, %%rax\n");
     break;
-  case EXPR_MUL:
+  case ND_EXPR_MUL:
     printf("  imul %%rdi, %%rax\n");
     break;
-  case EXPR_DIV:
+  case ND_EXPR_DIV:
     printf("  cqo\n");
     printf("  idiv %%rdi\n");
     break;
-  case EXPR_EQ:
+  case ND_EXPR_EQ:
     printf("  cmp %%rdi, %%rax\n");
     printf("  sete %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case EXPR_NE:
+  case ND_EXPR_NE:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setne %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case EXPR_LT:
+  case ND_EXPR_LT:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setl %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case EXPR_LE:
+  case ND_EXPR_LE:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setle %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case EXPR_GT:
+  case ND_EXPR_GT:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setg %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case EXPR_GE:
+  case ND_EXPR_GE:
     printf("  cmp %%rdi, %%rax\n");
     printf("  setge %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
-  case EXPR_NUM:
-  case EXPR_VAR:
-  case EXPR_NEG:
-  case EXPR_ASSIGN:
-    ERROR_EXPR_KIND(node);
+  default:
+    ERROR_NODE_KIND(node);
+    break;
   }
 }
 
 static void gen_stmt(Node *node) {
-  if (node->kind != ND_STMT) {
-    ERROR_NODE_KIND(node);
-    return;
-  }
-  switch (node->tag.stmt) {
-  case STMT_EXPR:
+  switch (node->kind) {
+  case ND_STMT_EXPR:
     gen_expr(node->lhs);
     return;
-  case STMT_RETURN:
+  case ND_STMT_RETURN:
     gen_expr(node->lhs);
     printf("  jmp .L.return\n");
     return;
-  case STMT_BLOCK:
+  case ND_STMT_BLOCK:
     for (Node *n = node->lhs; n != NULL; n = n->next) {
       gen_stmt(n);
     }
     break;
   default:
-    ERROR_STMT_KIND(node);
+    ERROR_NODE_KIND(node);
     return;
   }
 }
@@ -686,7 +547,7 @@ int main(int argc, char *argv[]) {
       break;
     case TK_NUM:
       fprintf(stderr, "%s: %d\n", TOKEN_KIND_STR[t->kind],
-              lexer_peek(&lexer)->val.i);
+              lexer_peek(&lexer)->value.i);
       break;
     default:
       fprintf(stderr, "%s\n", TOKEN_KIND_STR[t->kind]);
@@ -696,13 +557,14 @@ int main(int argc, char *argv[]) {
 
   lexer = lexer_create(start);
   Arena arena = arena_default();
-  Function *prog = parse(&arena, &lexer);
-  if (prog->kind == FK_ERROR) {
+  Function prog = parse(&arena, &lexer);
+  if (prog.body == NULL) {
+    error("failed to parse program\n");
     return EXIT_FAILURE;
   }
 
   DEBUG("AST:");
-  ast_print(prog);
+  ast_print(&prog);
 
   if (lexer_peek(&lexer)->kind != TK_EOF) {
     error_at(start, lexer.token.lex.ptr,
@@ -711,7 +573,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  codegen(prog);
+  codegen(&prog);
 
   DEBUGF("total blocks allocated: %u", arena_total_blocks_allocated(&arena));
   DEBUGF("current bytes committed: %zu", arena.commited_size);

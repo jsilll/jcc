@@ -1,8 +1,8 @@
 #ifndef CC_LEXER_H
 #define CC_LEXER_H
 
+#include "macros.h"
 #include "string_view.h"
-#include "utility.h"
 
 #define ENUMERATE_TOKENS(M)                                                    \
   M(TK_ERR)                                                                    \
@@ -31,7 +31,7 @@
 typedef enum { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;
 
 /// The string representation of a token kind.
-static const char *TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
+static const char *const TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
 
 /// A token.
 typedef struct {
@@ -40,7 +40,7 @@ typedef struct {
   union {
     float f;
     int32_t i;
-  } val;
+  } value;
 } Token;
 
 /// A lexer.
@@ -48,7 +48,7 @@ typedef struct Lexer {
   bool consumed;
   char *ptr;
   Token token;
-} Lexer;
+} __attribute__((aligned(64))) Lexer;
 
 /// Create a lexer.
 /// @param ptr The input string.

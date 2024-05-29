@@ -54,15 +54,15 @@ typedef struct {
 } Token;
 
 /// A lexer.
-typedef struct Lexer {
-  bool consumed;
-  char *ptr;
+typedef struct {
   Token token;
-} __attribute__((aligned(64))) Lexer;
+  bool consumed;
+  const char *ptr;
+} Lexer;
 
 /// Create a lexer.
 /// @param ptr The input string.
-Lexer lexer_create(char *ptr);
+Lexer lexer_create(const char *ptr);
 
 /// Peek at the next token.
 /// @param lexer The lexer.

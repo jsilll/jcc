@@ -6,15 +6,12 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
 set(CMAKE_C_EXTENSIONS OFF)
 
-add_executable(cc 
-               src/main.c 
-               src/arena.c 
-               src/lexer.c
-               src/parser.c
-               src/string_view.c)
+file(GLOB SOURCES "src/*.c" "src/*.h")
+
+add_executable(cc ${SOURCES})
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(cc PRIVATE -Wall -Wextra -pedantic)
+    target_compile_options(cc PRIVATE -Wall -Wextra)
 elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
     target_compile_options(cc PRIVATE -Wall -Wextra -pedantic)
 elseif (CMAKE_C_COMPILER_ID STREQUAL "MSVC")

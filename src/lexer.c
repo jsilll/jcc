@@ -4,11 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static Token tokenize_single_char(char *p, TokenKind k) {
+static Token tokenize_single_char(const char *p, TokenKind k) {
   return (Token){.kind = k, .lex = {p, 1}};
 }
 
-static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
+static Token tokenize_double_char(const char *p, char c, TokenKind k1,
+                                  TokenKind k2) {
   if (p[1] == c) {
     return (Token){.kind = k1, .lex = {p, 2}};
   } else {
@@ -16,7 +17,7 @@ static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
   }
 }
 
-static Token tokenize_word(char *p) {
+static Token tokenize_word(const char *p) {
   Token t = {0};
   t.lex.ptr = p;
   t.kind = TK_IDENT;
@@ -57,16 +58,16 @@ static Token tokenize_word(char *p) {
   return t;
 }
 
-static Token tokenize_numeric_literal(char *p) {
+static Token tokenize_numeric_literal(const char *p) {
   Token t = {0};
   t.kind = TK_NUM;
   t.lex.ptr = p;
-  t.value.i = strtol(p, &p, 10);
+  t.value.i = strtol(p, (char **)&p, 10);
   t.lex.len = p - t.lex.ptr;
   return t;
 }
 
-static Token tokenize(char *p) {
+static Token tokenize(const char *p) {
   while (*p) {
     // Skip whitespace
     if (isspace(*p)) {
@@ -120,7 +121,7 @@ static Token tokenize(char *p) {
   return tokenize_single_char(p, TK_EOF);
 }
 
-Lexer lexer_create(char *ptr) {
+Lexer lexer_create(const char *ptr) {
   Lexer l = {0};
   l.consumed = true;
   l.ptr = ptr;

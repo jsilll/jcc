@@ -7,14 +7,14 @@
 
 /// A view of a string
 typedef struct {
-  char *ptr;
+  const char *ptr;
   uint32_t len;
 } StringView;
 
 /// Create a new string view
 /// @param str The string to view
 /// @param len The length of the string
-StringView string_view_create(char *str, size_t len);
+StringView string_view_create(const char *str, size_t len);
 
 /// Split a string view by a delimiter
 /// @param sv The string view to split

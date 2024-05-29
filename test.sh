@@ -82,3 +82,4 @@ assert 10 '{ i=0; for (;i<10;) i=i+1; return i; }'
 
 assert 10 '{ i=0; while(i<10) { i=i+1; } return i; }'
 assert 55 '{ i=0; j=0; while(i<=10) { j=i+j; i=i+1; } return j; }'
+assert 55 '{ a=0; b=1; i=0; while(i<10) { t=a; a=b; b=t+b; i=i+1; } return a; }'

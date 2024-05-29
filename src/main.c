@@ -7,8 +7,6 @@
 #include "string_view.h"
 
 #include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -16,14 +14,15 @@
 // Error handling
 // -----------------------------------------------------------------------------
 
-static void error(char *fmt, ...) {
+static void error(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   vfprintf(stderr, fmt, ap);
   va_end(ap);
 }
 
-static void verror_at(char *start, char *loc, char *fmt, va_list ap) {
+static void verror_at(const char *start, const char *loc, const char *fmt,
+                      va_list ap) {
   int pos = loc - start;
   fprintf(stderr, "%s\n", start);
   fprintf(stderr, "%*s", pos, "");
@@ -32,22 +31,23 @@ static void verror_at(char *start, char *loc, char *fmt, va_list ap) {
   fprintf(stderr, "\n");
 }
 
-static void error_at(char *start, char *loc, char *fmt, ...) {
+static void error_at(const char *start, const char *loc, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   verror_at(start, loc, fmt, ap);
 }
 
 // -----------------------------------------------------------------------------
-// Parser
+// Ast
 // -----------------------------------------------------------------------------
 
-#include "parser.h"
+#include "ast.h"
 
 static Object *object_create(Arena *a, Object *all, StringView lex) {
   Object *o = arena_alloc(a, sizeof(Object));
   o->lex = lex;
   o->next = all;
+  o->offset = 0;
   return o;
 }
 
@@ -158,11 +158,9 @@ static StmtNode *stmt_create_for(Arena *a, Token *t, StmtNode *init,
   return node;
 }
 
-typedef struct {
-  StmtNode *body;
-  Object *locals;
-  uint32_t stack_size;
-} Function;
+// -----------------------------------------------------------------------------
+// Parser
+// -----------------------------------------------------------------------------
 
 // PUMA'S REBL TAC
 //
@@ -285,9 +283,9 @@ static ExprNode *parse_expr_primary(ParseCtx *ctx) {
   case TK_NUM:
     return expr_create_num(ctx->arena, t);
   case TK_IDENT: {
-    Object *o = parse_ctx_find_local(ctx, t->lex);
-    if (o != NULL) {
-      return expr_create_var(ctx->arena, o);
+    Object *obj = parse_ctx_find_local(ctx, t->lex);
+    if (obj != NULL) {
+      return expr_create_var(ctx->arena, obj);
     }
     ctx->locals = object_create(ctx->arena, ctx->locals, t->lex);
     return expr_create_var(ctx->arena, ctx->locals);
@@ -336,8 +334,7 @@ static StmtNode *parse_stmt_block(ParseCtx *ctx) {
     cur = cur->next;
   }
   lexer_next(ctx->lexer);
-  StmtNode *node = stmt_create_block(ctx->arena, &t, head.next);
-  return node;
+  return stmt_create_block(ctx->arena, &t, head.next);
 }
 
 static StmtNode *parse_stmt(ParseCtx *ctx) {
@@ -423,14 +420,14 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
   }
 }
 
-static Function parse(Arena *a, Lexer *l) {
+static FuncNode parse(Arena *a, Lexer *l) {
   if (lexer_peek(l)->kind != TK_LBRACE) {
     error("unexpected token during parsing: '%.*s'\n", lexer_peek(l)->lex.len,
           lexer_peek(l)->lex.ptr);
-    return (Function){0};
+    return (FuncNode){0};
   }
   ParseCtx ctx = {a, l, NULL};
-  Function prog = {0};
+  FuncNode prog = {0};
   prog.body = parse_stmt_block(&ctx);
   prog.locals = ctx.locals;
   return prog;
@@ -523,7 +520,7 @@ static void ast_print_stmt(StmtNode *node, uint8_t indent) {
   }
 }
 
-static void ast_print(Function *prog) {
+static void ast_print(FuncNode *prog) {
   for (StmtNode *n = prog->body; n != NULL; n = n->next) {
     ast_print_stmt(n, 0);
   }
@@ -537,7 +534,7 @@ static int align_to(int n, int align) {
   return (n + align - 1) / align * align;
 }
 
-static void assign_local_offsets(Function *prog) {
+static void assign_local_offsets(FuncNode *prog) {
   int offset = 0;
   for (Object *o = prog->locals; o != NULL; o = o->next) {
     offset += 8;
@@ -734,7 +731,7 @@ static void gen_stmt(StmtNode *node) {
   }
 }
 
-static void codegen(Function *prog) {
+static void codegen(FuncNode *prog) {
   assign_local_offsets(prog);
   DEBUGF("stack size: %d", prog->stack_size);
   printf("  .globl main\n");
@@ -784,7 +781,7 @@ int main(int argc, char *argv[]) {
 
   lexer = lexer_create(start);
   Arena arena = arena_default();
-  Function prog = parse(&arena, &lexer);
+  FuncNode prog = parse(&arena, &lexer);
   if (prog.body == NULL) {
     error("failed to parse program\n");
     return EXIT_FAILURE;

@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-StringView string_view_create(char *str, size_t len) {
+StringView string_view_create(const char *str, size_t len) {
   return (StringView){.ptr = str, .len = len};
 }
 

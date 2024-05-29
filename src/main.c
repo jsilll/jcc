@@ -277,6 +277,9 @@ static Node *parse_stmt_block(ParseCtx *ctx) {
 
 static Node *parse_stmt(ParseCtx *ctx) {
   switch (lexer_peek(ctx->lexer)->kind) {
+  case TK_SEMI:
+    return node_create_unary(ctx->arena, lexer_next(ctx->lexer), ND_STMT_BLOCK,
+                             NULL);
   case TK_RETURN: {
     lexer_next(ctx->lexer);
     Node *node = parse_expr(ctx, PREC_MIN);
@@ -347,7 +350,7 @@ static void ast_print_expr(Node *node, uint8_t indent) {
     break;
   default:
     ERROR_NODE_KIND(node);
-    break;
+    return;
   }
   ast_print_expr(node->lhs, indent + 1);
   ast_print_expr(node->rhs, indent + 1);
@@ -430,60 +433,92 @@ static void gen_expr(Node *node) {
     printf("  pop %%rdi\n");
     printf("  mov %%rax, (%%rdi)\n");
     return;
-  default:
-    break;
-  }
-  gen_expr(node->rhs);
-  printf("  push %%rax\n");
-  gen_expr(node->lhs);
-  printf("  pop %%rdi\n");
-  switch (node->kind) {
   case ND_EXPR_ADD:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  add %%rdi, %%rax\n");
     break;
   case ND_EXPR_SUB:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  sub %%rdi, %%rax\n");
     break;
   case ND_EXPR_MUL:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  imul %%rdi, %%rax\n");
     break;
   case ND_EXPR_DIV:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cqo\n");
     printf("  idiv %%rdi\n");
     break;
   case ND_EXPR_EQ:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  sete %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case ND_EXPR_NE:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setne %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case ND_EXPR_LT:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setl %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case ND_EXPR_LE:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setle %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case ND_EXPR_GT:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setg %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case ND_EXPR_GE:
+    gen_expr(node->rhs);
+    printf("  push %%rax\n");
+    gen_expr(node->lhs);
+    printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setge %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   default:
     ERROR_NODE_KIND(node);
-    break;
+    return;
   }
 }
 

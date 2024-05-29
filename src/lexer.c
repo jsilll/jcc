@@ -30,19 +30,21 @@ static Token tokenize_word(char *p) {
   case 2:
     if (strncmp(t.lex.ptr, "if", 2) == 0) {
       t.kind = TK_KW_IF;
-      return t;
+    }
+    break;
+  case 3:
+    if (strncmp(t.lex.ptr, "for", 3) == 0) {
+      t.kind = TK_KW_FOR;
     }
     break;
   case 4:
     if (strncmp(t.lex.ptr, "else", 4) == 0) {
       t.kind = TK_KW_ELSE;
-      return t;
     }
     break;
   case 6:
     if (strncmp(t.lex.ptr, "return", 6) == 0) {
       t.kind = TK_KW_RETURN;
-      return t;
     }
     break;
   }

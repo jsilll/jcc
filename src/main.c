@@ -93,13 +93,25 @@ static Node *node_create_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
   return node;
 }
 
-static Node *node_create_ternary(Arena *a, Token *t, NodeKind kind, Node *mhs,
-                                 Node *lhs, Node *rhs) {
+static Node *node_create_ternary(Arena *a, Token *t, NodeKind kind, Node *lhs,
+                                 Node *mhs, Node *rhs) {
   Node *node = node_create(a, kind);
   node->lex = t->lex;
-  node->mhs = mhs;
   node->lhs = lhs;
+  node->mhs = mhs;
   node->rhs = rhs;
+  return node;
+}
+
+static Node *node_create_quaternary(Arena *a, Token *t, NodeKind kind,
+                                    Node *lhs, Node *mhs, Node *rhs,
+                                    Node *body) {
+  Node *node = node_create(a, kind);
+  node->lex = t->lex;
+  node->lhs = lhs;
+  node->mhs = mhs;
+  node->rhs = rhs;
+  node->body = body;
   return node;
 }
 
@@ -316,9 +328,36 @@ static Node *parse_stmt(ParseCtx *ctx) {
     if (lexer_peek(ctx->lexer)->kind == TK_KW_ELSE) {
       lexer_next(ctx->lexer);
       Node *els = parse_stmt(ctx);
-      return node_create_ternary(ctx->arena, &t, ND_STMT_IF, cond, then, els);
+      return node_create_ternary(ctx->arena, &t, ND_STMT_IF, then, cond, els);
     }
-    return node_create_ternary(ctx->arena, &t, ND_STMT_IF, cond, then, NULL);
+    return node_create_ternary(ctx->arena, &t, ND_STMT_IF, then, cond, NULL);
+  }
+  case TK_KW_FOR: {
+    Token t = *lexer_next(ctx->lexer);
+    if (lexer_peek(ctx->lexer)->kind != TK_LPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *init = parse_stmt(ctx);
+    Node *cond = NULL;
+    if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
+      cond = parse_expr(ctx, PREC_MIN);
+    }
+    if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *step = NULL;
+    if (lexer_peek(ctx->lexer)->kind != TK_RPAREN) {
+      step = parse_expr(ctx, PREC_MIN);
+    }
+    if (lexer_peek(ctx->lexer)->kind != TK_RPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *body = parse_stmt(ctx);
+    return node_create_quaternary(ctx->arena, &t, ND_STMT_FOR, init, cond, step,
+                                  body);
   }
   default: {
     Node *node = parse_expr(ctx, PREC_MIN);
@@ -408,6 +447,17 @@ static void ast_print_stmt(Node *node, uint8_t indent) {
     if (node->rhs != NULL) {
       ast_print_stmt(node->rhs, indent + 1);
     }
+    break;
+  case ND_STMT_FOR:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
+    ast_print_stmt(node->lhs, indent + 1);
+    if (node->mhs != NULL) {
+      ast_print_expr(node->mhs, indent + 1);
+    }
+    if (node->rhs != NULL) {
+      ast_print_expr(node->rhs, indent + 1);
+    }
+    ast_print_stmt(node->body, indent + 1);
     break;
   default:
     ERROR_NODE_KIND(node);
@@ -591,6 +641,23 @@ static void gen_stmt(Node *node) {
     }
     printf(".L.end.%u:\n", uid);
     break;
+  }
+  case ND_STMT_FOR: {
+    uint32_t c = gen_uid();
+    gen_stmt(node->lhs);
+    printf(".L.begin.%d:\n", c);
+    if (node->mhs != NULL) {
+      gen_expr(node->mhs);
+      printf("  test %%rax, %%rax\n");
+      printf("  je  .L.end.%d\n", c);
+    }
+    gen_stmt(node->body);
+    if (node->rhs != NULL) {
+      gen_expr(node->rhs);
+    }
+    printf("  jmp .L.begin.%d\n", c);
+    printf(".L.end.%d:\n", c);
+    return;
   }
   default:
     ERROR_NODE_KIND(node);

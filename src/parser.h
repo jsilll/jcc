@@ -23,7 +23,8 @@
   M(ND_STMT_EXPR)                                                              \
   M(ND_STMT_RETURN)                                                            \
   M(ND_STMT_BLOCK)                                                             \
-  M(ND_STMT_IF)
+  M(ND_STMT_IF)                                                                \
+  M(ND_STMT_FOR)
 
 /// The kind of a node.
 typedef enum { ENUMERATE_NODES(GENERATE_ENUM) } NodeKind;
@@ -31,6 +32,7 @@ typedef enum { ENUMERATE_NODES(GENERATE_ENUM) } NodeKind;
 /// The string representation of a node kind.
 static const char *const NODE_KIND_STR[] = {ENUMERATE_NODES(GENERATE_STRING)};
 
+/// An error message for an unexpected node kind.
 #define ERROR_NODE_KIND(node)                                                  \
   error("unexpected node kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n",      \
         __FUNCTION__, NODE_KIND_STR[(node)->kind], (int)(node)->lex.len,       \
@@ -48,9 +50,10 @@ typedef struct Node {
   NodeKind kind;     // Node kind
   StringView lex;    // Token lexeme
   struct Node *lhs;  // Left-hand side
-  struct Node *rhs;  // Right-hand side
   struct Node *mhs;  // Middle-hand side
+  struct Node *rhs;  // Right-hand side
   struct Node *next; // Next node
+  struct Node *body; // Body
   union {
     float f;
     int32_t i;

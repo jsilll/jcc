@@ -24,7 +24,8 @@
   M(ND_STMT_RETURN)                                                            \
   M(ND_STMT_BLOCK)                                                             \
   M(ND_STMT_IF)                                                                \
-  M(ND_STMT_FOR)
+  M(ND_STMT_FOR)                                                               \
+  M(ND_STMT_WHILE)
 
 /// The kind of a node.
 typedef enum { ENUMERATE_NODES(GENERATE_ENUM) } NodeKind;
@@ -52,8 +53,8 @@ typedef struct Node {
   struct Node *lhs;  // Left-hand side
   struct Node *mhs;  // Middle-hand side
   struct Node *rhs;  // Right-hand side
-  struct Node *next; // Next node
   struct Node *body; // Body
+  struct Node *next; // Next node
   union {
     float f;
     int32_t i;

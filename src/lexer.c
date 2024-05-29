@@ -42,6 +42,11 @@ static Token tokenize_word(char *p) {
       t.kind = TK_KW_ELSE;
     }
     break;
+  case 5:
+    if (strncmp(t.lex.ptr, "while", 5) == 0) {
+      t.kind = TK_KW_WHILE;
+    }
+    break;
   case 6:
     if (strncmp(t.lex.ptr, "return", 6) == 0) {
       t.kind = TK_KW_RETURN;

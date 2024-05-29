@@ -28,7 +28,8 @@
   M(TK_KW_IF)                                                                  \
   M(TK_KW_ELSE)                                                                \
   M(TK_KW_FOR)                                                                 \
-  M(TK_KW_RETURN)
+  M(TK_KW_RETURN)                                                              \
+  M(TK_KW_WHILE)
 
 /// The kind of a token.
 typedef enum { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;

@@ -1,2 +1,5 @@
-.cache/
+# CMake
 build/
+
+# Clangd
+.cache/

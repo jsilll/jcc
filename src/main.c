@@ -359,6 +359,20 @@ static Node *parse_stmt(ParseCtx *ctx) {
     return node_create_quaternary(ctx->arena, &t, ND_STMT_FOR, init, cond, step,
                                   body);
   }
+  case TK_KW_WHILE: {
+    Token t = *lexer_next(ctx->lexer);
+    if (lexer_peek(ctx->lexer)->kind != TK_LPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *cond = parse_expr(ctx, PREC_MIN);
+    if (lexer_peek(ctx->lexer)->kind != TK_RPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *body = parse_stmt(ctx);
+    return node_create_binary(ctx->arena, &t, ND_STMT_WHILE, cond, body);
+  }
   default: {
     Node *node = parse_expr(ctx, PREC_MIN);
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
@@ -447,6 +461,11 @@ static void ast_print_stmt(Node *node, uint8_t indent) {
     if (node->rhs != NULL) {
       ast_print_stmt(node->rhs, indent + 1);
     }
+    break;
+  case ND_STMT_WHILE:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
+    ast_print_expr(node->lhs, indent + 1);
+    ast_print_stmt(node->rhs, indent + 1);
     break;
   case ND_STMT_FOR:
     fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
@@ -641,6 +660,17 @@ static void gen_stmt(Node *node) {
     }
     printf(".L.end.%u:\n", uid);
     break;
+  }
+  case ND_STMT_WHILE: {
+    uint32_t c = gen_uid();
+    printf(".L.begin.%d:\n", c);
+    gen_expr(node->lhs);
+    printf("  test %%rax, %%rax\n");
+    printf("  je  .L.end.%d\n", c);
+    gen_stmt(node->rhs);
+    printf("  jmp .L.begin.%d\n", c);
+    printf(".L.end.%d:\n", c);
+    return;
   }
   case ND_STMT_FOR: {
     uint32_t c = gen_uid();

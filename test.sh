@@ -17,6 +17,10 @@ assert() {
     fi
 }
 
+cd build
+ninja || exit
+cd ..
+
 assert 0 '{ return 0; }'
 assert 42 '{ return 42; }'
 assert 21 '{ return 5+20-4; }'

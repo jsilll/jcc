@@ -19,15 +19,34 @@ static Token tokenize_double_char(char *p, char c, TokenKind k1, TokenKind k2) {
 static Token tokenize_word(char *p) {
   Token t = {0};
   t.lex.ptr = p;
+  t.kind = TK_IDENT;
+
   while (isalnum(*p) || *p == '_') {
     ++p;
   }
   t.lex.len = p - t.lex.ptr;
-  if (t.lex.len == 6 && strncmp(t.lex.ptr, "return", 6) == 0) {
-    t.kind = TK_RETURN;
-  } else {
-    t.kind = TK_IDENT;
+
+  switch (t.lex.len) {
+  case 2:
+    if (strncmp(t.lex.ptr, "if", 2) == 0) {
+      t.kind = TK_KW_IF;
+      return t;
+    }
+    break;
+  case 4:
+    if (strncmp(t.lex.ptr, "else", 4) == 0) {
+      t.kind = TK_KW_ELSE;
+      return t;
+    }
+    break;
+  case 6:
+    if (strncmp(t.lex.ptr, "return", 6) == 0) {
+      t.kind = TK_KW_RETURN;
+      return t;
+    }
+    break;
   }
+
   return t;
 }
 

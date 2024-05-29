@@ -93,6 +93,16 @@ static Node *node_create_binary(Arena *a, Token *t, NodeKind kind, Node *lhs,
   return node;
 }
 
+static Node *node_create_ternary(Arena *a, Token *t, NodeKind kind, Node *mhs,
+                                 Node *lhs, Node *rhs) {
+  Node *node = node_create(a, kind);
+  node->lex = t->lex;
+  node->mhs = mhs;
+  node->lhs = lhs;
+  node->rhs = rhs;
+  return node;
+}
+
 typedef struct {
   Node *body;
   Object *locals;
@@ -280,7 +290,7 @@ static Node *parse_stmt(ParseCtx *ctx) {
   case TK_SEMI:
     return node_create_unary(ctx->arena, lexer_next(ctx->lexer), ND_STMT_BLOCK,
                              NULL);
-  case TK_RETURN: {
+  case TK_KW_RETURN: {
     lexer_next(ctx->lexer);
     Node *node = parse_expr(ctx, PREC_MIN);
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
@@ -291,6 +301,25 @@ static Node *parse_stmt(ParseCtx *ctx) {
   }
   case TK_LBRACE:
     return parse_stmt_block(ctx);
+  case TK_KW_IF: {
+    Token t = *lexer_next(ctx->lexer);
+    if (lexer_peek(ctx->lexer)->kind != TK_LPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *cond = parse_expr(ctx, PREC_MIN);
+    if (lexer_peek(ctx->lexer)->kind != TK_RPAREN) {
+      return node_create_err(ctx->arena, lexer_peek(ctx->lexer));
+    }
+    lexer_next(ctx->lexer);
+    Node *then = parse_stmt(ctx);
+    if (lexer_peek(ctx->lexer)->kind == TK_KW_ELSE) {
+      lexer_next(ctx->lexer);
+      Node *els = parse_stmt(ctx);
+      return node_create_ternary(ctx->arena, &t, ND_STMT_IF, cond, then, els);
+    }
+    return node_create_ternary(ctx->arena, &t, ND_STMT_IF, cond, then, NULL);
+  }
   default: {
     Node *node = parse_expr(ctx, PREC_MIN);
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
@@ -361,16 +390,24 @@ static void ast_print_stmt(Node *node, uint8_t indent) {
     fprintf(stderr, "  ");
   }
   switch (node->kind) {
+  case ND_STMT_EXPR:
+  case ND_STMT_RETURN:
+    fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
+    ast_print_expr(node->lhs, indent + 1);
+    break;
   case ND_STMT_BLOCK:
     fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
     for (Node *n = node->lhs; n != NULL; n = n->next) {
       ast_print_stmt(n, indent + 1);
     }
     break;
-  case ND_STMT_EXPR:
-  case ND_STMT_RETURN:
+  case ND_STMT_IF:
     fprintf(stderr, "%s:\n", NODE_KIND_STR[node->kind]);
-    ast_print_expr(node->lhs, indent + 1);
+    ast_print_expr(node->mhs, indent + 1);
+    ast_print_stmt(node->lhs, indent + 1);
+    if (node->rhs != NULL) {
+      ast_print_stmt(node->rhs, indent + 1);
+    }
     break;
   default:
     ERROR_NODE_KIND(node);
@@ -404,6 +441,11 @@ static void assign_local_offsets(Function *prog) {
 // -----------------------------------------------------------------------------
 // Code generation
 // -----------------------------------------------------------------------------
+
+static uint32_t gen_uid(void) {
+  static uint32_t uid = 1;
+  return uid++;
+}
 
 static void gen_addr(Node *node) {
   if (node->kind != ND_EXPR_VAR) {
@@ -536,6 +578,20 @@ static void gen_stmt(Node *node) {
       gen_stmt(n);
     }
     break;
+  case ND_STMT_IF: {
+    uint32_t uid = gen_uid();
+    gen_expr(node->mhs);
+    printf("  test %%rax, %%rax\n");
+    printf("  je .L.else.%u\n", uid);
+    gen_stmt(node->lhs);
+    printf("  jmp .L.end.%u\n", uid);
+    printf(".L.else.%u:\n", uid);
+    if (node->rhs != NULL) {
+      gen_stmt(node->rhs);
+    }
+    printf(".L.end.%u:\n", uid);
+    break;
+  }
   default:
     ERROR_NODE_KIND(node);
     return;

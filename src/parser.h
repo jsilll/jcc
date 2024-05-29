@@ -22,7 +22,8 @@
   M(ND_EXPR_ASSIGN)                                                            \
   M(ND_STMT_EXPR)                                                              \
   M(ND_STMT_RETURN)                                                            \
-  M(ND_STMT_BLOCK)
+  M(ND_STMT_BLOCK)                                                             \
+  M(ND_STMT_IF)
 
 /// The kind of a node.
 typedef enum { ENUMERATE_NODES(GENERATE_ENUM) } NodeKind;
@@ -48,6 +49,7 @@ typedef struct Node {
   StringView lex;    // Token lexeme
   struct Node *lhs;  // Left-hand side
   struct Node *rhs;  // Right-hand side
+  struct Node *mhs;  // Middle-hand side
   struct Node *next; // Next node
   union {
     float f;

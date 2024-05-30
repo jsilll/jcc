@@ -65,32 +65,32 @@ static ExprNode *expr_create_err(Arena *a, Token *t) {
 
 static ExprNode *expr_create_num(Arena *a, Token *t) {
   ExprNode *node = expr_create(a, EXPR_NUM);
-  node->value.i = t->value.i;
+  node->e.num = t->v.num;
   node->lex = t->lex;
   return node;
 }
 
 static ExprNode *expr_create_var(Arena *a, Object *o) {
   ExprNode *node = expr_create(a, EXPR_VAR);
-  node->value.obj = o;
   node->lex = o->lex;
+  node->e.var = o;
   return node;
 }
 
 static ExprNode *expr_create_unary(Arena *a, Token *t, ExprKind kind,
-                                   ExprNode *lhs) {
+                                   ExprNode *expr) {
   ExprNode *node = expr_create(a, kind);
+  node->e.unary.expr = expr;
   node->lex = t->lex;
-  node->lhs = lhs;
   return node;
 }
 
 static ExprNode *expr_create_binary(Arena *a, Token *t, ExprKind kind,
                                     ExprNode *lhs, ExprNode *rhs) {
   ExprNode *node = expr_create(a, kind);
+  node->e.binary.lhs = lhs;
+  node->e.binary.rhs = rhs;
   node->lex = t->lex;
-  node->lhs = lhs;
-  node->rhs = rhs;
   return node;
 }
 
@@ -106,43 +106,43 @@ static StmtNode *stmt_create_err(Arena *a, Token *t) {
   return node;
 }
 
-static StmtNode *stmt_create_expr(Arena *a, Token *t, ExprNode *step) {
-  StmtNode *node = stmt_create(a, STMT_EXPR);
+static StmtNode *stmt_create_ret(Arena *a, Token *t, ExprNode *expr) {
+  StmtNode *node = stmt_create(a, STMT_RETURN);
+  node->s.ret.expr = expr;
   node->lex = t->lex;
-  node->step = step;
   return node;
 }
 
-static StmtNode *stmt_create_return(Arena *a, Token *t, ExprNode *step) {
-  StmtNode *node = stmt_create(a, STMT_RETURN);
+static StmtNode *stmt_create_expr(Arena *a, Token *t, ExprNode *expr) {
+  StmtNode *node = stmt_create(a, STMT_EXPR);
+  node->s.expr.expr = expr;
   node->lex = t->lex;
-  node->step = step;
   return node;
 }
 
 static StmtNode *stmt_create_block(Arena *a, Token *t, StmtNode *body) {
   StmtNode *node = stmt_create(a, STMT_BLOCK);
+  node->s.block.stmt = body;
   node->lex = t->lex;
-  node->body = body;
-  return node;
-}
-
-static StmtNode *stmt_create_if(Arena *a, Token *t, ExprNode *cond,
-                                StmtNode *body, StmtNode *els3) {
-  StmtNode *node = stmt_create(a, STMT_IF);
-  node->lex = t->lex;
-  node->cond = cond;
-  node->body = body;
-  node->els3 = els3;
   return node;
 }
 
 static StmtNode *stmt_create_while(Arena *a, Token *t, ExprNode *cond,
                                    StmtNode *body) {
   StmtNode *node = stmt_create(a, STMT_WHILE);
+  node->s.whil.cond = cond;
+  node->s.whil.then = body;
   node->lex = t->lex;
-  node->cond = cond;
-  node->body = body;
+  return node;
+}
+
+static StmtNode *stmt_create_if(Arena *a, Token *t, ExprNode *cond,
+                                StmtNode *then, StmtNode *els) {
+  StmtNode *node = stmt_create(a, STMT_IF);
+  node->s.iff.cond = cond;
+  node->s.iff.then = then;
+  node->s.iff.els = els;
+  node->lex = t->lex;
   return node;
 }
 
@@ -150,11 +150,11 @@ static StmtNode *stmt_create_for(Arena *a, Token *t, StmtNode *init,
                                  ExprNode *cond, ExprNode *step,
                                  StmtNode *body) {
   StmtNode *node = stmt_create(a, STMT_FOR);
+  node->s.forr.init = init;
+  node->s.forr.cond = cond;
+  node->s.forr.step = step;
+  node->s.forr.then = body;
   node->lex = t->lex;
-  node->init = init;
-  node->cond = cond;
-  node->step = step;
-  node->body = body;
   return node;
 }
 
@@ -347,7 +347,7 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     if (lexer_peek(ctx->lexer)->kind != TK_SEMI) {
       return stmt_create_err(ctx->arena, lexer_peek(ctx->lexer));
     }
-    return stmt_create_return(ctx->arena, lexer_next(ctx->lexer), node);
+    return stmt_create_ret(ctx->arena, lexer_next(ctx->lexer), node);
   }
   case TK_LBRACE:
     return parse_stmt_block(ctx);
@@ -447,11 +447,11 @@ static void ast_print_expr(ExprNode *node, uint8_t indent) {
             (int)node->lex.len, node->lex.ptr);
     return;
   case EXPR_NUM:
-    fprintf(stderr, "%s: %d\n", EXPR_KIND_STR[node->kind], node->value.i);
+    fprintf(stderr, "%s: %d\n", EXPR_KIND_STR[node->kind], node->e.num);
     return;
   case EXPR_NEG:
     fprintf(stderr, "%s:\n", EXPR_KIND_STR[node->kind]);
-    ast_print_expr(node->lhs, indent + 1);
+    ast_print_expr(node->e.unary.expr, indent + 1);
     return;
   case EXPR_ADD:
   case EXPR_SUB:
@@ -470,8 +470,8 @@ static void ast_print_expr(ExprNode *node, uint8_t indent) {
     ERROR_EXPR_KIND(node);
     return;
   }
-  ast_print_expr(node->lhs, indent + 1);
-  ast_print_expr(node->rhs, indent + 1);
+  ast_print_expr(node->e.binary.lhs, indent + 1);
+  ast_print_expr(node->e.binary.rhs, indent + 1);
 }
 
 static void ast_print_stmt(StmtNode *node, uint8_t indent) {
@@ -479,40 +479,43 @@ static void ast_print_stmt(StmtNode *node, uint8_t indent) {
     fprintf(stderr, "  ");
   }
   switch (node->kind) {
-  case STMT_EXPR:
   case STMT_RETURN:
     fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
-    ast_print_expr(node->step, indent + 1);
+    ast_print_expr(node->s.ret.expr, indent + 1);
+    break;
+  case STMT_EXPR:
+    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
+    ast_print_expr(node->s.expr.expr, indent + 1);
     break;
   case STMT_BLOCK:
     fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
-    for (StmtNode *n = node->body; n != NULL; n = n->next) {
+    for (StmtNode *n = node->s.block.stmt; n != NULL; n = n->next) {
       ast_print_stmt(n, indent + 1);
-    }
-    break;
-  case STMT_IF:
-    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
-    ast_print_expr(node->cond, indent + 1);
-    ast_print_stmt(node->body, indent + 1);
-    if (node->els3 != NULL) {
-      ast_print_stmt(node->els3, indent + 1);
     }
     break;
   case STMT_WHILE:
     fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
-    ast_print_expr(node->cond, indent + 1);
-    ast_print_stmt(node->body, indent + 1);
+    ast_print_expr(node->s.whil.cond, indent + 1);
+    ast_print_stmt(node->s.whil.then, indent + 1);
+    break;
+  case STMT_IF:
+    fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
+    ast_print_expr(node->s.iff.cond, indent + 1);
+    ast_print_stmt(node->s.iff.then, indent + 1);
+    if (node->s.iff.els != NULL) {
+      ast_print_stmt(node->s.iff.els, indent + 1);
+    }
     break;
   case STMT_FOR:
     fprintf(stderr, "%s:\n", STMT_KIND_STR[node->kind]);
-    ast_print_stmt(node->init, indent + 1);
-    if (node->cond != NULL) {
-      ast_print_expr(node->cond, indent + 1);
+    ast_print_stmt(node->s.forr.init, indent + 1);
+    if (node->s.forr.cond != NULL) {
+      ast_print_expr(node->s.forr.cond, indent + 1);
     }
-    if (node->step != NULL) {
-      ast_print_expr(node->step, indent + 1);
+    if (node->s.forr.step != NULL) {
+      ast_print_expr(node->s.forr.step, indent + 1);
     }
-    ast_print_stmt(node->body, indent + 1);
+    ast_print_stmt(node->s.forr.then, indent + 1);
     break;
   case STMT_ERR:
     ERROR_STMT_KIND(node);
@@ -557,107 +560,107 @@ static void gen_addr(ExprNode *node) {
     ERROR_EXPR_KIND(node);
     return;
   }
-  printf("  lea %d(%%rbp), %%rax\n", node->value.obj->offset);
+  printf("  lea %d(%%rbp), %%rax\n", node->e.var->offset);
 }
 
 static void gen_expr(ExprNode *node) {
   switch (node->kind) {
   case EXPR_NUM:
-    printf("  mov $%d, %%rax\n", node->value.i);
+    printf("  mov $%d, %%rax\n", node->e.num);
     return;
   case EXPR_VAR:
     gen_addr(node);
     printf("  mov (%%rax), %%rax\n");
     return;
   case EXPR_NEG:
-    gen_expr(node->lhs);
+    gen_expr(node->e.unary.expr);
     printf("  neg %%rax\n");
     return;
   case EXPR_ASSIGN:
-    gen_addr(node->lhs);
+    gen_addr(node->e.binary.lhs);
     printf("  push %%rax\n");
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  pop %%rdi\n");
     printf("  mov %%rax, (%%rdi)\n");
     return;
   case EXPR_ADD:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  add %%rdi, %%rax\n");
     break;
   case EXPR_SUB:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  sub %%rdi, %%rax\n");
     break;
   case EXPR_MUL:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  imul %%rdi, %%rax\n");
     break;
   case EXPR_DIV:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cqo\n");
     printf("  idiv %%rdi\n");
     break;
   case EXPR_EQ:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  sete %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case EXPR_NE:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setne %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case EXPR_LT:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setl %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case EXPR_LE:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setle %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case EXPR_GT:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setg %%al\n");
     printf("  movzb %%al, %%rax\n");
     break;
   case EXPR_GE:
-    gen_expr(node->rhs);
+    gen_expr(node->e.binary.rhs);
     printf("  push %%rax\n");
-    gen_expr(node->lhs);
+    gen_expr(node->e.binary.lhs);
     printf("  pop %%rdi\n");
     printf("  cmp %%rdi, %%rax\n");
     printf("  setge %%al\n");
@@ -672,27 +675,27 @@ static void gen_expr(ExprNode *node) {
 static void gen_stmt(StmtNode *node) {
   switch (node->kind) {
   case STMT_EXPR:
-    gen_expr(node->step);
+    gen_expr(node->s.expr.expr);
     return;
   case STMT_RETURN:
-    gen_expr(node->step);
+    gen_expr(node->s.ret.expr);
     printf("  jmp .L.return\n");
     return;
   case STMT_BLOCK:
-    for (StmtNode *n = node->body; n != NULL; n = n->next) {
+    for (StmtNode *n = node->s.block.stmt; n != NULL; n = n->next) {
       gen_stmt(n);
     }
     break;
   case STMT_IF: {
     uint32_t uid = gen_uid();
-    gen_expr(node->cond);
+    gen_expr(node->s.iff.cond);
     printf("  test %%rax, %%rax\n");
     printf("  je .L.else.%u\n", uid);
-    gen_stmt(node->body);
+    gen_stmt(node->s.iff.then);
     printf("  jmp .L.end.%u\n", uid);
     printf(".L.else.%u:\n", uid);
-    if (node->els3 != NULL) {
-      gen_stmt(node->els3);
+    if (node->s.iff.els != NULL) {
+      gen_stmt(node->s.iff.els);
     }
     printf(".L.end.%u:\n", uid);
     break;
@@ -700,26 +703,26 @@ static void gen_stmt(StmtNode *node) {
   case STMT_WHILE: {
     uint32_t c = gen_uid();
     printf(".L.begin.%d:\n", c);
-    gen_expr(node->cond);
+    gen_expr(node->s.whil.cond);
     printf("  test %%rax, %%rax\n");
     printf("  je  .L.end.%d\n", c);
-    gen_stmt(node->body);
+    gen_stmt(node->s.whil.then);
     printf("  jmp .L.begin.%d\n", c);
     printf(".L.end.%d:\n", c);
     return;
   }
   case STMT_FOR: {
     uint32_t c = gen_uid();
-    gen_stmt(node->init);
+    gen_stmt(node->s.forr.init);
     printf(".L.begin.%d:\n", c);
-    if (node->cond != NULL) {
-      gen_expr(node->cond);
+    if (node->s.forr.cond != NULL) {
+      gen_expr(node->s.forr.cond);
       printf("  test %%rax, %%rax\n");
       printf("  je  .L.end.%d\n", c);
     }
-    gen_stmt(node->body);
-    if (node->step != NULL) {
-      gen_expr(node->step);
+    gen_stmt(node->s.forr.then);
+    if (node->s.forr.step != NULL) {
+      gen_expr(node->s.forr.step);
     }
     printf("  jmp .L.begin.%d\n", c);
     printf(".L.end.%d:\n", c);
@@ -771,7 +774,7 @@ int main(int argc, char *argv[]) {
       break;
     case TK_NUM:
       fprintf(stderr, "%s: %d\n", TOKEN_KIND_STR[t->kind],
-              lexer_peek(&lexer)->value.i);
+              lexer_peek(&lexer)->v.num);
       break;
     default:
       fprintf(stderr, "%s\n", TOKEN_KIND_STR[t->kind]);

@@ -48,9 +48,8 @@ typedef struct {
   StringView lex;
   TokenKind kind;
   union {
-    float f;
-    int32_t i;
-  } value;
+    int32_t num;
+  } v;
 } Token;
 
 /// A lexer.

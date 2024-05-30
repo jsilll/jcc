@@ -62,7 +62,7 @@ static Token tokenize_numeric_literal(const char *p) {
   Token t = {0};
   t.kind = TK_NUM;
   t.lex.ptr = p;
-  t.value.i = strtol(p, (char **)&p, 10);
+  t.v.num = strtol(p, (char **)&p, 10);
   t.lex.len = p - t.lex.ptr;
   return t;
 }

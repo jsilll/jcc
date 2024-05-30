@@ -63,29 +63,37 @@ typedef struct Object {
 } Object;
 
 /// An AST expression node.
+typedef struct ExprNode ExprNode;
 typedef struct ExprNode {
   ExprKind kind;        // Expr kind
   StringView lex;       // Token lexeme
-  struct ExprNode *lhs; // Left-hand side
-  struct ExprNode *rhs; // Right-hand side
   union {
-    float f;
-    int32_t i;
-    Object *obj;
-  } value;
+    // clang-format off
+    int32_t num;
+    Object *var;
+    struct { ExprNode *expr; } unary;
+    struct { ExprNode *lhs, *rhs; } binary;
+    // clang-format on
+  } e;
 } ExprNode;
 
 /// An AST statement node.
-typedef struct StmtNode {
-  StmtKind kind;         // Stmt kind
-  StringView lex;        // Token lexeme
-  struct StmtNode *init; // Initialization
-  struct ExprNode *cond; // Condition
-  struct ExprNode *step; // Step
-  struct StmtNode *body; // Body
-  struct StmtNode *els3; // Else
-  struct StmtNode *next; // Next node
-} StmtNode;
+typedef struct StmtNode StmtNode;
+struct StmtNode {
+  StmtKind kind;  // Stmt kind
+  StringView lex; // Token lexeme
+  StmtNode *next; // Next node
+  union {
+    // clang-format off
+    struct { ExprNode *expr; } ret;
+    struct { ExprNode *expr; } expr;
+    struct { StmtNode *stmt; } block;
+    struct { ExprNode *cond; StmtNode *then; } whil;
+    struct { ExprNode *cond; StmtNode *then; StmtNode *els; } iff;
+    struct { StmtNode *init; ExprNode *cond; ExprNode *step; StmtNode *then; } forr;
+    // clang-format on
+  } s;
+};
 
 /// An AST function node.
 typedef struct {

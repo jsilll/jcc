@@ -49,7 +49,7 @@ typedef struct {
   TokenKind kind;
   union {
     int32_t num;
-  } v;
+  } u;
 } Token;
 
 /// A lexer.

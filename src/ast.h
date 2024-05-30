@@ -19,7 +19,7 @@ static const char *const UNOP_KIND_STR[] = {ENUMERATE_UNOPS(GENERATE_STRING)};
 #define ERROR_BINOP_KIND(node)                                                 \
   error("unexpected binary operator kind during %s:\n-> kind: %s\n-> lex: "    \
         "'%.*s'\n",                                                            \
-        __FUNCTION__, BINOP_KIND_STR[(node)->kind], (int)(node)->lex.len,      \
+        __FUNCTION__, BINOP_KIND_STR[(node)->u.unary.op], (int)(node)->lex.len,      \
         (node)->lex.ptr)
 
 #define ENUMERATE_BINOPS(M)                                                    \
@@ -44,7 +44,7 @@ static const char *const BINOP_KIND_STR[] = {ENUMERATE_BINOPS(GENERATE_STRING)};
 #define ERROR_UNOP_KIND(node)                                                  \
   error("unexpected unary operator kind during %s:\n-> kind: %s\n-> lex: "     \
         "'%.*s'\n",                                                            \
-        __FUNCTION__, UNOP_KIND_STR[(node)->kind], (int)(node)->lex.len,       \
+        __FUNCTION__, UNOP_KIND_STR[(node)->u.binary.op], (int)(node)->lex.len,       \
         (node)->lex.ptr)
 
 #define ENUMERATE_EXPRS(M)                                                     \

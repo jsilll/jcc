@@ -102,7 +102,7 @@ static Token tokenize(const char *p) {
     case '-':
       return tokenize_single_char(p, TK_MINUS);
     case '*':
-      return tokenize_single_char(p, TK_MUL);
+      return tokenize_single_char(p, TK_STAR);
     case '/':
       return tokenize_single_char(p, TK_DIV);
     case '<':
@@ -113,6 +113,8 @@ static Token tokenize(const char *p) {
       return tokenize_double_char(p, '=', TK_NE, TK_ERR);
     case '=':
       return tokenize_double_char(p, '=', TK_EQEQ, TK_EQ);
+    case '&':
+      return tokenize_double_char(p, '&', TK_AMPAMP, TK_AMP);
     default:
       return tokenize_single_char(p, TK_ERR);
     }

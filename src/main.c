@@ -253,7 +253,7 @@ static BinOpPair try_into_binop(TokenKind kind) {
     return (BinOpPair){BINOP_ADD, (BindingPower){8, 9}};
   case TK_MINUS:
     return (BinOpPair){BINOP_SUB, (BindingPower){8, 9}};
-  case TK_MUL:
+  case TK_STAR:
     return (BinOpPair){BINOP_MUL, (BindingPower){10, 11}};
   case TK_DIV:
     return (BinOpPair){BINOP_DIV, (BindingPower){10, 11}};
@@ -296,6 +296,12 @@ static ExprNode *parse_expr_primary(ParseCtx *ctx) {
     return parse_expr_primary(ctx);
   case TK_MINUS:
     return expr_create_unary(ctx->arena, t, UNOP_NEG,
+                             parse_expr(ctx, PREC_MAX));
+  case TK_AMP:
+    return expr_create_unary(ctx->arena, t, UNOP_ADDR,
+                             parse_expr(ctx, PREC_MAX));
+  case TK_STAR:
+    return expr_create_unary(ctx->arena, t, UNOP_DEREF,
                              parse_expr(ctx, PREC_MAX));
   case TK_LPAREN: {
     ExprNode *node = parse_expr(ctx, 0);
@@ -547,12 +553,25 @@ static uint32_t gen_uid(void) {
   return uid++;
 }
 
+static void gen_expr(ExprNode *node);
+
 static void gen_addr(ExprNode *node) {
-  if (node->kind != EXPR_VAR) {
+  switch (node->kind) {
+  case EXPR_VAR:
+    printf("  lea %d(%%rbp), %%rax\n", node->u.var->offset);
+    break;
+  case EXPR_UN:
+    switch (node->u.unary.op) {
+    case UNOP_DEREF:
+      gen_expr(node->u.unary.expr);
+      break;
+    default:
+      ERROR_UNOP_KIND(node);
+    }
+    break;
+  default:
     ERROR_EXPR_KIND(node);
-    return;
   }
-  printf("  lea %d(%%rbp), %%rax\n", node->u.var->offset);
 }
 
 static void gen_expr(ExprNode *node) {
@@ -569,6 +588,13 @@ static void gen_expr(ExprNode *node) {
     case UNOP_NEG:
       gen_expr(node->u.unary.expr);
       printf("  neg %%rax\n");
+      break;
+    case UNOP_ADDR:
+      gen_addr(node->u.unary.expr);
+      break;
+    case UNOP_DEREF:
+      gen_expr(node->u.unary.expr);
+      printf("  mov (%%rax), %%rax\n");
       break;
     default:
       ERROR_UNOP_KIND(node);

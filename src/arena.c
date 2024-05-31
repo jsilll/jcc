@@ -3,12 +3,12 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#ifndef CC_MEMORY_L1_CACHE_LINE_SIZE
-#define CC_MEMORY_L1_CACHE_LINE_SIZE 64
+#ifndef ARENA_DEFAULT_SIZE
+#define ARENA_DEFAULT_SIZE 4096
 #endif
 
-#ifndef CC_ARENA_DEFAULT_SIZE
-#define CC_ARENA_DEFAULT_SIZE 4096
+#ifndef MEMORY_L1_CACHE_LINE_SIZE
+#define MEMORY_L1_CACHE_LINE_SIZE 64
 #endif
 
 typedef struct ArenaBlock {
@@ -19,7 +19,7 @@ typedef struct ArenaBlock {
 
 Arena arena_default(void) {
   Arena arena = {0};
-  arena.default_size = CC_ARENA_DEFAULT_SIZE;
+  arena.default_size = ARENA_DEFAULT_SIZE;
   return arena;
 }
 
@@ -91,7 +91,7 @@ void *arena_alloc(Arena *arena, size_t size) {
       arena->allocated_size =
           size > arena->default_size ? size : arena->default_size;
       arena->ptr =
-          aligned_alloc(CC_MEMORY_L1_CACHE_LINE_SIZE, arena->allocated_size);
+          aligned_alloc(MEMORY_L1_CACHE_LINE_SIZE, arena->allocated_size);
     } else if (prev != NULL) {
       prev->next = block->next;
       arena->allocated_size = block->size;

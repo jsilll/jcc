@@ -3,45 +3,17 @@
 // -----------------------------------------------------------------------------
 
 #include "arena.h"
+#include "ast.h"
+#include "error.h"
 #include "lexer.h"
 #include "string_view.h"
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 // -----------------------------------------------------------------------------
-// Error handling
-// -----------------------------------------------------------------------------
-
-static void error(const char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
-  va_end(ap);
-}
-
-static void verror_at(const char *start, const char *loc, const char *fmt,
-                      va_list ap) {
-  int pos = loc - start;
-  fprintf(stderr, "%s\n", start);
-  fprintf(stderr, "%*s", pos, "");
-  fprintf(stderr, "^ ");
-  vfprintf(stderr, fmt, ap);
-  fprintf(stderr, "\n");
-}
-
-static void error_at(const char *start, const char *loc, const char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  verror_at(start, loc, fmt, ap);
-}
-
-// -----------------------------------------------------------------------------
 // Ast
 // -----------------------------------------------------------------------------
-
-#include "ast.h"
 
 static Object *object_create(Arena *a, Object *all, StringView lex) {
   Object *o = arena_alloc(a, sizeof(Object));

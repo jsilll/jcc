@@ -1,5 +1,5 @@
-#ifndef CC_UTILITY_H
-#define CC_UTILITY_H
+#ifndef CC_MACROS_H
+#define CC_MACROS_H
 
 // -----------------------------------------------------------------------------
 // Enum macros
@@ -18,4 +18,4 @@
 #define DEBUGF(fmt, ...)                                                       \
   fprintf(stderr, "%s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 
-#endif // CC_UTILITY_H
+#endif // CC_MACROS_H

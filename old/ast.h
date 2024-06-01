@@ -4,6 +4,22 @@
 #include "macros.h"
 #include "string_view.h"
 
+#define ENUMERATE_TYPES(M)                                                     \
+  M(TYPE_VOID)                                                                 \
+  M(TYPE_INT)                                                                  \
+  M(TYPE_PTR)
+
+/// The kind of a type.
+typedef enum { ENUMERATE_TYPES(GENERATE_ENUM) } TypeKind;
+
+/// The string representation of a type kind.
+extern const char *const TYPE_KIND_STR[];
+
+#define ERROR_TYPE_KIND(node)                                                  \
+  error("unexpected type kind during %s:\n-> kind: %s\n-> lex: '%.*s'\n",      \
+        __FUNCTION__, TYPE_KIND_STR[(node)->type->kind], (int)(node)->lex.len, \
+        (node)->lex.ptr)
+
 #define ENUMERATE_UNOPS(M)                                                     \
   M(UNOP_NEG)                                                                  \
   M(UNOP_NOT)                                                                  \
@@ -14,13 +30,13 @@
 typedef enum { ENUMERATE_UNOPS(GENERATE_ENUM) } UnOpKind;
 
 /// The string representation of a unary operator kind.
-static const char *const UNOP_KIND_STR[] = {ENUMERATE_UNOPS(GENERATE_STRING)};
+extern const char *const UNOP_KIND_STR[];
 
 #define ERROR_BINOP_KIND(node)                                                 \
   error("unexpected binary operator kind during %s:\n-> kind: %s\n-> lex: "    \
         "'%.*s'\n",                                                            \
-        __FUNCTION__, BINOP_KIND_STR[(node)->u.unary.op], (int)(node)->lex.len,      \
-        (node)->lex.ptr)
+        __FUNCTION__, BINOP_KIND_STR[(node)->u.unary.op],                      \
+        (int)(node)->lex.len, (node)->lex.ptr)
 
 #define ENUMERATE_BINOPS(M)                                                    \
   M(BINOP_ADD)                                                                 \
@@ -39,13 +55,13 @@ static const char *const UNOP_KIND_STR[] = {ENUMERATE_UNOPS(GENERATE_STRING)};
 typedef enum { ENUMERATE_BINOPS(GENERATE_ENUM) } BinOpKind;
 
 /// The string representation of a binary operator kind.
-static const char *const BINOP_KIND_STR[] = {ENUMERATE_BINOPS(GENERATE_STRING)};
+extern const char *const BINOP_KIND_STR[];
 
 #define ERROR_UNOP_KIND(node)                                                  \
   error("unexpected unary operator kind during %s:\n-> kind: %s\n-> lex: "     \
         "'%.*s'\n",                                                            \
-        __FUNCTION__, UNOP_KIND_STR[(node)->u.binary.op], (int)(node)->lex.len,       \
-        (node)->lex.ptr)
+        __FUNCTION__, UNOP_KIND_STR[(node)->u.binary.op],                      \
+        (int)(node)->lex.len, (node)->lex.ptr)
 
 #define ENUMERATE_EXPRS(M)                                                     \
   M(EXPR_ERR)                                                                  \
@@ -58,7 +74,7 @@ static const char *const BINOP_KIND_STR[] = {ENUMERATE_BINOPS(GENERATE_STRING)};
 typedef enum { ENUMERATE_EXPRS(GENERATE_ENUM) } ExprKind;
 
 /// The string representation of a node kind.
-static const char *const EXPR_KIND_STR[] = {ENUMERATE_EXPRS(GENERATE_STRING)};
+extern const char *const EXPR_KIND_STR[];
 
 /// An error message for an unexpected expression kind.
 #define ERROR_EXPR_KIND(node)                                                  \
@@ -80,7 +96,7 @@ static const char *const EXPR_KIND_STR[] = {ENUMERATE_EXPRS(GENERATE_STRING)};
 typedef enum { ENUMERATE_STMTS(GENERATE_ENUM) } StmtKind;
 
 /// The string representation of a statement kind.
-static const char *const STMT_KIND_STR[] = {ENUMERATE_STMTS(GENERATE_STRING)};
+extern const char *const STMT_KIND_STR[];
 
 /// An error message for an unexpected statement kind.
 #define ERROR_STMT_KIND(node)                                                  \
@@ -89,26 +105,39 @@ static const char *const STMT_KIND_STR[] = {ENUMERATE_STMTS(GENERATE_STRING)};
         (node)->lex.ptr)
 
 /// An object.
-typedef struct Object {
-  StringView lex;      // Token lexeme
-  int32_t offset;      // Offset from rbp
-  struct Object *next; // Next object
-} Object;
+typedef struct Object Object;
+struct Object {
+  StringView lex; // Token lexeme
+  int32_t offset; // Offset from rbp
+  Object *next;   // Next object
+};
+
+/// A type.
+typedef struct Type Type;
+struct Type {
+  TypeKind kind; // Type kind
+  union {
+    // clang-format off
+    struct { Type* base; } ptr; 
+    // clang-format on 
+  }u;
+};
 
 /// An AST expression node.
 typedef struct ExprNode ExprNode;
-typedef struct ExprNode {
+struct ExprNode {
+  Type *type;
   ExprKind kind;  // Expr kind
   StringView lex; // Token lexeme
   union {
     // clang-format off
     int32_t num;
-    Object *var;
+    struct { Object *obj; uint64_t id; } var;
     struct { UnOpKind op; ExprNode *expr; } unary;
     struct { BinOpKind op; ExprNode *lhs, *rhs; } binary;
     // clang-format on
   } u;
-} ExprNode;
+};
 
 /// An AST statement node.
 typedef struct StmtNode StmtNode;

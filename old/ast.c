@@ -1,0 +1,11 @@
+#include "ast.h"
+
+const char *const TYPE_KIND_STR[] = {ENUMERATE_TYPES(GENERATE_STRING)};
+
+const char *const UNOP_KIND_STR[] = {ENUMERATE_UNOPS(GENERATE_STRING)};
+
+const char *const BINOP_KIND_STR[] = {ENUMERATE_BINOPS(GENERATE_STRING)};
+
+const char *const EXPR_KIND_STR[] = {ENUMERATE_EXPRS(GENERATE_STRING)};
+
+const char *const STMT_KIND_STR[] = {ENUMERATE_STMTS(GENERATE_STRING)};

@@ -11,19 +11,21 @@
 #define MEMORY_L1_CACHE_LINE_SIZE 64
 #endif
 
-typedef struct ArenaBlock {
-  uint8_t *ptr;            // Pointer to the block
-  size_t size;             // Size of the block
-  struct ArenaBlock *next; // Next block
-} ArenaBlock;
-
-Arena arena_default(void) {
-  Arena arena = {0};
-  arena.default_size = ARENA_DEFAULT_SIZE;
-  return arena;
-}
+struct ArenaBlock {
+  uint8_t *ptr;     // Pointer to the block
+  size_t size;      // Size of the block
+  ArenaBlock *next; // Next block
+};
 
 Arena arena_create(size_t default_size) {
+  --default_size;
+  default_size |= default_size >> 1;
+  default_size |= default_size >> 2;
+  default_size |= default_size >> 4;
+  default_size |= default_size >> 8;
+  default_size |= default_size >> 16;
+  default_size |= default_size >> 32;
+  ++default_size;
   Arena arena = {0};
   arena.default_size = default_size;
   return arena;
@@ -43,6 +45,17 @@ void arena_clear(Arena *arena) {
     arena->free = arena->used;
   }
   arena->used = NULL;
+}
+
+void arena_garbage_collect(Arena *arena) {
+  ArenaBlock *block = arena->free;
+  while (block != NULL) {
+    ArenaBlock *next = block->next;
+    free(block->ptr);
+    free(block);
+    block = next;
+  }
+  arena->free = NULL;
 }
 
 void arena_destroy(Arena *arena) {
@@ -108,6 +121,11 @@ void *arena_alloc(Arena *arena, size_t size) {
   return ptr;
 }
 
+void arena_undo(Arena *arena, size_t size) {
+  assert(arena->commited_size >= size);
+  arena->commited_size -= size;
+}
+
 size_t arena_total_bytes_allocated(const Arena *arena) {
   size_t total = arena->allocated_size;
   ArenaBlock *block = arena->used;
@@ -121,6 +139,14 @@ size_t arena_total_bytes_allocated(const Arena *arena) {
     block = block->next;
   }
   return total;
+}
+
+void *aren_calloc(Arena *arena, size_t size) {
+  void *ptr = arena_alloc(arena, size);
+  for (size_t i = 0; i < size; ++i) {
+    ((uint8_t *)ptr)[i] = 0;
+  }
+  return ptr;
 }
 
 uint32_t arena_total_blocks_allocated(const Arena *arena) {

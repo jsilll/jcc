@@ -37,7 +37,7 @@
 typedef enum { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;
 
 /// The string representation of a token kind.
-static const char *const TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
+extern const char *const TOKEN_KIND_STR[];
 
 /// An error message for an unexpected token kind.
 #define ERROR_TOKEN_KIND(token)                                                \

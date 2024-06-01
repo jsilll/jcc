@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+const char *const TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
+
 static Token tokenize_single_char(const char *p, TokenKind k) {
   return (Token){.kind = k, .lex = {p, 1}};
 }

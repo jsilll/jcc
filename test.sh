@@ -4,7 +4,7 @@ assert() {
     expected="$1"
     input="$2"
 
-    ./build/cc "$input" > tmp.s || exit
+    ./bin/jcc "$input" > tmp.s || exit
     gcc -static -o tmp tmp.s
     ./tmp
     actual="$?"
@@ -17,9 +17,7 @@ assert() {
     fi
 }
 
-cd build
-ninja || exit
-cd ..
+make || exit
 
 assert 0 '{ return 0; }'
 assert 42 '{ return 42; }'

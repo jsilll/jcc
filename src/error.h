@@ -1,19 +1,11 @@
-#ifndef CC_ERROR_H
-#define CC_ERROR_H
+#ifndef ERROR_H
+#define ERROR_H
 
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
+#include "file.h"
 
-/// Print an error message and exit.
-/// @param fmt The format string.
-/// @param ... The arguments to the format string.
-void error(const char *fmt, ...);
+void error(const char *msg, ...);
 
-/// Print an error message with a location and exit.
-/// @param start The start of the source code.
-/// @param loc The location of the error.
-/// @param fmt The format string.
-void error_at(const char *start, const char *loc, const char *fmt, ...);
+void error_at(const File *file, StringView sv, const char *title,
+              const char *msg, ...);
 
-#endif // CC_ERROR_H
+#endif // ERROR_H

@@ -31,8 +31,13 @@ static void report_scan_errors(const File *file, const ScanErrorStream *errors,
   for (u32 i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
     case SCAN_ERR_INVALID_CHAR:
-      error_at(file, errors->data[i].lex, "unexpected character",
-               "character '%c' is not allowed", *errors->data[i].lex.data);
+      if (IS_ASCII(*errors->data[i].lex.data)) {
+        error_at(file, errors->data[i].lex, "unexpected character",
+                 "character '%c' is not allowed", *errors->data[i].lex.data);
+      } else {
+        error_at(file, errors->data[i].lex, "unexpected character",
+                 "character is not an ASCII");
+      }
       break;
     case SCAN_ERR_UNTERMINATED_STRING:
       error_at(file, errors->data[i].lex, "unterminated string",

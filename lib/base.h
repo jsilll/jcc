@@ -37,6 +37,8 @@
 
 #define IS_POW2(x) (((x) & ((x)-1)) == 0)
 
+#define IS_ASCII(c) ((c) >= 0 && (c) <= 127)
+
 #define ALIGN_DOWN(x, align) ((x) & ~((align)-1))
 
 #define ALIGN_UP(x, align) (((x) + (align)-1) & ~((align)-1))

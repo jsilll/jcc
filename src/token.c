@@ -20,6 +20,10 @@ static inline char *line_number_fmt(u32 line_digits) {
 }
 
 void token_stream_debug(const TokenStream *stream, File *file) {
+  if (stream->size == 0) {
+    return;
+  }
+
   const u32 last_line =
       file_get_line_col(file, stream->data[stream->size - 1].lex.data).line;
   const u32 line_digits = count_digits(last_line);
@@ -32,7 +36,7 @@ void token_stream_debug(const TokenStream *stream, File *file) {
       printf(fmt, lc.line);
       line = lc.line;
     } else {
-      printf("        | ");
+      printf("%*s | ", line_digits, "");
     }
     switch (token.kind) {
     case TK_ID:
@@ -44,6 +48,10 @@ void token_stream_debug(const TokenStream *stream, File *file) {
              token.lex.data);
       break;
     case TK_STRING:
+      printf("%s: %.*s\n", TOKEN_KIND_STR[token.kind], token.lex.size,
+             token.lex.data);
+      break;
+    case TK_COMMENT:
       printf("%s: %.*s\n", TOKEN_KIND_STR[token.kind], token.lex.size,
              token.lex.data);
       break;

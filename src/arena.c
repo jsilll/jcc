@@ -1,7 +1,6 @@
 #include "arena.h"
 
 #include <assert.h>
-#include <stdlib.h>
 
 #ifndef ARENA_DEFAULT_SIZE
 #define ARENA_DEFAULT_SIZE 4096
@@ -12,12 +11,12 @@
 #endif
 
 struct ArenaBlock {
-  uint8_t *ptr;     // Pointer to the block
-  size_t size;      // Size of the block
-  ArenaBlock *next; // Next block
+  uint8_t *ptr;
+  size_t size;
+  ArenaBlock *next;
 };
 
-Arena arena_create(size_t default_size) {
+void arena_init(Arena *arena, size_t default_size) {
   --default_size;
   default_size |= default_size >> 1;
   default_size |= default_size >> 2;
@@ -26,39 +25,15 @@ Arena arena_create(size_t default_size) {
   default_size |= default_size >> 16;
   default_size |= default_size >> 32;
   ++default_size;
-  Arena arena = {0};
-  arena.default_size = default_size;
-  return arena;
-}
-
-void arena_clear(Arena *arena) {
+  arena->ptr = NULL;
+  arena->default_size = default_size;
   arena->commited_size = 0;
-  ArenaBlock *block = arena->free;
-  ArenaBlock *prev = NULL;
-  while (block != NULL) {
-    prev = block;
-    block = block->next;
-  }
-  if (prev != NULL) {
-    prev->next = arena->used;
-  } else {
-    arena->free = arena->used;
-  }
+  arena->allocated_size = 0;
   arena->used = NULL;
-}
-
-void arena_garbage_collect(Arena *arena) {
-  ArenaBlock *block = arena->free;
-  while (block != NULL) {
-    ArenaBlock *next = block->next;
-    free(block->ptr);
-    free(block);
-    block = next;
-  }
   arena->free = NULL;
 }
 
-void arena_destroy(Arena *arena) {
+void arena_free(Arena *arena) {
   if (arena->ptr != NULL) {
     free(arena->ptr);
   }
@@ -82,7 +57,7 @@ void *arena_alloc(Arena *arena, size_t size) {
   static_assert(sizeof(max_align_t) != 0 &&
                     (sizeof(max_align_t) & (sizeof(max_align_t) - 1)) == 0,
                 "Alignment must be a power of two");
-  size = (size + sizeof(max_align_t) - 1) & ~(sizeof(max_align_t) - 1);
+  size = ALIGN_UP(size, sizeof(max_align_t));
   if (arena->commited_size + size > arena->allocated_size) {
     if (arena->ptr != NULL) {
       ArenaBlock *block = malloc(sizeof(ArenaBlock));
@@ -121,12 +96,47 @@ void *arena_alloc(Arena *arena, size_t size) {
   return ptr;
 }
 
+void *arena_calloc(Arena *arena, size_t size) {
+  void *ptr = arena_alloc(arena, size);
+  for (size_t i = 0; i < size; ++i) {
+    ((uint8_t *)ptr)[i] = 0;
+  }
+  return ptr;
+}
+
+void arena_clear(Arena *arena) {
+  arena->commited_size = 0;
+  ArenaBlock *block = arena->free;
+  ArenaBlock *prev = NULL;
+  while (block != NULL) {
+    prev = block;
+    block = block->next;
+  }
+  if (prev != NULL) {
+    prev->next = arena->used;
+  } else {
+    arena->free = arena->used;
+  }
+  arena->used = NULL;
+}
+
+void arena_garbage_collect(Arena *arena) {
+  ArenaBlock *block = arena->free;
+  while (block != NULL) {
+    ArenaBlock *next = block->next;
+    free(block->ptr);
+    free(block);
+    block = next;
+  }
+  arena->free = NULL;
+}
+
 void arena_undo(Arena *arena, size_t size) {
   assert(arena->commited_size >= size);
   arena->commited_size -= size;
 }
 
-size_t arena_total_bytes_allocated(const Arena *arena) {
+size_t arena_total_bytes(const Arena *arena) {
   size_t total = arena->allocated_size;
   ArenaBlock *block = arena->used;
   while (block != NULL) {
@@ -141,15 +151,7 @@ size_t arena_total_bytes_allocated(const Arena *arena) {
   return total;
 }
 
-void *aren_calloc(Arena *arena, size_t size) {
-  void *ptr = arena_alloc(arena, size);
-  for (size_t i = 0; i < size; ++i) {
-    ((uint8_t *)ptr)[i] = 0;
-  }
-  return ptr;
-}
-
-uint32_t arena_total_blocks_allocated(const Arena *arena) {
+uint32_t arena_total_blocks(const Arena *arena) {
   uint32_t total = 0;
   ArenaBlock *block = arena->used;
   while (block != NULL) {

@@ -1,12 +1,11 @@
 PROJECT = jcc
 
 SRC_DIR = src
-LIB_DIR = lib
 OBJ_DIR = obj
 BIN_DIR = bin
 
 CC = gcc
-C_FLAGS = -std=c11 -pedantic -Wall -Wextra -g -I$(LIB_DIR)
+C_FLAGS = -std=c11 -pedantic -Wall -Wextra -g
 LD_FLAGS =
 
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)

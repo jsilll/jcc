@@ -39,6 +39,10 @@ static void report_scan_errors(const File *file, const ScanErrorStream *errors,
                  "character is not an ASCII");
       }
       break;
+    case SCAN_ERR_INVALID_SEQUENCE:
+      error_at(file, errors->data[i].lex, "invalid sequence",
+               "this sequence of characters does not match any token");
+      break;
     case SCAN_ERR_UNTERMINATED_STRING:
       error_at(file, errors->data[i].lex, "unterminated string",
                "string is not terminated");
@@ -69,7 +73,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Scan file
-  ScanResult sr = scan(&file);
+  ScanResult sr = scan(&file, true);
   if (sr.errors.size > 0) {
     report_scan_errors(&file, &sr.errors, 1);
     scan_result_free(&sr);

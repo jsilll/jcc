@@ -1,5 +1,5 @@
-#ifndef FILE_H
-#define FILE_H
+#ifndef JCC_FILE_H
+#define JCC_FILE_H
 
 #include "base.h"
 

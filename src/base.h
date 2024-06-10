@@ -47,7 +47,23 @@
 
 #define GROW_CAP(capacity) ((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define DECLARE_VIEW(T, V, P)                                                  \
+typedef uint8_t u8;
+typedef int8_t i8;
+typedef uint16_t u16;
+typedef int16_t i16;
+typedef uint32_t u32;
+typedef int32_t i32;
+typedef uint64_t u64;
+typedef int64_t i64;
+typedef float f32;
+typedef double f64;
+
+typedef struct Allocator {
+  void *ctx;
+  void *(*alloc)(void *ctx, size_t size);
+} Allocator;
+
+#define DECLARE_SLICE(T, V, P)                                                 \
   typedef struct V {                                                           \
     T *data;                                                                   \
     u32 size;                                                                  \
@@ -86,22 +102,6 @@
     v->data[v->size++] = value;                                                \
   }
 
-typedef uint8_t u8;
-typedef int8_t i8;
-typedef uint16_t u16;
-typedef int16_t i16;
-typedef uint32_t u32;
-typedef int32_t i32;
-typedef uint64_t u64;
-typedef int64_t i64;
-typedef float f32;
-typedef double f64;
-
-typedef struct Allocator {
-  void *ctx;
-  void *(*alloc)(void *ctx, size_t size);
-} Allocator;
-
-DECLARE_VIEW(char, StringView, sv)
+DECLARE_SLICE(char, StringView, sv)
 
 #endif // BASE_H

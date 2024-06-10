@@ -1,5 +1,5 @@
-#ifndef TOKEN_H
-#define TOKEN_H
+#ifndef JCC_TOKEN_H
+#define JCC_TOKEN_H
 
 #include "file.h"
 
@@ -125,4 +125,4 @@ DECLARE_VECTOR(Token, TokenStream, token_stream)
 
 void token_stream_debug(const TokenStream *stream, File *file);
 
-#endif // TOKEN_H
+#endif // JCC_TOKEN_H

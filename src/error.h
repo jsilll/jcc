@@ -5,7 +5,7 @@
 
 void error(const char *msg, ...);
 
-void error_at(const File *file, StringView sv, const char *title,
+void error_at(const SrcFile *file, StringView sv, const char *title,
               const char *msg, ...);
 
 #endif // JCC_ERROR_H

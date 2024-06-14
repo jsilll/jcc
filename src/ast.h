@@ -7,20 +7,14 @@
   M(TYPE_VOID)                                                                 \
   M(TYPE_INT)                                                                  \
   M(TYPE_PTR)
-
-typedef enum { ENUMERATE_TYPES(GENERATE_ENUM) } TypeKind;
-
-extern const char *const TYPE_KIND_STR[];
+DECLARE_ENUM_WITH_REPR(TypeKind, ENUMERATE_TYPES)
 
 #define ENUMERATE_UNOPS(M)                                                     \
   M(UNOP_NEG)                                                                  \
   M(UNOP_NOT)                                                                  \
   M(UNOP_ADDR)                                                                 \
   M(UNOP_DEREF)
-
-typedef enum { ENUMERATE_UNOPS(GENERATE_ENUM) } UnOpKind;
-
-extern const char *const UNOP_KIND_STR[];
+DECLARE_ENUM_WITH_REPR(UnOpKind, ENUMERATE_UNOPS)
 
 #define ENUMERATE_BINOPS(M)                                                    \
   M(BINOP_ADD)                                                                 \
@@ -34,10 +28,7 @@ extern const char *const UNOP_KIND_STR[];
   M(BINOP_GT)                                                                  \
   M(BINOP_GE)                                                                  \
   M(BINOP_ASGN)
-
-typedef enum { ENUMERATE_BINOPS(GENERATE_ENUM) } BinOpKind;
-
-extern const char *const BINOP_KIND_STR[];
+DECLARE_ENUM_WITH_REPR(BinOpKind, ENUMERATE_BINOPS)
 
 #define ENUMERATE_EXPRS(M)                                                     \
   M(EXPR_ERR)                                                                  \
@@ -45,10 +36,7 @@ extern const char *const BINOP_KIND_STR[];
   M(EXPR_VAR)                                                                  \
   M(EXPR_UN)                                                                   \
   M(EXPR_BIN)
-
-typedef enum { ENUMERATE_EXPRS(GENERATE_ENUM) } ExprKind;
-
-extern const char *const EXPR_KIND_STR[];
+DECLARE_ENUM_WITH_REPR(ExprKind, ENUMERATE_EXPRS)
 
 #define ENUMERATE_STMTS(M)                                                     \
   M(STMT_ERR)                                                                  \
@@ -58,10 +46,7 @@ extern const char *const EXPR_KIND_STR[];
   M(STMT_IF)                                                                   \
   M(STMT_FOR)                                                                  \
   M(STMT_WHILE)
-
-typedef enum { ENUMERATE_STMTS(GENERATE_ENUM) } StmtKind;
-
-extern const char *const STMT_KIND_STR[];
+DECLARE_ENUM_WITH_REPR(StmtKind, ENUMERATE_STMTS)
 
 typedef struct Type Type;
 typedef struct ExprNode ExprNode;

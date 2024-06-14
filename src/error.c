@@ -11,46 +11,35 @@ void error(const char *msg, ...) {
   va_end(args);
 }
 
-static inline u32 count_digits(u32 n) {
-  u32 digits = 1;
-  for (u32 i = n; i >= 10; i /= 10) {
-    ++digits;
-  }
-  return digits;
-}
-
-static inline char *line_number_fmt(u32 line_digits) {
-  static char fmt[16];
-  sprintf(fmt, " %%%dd | %%s\n", line_digits);
-  return fmt;
-}
-
-static void verror_at(const File *file, StringView sv, const char *title,
+static void verror_at(const SrcFile *file, StringView sv, const char *title,
                       const char *msg, va_list args) {
-  const char *line = file_get_line(file, sv.data);
-  const LineCol lc = file_get_line_col(file, sv.data);
-  const u32 line_digits = count_digits(lc.line);
-  const char *const fmt = line_number_fmt(line_digits);
+  char fmt[32] = {0};
+  const Loc loc = src_file_get_loc(file, sv.data);
+  const u32 digits = digit_count(loc.line);
+  line_number_fmt(fmt, sizeof(fmt), digits);
+
   fprintf(stderr, "error: %s\n", title);
-  fprintf(stderr, " %*s--> %s:%d:%d\n", line_digits, "", file->name, lc.line,
-          lc.col);
-  fprintf(stderr, " %*s |\n", line_digits, "");
-  fprintf(stderr, fmt, lc.line, line);
+  fprintf(stderr, "%*s--> %s:%d:%d\n", digits, "", file->name, loc.line, loc.col);
+  fprintf(stderr, "%*s |\n", digits, "");
+  fprintf(stderr, fmt, loc.line);
+  fprintf(stderr, "%s\n", loc.str);
+
   if (sv.size <= 1) {
-    fprintf(stderr, " %*s | %*s┌\n", line_digits, "", lc.col - 1, "");
+    fprintf(stderr, "%*s | %*s┌\n", digits, "", loc.col - 1, "");
   } else {
-    fprintf(stderr, " %*s | %*s┌", line_digits, "", lc.col - 1, "");
+    fprintf(stderr, "%*s | %*s┌", digits, "", loc.col - 1, "");
     for (uint32_t i = 0; i < sv.size - 1; ++i) {
       fprintf(stderr, "─");
     }
     fprintf(stderr, "\n");
   }
-  fprintf(stderr, " %*s | %*s└─ ", line_digits, "", lc.col - 1, "");
+
+  fprintf(stderr, "%*s | %*s└─ ", digits, "", loc.col - 1, "");
   vfprintf(stderr, msg, args);
   fprintf(stderr, "\n");
 }
 
-void error_at(const File *file, StringView sv, const char *title,
+void error_at(const SrcFile *file, StringView sv, const char *title,
               const char *msg, ...) {
   va_list args;
   va_start(args, msg);

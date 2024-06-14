@@ -16,21 +16,22 @@ typedef struct File {
   char *end;
   char **lines;
   u32 num_lines;
-} File;
+} SrcFile;
 
-typedef struct LineCol {
+typedef struct Loc {
+  const char *str;
   u32 line;
   u32 col;
-} LineCol;
+} Loc;
 
-FileResult file_init(File *file, const char *name);
+FileResult src_file_init(SrcFile *file, const char *name);
 
-void file_free(File *file);
+void src_file_free(SrcFile *file);
 
-void file_init_from_raw(File *file, const char *name, const char *data);
+void src_file_init_from_raw(SrcFile *file, const char *name, const char *data);
 
-char *file_get_line(const File *file, const char *loc);
+u32 src_file_get_num_lines(const SrcFile *file);
 
-LineCol file_get_line_col(const File *file, const char *loc);
+Loc src_file_get_loc(const SrcFile *file, const char *loc);
 
 #endif // FILE_H

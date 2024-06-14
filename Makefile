@@ -14,7 +14,7 @@ DEP_FILES = $(OBJ_FILES:.o=.d)
 
 BIN = $(BIN_DIR)/$(PROJECT)
 
-.PHONY: all clean format
+.PHONY: all clean
 
 all: $(BIN)
 
@@ -34,6 +34,3 @@ $(OBJ_DIR):
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
-
-format:
-	clang-format -i $(SRC_FILES)

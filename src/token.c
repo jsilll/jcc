@@ -1,62 +1,42 @@
 #include "token.h"
+#include "base.h"
 #include "file.h"
 
-const char *const TOKEN_KIND_STR[] = {ENUMERATE_TOKENS(GENERATE_STRING)};
+DEFINE_ENUM_WITH_REPR(TokenKind, ENUMERATE_TOKENS)
 
 DEFINE_VECTOR(Token, TokenStream, token_stream)
 
-static inline u32 count_digits(u32 n) {
-  u32 digits = 1;
-  for (u32 i = n; i >= 10; i /= 10) {
-    ++digits;
-  }
-  return digits;
-}
-
-static inline char *line_number_fmt(u32 line_digits) {
-  static char fmt[16];
-  sprintf(fmt, "%%%dd | ", line_digits);
-  return fmt;
-}
-
-void token_stream_debug(const TokenStream *stream, File *file) {
+void token_stream_debug(FILE *out, const TokenStream *stream,
+                        const SrcFile *file) {
   if (stream->size == 0) {
     return;
   }
 
-  const u32 last_line =
-      file_get_line_col(file, stream->data[stream->size - 1].lex.data).line;
-  const u32 line_digits = count_digits(last_line);
-  const char *const fmt = line_number_fmt(line_digits);
+  char fmt[32] = {0};
+  const u32 digits = digit_count(file->num_lines);
+  line_number_fmt(fmt, sizeof(fmt), digits);
+
   u32 line = 0;
   for (u32 i = 0; i < stream->size; ++i) {
     const Token token = stream->data[i];
-    const LineCol lc = file_get_line_col(file, token.lex.data);
-    if (lc.line != line) {
-      printf(fmt, lc.line);
-      line = lc.line;
+    const Loc loc = src_file_get_loc(file, token.lex.data);
+    if (loc.line != line) {
+      fprintf(out, fmt, loc.line);
+      line = loc.line;
     } else {
-      printf("%*s | ", line_digits, "");
+      fprintf(out, "%*s | ", digits, "");
     }
     switch (token.kind) {
     case TK_ID:
-      printf("%s: %.*s\n", TOKEN_KIND_STR[token.kind], token.lex.size,
-             token.lex.data);
-      break;
     case TK_INT:
-      printf("%s: %.*s\n", TOKEN_KIND_STR[token.kind], token.lex.size,
-             token.lex.data);
-      break;
+    case TK_CHAR:
     case TK_STRING:
-      printf("%s: %.*s\n", TOKEN_KIND_STR[token.kind], token.lex.size,
-             token.lex.data);
-      break;
     case TK_COMMENT:
-      printf("%s: %.*s\n", TOKEN_KIND_STR[token.kind], token.lex.size,
-             token.lex.data);
+      fprintf(out, "%s: %.*s\n", TokenKind_Repr[token.kind], token.lex.size,
+              token.lex.data);
       break;
     default:
-      printf("%s\n", TOKEN_KIND_STR[token.kind]);
+      fprintf(out, "%s\n", TokenKind_Repr[token.kind]);
     }
   }
 }

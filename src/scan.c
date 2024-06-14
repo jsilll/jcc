@@ -1,10 +1,16 @@
 #include "scan.h"
+#include "base.h"
 #include "token.h"
 
 #include <ctype.h>
 #include <string.h>
 
 DEFINE_VECTOR(ScanError, ScanErrorStream, scan_error_stream)
+
+void scan_result_free(ScanResult *result) {
+  token_stream_free(&result->tokens);
+  scan_error_stream_free(&result->errors);
+}
 
 static inline TokenKind check_keyword(u32 start, u32 size, const char *rest,
                                       StringView *lex, TokenKind kind) {
@@ -228,7 +234,7 @@ static TokenKind lookup_keyword(StringView *lex) {
   return TK_ID;
 }
 
-ScanResult scan(File *file, bool comments) {
+ScanResult scan(SrcFile *file, bool comments) {
   ScanResult res;
   token_stream_init(&res.tokens);
   scan_error_stream_init(&res.errors);
@@ -630,11 +636,79 @@ ScanResult scan(File *file, bool comments) {
       } else {
         scan_error_stream_push(
             &res.errors,
-            (ScanError){SCAN_ERR_UNTERMINATED_STRING, (StringView){c, 1}});
+            (ScanError){SCAN_ERR_UNTERMINATED_STRING, (StringView){c++, 1}});
       }
       break;
     case '\'': // Character literals
-      TODO("Scan character literals");
+      lex = (StringView){c++, 1};
+      if (*c == '\0') {
+        scan_error_stream_push(&res.errors,
+                               (ScanError){SCAN_ERR_UNTERMINATED_CHAR, lex});
+      } else if (*c == '\\') {
+        ++c;
+        ++lex.size;
+        switch (*c) {
+        case 'a':
+        case 'b':
+        case 'f':
+        case 'n':
+        case 'r':
+        case 't':
+        case 'v':
+        case '\\':
+        case '\'':
+        case '"':
+        case '?':
+        case '0':
+          ++c;
+          ++lex.size;
+          break;
+        case 'x':
+          TODO("Handle hexadecimal value");
+          break;
+        case 'u':
+          TODO("Handle unicode value");
+          break;
+        default:
+          scan_error_stream_push(
+              &res.errors,
+              (ScanError){SCAN_ERR_INVALID_ESCAPE, (StringView){c - 1, 2}});
+          ++c;
+          ++lex.size;
+        }
+        if (*c != '\'') {
+          scan_error_stream_push(
+              &res.errors,
+              (ScanError){SCAN_ERR_UNTERMINATED_CHAR, (StringView){c++, 1}});
+        }
+        ++c;
+        ++lex.size;
+        token_stream_push(&res.tokens, (Token){TK_CHAR, lex});
+      } else if (*c != '\'' && *c != '\n') {
+        ++c;
+        ++lex.size;
+        switch (*c) {
+        case '\'':
+          ++c;
+          ++lex.size;
+          token_stream_push(&res.tokens, (Token){TK_CHAR, lex});
+          break;
+        default:
+          if (IS_ASCII(*c)) {
+            scan_error_stream_push(
+                &res.errors,
+                (ScanError){SCAN_ERR_UNTERMINATED_CHAR, (StringView){c++, 1}});
+          } else {
+            scan_error_stream_push(
+                &res.errors,
+                (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c - 1, 1}});
+            ++c;
+          }
+        }
+      } else {
+        scan_error_stream_push(&res.errors, (ScanError){SCAN_ERR_INVALID_CHAR,
+                                                        (StringView){c++, 1}});
+      }
       break;
     default:
       lex = (StringView){c, 1};
@@ -658,9 +732,4 @@ ScanResult scan(File *file, bool comments) {
     }
   }
   return res;
-}
-
-void scan_result_free(ScanResult *result) {
-  token_stream_free(&result->tokens);
-  scan_error_stream_free(&result->errors);
 }

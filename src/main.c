@@ -5,10 +5,11 @@
 #include <string.h>
 
 static void print_usage(const char *name) {
-  fprintf(stderr, "usage: %s [ <stmt> | --file <file> ]\n", name);
+  fprintf(stderr, "usage: %s [ <stmt> | --file <file> ] [--emit-tokens]\n",
+          name);
 }
 
-static void report_file_errors(const char *name, FileResult result) {
+static void report_file_errors(const char *name, const FileResult result) {
   switch (result) {
   case FILE_SUCCESS:
     PANIC("unexpected file result");
@@ -25,8 +26,8 @@ static void report_file_errors(const char *name, FileResult result) {
   }
 }
 
-static void report_scan_errors(const File *file, const ScanErrorStream *errors,
-                               u32 max) {
+static void report_scan_errors(const SrcFile *file,
+                               const ScanErrorStream *errors, u32 max) {
   max = MIN(max, errors->size);
   for (u32 i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
@@ -39,54 +40,60 @@ static void report_scan_errors(const File *file, const ScanErrorStream *errors,
                  "character is not an ASCII");
       }
       break;
+    case SCAN_ERR_INVALID_ESCAPE:
+      error_at(file, errors->data[i].lex, "invalid escape sequence",
+               "escape sequence is invalid");
+      break;
     case SCAN_ERR_INVALID_SEQUENCE:
       error_at(file, errors->data[i].lex, "invalid sequence",
                "this sequence of characters does not match any token");
       break;
+    case SCAN_ERR_UNTERMINATED_CHAR:
+      error_at(file, errors->data[i].lex, "unterminated character literal",
+               "character literal is not terminated");
+      break;
     case SCAN_ERR_UNTERMINATED_STRING:
-      error_at(file, errors->data[i].lex, "unterminated string",
-               "string is not terminated");
+      error_at(file, errors->data[i].lex, "unterminated string literal",
+               "string literal is not terminated");
       break;
     }
   }
 }
 
 int main(int argc, char *argv[]) {
-  if (argc == 1 || argc > 3) {
+  if (argc == 1 || argc > 4) {
     print_usage(argv[0]);
     return EXIT_FAILURE;
   }
 
-  // Open file
-  File file;
+  SrcFile file;
   if (argc == 2) {
-    file_init_from_raw(&file, "stdin", argv[1]);
-  } else if (argc == 3 && strcmp(argv[1], "--file") == 0) {
-    FileResult fr = file_init(&file, argv[2]);
+    src_file_init_from_raw(&file, "stdin", argv[1]);
+  } else if (strcmp(argv[1], "--file") == 0) {
+    FileResult fr = src_file_init(&file, argv[2]);
     if (fr != FILE_SUCCESS) {
       report_file_errors(argv[2], fr);
       return EXIT_FAILURE;
     }
   } else {
-    print_usage(argv[0]);
-    return EXIT_FAILURE;
+    src_file_init_from_raw(&file, "stdin", argv[1]);
   }
 
-  // Scan file
+  const bool emit_tokens = strcmp(argv[argc - 1], "--emit-tokens") == 0;
+
   ScanResult sr = scan(&file, true);
   if (sr.errors.size > 0) {
     report_scan_errors(&file, &sr.errors, 1);
     scan_result_free(&sr);
-    file_free(&file);
+    src_file_free(&file);
     return EXIT_FAILURE;
   }
 
-  // TODO: Only for debugging
-  token_stream_debug(&sr.tokens, &file);
-
-  // TODO: Parse tokens
+  if (emit_tokens) {
+    token_stream_debug(stdout, &sr.tokens, &file);
+  }
 
   scan_result_free(&sr);
-  file_free(&file);
+  src_file_free(&file);
   return EXIT_SUCCESS;
 }

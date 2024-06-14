@@ -112,9 +112,7 @@
                                                                                \
   M(TK_COMMENT)
 
-typedef enum TokenKind { ENUMERATE_TOKENS(GENERATE_ENUM) } TokenKind;
-
-extern const char *const TOKEN_KIND_STR[];
+DECLARE_ENUM_WITH_REPR(TokenKind, ENUMERATE_TOKENS)
 
 typedef struct Token {
   TokenKind kind;
@@ -123,6 +121,7 @@ typedef struct Token {
 
 DECLARE_VECTOR(Token, TokenStream, token_stream)
 
-void token_stream_debug(const TokenStream *stream, File *file);
+void token_stream_debug(FILE *out, const TokenStream *stream,
+                        const SrcFile *file);
 
 #endif // JCC_TOKEN_H

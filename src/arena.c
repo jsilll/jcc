@@ -2,12 +2,8 @@
 
 #include <assert.h>
 
-#ifndef ARENA_DEFAULT_SIZE
-#define ARENA_DEFAULT_SIZE 4096
-#endif
-
-#ifndef MEMORY_L1_CACHE_LINE_SIZE
-#define MEMORY_L1_CACHE_LINE_SIZE 64
+#ifndef JCC_ARENA_L1_CACHE_LINE_SIZE
+#define JCC_ARENA_L1_CACHE_LINE_SIZE 64
 #endif
 
 struct ArenaBlock {
@@ -17,14 +13,7 @@ struct ArenaBlock {
 };
 
 void arena_init(Arena *arena, size_t default_size) {
-  --default_size;
-  default_size |= default_size >> 1;
-  default_size |= default_size >> 2;
-  default_size |= default_size >> 4;
-  default_size |= default_size >> 8;
-  default_size |= default_size >> 16;
-  default_size |= default_size >> 32;
-  ++default_size;
+  default_size = next_power_of_two(default_size);
   arena->ptr = NULL;
   arena->default_size = default_size;
   arena->commited_size = 0;
@@ -79,7 +68,7 @@ void *arena_alloc(Arena *arena, size_t size) {
       arena->allocated_size =
           size > arena->default_size ? size : arena->default_size;
       arena->ptr =
-          aligned_alloc(MEMORY_L1_CACHE_LINE_SIZE, arena->allocated_size);
+          aligned_alloc(JCC_ARENA_L1_CACHE_LINE_SIZE, arena->allocated_size);
     } else if (prev != NULL) {
       prev->next = block->next;
       arena->allocated_size = block->size;

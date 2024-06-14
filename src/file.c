@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <string.h>
 
-static FileResult file_read(File *file, const char *name) {
+static FileResult file_read(SrcFile *file, const char *name) {
   FILE *fp = fopen(name, "r");
   if (fp == NULL) {
     return FILE_ERR_OPEN;
@@ -28,7 +28,7 @@ static FileResult file_read(File *file, const char *name) {
   return FILE_SUCCESS;
 }
 
-static void file_init_lines(File *file) {
+static void file_init_lines(SrcFile *file) {
   file->num_lines = 1;
   for (char *c = file->data; *c != '\0'; ++c) {
     if (*c == '\n') {
@@ -47,8 +47,8 @@ static void file_init_lines(File *file) {
   }
 }
 
-FileResult file_init(File *file, const char *name) {
-  FileResult res = file_read(file, name);
+FileResult src_file_init(SrcFile *file, const char *name) {
+  const FileResult res = file_read(file, name);
   if (res != FILE_SUCCESS) {
     return res;
   }
@@ -57,7 +57,7 @@ FileResult file_init(File *file, const char *name) {
   return FILE_SUCCESS;
 }
 
-void file_init_from_raw(File *file, const char *name, const char *data) {
+void src_file_init_from_raw(SrcFile *file, const char *name, const char *data) {
   file->name = name;
   unsigned long size = strlen(data);
   file->data = malloc(size + 1);
@@ -68,7 +68,7 @@ void file_init_from_raw(File *file, const char *name, const char *data) {
   file_init_lines(file);
 }
 
-void file_free(File *file) {
+void src_file_free(SrcFile *file) {
   free(file->lines);
   free(file->data);
   file->data = NULL;
@@ -77,8 +77,8 @@ void file_free(File *file) {
   file->num_lines = 0;
 }
 
-char *file_get_line(const File *file, const char *loc) {
-  u32 mid;
+Loc src_file_get_loc(const SrcFile *file, const char *loc) {
+  u32 mid = 0;
   u32 left = 0;
   u32 right = file->num_lines - 1;
   while (left <= right) {
@@ -89,26 +89,11 @@ char *file_get_line(const File *file, const char *loc) {
     } else if (loc > line) {
       left = mid + 1;
     } else {
-      return line;
+      return (Loc){file->lines[mid], mid + 1, 1};
     }
   }
-  return file->lines[mid];
-}
-
-LineCol file_get_line_col(const File *file, const char *loc) {
-  u32 mid;
-  u32 left = 0;
-  u32 right = file->num_lines - 1;
-  while (left <= right) {
-    mid = left + (right - left) / 2;
-    char *line = file->lines[mid];
-    if (loc < line) {
-      right = mid - 1;
-    } else if (loc > line) {
-      left = mid + 1;
-    } else {
-      return (LineCol){mid + 1, 1};
-    }
+  if (loc < file->lines[mid]) {
+    --mid;
   }
-  return (LineCol){mid + 1, loc - file->lines[mid] + 1};
+  return (Loc){file->lines[mid], mid + 1, loc - file->lines[mid] + 1};
 }

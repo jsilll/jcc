@@ -3,12 +3,16 @@
 
 #include "token.h"
 
+typedef enum ScanErrorKind {
+  SCAN_ERR_INVALID_CHAR,
+  SCAN_ERR_INVALID_ESCAPE,
+  SCAN_ERR_INVALID_SEQUENCE,
+  SCAN_ERR_UNTERMINATED_CHAR,
+  SCAN_ERR_UNTERMINATED_STRING,
+} ScanErrorKind;
+
 typedef struct ScanError {
-  enum {
-    SCAN_ERR_INVALID_CHAR,
-    SCAN_ERR_INVALID_SEQUENCE,
-    SCAN_ERR_UNTERMINATED_STRING,
-  } kind;
+  ScanErrorKind kind;
   StringView lex;
 } ScanError;
 
@@ -19,8 +23,8 @@ typedef struct ScanResult {
   ScanErrorStream errors;
 } ScanResult;
 
-ScanResult scan(File *file, bool comments);
-
 void scan_result_free(ScanResult *result);
+
+ScanResult scan(SrcFile *file, bool comments);
 
 #endif // JCC_SCAN_H

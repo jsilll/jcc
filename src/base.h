@@ -7,37 +7,64 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef uint8_t u8;
-typedef int8_t i8;
-typedef uint16_t u16;
-typedef int16_t i16;
-typedef uint32_t u32;
-typedef int32_t i32;
-typedef uint64_t u64;
-typedef int64_t i64;
-typedef float f32;
-typedef double f64;
+static inline uint32_t digit_count(uint32_t n) {
+  uint32_t digits = 1;
+  for (uint32_t i = n; i >= 10; i /= 10) {
+    ++digits;
+  }
+  return digits;
+}
 
-#define DEBUG(msg) fprintf(stderr, "[%s:%d] %s\n", __FILE__, __LINE__, msg)
+static inline size_t next_power_of_two(size_t n) {
+  --n;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
+  n |= n >> 32;
+  ++n;
+  return n;
+}
+
+static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
+  snprintf(s, n, "%%%dd | ", digits);
+}
+
+#define GENERATE_ENUM(ENUM) ENUM,
+
+#define GENERATE_STRING(STRING) #STRING,
+
+#define DEBUG(msg)                                                             \
+  fprintf(stderr, "[%s:%d] debug: %s\n", __FILE__, __LINE__, msg)
 
 #define DEBUGF(fmt, ...)                                                       \
-  fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+  fprintf(stderr, "[%s:%d] debug: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 
 #define TODO(msg)                                                              \
   do {                                                                         \
-    fprintf(stderr, "[%s:%d] TODO: %s\n", __FILE__, __LINE__, msg);            \
+    fprintf(stderr, "[%s:%d] todo: %s\n", __FILE__, __LINE__, msg);            \
     exit(EXIT_FAILURE);                                                        \
   } while (0)
 
 #define PANIC(msg)                                                             \
   do {                                                                         \
-    fprintf(stderr, "[%s:%d] PANIC %s\n", __FILE__, __LINE__, msg);            \
+    fprintf(stderr, "[%s:%d] panic: %s\n", __FILE__, __LINE__, msg);           \
     exit(EXIT_FAILURE);                                                        \
   } while (0)
 
-#define GENERATE_ENUM(ENUM) ENUM,
+#define RETURN_NULL_IF_NULL(x)                                                 \
+  do {                                                                         \
+    if ((x) == NULL) {                                                         \
+      return NULL;                                                             \
+    }                                                                          \
+  } while (0)
 
-#define GENERATE_STRING(STRING) #STRING,
+#define KB(x) ((x) * 1024)
+
+#define MB(x) ((x) * 1024 * 1024)
+
+#define GB(x) ((x) * 1024 * 1024 * 1024)
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -68,7 +95,7 @@ typedef double f64;
 #define DECLARE_SLICE(T, Alias, Prefix)                                        \
   typedef struct Alias {                                                       \
     T *data;                                                                   \
-    u32 size;                                                                  \
+    uint32_t size;                                                             \
   } Alias;
 
 #define DECLARE_VECTOR(T, Alias, Prefix)                                       \
@@ -79,14 +106,24 @@ typedef double f64;
   } Alias;                                                                     \
                                                                                \
   void Prefix##_init(Alias *v);                                                \
+  void Prefix##_with_capacity(Alias *v, size_t capacity);                      \
   void Prefix##_free(Alias *v);                                                \
-  void Prefix##_push(Alias *v, T value);
+  void Prefix##_push(Alias *v, T value);                                       \
+  T *Prefix##_first(Alias *v);                                                 \
+  T *Prefix##_last(Alias *v);
 
 #define DEFINE_VECTOR(T, Alias, Prefix)                                        \
   void Prefix##_init(Alias *v) {                                               \
     v->data = NULL;                                                            \
     v->size = 0;                                                               \
     v->capacity = 0;                                                           \
+  }                                                                            \
+                                                                               \
+  void Prefix##_with_capacity(Alias *v, size_t capacity) {                     \
+    capacity = next_power_of_two(capacity);                                    \
+    v->data = malloc(capacity * sizeof(T));                                    \
+    v->size = 0;                                                               \
+    v->capacity = capacity;                                                    \
   }                                                                            \
                                                                                \
   void Prefix##_free(Alias *v) {                                               \
@@ -102,20 +139,24 @@ typedef double f64;
       v->data = realloc(v->data, v->capacity * sizeof(T));                     \
     }                                                                          \
     v->data[v->size++] = value;                                                \
-  }
+  }                                                                            \
+                                                                               \
+  T *Prefix##_first(Alias *v) { return v->data; }                              \
+                                                                               \
+  T *Prefix##_last(Alias *v) { return v->data + v->size - 1; }
 
 #define DECLARE_SMALL_VECTOR(T, N, Alias, Prefix)                              \
   typedef struct Alias {                                                       \
     T stack[N];                                                                \
     T *heap;                                                                   \
-    u32 size;                                                                  \
-    u32 capacity;                                                              \
+    uint32_t size;                                                             \
+    uint32_t capacity;                                                         \
   } Alias;                                                                     \
                                                                                \
   void Prefix##_init(Alias *v);                                                \
   void Prefix##_free(Alias *v);                                                \
   void Prefix##_push(Alias *v, T value);                                       \
-  T *Prefix##_get(Alias *v, u32 idx);
+  T *Prefix##_get(Alias *v, uint32_t idx);
 
 #define DEFINE_SMALL_VECTOR(T, N, Alias, Prefix)                               \
   void Prefix##_init(Alias *v) {                                               \
@@ -145,7 +186,7 @@ typedef double f64;
     }                                                                          \
   }                                                                            \
                                                                                \
-  T *Prefix##_get(Alias *v, u32 idx) {                                         \
+  T *Prefix##_get(Alias *v, uint32_t idx) {                                    \
     if (idx < N) {                                                             \
       return &v->stack[idx];                                                   \
     } else {                                                                   \
@@ -154,29 +195,5 @@ typedef double f64;
   }
 
 DECLARE_SLICE(char, StringView, sv)
-
-static inline u32 digit_count(u32 n) {
-  u32 digits = 1;
-  for (u32 i = n; i >= 10; i /= 10) {
-    ++digits;
-  }
-  return digits;
-}
-
-static inline size_t next_power_of_two(size_t n) {
-  --n;
-  n |= n >> 1;
-  n |= n >> 2;
-  n |= n >> 4;
-  n |= n >> 8;
-  n |= n >> 16;
-  n |= n >> 32;
-  ++n;
-  return n;
-}
-
-static inline void line_number_fmt(char *s, size_t n, u32 digits) {
-  snprintf(s, n, "%%%dd | ", digits);
-}
 
 #endif // JCC_BASE_H

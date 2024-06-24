@@ -31,7 +31,6 @@ DECLARE_ENUM_WITH_REPR(UnOpKind, ENUMERATE_UNOPS)
 DECLARE_ENUM_WITH_REPR(BinOpKind, ENUMERATE_BINOPS)
 
 #define ENUMERATE_EXPRS(M)                                                     \
-  M(EXPR_ERR)                                                                  \
   M(EXPR_NUM)                                                                  \
   M(EXPR_VAR)                                                                  \
   M(EXPR_UN)                                                                   \
@@ -39,7 +38,6 @@ DECLARE_ENUM_WITH_REPR(BinOpKind, ENUMERATE_BINOPS)
 DECLARE_ENUM_WITH_REPR(ExprKind, ENUMERATE_EXPRS)
 
 #define ENUMERATE_STMTS(M)                                                     \
-  M(STMT_ERR)                                                                  \
   M(STMT_EXPR)                                                                 \
   M(STMT_RETURN)                                                               \
   M(STMT_BLOCK)                                                                \
@@ -74,12 +72,12 @@ struct ExprNode {
     struct {
       UnOpKind op;
       ExprNode *expr;
-    } unary;
+    } un;
     struct {
       BinOpKind op;
       ExprNode *lhs;
       ExprNode *rhs;
-    } binary;
+    } bin;
   } u;
 };
 
@@ -95,11 +93,11 @@ struct StmtNode {
       ExprNode *expr;
     } expr;
     struct {
-      StmtNode *stmt;
+      StmtNode *body;
     } block;
     struct {
       ExprNode *cond;
-      StmtNode *then;
+      StmtNode *body;
     } whil;
     struct {
       ExprNode *cond;
@@ -110,7 +108,7 @@ struct StmtNode {
       StmtNode *init;
       ExprNode *cond;
       ExprNode *step;
-      StmtNode *then;
+      StmtNode *body;
     } forr;
   } u;
 };
@@ -118,5 +116,7 @@ struct StmtNode {
 typedef struct {
   StmtNode *body;
 } FuncNode;
+
+void ast_debug(FILE *out, FuncNode *ast);
 
 #endif // JCC_AST_H

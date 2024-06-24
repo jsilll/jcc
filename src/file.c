@@ -78,9 +78,9 @@ void src_file_free(SrcFile *file) {
 }
 
 Loc src_file_get_loc(const SrcFile *file, const char *loc) {
-  u32 mid = 0;
-  u32 left = 0;
-  u32 right = file->num_lines - 1;
+  uint32_t mid = 0;
+  uint32_t left = 0;
+  uint32_t right = file->num_lines - 1;
   while (left <= right) {
     mid = left + (right - left) / 2;
     char *line = file->lines[mid];

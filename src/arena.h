@@ -20,8 +20,6 @@ void arena_free(Arena *arena);
 
 void *arena_alloc(Arena *arena, size_t size);
 
-void *arena_calloc(Arena *arena, size_t size);
-
 void arena_clear(Arena *arena);
 
 void arena_garbage_collect(Arena *arena);
@@ -29,6 +27,8 @@ void arena_garbage_collect(Arena *arena);
 void arena_undo(Arena *arena, size_t size);
 
 size_t arena_total_bytes(const Arena *arena);
+
+size_t arena_commited_bytes(const Arena *arena);
 
 uint32_t arena_total_blocks(const Arena *arena);
 

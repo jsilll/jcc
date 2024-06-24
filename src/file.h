@@ -15,23 +15,23 @@ typedef struct File {
   char *data;
   char *end;
   char **lines;
-  u32 num_lines;
+  uint32_t num_lines;
 } SrcFile;
 
 typedef struct Loc {
   const char *str;
-  u32 line;
-  u32 col;
+  uint32_t line;
+  uint32_t col;
 } Loc;
 
 FileResult src_file_init(SrcFile *file, const char *name);
 
-void src_file_free(SrcFile *file);
-
 void src_file_init_from_raw(SrcFile *file, const char *name, const char *data);
 
-u32 src_file_get_num_lines(const SrcFile *file);
+void src_file_free(SrcFile *file);
+
+uint32_t src_file_get_num_lines(const SrcFile *file);
 
 Loc src_file_get_loc(const SrcFile *file, const char *loc);
 
-#endif // FILE_H
+#endif // JCC_FILE_H

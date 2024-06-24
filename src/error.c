@@ -15,11 +15,12 @@ static void verror_at(const SrcFile *file, StringView sv, const char *title,
                       const char *msg, va_list args) {
   char fmt[32] = {0};
   const Loc loc = src_file_get_loc(file, sv.data);
-  const u32 digits = digit_count(loc.line);
+  const uint32_t digits = digit_count(loc.line);
   line_number_fmt(fmt, sizeof(fmt), digits);
 
   fprintf(stderr, "error: %s\n", title);
-  fprintf(stderr, "%*s--> %s:%d:%d\n", digits, "", file->name, loc.line, loc.col);
+  fprintf(stderr, "%*s--> %s:%d:%d\n", digits, "", file->name, loc.line,
+          loc.col);
   fprintf(stderr, "%*s |\n", digits, "");
   fprintf(stderr, fmt, loc.line);
   fprintf(stderr, "%s\n", loc.str);

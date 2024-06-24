@@ -1,5 +1,5 @@
 #include "error.h"
-#include "file.h"
+#include "parse.h"
 #include "scan.h"
 
 #include <string.h>
@@ -27,9 +27,9 @@ static void report_file_errors(const char *name, const FileResult result) {
 }
 
 static void report_scan_errors(const SrcFile *file,
-                               const ScanErrorStream *errors, u32 max) {
+                               const ScanErrorStream *errors, uint32_t max) {
   max = MIN(max, errors->size);
-  for (u32 i = 0; i < max; ++i) {
+  for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
     case SCAN_ERR_INVALID_CHAR:
       if (IS_ASCII(*errors->data[i].lex.data)) {
@@ -60,6 +60,34 @@ static void report_scan_errors(const SrcFile *file,
   }
 }
 
+static void report_parse_errors(const SrcFile *file,
+                                const ParseErrorStream *errors, uint32_t max) {
+  max = MIN(max, errors->size);
+  for (uint32_t i = 0; i < max; ++i) {
+    switch (errors->data[i].kind) {
+    case PARSE_ERR_EXPECTED_SOME:
+      error_at(file, (StringView){file->end, 1}, "unexpected end of file",
+               "expected some token instead");
+      break;
+    case PARSE_ERR_EXPECTED_TOKEN:
+      error_at(file, errors->data[i].token->lex, "unexpected token",
+               "expected '%s' instead",
+               token_kind_lex(errors->data[i].expected));
+      break;
+    case PARSE_ERR_UNEXPECTED_EOF:
+      error_at(file, (StringView){file->end, 1}, "unexpected end of file",
+               "expected '%s' instead",
+               token_kind_lex(errors->data[i].expected));
+      break;
+    case PARSE_ERR_UNEXPECTED_TOKEN:
+      error_at(file, (StringView){file->end, 1}, "unexpected token",
+               "expected some other token instead",
+               token_kind_lex(errors->data[i].expected));
+      break;
+    }
+  }
+}
+
 int main(int argc, char *argv[]) {
   if (argc == 1 || argc > 4) {
     print_usage(argv[0]);
@@ -67,6 +95,8 @@ int main(int argc, char *argv[]) {
   }
 
   SrcFile file;
+  bool emit_tokens = false;
+  bool emit_ast = false;
   if (argc == 2) {
     src_file_init_from_raw(&file, "stdin", argv[1]);
   } else if (strcmp(argv[1], "--file") == 0) {
@@ -75,13 +105,29 @@ int main(int argc, char *argv[]) {
       report_file_errors(argv[2], fr);
       return EXIT_FAILURE;
     }
+    for (int i = 3; i < argc; ++i) {
+      if (strcmp(argv[i], "--emit-tokens") == 0) {
+        emit_tokens = true;
+      } else if (strcmp(argv[i], "--emit-ast") == 0) {
+        emit_ast = true;
+      }
+    }
   } else {
     src_file_init_from_raw(&file, "stdin", argv[1]);
+    for (int i = 2; i < argc; ++i) {
+      if (strcmp(argv[i], "--emit-tokens") == 0) {
+        emit_tokens = true;
+      } else if (strcmp(argv[i], "--emit-ast") == 0) {
+        emit_ast = true;
+      }
+    }
   }
 
-  const bool emit_tokens = strcmp(argv[argc - 1], "--emit-tokens") == 0;
-
   ScanResult sr = scan(&file, true);
+  if (emit_tokens) {
+    fprintf(stderr, "TOKENS\n");
+    token_stream_debug(stderr, &sr.tokens, &file);
+  }
   if (sr.errors.size > 0) {
     report_scan_errors(&file, &sr.errors, 1);
     scan_result_free(&sr);
@@ -89,10 +135,28 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  if (emit_tokens) {
-    token_stream_debug(stdout, &sr.tokens, &file);
+  Arena arena;
+  arena_init(&arena, KB(64));
+
+  ParseResult pr = parse(&arena, &sr.tokens);
+  if (emit_ast) {
+    fprintf(stderr, "AST\n");
+    ast_debug(stderr, &pr.ast);
+  }
+  if (pr.errors.size > 0) {
+    report_parse_errors(&file, &pr.errors, pr.errors.size);
+    parse_result_free(&pr);
+    arena_free(&arena);
+    scan_result_free(&sr);
+    src_file_free(&file);
+    return EXIT_FAILURE;
   }
 
+  DEBUGF("arena total blocks: %d", arena_total_blocks(&arena));
+  DEBUGF("arena commited bytes: %zu", arena_commited_bytes(&arena));
+
+  parse_result_free(&pr);
+  arena_free(&arena);
   scan_result_free(&sr);
   src_file_free(&file);
   return EXIT_SUCCESS;

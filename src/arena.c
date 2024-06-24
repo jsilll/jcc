@@ -85,14 +85,6 @@ void *arena_alloc(Arena *arena, size_t size) {
   return ptr;
 }
 
-void *arena_calloc(Arena *arena, size_t size) {
-  void *ptr = arena_alloc(arena, size);
-  for (size_t i = 0; i < size; ++i) {
-    ((uint8_t *)ptr)[i] = 0;
-  }
-  return ptr;
-}
-
 void arena_clear(Arena *arena) {
   arena->commited_size = 0;
   ArenaBlock *block = arena->free;
@@ -125,14 +117,9 @@ void arena_undo(Arena *arena, size_t size) {
   arena->commited_size -= size;
 }
 
-size_t arena_total_bytes(const Arena *arena) {
-  size_t total = arena->allocated_size;
+static size_t arena_used_bytes(const Arena *arena) {
+  size_t total = 0;
   ArenaBlock *block = arena->used;
-  while (block != NULL) {
-    total += block->size;
-    block = block->next;
-  }
-  block = arena->free;
   while (block != NULL) {
     total += block->size;
     block = block->next;
@@ -140,18 +127,47 @@ size_t arena_total_bytes(const Arena *arena) {
   return total;
 }
 
-uint32_t arena_total_blocks(const Arena *arena) {
+static size_t arena_free_bytes(const Arena *arena) {
+  size_t total = 0;
+  ArenaBlock *block = arena->free;
+  while (block != NULL) {
+    total += block->size;
+    block = block->next;
+  }
+  return total;
+}
+
+size_t arena_total_bytes(const Arena *arena) {
+  return arena->allocated_size + arena_used_bytes(arena) +
+         arena_free_bytes(arena);
+}
+
+size_t arena_commited_bytes(const Arena *arena) {
+  return arena->commited_size + arena_used_bytes(arena);
+}
+
+static uint32_t arena_total_used_blocks(const Arena *arena) {
   uint32_t total = 0;
   ArenaBlock *block = arena->used;
   while (block != NULL) {
     ++total;
     block = block->next;
   }
-  block = arena->free;
+  return total;
+}
+
+static uint32_t arena_total_free_blocks(const Arena *arena) {
+  uint32_t total = 0;
+  ArenaBlock *block = arena->free;
   while (block != NULL) {
     ++total;
     block = block->next;
   }
-  total += arena->ptr != NULL ? 1 : 0;
   return total;
+}
+
+uint32_t arena_total_blocks(const Arena *arena) {
+  uint32_t total =
+      arena_total_used_blocks(arena) + arena_total_free_blocks(arena);
+  return total + arena->ptr != NULL ? 1 : 0;
 }

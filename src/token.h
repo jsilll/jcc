@@ -4,9 +4,9 @@
 #include "file.h"
 
 #define ENUMERATE_TOKENS(M)                                                    \
-  M(TK_ID)                                                                     \
   M(TK_INT)                                                                    \
   M(TK_CHAR)                                                                   \
+  M(TK_IDENT)                                                                  \
   M(TK_FLOAT)                                                                  \
   M(TK_STRING)                                                                 \
                                                                                \
@@ -113,6 +113,8 @@
   M(TK_COMMENT)
 
 DECLARE_ENUM_WITH_REPR(TokenKind, ENUMERATE_TOKENS)
+
+const char *token_kind_lex(TokenKind kind);
 
 typedef struct Token {
   TokenKind kind;

@@ -1,6 +1,4 @@
 #include "scan.h"
-#include "base.h"
-#include "token.h"
 
 #include <ctype.h>
 #include <string.h>
@@ -12,12 +10,13 @@ void scan_result_free(ScanResult *result) {
   scan_error_stream_free(&result->errors);
 }
 
-static inline TokenKind check_keyword(u32 start, u32 size, const char *rest,
-                                      StringView *lex, TokenKind kind) {
+static inline TokenKind check_keyword(uint32_t start, uint32_t size,
+                                      const char *rest, StringView *lex,
+                                      TokenKind kind) {
   if (lex->size == start + size && memcmp(lex->data + start, rest, size) == 0) {
     return kind;
   }
-  return TK_ID;
+  return TK_IDENT;
 }
 
 static TokenKind lookup_keyword(StringView *lex) {
@@ -231,13 +230,21 @@ static TokenKind lookup_keyword(StringView *lex) {
     // while
     return check_keyword(0, 5, "while", lex, TK_KW_WHILE);
   }
-  return TK_ID;
+  return TK_IDENT;
 }
 
+#ifndef TOKEN_STREAM_ICAP
+#define TOKEN_STREAM_ICAP 64
+#endif
+
+#ifndef SCAN_ERR_STREAM_ICAP
+#define SCAN_ERR_STREAM_ICAP 32
+#endif
+
 ScanResult scan(SrcFile *file, bool comments) {
-  ScanResult res;
-  token_stream_init(&res.tokens);
-  scan_error_stream_init(&res.errors);
+  ScanResult result;
+  token_stream_with_capacity(&result.tokens, TOKEN_STREAM_ICAP);
+  scan_error_stream_with_capacity(&result.errors, SCAN_ERR_STREAM_ICAP);
 
   char *c = file->data;
   StringView lex = {NULL, 0};
@@ -251,43 +258,43 @@ ScanResult scan(SrcFile *file, bool comments) {
     switch (*c) {
     case '[':
       // TK_LBRACK
-      token_stream_push(&res.tokens, (Token){TK_LBRACK, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_LBRACK, {c++, 1}});
       break;
     case ']':
       // TK_RBRACK
-      token_stream_push(&res.tokens, (Token){TK_RBRACK, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_RBRACK, {c++, 1}});
       break;
     case '(':
       // TK_LPAREN
-      token_stream_push(&res.tokens, (Token){TK_LPAREN, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_LPAREN, {c++, 1}});
       break;
     case ')':
       // TK_RPAREN
-      token_stream_push(&res.tokens, (Token){TK_RPAREN, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_RPAREN, {c++, 1}});
       break;
     case '{':
       // TK_LBRACE
-      token_stream_push(&res.tokens, (Token){TK_LBRACE, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_LBRACE, {c++, 1}});
       break;
     case '}':
       // TK_RBRACE
-      token_stream_push(&res.tokens, (Token){TK_RBRACE, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_RBRACE, {c++, 1}});
       break;
     case '~':
       // TK_TILDE
-      token_stream_push(&res.tokens, (Token){TK_TILDE, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_TILDE, {c++, 1}});
       break;
     case ',':
       // TK_COMMA
-      token_stream_push(&res.tokens, (Token){TK_COMMA, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_COMMA, {c++, 1}});
       break;
     case ';':
       // TK_SEMICOLON
-      token_stream_push(&res.tokens, (Token){TK_SEMICOLON, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_SEMICOLON, {c++, 1}});
       break;
     case '?':
       // TK_QUESTION
-      token_stream_push(&res.tokens, (Token){TK_QUESTION, {c++, 1}});
+      token_stream_push(&result.tokens, (Token){TK_QUESTION, {c++, 1}});
       break;
     case '=':
       lex = (StringView){c++, 1};
@@ -296,11 +303,11 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_EQ_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_EQ_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_EQ_EQ, lex});
         break;
       default:
         // TK_EQ
-        token_stream_push(&res.tokens, (Token){TK_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_EQ, lex});
       }
       break;
     case '!':
@@ -310,11 +317,11 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_BANG_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_BANG_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_BANG_EQ, lex});
         break;
       default:
         // TK_BANG
-        token_stream_push(&res.tokens, (Token){TK_BANG, lex});
+        token_stream_push(&result.tokens, (Token){TK_BANG, lex});
       }
       break;
     case '*':
@@ -324,11 +331,11 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_STAR_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_STAR_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_STAR_EQ, lex});
         break;
       default:
         // TK_STAR
-        token_stream_push(&res.tokens, (Token){TK_STAR, lex});
+        token_stream_push(&result.tokens, (Token){TK_STAR, lex});
       }
       break;
     case '^':
@@ -338,11 +345,11 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_CARET_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_CARET_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_CARET_EQ, lex});
         break;
       default:
         // TK_CARET
-        token_stream_push(&res.tokens, (Token){TK_CARET, lex});
+        token_stream_push(&result.tokens, (Token){TK_CARET, lex});
       }
       break;
     case ':':
@@ -352,11 +359,11 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_COLON_GT
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_COLON_GT, lex});
+        token_stream_push(&result.tokens, (Token){TK_COLON_GT, lex});
         break;
       default:
         // TK_COLON
-        token_stream_push(&res.tokens, (Token){TK_COLON, lex});
+        token_stream_push(&result.tokens, (Token){TK_COLON, lex});
       }
       break;
     case '#':
@@ -366,11 +373,11 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_HASH_HASH
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_HASH_HASH, lex});
+        token_stream_push(&result.tokens, (Token){TK_HASH_HASH, lex});
         break;
       default:
         // TK_HASH
-        token_stream_push(&res.tokens, (Token){TK_HASH, lex});
+        token_stream_push(&result.tokens, (Token){TK_HASH, lex});
       }
       break;
     case '.':
@@ -384,16 +391,16 @@ ScanResult scan(SrcFile *file, bool comments) {
           ++c;
           ++lex.size;
           ++lex.size;
-          token_stream_push(&res.tokens, (Token){TK_DOT_DOT_DOT, lex});
+          token_stream_push(&result.tokens, (Token){TK_DOT_DOT_DOT, lex});
           break;
         default:
           // TK_DOT
-          token_stream_push(&res.tokens, (Token){TK_DOT, lex});
+          token_stream_push(&result.tokens, (Token){TK_DOT, lex});
         }
         break;
       default:
         // TK_DOT
-        token_stream_push(&res.tokens, (Token){TK_DOT, lex});
+        token_stream_push(&result.tokens, (Token){TK_DOT, lex});
       }
       break;
       break;
@@ -404,17 +411,17 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_PIPE_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_PIPE_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_PIPE_EQ, lex});
         break;
       case '|':
         // TK_PIPE_PIPE
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_PIPE_PIPE, lex});
+        token_stream_push(&result.tokens, (Token){TK_PIPE_PIPE, lex});
         break;
       default:
         // TK_PIPE
-        token_stream_push(&res.tokens, (Token){TK_PIPE, lex});
+        token_stream_push(&result.tokens, (Token){TK_PIPE, lex});
       }
       break;
     case '+':
@@ -424,17 +431,17 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_PLUS_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_PLUS_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_PLUS_EQ, lex});
         break;
       case '+':
         // TK_PLUS_PLUS
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_PLUS_PLUS, lex});
+        token_stream_push(&result.tokens, (Token){TK_PLUS_PLUS, lex});
         break;
       default:
         // TK_PLUS
-        token_stream_push(&res.tokens, (Token){TK_PLUS, lex});
+        token_stream_push(&result.tokens, (Token){TK_PLUS, lex});
       }
       break;
     case '/':
@@ -444,7 +451,7 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_SLASH_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_SLASH_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_SLASH_EQ, lex});
         break;
       case '/':
         // TK_COMMENT
@@ -453,12 +460,12 @@ ScanResult scan(SrcFile *file, bool comments) {
           ++lex.size;
         }
         if (comments) {
-          token_stream_push(&res.tokens, (Token){TK_COMMENT, lex});
+          token_stream_push(&result.tokens, (Token){TK_COMMENT, lex});
         }
         break;
       default:
         // TK_SLASH
-        token_stream_push(&res.tokens, (Token){TK_SLASH, lex});
+        token_stream_push(&result.tokens, (Token){TK_SLASH, lex});
       }
       break;
     case '&':
@@ -468,17 +475,17 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_AMP_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_AMP_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_AMP_EQ, lex});
         break;
       case '&':
         // TK_AMP_AMP
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_AMP_AMP, lex});
+        token_stream_push(&result.tokens, (Token){TK_AMP_AMP, lex});
         break;
       default:
         // TK_AMP
-        token_stream_push(&res.tokens, (Token){TK_AMP, lex});
+        token_stream_push(&result.tokens, (Token){TK_AMP, lex});
       }
       break;
     case '>':
@@ -488,7 +495,7 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_GT_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_GT_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_GT_EQ, lex});
         break;
       case '>':
         ++c;
@@ -498,17 +505,17 @@ ScanResult scan(SrcFile *file, bool comments) {
           // TK_GT_GT_EQ
           ++c;
           ++lex.size;
-          token_stream_push(&res.tokens, (Token){TK_GT_GT_EQ, lex});
+          token_stream_push(&result.tokens, (Token){TK_GT_GT_EQ, lex});
           break;
         default:
           // TK_GT_GT
-          token_stream_push(&res.tokens, (Token){TK_GT_GT, lex});
+          token_stream_push(&result.tokens, (Token){TK_GT_GT, lex});
           break;
         }
         break;
       default:
         // TK_GT
-        token_stream_push(&res.tokens, (Token){TK_GT, lex});
+        token_stream_push(&result.tokens, (Token){TK_GT, lex});
       }
       break;
     case '-':
@@ -518,23 +525,23 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_MINUS_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_MINUS_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_MINUS_EQ, lex});
         break;
       case '-':
         // TK_MINUS_MINUS
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_MINUS_MINUS, lex});
+        token_stream_push(&result.tokens, (Token){TK_MINUS_MINUS, lex});
         break;
       case '>':
         // TK_ARROW
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_ARROW, lex});
+        token_stream_push(&result.tokens, (Token){TK_ARROW, lex});
         break;
       default:
         // TK_MINUS
-        token_stream_push(&res.tokens, (Token){TK_MINUS, lex});
+        token_stream_push(&result.tokens, (Token){TK_MINUS, lex});
       }
       break;
     case '%':
@@ -544,7 +551,7 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_PERCENT_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_PERCENT_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_PERCENT_EQ, lex});
         break;
       case ':':
         ++c;
@@ -558,28 +565,28 @@ ScanResult scan(SrcFile *file, bool comments) {
             // TK_PERCENT_COLON_PERCENT_COLON
             ++c;
             ++lex.size;
-            token_stream_push(&res.tokens,
+            token_stream_push(&result.tokens,
                               (Token){TK_PERCENT_COLON_PERCENT_COLON, lex});
             break;
           default:
-            scan_error_stream_push(&res.errors,
+            scan_error_stream_push(&result.errors,
                                    (ScanError){SCAN_ERR_INVALID_SEQUENCE, lex});
           }
           break;
         default:
           // TK_PERCENT_COLON
-          token_stream_push(&res.tokens, (Token){TK_PERCENT_COLON, lex});
+          token_stream_push(&result.tokens, (Token){TK_PERCENT_COLON, lex});
         }
         break;
       case '>':
         // TK_PERCENT_GT
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_PERCENT_GT, lex});
+        token_stream_push(&result.tokens, (Token){TK_PERCENT_GT, lex});
         break;
       default:
         // TK_PERCENT
-        token_stream_push(&res.tokens, (Token){TK_PERCENT, lex});
+        token_stream_push(&result.tokens, (Token){TK_PERCENT, lex});
       }
       break;
     case '<':
@@ -589,7 +596,7 @@ ScanResult scan(SrcFile *file, bool comments) {
         // TK_LT_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_LT_EQ, lex});
+        token_stream_push(&result.tokens, (Token){TK_LT_EQ, lex});
         break;
       case '<':
         ++c;
@@ -599,28 +606,28 @@ ScanResult scan(SrcFile *file, bool comments) {
           // TK_LT_LT_EQ
           ++c;
           ++lex.size;
-          token_stream_push(&res.tokens, (Token){TK_LT_LT_EQ, lex});
+          token_stream_push(&result.tokens, (Token){TK_LT_LT_EQ, lex});
           break;
         default:
           // TK_LT_LT
-          token_stream_push(&res.tokens, (Token){TK_LT_LT, lex});
+          token_stream_push(&result.tokens, (Token){TK_LT_LT, lex});
         }
         break;
       case ':':
         // TK_LT_COLON
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_LT_COLON, lex});
+        token_stream_push(&result.tokens, (Token){TK_LT_COLON, lex});
         break;
       case '%':
         // TK_LT_PERCENT
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_LT_PERCENT, lex});
+        token_stream_push(&result.tokens, (Token){TK_LT_PERCENT, lex});
         break;
       default:
         // TK_LT
-        token_stream_push(&res.tokens, (Token){TK_LT, lex});
+        token_stream_push(&result.tokens, (Token){TK_LT, lex});
       }
       break;
     case '"': // String literals
@@ -632,17 +639,17 @@ ScanResult scan(SrcFile *file, bool comments) {
       if (*c == '"') {
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_STRING, lex});
+        token_stream_push(&result.tokens, (Token){TK_STRING, lex});
       } else {
         scan_error_stream_push(
-            &res.errors,
+            &result.errors,
             (ScanError){SCAN_ERR_UNTERMINATED_STRING, (StringView){c++, 1}});
       }
       break;
     case '\'': // Character literals
       lex = (StringView){c++, 1};
       if (*c == '\0') {
-        scan_error_stream_push(&res.errors,
+        scan_error_stream_push(&result.errors,
                                (ScanError){SCAN_ERR_UNTERMINATED_CHAR, lex});
       } else if (*c == '\\') {
         ++c;
@@ -671,19 +678,19 @@ ScanResult scan(SrcFile *file, bool comments) {
           break;
         default:
           scan_error_stream_push(
-              &res.errors,
+              &result.errors,
               (ScanError){SCAN_ERR_INVALID_ESCAPE, (StringView){c - 1, 2}});
           ++c;
           ++lex.size;
         }
         if (*c != '\'') {
           scan_error_stream_push(
-              &res.errors,
+              &result.errors,
               (ScanError){SCAN_ERR_UNTERMINATED_CHAR, (StringView){c++, 1}});
         }
         ++c;
         ++lex.size;
-        token_stream_push(&res.tokens, (Token){TK_CHAR, lex});
+        token_stream_push(&result.tokens, (Token){TK_CHAR, lex});
       } else if (*c != '\'' && *c != '\n') {
         ++c;
         ++lex.size;
@@ -691,23 +698,24 @@ ScanResult scan(SrcFile *file, bool comments) {
         case '\'':
           ++c;
           ++lex.size;
-          token_stream_push(&res.tokens, (Token){TK_CHAR, lex});
+          token_stream_push(&result.tokens, (Token){TK_CHAR, lex});
           break;
         default:
           if (IS_ASCII(*c)) {
             scan_error_stream_push(
-                &res.errors,
+                &result.errors,
                 (ScanError){SCAN_ERR_UNTERMINATED_CHAR, (StringView){c++, 1}});
           } else {
             scan_error_stream_push(
-                &res.errors,
+                &result.errors,
                 (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c - 1, 1}});
             ++c;
           }
         }
       } else {
-        scan_error_stream_push(&res.errors, (ScanError){SCAN_ERR_INVALID_CHAR,
-                                                        (StringView){c++, 1}});
+        scan_error_stream_push(
+            &result.errors,
+            (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c++, 1}});
       }
       break;
     default:
@@ -717,19 +725,20 @@ ScanResult scan(SrcFile *file, bool comments) {
         while (++c != file->end && isdigit(*c)) {
           ++lex.size;
         }
-        token_stream_push(&res.tokens, (Token){TK_INT, lex});
+        token_stream_push(&result.tokens, (Token){TK_INT, lex});
         break;
       } else if (isalpha(*c) || *c == '_') { // Identifiers
         while (++c != file->end && (isalnum(*c) || *c == '_')) {
           ++lex.size;
         }
-        token_stream_push(&res.tokens, (Token){lookup_keyword(&lex), lex});
+        token_stream_push(&result.tokens, (Token){lookup_keyword(&lex), lex});
         break;
       } else { // Invalid characters
-        scan_error_stream_push(&res.errors, (ScanError){SCAN_ERR_INVALID_CHAR,
-                                                        (StringView){c++, 1}});
+        scan_error_stream_push(
+            &result.errors,
+            (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c++, 1}});
       }
     }
   }
-  return res;
+  return result;
 }

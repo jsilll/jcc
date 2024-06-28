@@ -40,10 +40,11 @@ DECLARE_ENUM_WITH_REPR(ExprKind, ENUMERATE_EXPRS)
 #define ENUMERATE_STMTS(M)                                                     \
   M(STMT_EXPR)                                                                 \
   M(STMT_RETURN)                                                               \
+  M(STMT_DECL)                                                                 \
   M(STMT_BLOCK)                                                                \
+  M(STMT_WHILE)                                                                \
   M(STMT_IF)                                                                   \
-  M(STMT_FOR)                                                                  \
-  M(STMT_WHILE)
+  M(STMT_FOR)
 DECLARE_ENUM_WITH_REPR(StmtKind, ENUMERATE_STMTS)
 
 typedef struct Type Type;
@@ -67,7 +68,7 @@ struct ExprNode {
   union {
     int32_t num;
     struct {
-      StmtNode *local;
+      StmtNode *decl;
     } var;
     struct {
       UnOpKind op;
@@ -95,6 +96,10 @@ struct StmtNode {
     struct {
       StmtNode *body;
     } block;
+    struct {
+      StringView name;
+      ExprNode *expr;
+    } decl;
     struct {
       ExprNode *cond;
       StmtNode *body;

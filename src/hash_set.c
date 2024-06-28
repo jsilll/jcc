@@ -1,11 +1,9 @@
 #include "hash_set.h"
 
 #include <assert.h>
-#include <stdlib.h>
-#include <string.h>
 
-void hash_set_maybe_rehash(HashSet *set) {
-  if (set->length >= set->capacity / 2) {
+static void hash_set_maybe_rehash(HashSet *set) {
+  if (set->size >= set->capacity / 2) {
     size_t old_capacity = set->capacity;
     const void **old_elements = set->elements;
     set->capacity *= 2;
@@ -24,22 +22,22 @@ void hash_set_maybe_rehash(HashSet *set) {
   }
 }
 
-HashSet hash_set_create(size_t capacity, HashFunc hash, EqualFunc equal) {
-  assert(capacity > 0);
-  --capacity;
-  capacity |= capacity >> 1;
-  capacity |= capacity >> 2;
-  capacity |= capacity >> 4;
-  capacity |= capacity >> 8;
-  capacity |= capacity >> 16;
-  capacity |= capacity >> 32;
-  ++capacity;
-  HashSet set = {.hash = hash,
-                 .equal = equal,
-                 .length = 0,
-                 .capacity = capacity,
-                 .elements = calloc(capacity, sizeof(void *))};
-  return set;
+void hash_set_init(HashSet *set, size_t capacity, HashFunc hash,
+                   EqualFunc equal) {
+  capacity = next_power_of_two(capacity);
+  capacity = MAX(capacity, 16);
+  set->hash = hash;
+  set->equal = equal;
+  set->size = 0;
+  set->capacity = capacity;
+  set->elements = calloc(capacity, sizeof(void *));
+}
+
+void hash_set_free(HashSet *set) {
+  free(set->elements);
+  set->elements = NULL;
+  set->capacity = 0;
+  set->size = 0;
 }
 
 const void *hash_set_get(const HashSet *set, const void *key) {
@@ -65,19 +63,12 @@ const void *hash_set_insert(HashSet *set, const void *element) {
     }
     idx = (idx + 1) & (set->capacity - 1);
   }
-  ++set->length;
+  ++set->size;
   set->elements[idx] = element;
   return element;
 }
 
 void hash_set_clear(HashSet *set) {
-  set->length = 0;
+  set->size = 0;
   memset(set->elements, 0, set->capacity * sizeof(void *));
-}
-
-void hash_set_destroy(HashSet *set) {
-  free(set->elements);
-  set->elements = NULL;
-  set->capacity = 0;
-  set->length = 0;
 }

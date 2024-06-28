@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static inline uint32_t digit_count(uint32_t n) {
   uint32_t digits = 1;
@@ -53,13 +54,6 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
     exit(EXIT_FAILURE);                                                        \
   } while (0)
 
-#define RETURN_NULL_IF_NULL(x)                                                 \
-  do {                                                                         \
-    if ((x) == NULL) {                                                         \
-      return NULL;                                                             \
-    }                                                                          \
-  } while (0)
-
 #define KB(x) ((x) * 1024)
 
 #define MB(x) ((x) * 1024 * 1024)
@@ -95,7 +89,7 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
 #define DECLARE_SLICE(T, Alias, Prefix)                                        \
   typedef struct Alias {                                                       \
     T *data;                                                                   \
-    uint32_t size;                                                             \
+    size_t size;                                                               \
   } Alias;
 
 #define DECLARE_VECTOR(T, Alias, Prefix)                                       \
@@ -121,6 +115,7 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
                                                                                \
   void Prefix##_with_capacity(Alias *v, size_t capacity) {                     \
     capacity = next_power_of_two(capacity);                                    \
+    capacity = MAX(capacity, 8);                                               \
     v->data = malloc(capacity * sizeof(T));                                    \
     v->size = 0;                                                               \
     v->capacity = capacity;                                                    \
@@ -149,14 +144,14 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
   typedef struct Alias {                                                       \
     T stack[N];                                                                \
     T *heap;                                                                   \
-    uint32_t size;                                                             \
-    uint32_t capacity;                                                         \
+    size_t size;                                                               \
+    size_t capacity;                                                           \
   } Alias;                                                                     \
                                                                                \
   void Prefix##_init(Alias *v);                                                \
   void Prefix##_free(Alias *v);                                                \
   void Prefix##_push(Alias *v, T value);                                       \
-  T *Prefix##_get(Alias *v, uint32_t idx);
+  T *Prefix##_get(Alias *v, size_t idx);
 
 #define DEFINE_SMALL_VECTOR(T, N, Alias, Prefix)                               \
   void Prefix##_init(Alias *v) {                                               \
@@ -186,7 +181,7 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
     }                                                                          \
   }                                                                            \
                                                                                \
-  T *Prefix##_get(Alias *v, uint32_t idx) {                                    \
+  T *Prefix##_get(Alias *v, size_t idx) {                                      \
     if (idx < N) {                                                             \
       return &v->stack[idx];                                                   \
     } else {                                                                   \
@@ -195,5 +190,18 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
   }
 
 DECLARE_SLICE(char, StringView, sv)
+
+static inline uint64_t sv_hash(StringView *sv) {
+  uint64_t hash = 14695981039346656037UL;
+  for (size_t i = 0; i < sv->size; i++) {
+    hash ^= (uint64_t)sv->data[i];
+    hash *= 1099511628211;
+  }
+  return hash;
+}
+
+static inline bool sv_equals(StringView *a, StringView *b) {
+  return a->size == b->size && memcmp(a->data, b->data, a->size) == 0;
+}
 
 #endif // JCC_BASE_H

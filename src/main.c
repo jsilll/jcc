@@ -1,8 +1,7 @@
 #include "error.h"
 #include "parse.h"
+#include "resolve.h"
 #include "scan.h"
-
-#include <string.h>
 
 static void print_usage(const char *name) {
   fprintf(stderr, "usage: %s [ <stmt> | --file <file> ] [--emit-tokens]\n",
@@ -71,18 +70,33 @@ static void report_parse_errors(const SrcFile *file,
       break;
     case PARSE_ERR_EXPECTED_TOKEN:
       error_at(file, errors->data[i].token->lex, "unexpected token",
-               "expected '%s' instead",
-               token_kind_lex(errors->data[i].expected));
+               "expected %s instead", token_kind_lex(errors->data[i].expected));
       break;
     case PARSE_ERR_UNEXPECTED_EOF:
       error_at(file, (StringView){file->end, 1}, "unexpected end of file",
-               "expected '%s' instead",
-               token_kind_lex(errors->data[i].expected));
+               "expected %s instead", token_kind_lex(errors->data[i].expected));
       break;
     case PARSE_ERR_UNEXPECTED_TOKEN:
       error_at(file, (StringView){file->end, 1}, "unexpected token",
-               "expected some other token instead",
-               token_kind_lex(errors->data[i].expected));
+               "expected some other token instead");
+      break;
+    }
+  }
+}
+
+static void report_resolve_errors(const SrcFile *file,
+                                  const ResolveErrorStream *errors,
+                                  uint32_t max) {
+  max = MIN(max, errors->size);
+  for (uint32_t i = 0; i < max; ++i) {
+    switch (errors->data[i].kind) {
+    case RESOLVE_ERR_DUPLICATE:
+      error_at(file, errors->data[i].span, "duplicate declaration",
+               "declaration already exists");
+      break;
+    case RESOLVE_ERR_UNDECLARED:
+      error_at(file, errors->data[i].span, "undeclared identifier",
+               "must be declared before usage");
       break;
     }
   }
@@ -123,6 +137,8 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  ///// Scan /////
+
   ScanResult sr = scan(&file, true);
   if (emit_tokens) {
     fprintf(stderr, "TOKENS\n");
@@ -135,9 +151,10 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  ///// Parse /////
+
   Arena arena;
   arena_init(&arena, KB(64));
-
   ParseResult pr = parse(&arena, &sr.tokens);
   if (emit_ast) {
     fprintf(stderr, "AST\n");
@@ -152,12 +169,34 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  parse_result_free(&pr);
+  scan_result_free(&sr);
+
   DEBUGF("arena total blocks: %d", arena_total_blocks(&arena));
   DEBUGF("arena commited bytes: %zu", arena_commited_bytes(&arena));
 
-  parse_result_free(&pr);
+  ///// Resolve /////
+
+  ResolveResult rr = resolve(&pr.ast);
+  if (emit_ast) {
+    fprintf(stderr, "RESOLVED AST\n");
+    ast_debug(stderr, &pr.ast);
+  }
+  if (rr.errors.size > 0) {
+    report_resolve_errors(&file, &rr.errors, rr.errors.size);
+    resolve_result_free(&rr);
+    arena_free(&arena);
+    src_file_free(&file);
+    return EXIT_FAILURE;
+  }
+
+  resolve_result_free(&rr);
+
+  ///// Sema /////
+
+  ///// Codegen /////
+
   arena_free(&arena);
-  scan_result_free(&sr);
   src_file_free(&file);
   return EXIT_SUCCESS;
 }

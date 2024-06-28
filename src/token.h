@@ -1,10 +1,11 @@
 #ifndef JCC_TOKEN_H
 #define JCC_TOKEN_H
 
+#include "base.h"
 #include "file.h"
 
 #define ENUMERATE_TOKENS(M)                                                    \
-  M(TK_INT)                                                                    \
+  M(TK_NUM)                                                                    \
   M(TK_CHAR)                                                                   \
   M(TK_IDENT)                                                                  \
   M(TK_FLOAT)                                                                  \

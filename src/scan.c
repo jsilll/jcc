@@ -1,7 +1,6 @@
 #include "scan.h"
 
 #include <ctype.h>
-#include <string.h>
 
 DEFINE_VECTOR(ScanError, ScanErrorStream, scan_error_stream)
 
@@ -11,18 +10,18 @@ void scan_result_free(ScanResult *result) {
 }
 
 static inline TokenKind check_keyword(uint32_t start, uint32_t size,
-                                      const char *rest, StringView *lex,
+                                      const char *rest, StringView lex,
                                       TokenKind kind) {
-  if (lex->size == start + size && memcmp(lex->data + start, rest, size) == 0) {
+  if (lex.size == start + size && memcmp(lex.data + start, rest, size) == 0) {
     return kind;
   }
   return TK_IDENT;
 }
 
-static TokenKind lookup_keyword(StringView *lex) {
-  switch (lex->data[0]) {
+static TokenKind lookup_keyword(StringView lex) {
+  switch (lex.data[0]) {
   case '_':
-    switch (lex->size) {
+    switch (lex.size) {
     case 5:
       // _Bool
       return check_keyword(1, 4, "Bool", lex, TK_KW__BOOL);
@@ -30,7 +29,7 @@ static TokenKind lookup_keyword(StringView *lex) {
       // _Atomic
       return check_keyword(1, 6, "Atomic", lex, TK_KW__ATOMIC);
     case 8:
-      switch (lex->data[1]) {
+      switch (lex.data[1]) {
       case 'A':
         // _Alignas
         return check_keyword(2, 6, "lignas", lex, TK_KW__ALIGNAS);
@@ -57,7 +56,7 @@ static TokenKind lookup_keyword(StringView *lex) {
     }
     break;
   case 'a':
-    switch (lex->size) {
+    switch (lex.size) {
     case 4:
       // auto
       return check_keyword(1, 3, "uto", lex, TK_KW_AUTO);
@@ -70,9 +69,9 @@ static TokenKind lookup_keyword(StringView *lex) {
     // break
     return check_keyword(1, 4, "reak", lex, TK_KW_BREAK);
   case 'c':
-    switch (lex->size) {
+    switch (lex.size) {
     case 4:
-      switch (lex->data[1]) {
+      switch (lex.data[1]) {
       case 'a':
         // case
         return check_keyword(2, 2, "se", lex, TK_KW_CASE);
@@ -90,7 +89,7 @@ static TokenKind lookup_keyword(StringView *lex) {
     }
     break;
   case 'd':
-    switch (lex->size) {
+    switch (lex.size) {
     case 2:
       // do
       return check_keyword(1, 1, "o", lex, TK_KW_DO);
@@ -103,9 +102,9 @@ static TokenKind lookup_keyword(StringView *lex) {
     }
     break;
   case 'e':
-    switch (lex->size) {
+    switch (lex.size) {
     case 4:
-      switch (lex->data[1]) {
+      switch (lex.data[1]) {
       case 'l':
         // else
         return check_keyword(2, 2, "se", lex, TK_KW_ELSE);
@@ -120,7 +119,7 @@ static TokenKind lookup_keyword(StringView *lex) {
     }
     break;
   case 'f':
-    switch (lex->size) {
+    switch (lex.size) {
     case 3:
       // for
       return check_keyword(1, 2, "or", lex, TK_KW_FOR);
@@ -133,7 +132,7 @@ static TokenKind lookup_keyword(StringView *lex) {
     // goto
     return check_keyword(1, 3, "oto", lex, TK_KW_GOTO);
   case 'i':
-    switch (lex->size) {
+    switch (lex.size) {
     case 2:
       // if
       return check_keyword(1, 1, "f", lex, TK_KW_IF);
@@ -149,14 +148,14 @@ static TokenKind lookup_keyword(StringView *lex) {
     // long
     return check_keyword(1, 3, "ong", lex, TK_KW_LONG);
   case 'r':
-    switch (lex->size) {
+    switch (lex.size) {
     case 6:
       // return
       return check_keyword(1, 5, "eturn", lex, TK_KW_RETURN);
     case 8:
-      switch (lex->data[1]) {
+      switch (lex.data[1]) {
       case 'e':
-        switch (lex->data[2]) {
+        switch (lex.data[2]) {
         case 'g':
           // register
           return check_keyword(3, 5, "ister", lex, TK_KW_REGISTER);
@@ -170,14 +169,14 @@ static TokenKind lookup_keyword(StringView *lex) {
     }
     break;
   case 's':
-    switch (lex->size) {
+    switch (lex.size) {
     case 5:
       // short
       return check_keyword(1, 4, "hort", lex, TK_KW_SHORT);
     case 6:
-      switch (lex->data[1]) {
+      switch (lex.data[1]) {
       case 'i':
-        switch (lex->data[2]) {
+        switch (lex.data[2]) {
         case 'g':
           // signed
           return check_keyword(3, 3, "ned", lex, TK_KW_SIGNED);
@@ -187,7 +186,7 @@ static TokenKind lookup_keyword(StringView *lex) {
         }
         break;
       case 't':
-        switch (lex->data[2]) {
+        switch (lex.data[2]) {
         case 'a':
           // static
           return check_keyword(3, 3, "tic", lex, TK_KW_STATIC);
@@ -207,7 +206,7 @@ static TokenKind lookup_keyword(StringView *lex) {
     // typedef
     return check_keyword(1, 6, "ypedef", lex, TK_KW_TYPEDEF);
   case 'u':
-    switch (lex->size) {
+    switch (lex.size) {
     case 5:
       // union
       return check_keyword(1, 4, "nion", lex, TK_KW_UNION);
@@ -217,7 +216,7 @@ static TokenKind lookup_keyword(StringView *lex) {
     }
     break;
   case 'v':
-    switch (lex->size) {
+    switch (lex.size) {
     case 4:
       // void
       return check_keyword(1, 3, "oid", lex, TK_KW_VOID);
@@ -255,49 +254,60 @@ ScanResult scan(SrcFile *file, bool comments) {
     if (c == file->end) {
       break;
     }
+    lex = (StringView){c, 1};
     switch (*c) {
     case '[':
       // TK_LBRACK
-      token_stream_push(&result.tokens, (Token){TK_LBRACK, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_LBRACK, lex});
       break;
     case ']':
       // TK_RBRACK
-      token_stream_push(&result.tokens, (Token){TK_RBRACK, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_RBRACK, lex});
       break;
     case '(':
       // TK_LPAREN
-      token_stream_push(&result.tokens, (Token){TK_LPAREN, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_LPAREN, lex});
       break;
     case ')':
       // TK_RPAREN
-      token_stream_push(&result.tokens, (Token){TK_RPAREN, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_RPAREN, lex});
       break;
     case '{':
       // TK_LBRACE
-      token_stream_push(&result.tokens, (Token){TK_LBRACE, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_LBRACE, lex});
       break;
     case '}':
       // TK_RBRACE
-      token_stream_push(&result.tokens, (Token){TK_RBRACE, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_RBRACE, lex});
       break;
     case '~':
       // TK_TILDE
-      token_stream_push(&result.tokens, (Token){TK_TILDE, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_TILDE, lex});
       break;
     case ',':
       // TK_COMMA
-      token_stream_push(&result.tokens, (Token){TK_COMMA, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_COMMA, lex});
       break;
     case ';':
       // TK_SEMICOLON
-      token_stream_push(&result.tokens, (Token){TK_SEMICOLON, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_SEMICOLON, lex});
       break;
     case '?':
       // TK_QUESTION
-      token_stream_push(&result.tokens, (Token){TK_QUESTION, {c++, 1}});
+      ++c;
+      token_stream_push(&result.tokens, (Token){TK_QUESTION, lex});
       break;
     case '=':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_EQ_EQ
@@ -311,7 +321,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '!':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_BANG_EQ
@@ -325,7 +335,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '*':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_STAR_EQ
@@ -339,7 +349,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '^':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_CARET_EQ
@@ -353,7 +363,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case ':':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '>':
         // TK_COLON_GT
@@ -367,7 +377,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '#':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '#':
         // TK_HASH_HASH
@@ -381,7 +391,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '.':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '.':
         switch (*c) {
@@ -405,7 +415,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       break;
       break;
     case '|':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_PIPE_EQ
@@ -425,7 +435,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '+':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_PLUS_EQ
@@ -445,7 +455,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '/':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_SLASH_EQ
@@ -469,7 +479,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '&':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_AMP_EQ
@@ -489,7 +499,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '>':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_GT_EQ
@@ -519,7 +529,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '-':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_MINUS_EQ
@@ -545,7 +555,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '%':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_PERCENT_EQ
@@ -590,7 +600,7 @@ ScanResult scan(SrcFile *file, bool comments) {
       }
       break;
     case '<':
-      lex = (StringView){c++, 1};
+      ++c;
       switch (*c) {
       case '=':
         // TK_LT_EQ
@@ -630,24 +640,8 @@ ScanResult scan(SrcFile *file, bool comments) {
         token_stream_push(&result.tokens, (Token){TK_LT, lex});
       }
       break;
-    case '"': // String literals
-      // TODO: Handle escape sequences
-      lex = (StringView){c, 1};
-      while (++c != file->end && *c != '"') {
-        ++lex.size;
-      }
-      if (*c == '"') {
-        ++c;
-        ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_STRING, lex});
-      } else {
-        scan_error_stream_push(
-            &result.errors,
-            (ScanError){SCAN_ERR_UNTERMINATED_STRING, (StringView){c++, 1}});
-      }
-      break;
     case '\'': // Character literals
-      lex = (StringView){c++, 1};
+      ++c;
       if (*c == '\0') {
         scan_error_stream_push(&result.errors,
                                (ScanError){SCAN_ERR_UNTERMINATED_CHAR, lex});
@@ -718,21 +712,33 @@ ScanResult scan(SrcFile *file, bool comments) {
             (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c++, 1}});
       }
       break;
+    case '"': // String literals
+      // TODO: Handle escape sequences
+      while (++c != file->end && *c != '"') {
+        ++lex.size;
+      }
+      if (*c == '"') {
+        ++c;
+        ++lex.size;
+        token_stream_push(&result.tokens, (Token){TK_STRING, lex});
+      } else {
+        scan_error_stream_push(
+            &result.errors,
+            (ScanError){SCAN_ERR_UNTERMINATED_STRING, (StringView){c++, 1}});
+      }
+      break;
     default:
-      lex = (StringView){c, 1};
-      if (isdigit(*c)) { // Integer literals
+      if (isdigit(*c)) { // Numeric literals
         // TODO: Handle floats and other formats
         while (++c != file->end && isdigit(*c)) {
           ++lex.size;
         }
-        token_stream_push(&result.tokens, (Token){TK_INT, lex});
-        break;
+        token_stream_push(&result.tokens, (Token){TK_NUM, lex});
       } else if (isalpha(*c) || *c == '_') { // Identifiers
         while (++c != file->end && (isalnum(*c) || *c == '_')) {
           ++lex.size;
         }
-        token_stream_push(&result.tokens, (Token){lookup_keyword(&lex), lex});
-        break;
+        token_stream_push(&result.tokens, (Token){lookup_keyword(lex), lex});
       } else { // Invalid characters
         scan_error_stream_push(
             &result.errors,

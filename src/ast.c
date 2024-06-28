@@ -17,12 +17,12 @@ static void ast_expr_debug(FILE *out, ExprNode *expr, uint8_t indent) {
   switch (expr->kind) {
   case EXPR_VAR:
     if (expr->type != NULL) {
-      fprintf(out, "%s<%s>: '%.*s' (%p)\n", ExprKind_Repr[expr->kind],
+      fprintf(out, "%s<%s>: '%.*s' %p\n", ExprKind_Repr[expr->kind],
               TypeKind_Repr[expr->type->kind], (int)expr->lex.size,
-              expr->lex.data, (void *)expr->u.var.local);
+              expr->lex.data, (void *)expr->u.var.decl);
     } else {
       fprintf(out, "%s: '%.*s' %p\n", ExprKind_Repr[expr->kind],
-              (int)expr->lex.size, expr->lex.data, (void *)expr->u.var.local);
+              (int)expr->lex.size, expr->lex.data, (void *)expr->u.var.decl);
     }
     break;
   case EXPR_NUM:
@@ -69,6 +69,13 @@ static void ast_stmt_debug(FILE *out, StmtNode *stmt, uint8_t indent) {
   case STMT_EXPR:
     fprintf(out, "%s:\n", StmtKind_Repr[stmt->kind]);
     ast_expr_debug(out, stmt->u.expr.expr, indent + 1);
+    break;
+  case STMT_DECL:
+    fprintf(out, "%s: '%.*s' %p\n", StmtKind_Repr[stmt->kind],
+            (int)stmt->u.decl.name.size, stmt->u.decl.name.data, (void *)stmt);
+    if (stmt->u.decl.expr != NULL) {
+      ast_expr_debug(out, stmt->u.decl.expr, indent + 1);
+    }
     break;
   case STMT_BLOCK:
     fprintf(out, "%s:\n", StmtKind_Repr[stmt->kind]);

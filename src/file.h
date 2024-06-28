@@ -1,7 +1,7 @@
 #ifndef JCC_FILE_H
 #define JCC_FILE_H
 
-#include "base.h"
+#include <stdint.h>
 
 typedef enum FileResult {
   FILE_SUCCESS,

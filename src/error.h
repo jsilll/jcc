@@ -1,6 +1,7 @@
 #ifndef JCC_ERROR_H
 #define JCC_ERROR_H
 
+#include "base.h"
 #include "file.h"
 
 void error(const char *msg, ...);

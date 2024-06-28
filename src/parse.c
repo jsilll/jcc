@@ -70,6 +70,14 @@ static StmtNode *stmt_init_expr(Arena *arena, StringView lex, ExprNode *expr) {
   return stmt;
 }
 
+static StmtNode *stmt_init_decl(Arena *arena, StringView lex, StringView name,
+                                ExprNode *expr) {
+  StmtNode *stmt = stmt_init(arena, lex, STMT_DECL);
+  stmt->u.decl.name = name;
+  stmt->u.decl.expr = expr;
+  return stmt;
+}
+
 static StmtNode *stmt_init_block(Arena *arena, StringView lex, StmtNode *body) {
   StmtNode *stmt = stmt_init(arena, lex, STMT_BLOCK);
   stmt->u.block.body = body;
@@ -136,7 +144,7 @@ static Token *peek_some(ParseCtx *ctx) {
 }
 
 static Token *expect_token(ParseCtx *ctx, TokenKind kind) {
-  Token *token = next_token(ctx);
+  Token *token = peek_token(ctx);
   if (token == NULL) {
     parse_error_stream_push(&ctx->result->errors,
                             (ParseError){PARSE_ERR_UNEXPECTED_EOF, NULL, kind});
@@ -147,6 +155,7 @@ static Token *expect_token(ParseCtx *ctx, TokenKind kind) {
         (ParseError){PARSE_ERR_EXPECTED_TOKEN, token, kind});
     return NULL;
   }
+  ++ctx->idx;
   return token;
 }
 
@@ -194,7 +203,7 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec);
 static ExprNode *parse_expr_primary(ParseCtx *ctx) {
   Token *token = next_token(ctx);
   switch (token->kind) {
-  case TK_INT:
+  case TK_NUM:
     return expr_init_integer(ctx->arena, token);
   case TK_IDENT:
     return expr_init_variable(ctx->arena, token->lex);
@@ -243,14 +252,14 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec) {
 static StmtNode *parse_stmt(ParseCtx *ctx);
 
 static StmtNode *parse_stmt_block(ParseCtx *ctx) {
-  Token *begin = expect_token(ctx, TK_LBRACE);
+  Token *begin = next_token(ctx);
   StmtNode head = {0};
   StmtNode *curr = &head;
   Token *token = peek_token(ctx);
   while (token != NULL && token->kind != TK_RBRACE) {
     curr->next = parse_stmt(ctx);
-    curr = curr->next;
     token = peek_token(ctx);
+    curr = curr->next;
   }
   expect_token(ctx, TK_RBRACE);
   return stmt_init_block(ctx->arena, begin->lex, head.next);
@@ -266,14 +275,13 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     return stmt_init_block(ctx->arena, token->lex, NULL);
   case TK_KW_RETURN: {
     ++ctx->idx;
-    token = peek_token(ctx);
-    if (token != NULL && token->kind == TK_SEMICOLON) {
+    Token *next = peek_token(ctx);
+    if (next != NULL && next->kind == TK_SEMICOLON) {
       ++ctx->idx;
       return stmt_init_return(ctx->arena, token->lex, NULL);
     }
     ExprNode *expr = parse_expr(ctx, 0);
-    token = expect_token(ctx, TK_SEMICOLON);
-    token = token != NULL ? token : token_stream_last(ctx->tokens);
+    expect_token(ctx, TK_SEMICOLON);
     return stmt_init_return(ctx->arena, token->lex, expr);
   }
   case TK_KW_WHILE: {
@@ -290,8 +298,8 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     ExprNode *cond = parse_expr(ctx, 0);
     expect_token(ctx, TK_RPAREN);
     StmtNode *then = parse_stmt(ctx);
-    Token *t = peek_token(ctx);
-    if (t != NULL && t->kind == TK_KW_ELSE) {
+    Token *next = peek_token(ctx);
+    if (next != NULL && next->kind == TK_KW_ELSE) {
       ++ctx->idx;
       StmtNode *elss = parse_stmt(ctx);
       return stmt_init_if(ctx->arena, token->lex, cond, then, elss);
@@ -302,24 +310,51 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     expect_token(ctx, TK_LPAREN);
     StmtNode *init = parse_stmt(ctx);
     ExprNode *cond = NULL;
-    Token *t = peek_token(ctx);
-    if (t != NULL && t->kind == TK_SEMICOLON) {
+    Token *next = peek_token(ctx);
+    if (next != NULL && next->kind != TK_SEMICOLON) {
       cond = parse_expr(ctx, 0);
     }
     expect_token(ctx, TK_SEMICOLON);
     ExprNode *step = NULL;
-    t = peek_token(ctx);
-    if (t != NULL && t->kind == TK_RPAREN) {
+    next = peek_token(ctx);
+    if (next != NULL && next->kind != TK_RPAREN) {
       step = parse_expr(ctx, 0);
     }
     expect_token(ctx, TK_RPAREN);
     StmtNode *body = parse_stmt(ctx);
     return stmt_init_for(ctx->arena, token->lex, init, cond, step, body);
   }
+  case TK_KW_VOID:
+  case TK_KW_CHAR:
+  case TK_KW_SHORT:
+  case TK_KW_INT:
+  case TK_KW_LONG:
+  case TK_KW_FLOAT:
+  case TK_KW_DOUBLE:
+  case TK_KW_SIGNED:
+  case TK_KW_UNSIGNED:
+  case TK_KW__BOOL:
+  case TK_KW__COMPLEX: {
+    ++ctx->idx;
+    Token *next = expect_token(ctx, TK_IDENT);
+    StringView name = next == NULL ? token->lex : next->lex;
+    next = peek_token(ctx);
+    if (next != NULL && next->kind != TK_SEMICOLON) {
+      expect_token(ctx, TK_EQ);
+      ExprNode *expr = parse_expr(ctx, 0);
+      expect_token(ctx, TK_SEMICOLON);
+      return stmt_init_decl(ctx->arena, token->lex, name, expr);
+    }
+    expect_token(ctx, TK_SEMICOLON);
+    return stmt_init_decl(ctx->arena, token->lex, name, NULL);
+  }
   default: {
     ExprNode *expr = parse_expr(ctx, 0);
     token = expect_token(ctx, TK_SEMICOLON);
     token = token != NULL ? token : token_stream_last(ctx->tokens);
+    if (expr == NULL) {
+      return stmt_init_block(ctx->arena, token->lex, NULL);
+    }
     return stmt_init_expr(ctx->arena, token->lex, expr);
   }
   }
@@ -329,6 +364,12 @@ ParseResult parse(Arena *arena, TokenStream *tokens) {
   ParseResult result = {0};
   ParseCtx ctx = {0, arena, &result, tokens};
   parse_error_stream_init(&result.errors);
+  Token *token = peek_token(&ctx);
+  if (token->kind != TK_LBRACE) {
+    parse_error_stream_push(
+        &ctx.result->errors,
+        (ParseError){PARSE_ERR_EXPECTED_TOKEN, token, TK_LBRACE});
+  }
   result.ast.body = parse_stmt_block(&ctx);
   return result;
 }

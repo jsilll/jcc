@@ -5,213 +5,213 @@ DEFINE_ENUM_WITH_REPR(TokenKind, ENUMERATE_TOKENS)
 const char *token_kind_lex(TokenKind kind) {
   switch (kind) {
   case TK_LBRACK:
-    return "[";
+    return "'['";
   case TK_RBRACK:
-    return "]";
+    return "']'";
   case TK_LPAREN:
-    return "(";
+    return "'('";
   case TK_RPAREN:
-    return ")";
+    return "')'";
   case TK_LBRACE:
-    return "{";
+    return "'{'";
   case TK_RBRACE:
-    return "}";
+    return "'}'";
   case TK_DOT:
-    return ".";
+    return "'.'";
   case TK_ARROW:
-    return "->";
+    return "'->'";
   case TK_PLUS_PLUS:
-    return "++";
+    return "'++'";
   case TK_MINUS_MINUS:
-    return "--";
+    return "'--'";
   case TK_AMP:
-    return "&";
+    return "'&'";
   case TK_STAR:
-    return "*";
+    return "'*'";
   case TK_PLUS:
-    return "+";
+    return "'+'";
   case TK_MINUS:
-    return "-";
+    return "'-'";
   case TK_TILDE:
-    return "~";
+    return "'~'";
   case TK_BANG:
-    return "!";
+    return "'!'";
   case TK_SLASH:
-    return "/";
+    return "'/'";
   case TK_PERCENT:
-    return "%";
+    return "'%'";
   case TK_LT_LT:
-    return "<<";
+    return "'<<'";
   case TK_GT_GT:
-    return ">>";
+    return "'>>'";
   case TK_LT:
-    return "<";
+    return "'<'";
   case TK_GT:
-    return ">";
+    return "'>'";
   case TK_LT_EQ:
-    return "<=";
+    return "'<='";
   case TK_GT_EQ:
-    return ">=";
+    return "'>='";
   case TK_EQ_EQ:
-    return "==";
+    return "'=='";
   case TK_BANG_EQ:
-    return "!=";
+    return "'!='";
   case TK_CARET:
-    return "^";
+    return "'^'";
   case TK_PIPE:
-    return "|";
+    return "'|'";
   case TK_AMP_AMP:
-    return "&&";
+    return "'&&'";
   case TK_PIPE_PIPE:
-    return "||";
+    return "'||'";
   case TK_QUESTION:
-    return "?";
+    return "'?'";
   case TK_COLON:
-    return ":";
+    return "':'";
   case TK_SEMICOLON:
-    return ";";
+    return "';'";
   case TK_DOT_DOT_DOT:
-    return "...";
+    return "'...'";
   case TK_EQ:
-    return "=";
+    return "'='";
   case TK_STAR_EQ:
-    return "*=";
+    return "'*='";
   case TK_SLASH_EQ:
-    return "/=";
+    return "'/='";
   case TK_PERCENT_EQ:
-    return "%=";
+    return "'%='";
   case TK_PLUS_EQ:
-    return "+=";
+    return "'+='";
   case TK_MINUS_EQ:
-    return "-=";
+    return "'-='";
   case TK_LT_LT_EQ:
-    return "<<=";
+    return "'<<='";
   case TK_GT_GT_EQ:
-    return ">>=";
+    return "'>>='";
   case TK_AMP_EQ:
-    return "&=";
+    return "'&='";
   case TK_CARET_EQ:
-    return "^=";
+    return "'^='";
   case TK_PIPE_EQ:
-    return "|=";
+    return "'|='";
   case TK_COMMA:
-    return ",";
+    return "','";
   case TK_HASH:
-    return "#";
+    return "'#'";
   case TK_HASH_HASH:
-    return "##";
+    return "'##'";
   case TK_LT_COLON:
-    return "<:";
+    return "'<:'";
   case TK_COLON_GT:
-    return ":>";
+    return "':>'";
   case TK_LT_PERCENT:
-    return "%";
+    return "'%'";
   case TK_PERCENT_GT:
-    return ">";
+    return "'>'";
   case TK_PERCENT_COLON:
-    return "%:";
+    return "'%:'";
   case TK_PERCENT_COLON_PERCENT_COLON:
-    return "%:%:";
+    return "'%:%:'";
   case TK_KW_ALIGNOF:
-    return "alignof";
+    return "'alignof'";
   case TK_KW_AUTO:
-    return "auto";
+    return "'auto'";
   case TK_KW_BREAK:
-    return "break";
+    return "'break'";
   case TK_KW_CASE:
-    return "case";
+    return "'case'";
   case TK_KW_CHAR:
-    return "char";
+    return "'char'";
   case TK_KW_CONST:
-    return "const";
+    return "'const'";
   case TK_KW_CONTINUE:
-    return "continue";
+    return "'continue'";
   case TK_KW_DEFAULT:
-    return "default";
+    return "'default'";
   case TK_KW_DO:
-    return "do";
+    return "'do'";
   case TK_KW_DOUBLE:
-    return "double";
+    return "'double'";
   case TK_KW_ELSE:
-    return "else";
+    return "'else'";
   case TK_KW_ENUM:
-    return "enum";
+    return "'enum'";
   case TK_KW_EXTERN:
-    return "extern";
+    return "'extern'";
   case TK_KW_FLOAT:
-    return "float";
+    return "'float'";
   case TK_KW_FOR:
-    return "for";
+    return "'for'";
   case TK_KW_GOTO:
-    return "goto";
+    return "'goto'";
   case TK_KW_IF:
-    return "if";
+    return "'if'";
   case TK_KW_INLINE:
-    return "inline";
+    return "'inline'";
   case TK_KW_INT:
-    return "int";
+    return "'int'";
   case TK_KW_LONG:
-    return "long";
+    return "'long'";
   case TK_KW_REGISTER:
-    return "register";
+    return "'register'";
   case TK_KW_RESTRICT:
-    return "restrict";
+    return "'restrict'";
   case TK_KW_RETURN:
-    return "return";
+    return "'return'";
   case TK_KW_SHORT:
-    return "short";
+    return "'short'";
   case TK_KW_SIGNED:
-    return "signed";
+    return "'signed'";
   case TK_KW_SIZEOF:
-    return "sizeof";
+    return "'sizeof'";
   case TK_KW_STATIC:
-    return "static";
+    return "'static'";
   case TK_KW_STRUCT:
-    return "struct";
+    return "'struct'";
   case TK_KW_SWITCH:
-    return "switch";
+    return "'switch'";
   case TK_KW_TYPEDEF:
-    return "typedef";
+    return "'typedef'";
   case TK_KW_UNION:
-    return "union";
+    return "'union'";
   case TK_KW_UNSIGNED:
-    return "unsigned";
+    return "'unsigned'";
   case TK_KW_VOID:
-    return "void";
+    return "'void'";
   case TK_KW_VOLATILE:
-    return "volatile";
+    return "'volatile'";
   case TK_KW_WHILE:
-    return "while";
+    return "'while'";
   case TK_KW__ALIGNAS:
-    return "_Alignas";
+    return "'_Alignas'";
   case TK_KW__ATOMIC:
-    return "_Atomic";
+    return "'_Atomic'";
   case TK_KW__BOOL:
-    return "_Bool";
+    return "'_Bool'";
   case TK_KW__COMPLEX:
-    return "_Complex";
+    return "'_Complex'";
   case TK_KW__GENERIC:
-    return "_Generic";
+    return "'_Generic'";
   case TK_KW__IMAGINARY:
-    return "_Imaginary";
+    return "'_Imaginary'";
   case TK_KW__NORETURN:
-    return "_Noreturn";
+    return "'_Noreturn'";
   case TK_KW__STATIC_ASSERT:
-    return "_Static_assert";
+    return "'_Static_assert'";
   case TK_KW__THREAD_LOCAL:
-    return "_Thread_local";
-  case TK_INT:
-    return "<integer literal>";
+    return "'_Thread_local'";
+  case TK_NUM:
+    return "an integer literal";
   case TK_CHAR:
-    return "<character literal>";
+    return "a character literal";
   case TK_IDENT:
-    return "<identifier>";
+    return "an identifier";
   case TK_FLOAT:
-    return "<float literal>";
+    return "a float literal";
   case TK_STRING:
-    return "<string literal>";
+    return "a string literal";
   case TK_COMMENT:
-    return "<comment>";
+    return "a comment";
   }
   return "unknown";
 }
@@ -239,13 +239,13 @@ void token_stream_debug(FILE *out, const TokenStream *stream,
       fprintf(out, "%*s | ", digits, "");
     }
     switch (token.kind) {
-    case TK_INT:
+    case TK_NUM:
     case TK_CHAR:
     case TK_IDENT:
     case TK_STRING:
     case TK_COMMENT:
-      fprintf(out, "%s: %.*s\n", TokenKind_Repr[token.kind], token.lex.size,
-              token.lex.data);
+      fprintf(out, "%s: %.*s\n", TokenKind_Repr[token.kind],
+              (int)token.lex.size, token.lex.data);
       break;
     default:
       fprintf(out, "%s\n", TokenKind_Repr[token.kind]);

@@ -5,7 +5,7 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 CC = gcc
-C_FLAGS = -std=c11 -pedantic -Wall -Wextra -g
+C_FLAGS = -std=c11 -pedantic -Wall -Wextra -Wpedantic -g
 LD_FLAGS =
 
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)

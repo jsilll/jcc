@@ -11,33 +11,37 @@ void resolve_result_free(ResolveResult *result) {
   resolve_error_stream_free(&result->errors);
 }
 
-static uint64_t name_hash(const void *name) {
-  return sv_hash((StringView *)name);
+static uint64_t name_hash(const void *key) {
+  return sv_hash((StringView *)key);
 }
 
-static bool name_equals(const void *a, const void *b) {
-  return sv_equals((StringView *)a, (StringView *)b);
+static bool name_equals(const void *key1, const void *key2) {
+  return sv_equals((StringView *)key1, (StringView *)key2);
 }
 
 typedef struct Scopes {
   HashMap *scopes;
   size_t size;
+  size_t init;
   size_t capacity;
 } Scopes;
 
 static void scopes_init(Scopes *scopes) {
   scopes->scopes = NULL;
   scopes->size = 0;
+  scopes->init = 0;
   scopes->capacity = 0;
 }
 
 static void scopes_free(Scopes *scopes) {
-  for (size_t i = 0; i < scopes->size; ++i) {
+  for (size_t i = 0; i < scopes->init; ++i) {
+    DEBUGF("free scope of capacity: %zu", scopes->scopes[i].capacity);
     hash_map_free(scopes->scopes + i);
   }
   free(scopes->scopes);
   scopes->scopes = NULL;
   scopes->size = 0;
+  scopes->init = 0;
   scopes->capacity = 0;
 }
 
@@ -47,13 +51,16 @@ static void scopes_push(Scopes *scopes) {
     scopes->scopes =
         realloc(scopes->scopes, scopes->capacity * sizeof(*scopes->scopes));
   }
-  hash_map_init(scopes->scopes + scopes->size, 32, name_hash, name_equals);
+  if (scopes->size == scopes->init) {
+    hash_map_init(scopes->scopes + scopes->size, 32, name_hash, name_equals);
+    ++scopes->init;
+  }
   ++scopes->size;
 }
 
 static void scopes_pop(Scopes *scopes) {
   assert(scopes->size > 0);
-  hash_map_free(scopes->scopes + scopes->size - 1);
+  hash_map_clear(scopes->scopes + scopes->size - 1);
   --scopes->size;
 }
 
@@ -162,11 +169,7 @@ ResolveResult resolve(FuncNode *func) {
   resolve_error_stream_init(&result.errors);
   ResolveCtx ctx;
   resolve_ctx_init(&ctx, &result);
-  scopes_push(&ctx.scopes);
-  for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
-    resolve_stmt(&ctx, stmt);
-  }
-  scopes_pop(&ctx.scopes);
+  resolve_stmt(&ctx, func->body);
   resolve_ctx_free(&ctx);
   return result;
 }

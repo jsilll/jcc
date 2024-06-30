@@ -1,6 +1,6 @@
 #include "token.h"
 
-DEFINE_ENUM_WITH_REPR(TokenKind, ENUMERATE_TOKENS)
+DEFINE_REPR_ENUM(TokenKind, ENUMERATE_TOKENS)
 
 const char *token_kind_lex(TokenKind kind) {
   switch (kind) {

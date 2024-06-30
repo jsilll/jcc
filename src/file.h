@@ -25,13 +25,9 @@ typedef struct Loc {
 } Loc;
 
 FileResult src_file_init(SrcFile *file, const char *name);
-
-void src_file_init_from_raw(SrcFile *file, const char *name, const char *data);
-
 void src_file_free(SrcFile *file);
-
+void src_file_init_from_raw(SrcFile *file, const char *name, const char *data);
 uint32_t src_file_get_num_lines(const SrcFile *file);
-
 Loc src_file_get_loc(const SrcFile *file, const char *loc);
 
 #endif // JCC_FILE_H

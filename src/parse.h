@@ -1,7 +1,6 @@
 #ifndef JCC_PARSE_H
 #define JCC_PARSE_H
 
-#include "arena.h"
 #include "ast.h"
 #include "token.h"
 

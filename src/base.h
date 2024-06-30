@@ -8,39 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static inline uint32_t digit_count(uint32_t n) {
-  uint32_t digits = 1;
-  for (uint32_t i = n; i >= 10; i /= 10) {
-    ++digits;
-  }
-  return digits;
-}
-
-static inline size_t next_power_of_two(size_t n) {
-  --n;
-  n |= n >> 1;
-  n |= n >> 2;
-  n |= n >> 4;
-  n |= n >> 8;
-  n |= n >> 16;
-  n |= n >> 32;
-  ++n;
-  return n;
-}
-
-static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
-  snprintf(s, n, "%%%dd | ", digits);
-}
-
-#define GENERATE_ENUM(ENUM) ENUM,
-
-#define GENERATE_STRING(STRING) #STRING,
-
-#define DEBUG(msg)                                                             \
-  fprintf(stderr, "[%s:%d] debug: %s\n", __FILE__, __LINE__, msg)
-
-#define DEBUGF(fmt, ...)                                                       \
-  fprintf(stderr, "[%s:%d] debug: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+/// Base Macros ///
 
 #define TODO(msg)                                                              \
   do {                                                                         \
@@ -53,6 +21,16 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
     fprintf(stderr, "[%s:%d] panic: %s\n", __FILE__, __LINE__, msg);           \
     exit(EXIT_FAILURE);                                                        \
   } while (0)
+
+#ifndef NDEBUG
+#define DEBUG(msg)                                                             \
+  fprintf(stderr, "[%s:%d] debug: %s\n", __FILE__, __LINE__, msg)
+#define DEBUGF(fmt, ...)                                                       \
+  fprintf(stderr, "[%s:%d] debug: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+#else
+#define DEBUG(msg)       // Do nothing in release mode
+#define DEBUGF(fmt, ...) // Do nothing in release mode
+#endif
 
 #define KB(x) ((x) * 1024)
 
@@ -79,12 +57,23 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
 
 #define GROW_CAP(capacity) ((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define DECLARE_ENUM_WITH_REPR(Alias, Enum)                                    \
+#define GENERATE_ENUM(Enum) Enum,
+
+#define GENERATE_STRING(String) #String,
+
+#define DECLARE_REPR_ENUM(Alias, Enum)                                         \
   typedef enum Alias { Enum(GENERATE_ENUM) } Alias;                            \
   extern const char *const Alias##_Repr[];
 
-#define DEFINE_ENUM_WITH_REPR(Alias, Enum)                                     \
+#define DEFINE_REPR_ENUM(Alias, Enum)                                          \
   const char *const Alias##_Repr[] = {Enum(GENERATE_STRING)};
+
+#define DECLARE_REPR_ENUM_MACRO(Alias, Enum, Macro)                            \
+  typedef enum Alias { Enum(Macro) } Alias;                                    \
+  extern const char *const Alias##_Repr[];
+
+#define DEFINE_REPR_ENUM_MACRO(Alias, Enum, Macro)                             \
+  const char *const Alias##_Repr[] = {Enum(Macro)};
 
 #define DECLARE_SLICE(T, Alias, Prefix)                                        \
   typedef struct Alias {                                                       \
@@ -140,54 +129,7 @@ static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
                                                                                \
   T *Prefix##_last(Alias *v) { return v->data + v->size - 1; }
 
-#define DECLARE_SMALL_VECTOR(T, N, Alias, Prefix)                              \
-  typedef struct Alias {                                                       \
-    T stack[N];                                                                \
-    T *heap;                                                                   \
-    size_t size;                                                               \
-    size_t capacity;                                                           \
-  } Alias;                                                                     \
-                                                                               \
-  void Prefix##_init(Alias *v);                                                \
-  void Prefix##_free(Alias *v);                                                \
-  void Prefix##_push(Alias *v, T value);                                       \
-  T *Prefix##_get(Alias *v, size_t idx);
-
-#define DEFINE_SMALL_VECTOR(T, N, Alias, Prefix)                               \
-  void Prefix##_init(Alias *v) {                                               \
-    v->heap = NULL;                                                            \
-    v->size = 0;                                                               \
-    v->capacity = N;                                                           \
-  }                                                                            \
-                                                                               \
-  void Prefix##_free(Alias *v) {                                               \
-    if (v->heap) {                                                             \
-      free(v->heap);                                                           \
-    }                                                                          \
-    v->heap = NULL;                                                            \
-    v->size = 0;                                                               \
-    v->capacity = N;                                                           \
-  }                                                                            \
-                                                                               \
-  void Prefix##_push(Alias *v, T value) {                                      \
-    if (v->size < N) {                                                         \
-      v->stack[v->size++] = value;                                             \
-    } else {                                                                   \
-      if (v->size == v->capacity) {                                            \
-        v->capacity = GROW_CAP(v->capacity);                                   \
-        v->heap = realloc(v->heap, v->capacity * sizeof(T));                   \
-      }                                                                        \
-      v->heap[v->size++ - N] = value;                                          \
-    }                                                                          \
-  }                                                                            \
-                                                                               \
-  T *Prefix##_get(Alias *v, size_t idx) {                                      \
-    if (idx < N) {                                                             \
-      return &v->stack[idx];                                                   \
-    } else {                                                                   \
-      return &v->heap[idx - N];                                                \
-    }                                                                          \
-  }
+/// String View ///
 
 DECLARE_SLICE(char, StringView, sv)
 
@@ -202,6 +144,32 @@ static inline uint64_t sv_hash(StringView *sv) {
 
 static inline bool sv_equals(StringView *a, StringView *b) {
   return a->size == b->size && memcmp(a->data, b->data, a->size) == 0;
+}
+
+/// Helper Functions ///
+
+static inline uint32_t digit_count(uint32_t n) {
+  uint32_t digits = 1;
+  for (uint32_t i = n; i >= 10; i /= 10) {
+    ++digits;
+  }
+  return digits;
+}
+
+static inline size_t next_power_of_two(size_t n) {
+  --n;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
+  n |= n >> 32;
+  ++n;
+  return n;
+}
+
+static inline void line_number_fmt(char *s, size_t n, uint32_t digits) {
+  snprintf(s, n, "%%%dd | ", digits);
 }
 
 #endif // JCC_BASE_H

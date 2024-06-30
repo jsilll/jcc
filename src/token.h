@@ -113,7 +113,7 @@
                                                                                \
   M(TK_COMMENT)
 
-DECLARE_ENUM_WITH_REPR(TokenKind, ENUMERATE_TOKENS)
+DECLARE_REPR_ENUM(TokenKind, ENUMERATE_TOKENS)
 
 const char *token_kind_lex(TokenKind kind);
 

@@ -43,9 +43,6 @@ void arena_free(Arena *arena) {
 }
 
 void *arena_alloc(Arena *arena, size_t size) {
-  static_assert(sizeof(max_align_t) != 0 &&
-                    (sizeof(max_align_t) & (sizeof(max_align_t) - 1)) == 0,
-                "Alignment must be a power of two");
   size = ALIGN_UP(size, sizeof(max_align_t));
   if (arena->commited_size + size > arena->allocated_size) {
     if (arena->ptr != NULL) {
@@ -167,7 +164,7 @@ static uint32_t arena_total_free_blocks(const Arena *arena) {
 }
 
 uint32_t arena_total_blocks(const Arena *arena) {
-  uint32_t total =
-      arena_total_used_blocks(arena) + arena_total_free_blocks(arena);
-  return total + arena->ptr != NULL ? 1 : 0;
+  uint32_t total = arena->ptr == NULL ? 0 : 1;
+  total += arena_total_used_blocks(arena) + arena_total_free_blocks(arena);
+  return total;
 }

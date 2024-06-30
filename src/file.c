@@ -59,6 +59,15 @@ FileResult src_file_init(SrcFile *file, const char *name) {
   return FILE_SUCCESS;
 }
 
+void src_file_free(SrcFile *file) {
+  free(file->lines);
+  free(file->data);
+  file->data = NULL;
+  file->end = NULL;
+  file->lines = NULL;
+  file->num_lines = 0;
+}
+
 void src_file_init_from_raw(SrcFile *file, const char *name, const char *data) {
   file->name = name;
   unsigned long size = strlen(data);
@@ -68,15 +77,6 @@ void src_file_init_from_raw(SrcFile *file, const char *name, const char *data) {
   file->end = file->data + size;
   strcpy(file->data, data);
   file_init_lines(file);
-}
-
-void src_file_free(SrcFile *file) {
-  free(file->lines);
-  free(file->data);
-  file->data = NULL;
-  file->end = NULL;
-  file->lines = NULL;
-  file->num_lines = 0;
 }
 
 Loc src_file_get_loc(const SrcFile *file, const char *loc) {

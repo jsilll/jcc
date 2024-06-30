@@ -4,10 +4,10 @@
 
 #include <assert.h>
 
-static uint64_t stmt_hash(const void *stmt) { return (uint64_t)stmt; }
+static uint64_t stmt_hash(const void *key) { return (uint64_t)key; }
 
-static bool stmt_equal(const void *stmt1, const void *stmt2) {
-  return stmt1 == stmt2;
+static bool stmt_equals(const void *key1, const void *key2) {
+  return key1 == key2;
 }
 
 typedef struct CodegenCtx {
@@ -21,10 +21,11 @@ static void codegen_ctx_init(CodegenCtx *ctx, FILE *out) {
   ctx->out = out;
   ctx->label = 0;
   ctx->stack_size = 0;
-  hash_map_init(&ctx->offset, 32, stmt_hash, stmt_equal);
+  hash_map_init(&ctx->offset, 32, stmt_hash, stmt_equals);
 }
 
 static void codegen_ctx_free(CodegenCtx *ctx) {
+  DEBUGF("free offsets map of capacity: %zu", ctx->offset.capacity);
   hash_map_free(&ctx->offset);
   ctx->label = 0;
   ctx->out = NULL;
@@ -259,9 +260,7 @@ void codegen_x86(FILE *out, FuncNode *func) {
   fprintf(out, "  push %%rbp\n");
   fprintf(out, "  mov %%rsp, %%rbp\n");
   fprintf(out, "  sub $%ld, %%rsp\n", ctx.stack_size);
-  for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
-    codegen_x86_stmt(&ctx, stmt);
-  }
+  codegen_x86_stmt(&ctx, func->body);
   ctx.stack_size = ALIGN_UP(ctx.stack_size, 16);
   codegen_ctx_free(&ctx);
   fprintf(out, ".L.return:\n");

@@ -1,7 +1,6 @@
 #include "parse.h"
 #include "base.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -9,106 +8,6 @@ DEFINE_VECTOR(ParseError, ParseErrorStream, parse_error_stream)
 
 void parse_result_free(ParseResult *result) {
   parse_error_stream_free(&result->errors);
-}
-
-static ExprNode *expr_init(Arena *arena, StringView lex, ExprKind kind) {
-  ExprNode *expr = arena_alloc(arena, sizeof(ExprNode));
-  expr->type = NULL;
-  expr->kind = kind;
-  expr->lex = lex;
-  return expr;
-}
-
-static ExprNode *expr_init_integer(Arena *arena, Token *token) {
-  ExprNode *expr = expr_init(arena, token->lex, EXPR_NUM);
-  char *end = NULL;
-  expr->u.num = strtol(token->lex.data, &end, 10);
-  assert(token->lex.data + token->lex.size == end);
-  return expr;
-}
-
-static ExprNode *expr_init_variable(Arena *arena, StringView lex) {
-  ExprNode *expr = expr_init(arena, lex, EXPR_VAR);
-  return expr;
-}
-
-static ExprNode *expr_init_unary(Arena *arena, StringView lex, UnOpKind op,
-                                 ExprNode *sub) {
-  ExprNode *expr = expr_init(arena, lex, EXPR_UN);
-  expr->u.un.expr = sub;
-  expr->u.un.op = op;
-  return expr;
-}
-
-static ExprNode *expr_init_binary(Arena *arena, StringView lex, BinOpKind op,
-                                  ExprNode *lhs, ExprNode *rhs) {
-  ExprNode *expr = expr_init(arena, lex, EXPR_BIN);
-  expr->u.bin.lhs = lhs;
-  expr->u.bin.rhs = rhs;
-  expr->u.bin.op = op;
-  return expr;
-}
-
-static StmtNode *stmt_init(Arena *arena, StringView lex, StmtKind kind) {
-  StmtNode *stmt = arena_alloc(arena, sizeof(StmtNode));
-  stmt->kind = kind;
-  stmt->lex = lex;
-  stmt->next = NULL;
-  return stmt;
-}
-
-static StmtNode *stmt_init_return(Arena *arena, StringView lex,
-                                  ExprNode *expr) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_RETURN);
-  stmt->u.ret.expr = expr;
-  return stmt;
-}
-
-static StmtNode *stmt_init_expr(Arena *arena, StringView lex, ExprNode *expr) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_EXPR);
-  stmt->u.expr.expr = expr;
-  return stmt;
-}
-
-static StmtNode *stmt_init_decl(Arena *arena, StringView lex, StringView name,
-                                ExprNode *expr) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_DECL);
-  stmt->u.decl.name = name;
-  stmt->u.decl.expr = expr;
-  return stmt;
-}
-
-static StmtNode *stmt_init_block(Arena *arena, StringView lex, StmtNode *body) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_BLOCK);
-  stmt->u.block.body = body;
-  return stmt;
-}
-
-static StmtNode *stmt_init_while(Arena *arena, StringView lex, ExprNode *cond,
-                                 StmtNode *body) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_WHILE);
-  stmt->u.whil.cond = cond;
-  stmt->u.whil.body = body;
-  return stmt;
-}
-
-static StmtNode *stmt_init_if(Arena *arena, StringView lex, ExprNode *cond,
-                              StmtNode *then, StmtNode *elss) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_IF);
-  stmt->u.iff.cond = cond;
-  stmt->u.iff.then = then;
-  stmt->u.iff.elss = elss;
-  return stmt;
-}
-
-static StmtNode *stmt_init_for(Arena *arena, StringView lex, StmtNode *init,
-                               ExprNode *cond, ExprNode *step, StmtNode *body) {
-  StmtNode *stmt = stmt_init(arena, lex, STMT_FOR);
-  stmt->u.forr.init = init;
-  stmt->u.forr.cond = cond;
-  stmt->u.forr.step = step;
-  stmt->u.forr.body = body;
-  return stmt;
 }
 
 typedef struct ParseCtx {
@@ -204,9 +103,9 @@ static ExprNode *parse_expr_primary(ParseCtx *ctx) {
   Token *token = next_token(ctx);
   switch (token->kind) {
   case TK_NUM:
-    return expr_init_integer(ctx->arena, token);
+    return expr_init_int(ctx->arena, token->lex);
   case TK_IDENT:
-    return expr_init_variable(ctx->arena, token->lex);
+    return expr_init_var(ctx->arena, token->lex);
   case TK_PLUS:
     return expr_init_unary(ctx->arena, token->lex, UNOP_ADD,
                            parse_expr(ctx, 99));
@@ -227,7 +126,7 @@ static ExprNode *parse_expr_primary(ParseCtx *ctx) {
   default:
     parse_error_stream_push(
         &ctx->result->errors,
-        (ParseError){PARSE_ERR_UNEXPECTED_TOKEN, NULL, TK_IDENT});
+        (ParseError){PARSE_ERR_UNEXPECTED_TOKEN, token, TK_IDENT});
     return NULL;
   }
 }
@@ -325,19 +224,26 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     StmtNode *body = parse_stmt(ctx);
     return stmt_init_for(ctx->arena, token->lex, init, cond, step, body);
   }
-  case TK_KW_VOID: {
+  case TK_KW_INT: {
     ++ctx->idx;
-    Token *next = expect_token(ctx, TK_IDENT);
+    Type *type = TYPE_INT;
+    Token *next = peek_token(ctx);
+    while (next != NULL && next->kind == TK_STAR) {
+      type = type_init_ptr(ctx->arena, type);
+      ++ctx->idx;
+      next = peek_token(ctx);
+    }
+    next = expect_token(ctx, TK_IDENT);
     StringView name = next == NULL ? token->lex : next->lex;
     next = peek_token(ctx);
     if (next != NULL && next->kind != TK_SEMICOLON) {
       expect_token(ctx, TK_EQ);
       ExprNode *expr = parse_expr(ctx, 0);
       expect_token(ctx, TK_SEMICOLON);
-      return stmt_init_decl(ctx->arena, token->lex, name, expr);
+      return stmt_init_decl(ctx->arena, token->lex, type, name, expr);
     }
     expect_token(ctx, TK_SEMICOLON);
-    return stmt_init_decl(ctx->arena, token->lex, name, NULL);
+    return stmt_init_decl(ctx->arena, token->lex, type, name, NULL);
   }
   default: {
     ExprNode *expr = parse_expr(ctx, 0);

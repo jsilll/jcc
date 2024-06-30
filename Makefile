@@ -5,7 +5,7 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 CC = gcc
-C_FLAGS = -std=c11 -pedantic -Wall -Wextra -Wpedantic -g
+C_FLAGS = -std=c11 -pedantic -Wall -Wextra -Wpedantic
 LD_FLAGS =
 
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
@@ -14,9 +14,13 @@ DEP_FILES = $(OBJ_FILES:.o=.d)
 
 BIN = $(BIN_DIR)/$(PROJECT)
 
-.PHONY: all clean
+.PHONY: all release clean
 
+all: C_FLAGS += -g
 all: $(BIN)
+
+release: C_FLAGS += -O3 -DNDEBUG
+release: $(BIN)
 
 $(BIN): $(OBJ_FILES) | $(BIN_DIR)
 	$(CC) $(LD_FLAGS) -o $@ $^

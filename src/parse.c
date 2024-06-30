@@ -208,7 +208,8 @@ static ExprNode *parse_expr_primary(ParseCtx *ctx) {
   case TK_IDENT:
     return expr_init_variable(ctx->arena, token->lex);
   case TK_PLUS:
-    return parse_expr_primary(ctx);
+    return expr_init_unary(ctx->arena, token->lex, UNOP_ADD,
+                           parse_expr(ctx, 99));
   case TK_MINUS:
     return expr_init_unary(ctx->arena, token->lex, UNOP_NEG,
                            parse_expr(ctx, 99));
@@ -324,17 +325,7 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     StmtNode *body = parse_stmt(ctx);
     return stmt_init_for(ctx->arena, token->lex, init, cond, step, body);
   }
-  case TK_KW_VOID:
-  case TK_KW_CHAR:
-  case TK_KW_SHORT:
-  case TK_KW_INT:
-  case TK_KW_LONG:
-  case TK_KW_FLOAT:
-  case TK_KW_DOUBLE:
-  case TK_KW_SIGNED:
-  case TK_KW_UNSIGNED:
-  case TK_KW__BOOL:
-  case TK_KW__COMPLEX: {
+  case TK_KW_VOID: {
     ++ctx->idx;
     Token *next = expect_token(ctx, TK_IDENT);
     StringView name = next == NULL ? token->lex : next->lex;

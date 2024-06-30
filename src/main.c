@@ -1,3 +1,4 @@
+#include "codegen_x86.h"
 #include "error.h"
 #include "parse.h"
 #include "resolve.h"
@@ -195,6 +196,8 @@ int main(int argc, char *argv[]) {
   ///// Sema /////
 
   ///// Codegen /////
+
+  codegen_x86(stdout, &pr.ast);
 
   arena_free(&arena);
   src_file_free(&file);

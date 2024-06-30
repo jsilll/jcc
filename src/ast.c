@@ -60,15 +60,15 @@ static void ast_stmt_debug(FILE *out, StmtNode *stmt, uint8_t indent) {
     fprintf(out, "  ");
   }
   switch (stmt->kind) {
+  case STMT_EXPR:
+    fprintf(out, "%s:\n", StmtKind_Repr[stmt->kind]);
+    ast_expr_debug(out, stmt->u.expr.expr, indent + 1);
+    break;
   case STMT_RETURN:
     fprintf(out, "%s:\n", StmtKind_Repr[stmt->kind]);
     if (stmt->u.ret.expr != NULL) {
       ast_expr_debug(out, stmt->u.ret.expr, indent + 1);
     }
-    break;
-  case STMT_EXPR:
-    fprintf(out, "%s:\n", StmtKind_Repr[stmt->kind]);
-    ast_expr_debug(out, stmt->u.expr.expr, indent + 1);
     break;
   case STMT_DECL:
     fprintf(out, "%s: '%.*s' %p\n", StmtKind_Repr[stmt->kind],

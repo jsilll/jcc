@@ -117,6 +117,9 @@ static void resolve_stmt(ResolveCtx *ctx, StmtNode *stmt) {
     resolve_expr(ctx, stmt->u.ret.expr);
     break;
   case STMT_DECL:
+    if (stmt->u.decl.expr != NULL) {
+      resolve_expr(ctx, stmt->u.decl.expr);
+    }
     if (scopes_insert(&ctx->scopes, &stmt->u.decl.name, stmt) != NULL) {
       resolve_error_stream_push(
           &ctx->result->errors,

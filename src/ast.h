@@ -7,13 +7,16 @@
   M(TYPE_VOID)                                                                 \
   M(TYPE_INT)                                                                  \
   M(TYPE_PTR)
+
 DECLARE_ENUM_WITH_REPR(TypeKind, ENUMERATE_TYPES)
 
 #define ENUMERATE_UNOPS(M)                                                     \
+  M(UNOP_ADD)                                                                  \
   M(UNOP_NEG)                                                                  \
   M(UNOP_NOT)                                                                  \
   M(UNOP_ADDR)                                                                 \
   M(UNOP_DEREF)
+
 DECLARE_ENUM_WITH_REPR(UnOpKind, ENUMERATE_UNOPS)
 
 #define ENUMERATE_BINOPS(M)                                                    \
@@ -28,6 +31,7 @@ DECLARE_ENUM_WITH_REPR(UnOpKind, ENUMERATE_UNOPS)
   M(BINOP_GT)                                                                  \
   M(BINOP_GE)                                                                  \
   M(BINOP_ASGN)
+
 DECLARE_ENUM_WITH_REPR(BinOpKind, ENUMERATE_BINOPS)
 
 #define ENUMERATE_EXPRS(M)                                                     \
@@ -35,6 +39,7 @@ DECLARE_ENUM_WITH_REPR(BinOpKind, ENUMERATE_BINOPS)
   M(EXPR_VAR)                                                                  \
   M(EXPR_UN)                                                                   \
   M(EXPR_BIN)
+
 DECLARE_ENUM_WITH_REPR(ExprKind, ENUMERATE_EXPRS)
 
 #define ENUMERATE_STMTS(M)                                                     \
@@ -45,6 +50,7 @@ DECLARE_ENUM_WITH_REPR(ExprKind, ENUMERATE_EXPRS)
   M(STMT_WHILE)                                                                \
   M(STMT_IF)                                                                   \
   M(STMT_FOR)
+
 DECLARE_ENUM_WITH_REPR(StmtKind, ENUMERATE_STMTS)
 
 typedef struct Type Type;

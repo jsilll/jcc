@@ -2,8 +2,6 @@
 #define JCC_AST_H
 
 #include "arena.h"
-#include "base.h"
-#include <sys/types.h>
 
 typedef struct Type Type;
 typedef struct ExprNode ExprNode;

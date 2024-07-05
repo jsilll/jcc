@@ -1,5 +1,4 @@
 #include "desugar.h"
-#include "ast.h"
 
 typedef struct DesugarCtx {
   Arena *arena;
@@ -14,6 +13,8 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
     desugar_expr(ctx, expr->u.un.expr);
     break;
   case EXPR_BIN:
+    desugar_expr(ctx, expr->u.bin.lhs);
+    desugar_expr(ctx, expr->u.bin.rhs);
     switch (expr->u.bin.op) {
     case BINOP_ADD:
       if (expr->u.bin.lhs->type->kind == TY_PTR &&
@@ -34,19 +35,18 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
                                        expr->u.bin.lhs->type->base->size));
           break;
         case TY_PTR:
-          expr->u.bin.lhs = expr;
           expr->u.bin.op = BINOP_DIV;
+          expr->u.bin.lhs = expr_init_binary(ctx->arena, expr->lex, BINOP_SUB,
+                                             expr->u.bin.lhs, expr->u.bin.rhs);
           expr->u.bin.rhs = expr_init_int_from_value(
-              ctx->arena, expr->lex, expr->u.bin.lhs->type->base->size);
+              ctx->arena, expr->lex,
+              expr->u.bin.lhs->u.bin.lhs->type->base->size);
           break;
         }
       }
-      break;
     default:
       break;
     }
-    desugar_expr(ctx, expr->u.bin.lhs);
-    desugar_expr(ctx, expr->u.bin.rhs);
     break;
   }
 }

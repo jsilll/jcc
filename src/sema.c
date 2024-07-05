@@ -1,9 +1,6 @@
 #include "sema.h"
 
-#include "ast.h"
 #include "hash_set.h"
-
-#include <assert.h>
 
 DEFINE_VECTOR(SemaError, SemaErrorStream, sema_error_stream)
 
@@ -17,7 +14,7 @@ static uint64_t type_hash(const void *key) {
   case TY_INT:
     return (uint64_t)key;
   case TY_PTR:
-    return (uint64_t)type->kind ^ (uint64_t)type->base;
+    return (uint64_t)type->base ^ ((uint64_t)type->kind << 32);
   }
   return 0;
 }
@@ -25,6 +22,9 @@ static uint64_t type_hash(const void *key) {
 static bool type_equals(const void *key1, const void *key2) {
   const Type *type1 = key1;
   const Type *type2 = key2;
+  if (type1 == type2) {
+    return true;
+  }
   if (type1->kind != type2->kind) {
     return false;
   }
@@ -79,6 +79,13 @@ static Type *type_ctx_make_ptr(TypeCtx *ctx, Type *base) {
   return type;
 }
 
+static void type_check_assert(TypeCtx *ctx, StringView span, bool pred) {
+  if (!pred) {
+    sema_error_stream_push(&ctx->result->errors,
+                           (SemaError){SEMA_ERR_MISMATCHED_TYPES, span});
+  }
+}
+
 static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
   switch (expr->kind) {
   case EXPR_NUM:
@@ -91,28 +98,23 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
     type_check_expr(ctx, expr->u.un.expr);
     switch (expr->u.un.op) {
     case UNOP_ADD:
+      type_check_assert(ctx, expr->lex, expr->u.un.expr->type == TYPE_INT);
       expr->type = TYPE_INT;
-      assert(expr->u.un.expr->type == TYPE_INT);
       break;
     case UNOP_NEG:
+      type_check_assert(ctx, expr->lex, expr->u.un.expr->type == TYPE_INT);
       expr->type = TYPE_INT;
-      assert(expr->u.un.expr->type == TYPE_INT);
       break;
     case UNOP_NOT:
+      type_check_assert(ctx, expr->lex, expr->u.un.expr->type == TYPE_INT);
       expr->type = TYPE_INT;
-      assert(expr->u.un.expr->type == TYPE_INT);
       break;
     case UNOP_ADDR:
       expr->type = type_ctx_make_ptr(ctx, expr->u.un.expr->type);
       break;
     case UNOP_DEREF:
+      type_check_assert(ctx, expr->lex, expr->u.un.expr->type->kind == TY_PTR);
       expr->type = expr->u.un.expr->type->base;
-      if (expr->u.un.expr->type->kind != TY_PTR) {
-        sema_error_stream_push(
-            &ctx->result->errors,
-            (SemaError){SEMA_ERR_MISMATCHED_TYPES, expr->lex});
-        expr->type = expr->u.un.expr->type;
-      }
       break;
     }
     break;
@@ -122,16 +124,19 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
     switch (expr->u.bin.op) {
     case BINOP_ADD:
       if (expr->u.bin.lhs->type == expr->u.bin.rhs->type) {
-        assert(expr->u.bin.lhs->type->kind == TY_INT);
+        type_check_assert(ctx, expr->lex,
+                          expr->u.bin.lhs->type->kind == TY_INT);
         expr->type = TYPE_INT;
       } else {
         switch (expr->u.bin.lhs->type->kind) {
         case TY_INT:
-          assert(expr->u.bin.rhs->type->kind == TY_PTR);
+          type_check_assert(ctx, expr->lex,
+                            expr->u.bin.rhs->type->kind == TY_PTR);
           expr->type = expr->u.bin.rhs->type;
           break;
         case TY_PTR:
-          assert(expr->u.bin.rhs->type->kind == TY_INT);
+          type_check_assert(ctx, expr->lex,
+                            expr->u.bin.rhs->type->kind == TY_INT);
           expr->type = expr->u.bin.lhs->type;
           break;
         }
@@ -150,24 +155,27 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       } else {
         switch (expr->u.bin.lhs->type->kind) {
         case TY_INT:
-          PANIC("invalid lhs operand type");
+          sema_error_stream_push(
+              &ctx->result->errors,
+              (SemaError){SEMA_ERR_MISMATCHED_TYPES, expr->lex});
           break;
         case TY_PTR:
-          assert(expr->u.bin.rhs->type->kind == TY_INT);
+          type_check_assert(ctx, expr->lex,
+                            expr->u.bin.rhs->type->kind == TY_INT);
           expr->type = expr->u.bin.lhs->type;
           break;
         }
       }
       break;
     case BINOP_MUL:
+      type_check_assert(ctx, expr->lex, expr->u.bin.lhs->type == TYPE_INT);
+      type_check_assert(ctx, expr->lex, expr->u.bin.rhs->type == TYPE_INT);
       expr->type = TYPE_INT;
-      assert(expr->u.bin.lhs->type == TYPE_INT);
-      assert(expr->u.bin.rhs->type == TYPE_INT);
       break;
     case BINOP_DIV:
+      type_check_assert(ctx, expr->lex, expr->u.bin.lhs->type == TYPE_INT);
+      type_check_assert(ctx, expr->lex, expr->u.bin.rhs->type == TYPE_INT);
       expr->type = TYPE_INT;
-      assert(expr->u.bin.lhs->type == TYPE_INT);
-      assert(expr->u.bin.rhs->type == TYPE_INT);
       break;
     case BINOP_EQ:
     case BINOP_NE:
@@ -175,13 +183,14 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
     case BINOP_LE:
     case BINOP_GT:
     case BINOP_GE:
+      type_check_assert(ctx, expr->lex, expr->u.bin.lhs->type == TYPE_INT);
+      type_check_assert(ctx, expr->lex, expr->u.bin.rhs->type == TYPE_INT);
       expr->type = TYPE_INT;
-      assert(expr->u.bin.lhs->type == TYPE_INT);
-      assert(expr->u.bin.rhs->type == TYPE_INT);
       break;
     case BINOP_ASGN:
+      type_check_assert(ctx, expr->lex,
+                        expr->u.bin.lhs->type == expr->u.bin.rhs->type);
       expr->type = expr->u.bin.lhs->type;
-      assert(expr->u.bin.lhs->type == expr->u.bin.rhs->type);
       break;
     }
   }

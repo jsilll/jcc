@@ -223,12 +223,10 @@ void token_stream_debug(FILE *out, const TokenStream *stream,
   if (stream->size == 0) {
     return;
   }
-
+  uint32_t line = 0;
   char fmt[32] = {0};
   const uint32_t digits = digit_count(file->num_lines);
   line_number_fmt(fmt, sizeof(fmt), digits);
-
-  uint32_t line = 0;
   for (uint32_t i = 0; i < stream->size; ++i) {
     const Token token = stream->data[i];
     const Loc loc = src_file_get_loc(file, token.lex.data);

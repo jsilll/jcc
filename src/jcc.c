@@ -17,13 +17,13 @@ static void report_file_errors(const char *name, const FileResult result) {
     PANIC("unexpected file result");
     break;
   case FILE_ERR_EMPTY:
-    fprintf(stderr, "error: file '%s' not found\n", name);
+    error("file '%s' not found\n", name);
     break;
   case FILE_ERR_OPEN:
-    fprintf(stderr, "error: failed to open file '%s'\n", name);
+    error("failed to open file '%s'\n", name);
     break;
   case FILE_ERR_READ:
-    fprintf(stderr, "error: failed to read file '%s'\n", name);
+    error("failed to read file '%s'\n", name);
     break;
   }
 }
@@ -153,8 +153,8 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  FuncNode ast = {0};
   Arena arena;
+  FuncNode ast = {0};
   arena_init(&arena, KB(64));
 
   {
@@ -172,6 +172,7 @@ int main(int argc, char *argv[]) {
       src_file_free(&file);
       return EXIT_FAILURE;
     }
+    DEBUGF("sr.tokens.capacity: %zu", sr.tokens.capacity);
 
     DEBUG("Parse");
     ParseResult pr = parse(&arena, &sr.tokens);
@@ -181,6 +182,15 @@ int main(int argc, char *argv[]) {
     }
     if (pr.errors.size > 0) {
       report_parse_errors(&file, &pr.errors, pr.errors.size);
+
+      parse_result_free(&pr);
+      arena_free(&arena);
+      scan_result_free(&sr);
+      src_file_free(&file);
+      return EXIT_FAILURE;
+    }
+    if (pr.ast.body == NULL) {
+      error("empty parse tree");
 
       parse_result_free(&pr);
       arena_free(&arena);

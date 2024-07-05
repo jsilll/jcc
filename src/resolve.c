@@ -1,6 +1,5 @@
 #include "resolve.h"
 
-#include "base.h"
 #include "hash_map.h"
 
 #include <assert.h>

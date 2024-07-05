@@ -1,8 +1,4 @@
 #include "parse.h"
-#include "base.h"
-
-#include <stdint.h>
-#include <stdlib.h>
 
 DEFINE_VECTOR(ParseError, ParseErrorStream, parse_error_stream)
 
@@ -262,7 +258,9 @@ ParseResult parse(Arena *arena, TokenStream *tokens) {
   ParseCtx ctx = {0, arena, &result, tokens};
   parse_error_stream_init(&result.errors);
   Token *token = peek_token(&ctx);
-  if (token->kind != TK_LBRACE) {
+  if (token == NULL) {
+    return result;
+  } else if (token->kind != TK_LBRACE) {
     parse_error_stream_push(
         &ctx.result->errors,
         (ParseError){PARSE_ERR_EXPECTED_TOKEN, token, TK_LBRACE});

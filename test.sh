@@ -103,6 +103,10 @@ assert 7 '{ int x=3; int y=5; *(&y+2-1)=7; return x; }' # ub
 assert 5 '{ int x=3; return (&x+2)-&x+3; }'
 assert 8 '{ int x, y; x=3; y=5; return x+y; }'
 assert 8 '{ int x=3, y=5; return x+y; }'
+assert 3 '{ int x=3, *y=&x; return *y; }'
+
+# assert 3 '{ return ret3(); }'
+# assert 5 '{ return ret5(); }'
 
 # assert 0 '{ 1 = 1; return 0; }'
 

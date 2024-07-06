@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
   arena_init(&arena, KB(64));
 
   {
-    /// Scan  + Parse ///
+    /// Scan ///
     DEBUG("Scan");
     ScanResult sr = scan(&file, true);
     if (emit_tokens) {
@@ -174,6 +174,7 @@ int main(int argc, char *argv[]) {
     }
     DEBUGF("sr.tokens.capacity: %zu", sr.tokens.capacity);
 
+    /// Parse ///
     DEBUG("Parse");
     ParseResult pr = parse(&arena, &sr.tokens);
     if (emit_ast) {
@@ -228,8 +229,8 @@ int main(int argc, char *argv[]) {
     resolve_result_free(&rr);
   }
 
-  /// Sema ///
   {
+    /// Sema ///
     DEBUG("Sema");
     SemaResult smr = sema(&arena, &ast);
     if (emit_ast) {
@@ -263,6 +264,7 @@ int main(int argc, char *argv[]) {
   DEBUGF("arena commited bytes: %zu", arena_commited_bytes(&arena));
 
   /// Codegen ///
+  DEBUG("Codegen");
   codegen_x86(stdout, &ast);
 
   arena_free(&arena);

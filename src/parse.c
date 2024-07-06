@@ -145,6 +145,21 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec) {
   return lhs;
 }
 
+static Type *parse_declspec(ParseCtx *ctx) {
+  ++ctx->idx;
+  return TYPE_INT;
+}
+
+static Type *parse_decltype(ParseCtx *ctx, Type *base) {
+  Token *next = peek_token(ctx);
+  while (next != NULL && next->kind == TK_STAR) {
+    base = type_init_ptr(ctx->arena, base);
+    ++ctx->idx;
+    next = peek_token(ctx);
+  }
+  return base;
+}
+
 static StmtNode *parse_stmt(ParseCtx *ctx);
 
 static StmtNode *parse_stmt_block(ParseCtx *ctx) {
@@ -155,7 +170,9 @@ static StmtNode *parse_stmt_block(ParseCtx *ctx) {
   while (token != NULL && token->kind != TK_RBRACE) {
     curr->next = parse_stmt(ctx);
     token = peek_token(ctx);
-    curr = curr->next;
+    while (curr->next != NULL) {
+      curr = curr->next;
+    }
   }
   expect_token(ctx, TK_RBRACE);
   return stmt_init_block(ctx->arena, begin->lex, head.next);
@@ -221,25 +238,32 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     return stmt_init_for(ctx->arena, token->lex, init, cond, step, body);
   }
   case TK_KW_INT: {
-    ++ctx->idx;
-    Type *type = TYPE_INT;
+    Type *base = parse_declspec(ctx);
+    uint32_t idx = 0;
+    StmtNode head = {0};
+    StmtNode *cur = &head;
     Token *next = peek_token(ctx);
-    while (next != NULL && next->kind == TK_STAR) {
-      type = type_init_ptr(ctx->arena, type);
-      ++ctx->idx;
+    while (next != NULL && next->kind != TK_SEMICOLON) {
+      if (idx++ > 0) {
+        expect_token(ctx, TK_COMMA);
+      }
+      Type *type = parse_decltype(ctx, base);
+      next = expect_token(ctx, TK_IDENT);
+      StringView name = next == NULL ? token->lex : next->lex;
+      next = peek_token(ctx);
+      if (next != NULL && next->kind == TK_EQ) {
+        ++ctx->idx;
+        ExprNode *expr = parse_expr(ctx, 0);
+        cur = cur->next =
+            stmt_init_decl(ctx->arena, token->lex, type, name, expr);
+      } else {
+        cur = cur->next =
+            stmt_init_decl(ctx->arena, token->lex, type, name, NULL);
+      }
       next = peek_token(ctx);
     }
-    next = expect_token(ctx, TK_IDENT);
-    StringView name = next == NULL ? token->lex : next->lex;
-    next = peek_token(ctx);
-    if (next != NULL && next->kind != TK_SEMICOLON) {
-      expect_token(ctx, TK_EQ);
-      ExprNode *expr = parse_expr(ctx, 0);
-      expect_token(ctx, TK_SEMICOLON);
-      return stmt_init_decl(ctx->arena, token->lex, type, name, expr);
-    }
     expect_token(ctx, TK_SEMICOLON);
-    return stmt_init_decl(ctx->arena, token->lex, type, name, NULL);
+    return head.next;
   }
   default: {
     ExprNode *expr = parse_expr(ctx, 0);

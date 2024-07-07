@@ -1,6 +1,7 @@
 #ifndef JCC_BASE_H
 #define JCC_BASE_H
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -12,36 +13,32 @@
 
 #define TODO(msg)                                                              \
   do {                                                                         \
-    fprintf(stderr, "[%s:%d] todo: %s\n", __FILE__, __LINE__, msg);            \
+    fprintf(stderr, "[%s:%d] TODO: %s\n", __FILE__, __LINE__, msg);            \
     exit(EXIT_FAILURE);                                                        \
   } while (0)
 
 #define PANIC(msg)                                                             \
   do {                                                                         \
-    fprintf(stderr, "[%s:%d] panic: %s\n", __FILE__, __LINE__, msg);           \
+    fprintf(stderr, "[%s:%d] PANIC: %s\n", __FILE__, __LINE__, msg);           \
     exit(EXIT_FAILURE);                                                        \
   } while (0)
 
 #ifndef NDEBUG
 #define DEBUG(msg)                                                             \
-  fprintf(stderr, "[%s:%d] debug: %s\n", __FILE__, __LINE__, msg)
+  fprintf(stderr, "[%s:%d] DEBUG: %s\n", __FILE__, __LINE__, msg)
 #define DEBUGF(fmt, ...)                                                       \
-  fprintf(stderr, "[%s:%d] debug: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+  fprintf(stderr, "[%s:%d] DEBUG: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 #else
 #define DEBUG(msg)       // Do nothing in release mode
 #define DEBUGF(fmt, ...) // Do nothing in release mode
 #endif
 
 #define KB(x) ((x) * 1024)
-
 #define MB(x) ((x) * 1024 * 1024)
-
 #define GB(x) ((x) * 1024 * 1024 * 1024)
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-
 #define CLAMP(x, low, high)                                                    \
   ((x) < (low) ? (low) : ((x) > (high) ? (high) : (x)))
 
@@ -50,9 +47,7 @@
 #define IS_ASCII(c) ((c) >= 0 && (c) <= 127)
 
 #define ALIGN_DOWN(x, align) ((x) & ~((align)-1))
-
 #define ALIGN_UP(x, align) (((x) + (align)-1) & ~((align)-1))
-
 #define IS_ALIGNED(x, align) (((x) & ((align)-1)) == 0)
 
 #define GROW_CAP(capacity) ((capacity) < 8 ? 8 : (capacity) * 2)
@@ -106,6 +101,7 @@
     capacity = next_power_of_two(capacity);                                    \
     capacity = MAX(capacity, 8);                                               \
     v->data = malloc(capacity * sizeof(T));                                    \
+    assert(v->data != NULL);                                                   \
     v->size = 0;                                                               \
     v->capacity = capacity;                                                    \
   }                                                                            \
@@ -121,6 +117,7 @@
     if (v->size == v->capacity) {                                              \
       v->capacity = GROW_CAP(v->capacity);                                     \
       v->data = realloc(v->data, v->capacity * sizeof(T));                     \
+      assert(v->data != NULL);                                                 \
     }                                                                          \
     v->data[v->size++] = value;                                                \
   }                                                                            \
@@ -132,6 +129,8 @@
 /// String View ///
 
 DECLARE_SLICE(char, StringView, sv)
+
+#define EMPTY_SV ((StringView){.data = NULL, .size = 0})
 
 static inline uint64_t sv_hash(StringView *sv) {
   uint64_t hash = 14695981039346656037UL;

@@ -14,7 +14,10 @@ static uint64_t type_hash(const void *key) {
   case TY_INT:
     return (uint64_t)key;
   case TY_PTR:
-    return (uint64_t)type->base ^ ((uint64_t)type->kind << 32);
+    return (uint64_t)type->u.ptr.base ^ ((uint64_t)type->kind << 32);
+  case TY_FUN:
+    TODO("Handle TY_FUN");
+    break;
   }
   return 0;
 }
@@ -32,7 +35,10 @@ static bool type_equals(const void *key1, const void *key2) {
   case TY_INT:
     return true;
   case TY_PTR:
-    return type1->base == type2->base;
+    return type1->u.ptr.base == type2->u.ptr.base;
+  case TY_FUN:
+    TODO("Handle TY_FUN");
+    break;
   }
   return false;
 }
@@ -61,8 +67,11 @@ static Type *type_ctx_register(TypeCtx *ctx, Type *type) {
   case TY_INT:
     return type;
   case TY_PTR:
-    type->base = type_ctx_register(ctx, type->base);
+    type->u.ptr.base = type_ctx_register(ctx, type->u.ptr.base);
     return (Type *)hash_set_insert(&ctx->types, type);
+  case TY_FUN:
+    TODO("Handle TY_FUN");
+    break;
   }
   return NULL;
 }
@@ -70,7 +79,7 @@ static Type *type_ctx_register(TypeCtx *ctx, Type *type) {
 static Type *type_ctx_make_ptr(TypeCtx *ctx, Type *base) {
   Type *type = arena_alloc(ctx->arena, sizeof(Type));
   type->kind = TY_PTR;
-  type->base = base;
+  type->u.ptr.base = base;
   Type *existing = type_ctx_register(ctx, type);
   if (existing != NULL) {
     arena_undo(ctx->arena, sizeof(Type));
@@ -114,7 +123,7 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       break;
     case UNOP_DEREF:
       type_check_assert(ctx, expr->lex, expr->u.un.expr->type->kind == TY_PTR);
-      expr->type = expr->u.un.expr->type->base;
+      expr->type = expr->u.un.expr->type->u.ptr.base;
       break;
     }
     break;
@@ -139,6 +148,9 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
                             expr->u.bin.rhs->type->kind == TY_INT);
           expr->type = expr->u.bin.lhs->type;
           break;
+        case TY_FUN:
+          TODO("Handle TY_FUN");
+          break;
         }
       }
       break;
@@ -150,6 +162,9 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
           break;
         case TY_PTR:
           expr->type = TYPE_INT;
+          break;
+        case TY_FUN:
+          TODO("Handle TY_FUN");
           break;
         }
       } else {
@@ -163,6 +178,9 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
           type_check_assert(ctx, expr->lex,
                             expr->u.bin.rhs->type->kind == TY_INT);
           expr->type = expr->u.bin.lhs->type;
+          break;
+        case TY_FUN:
+          TODO("Handle TY_FUN");
           break;
         }
       }
@@ -193,6 +211,15 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       expr->type = expr->u.bin.lhs->type;
       break;
     }
+    break;
+  case EXPR_CALL:
+    // TODO:
+    // type_check_expr(ctx, expr->u.call.func);
+    break;
+  case EXPR_INDEX:
+    type_check_expr(ctx, expr->u.index.array);
+    type_check_expr(ctx, expr->u.index.index);
+    break;
   }
 }
 

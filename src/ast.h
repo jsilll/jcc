@@ -7,6 +7,7 @@ typedef struct Type Type;
 typedef struct ExprNode ExprNode;
 typedef struct StmtNode StmtNode;
 typedef struct DeclNode DeclNode;
+typedef struct FuncNode FuncNode;
 
 #define GENERATE_TYPE_ENUM(Name, Size) TY_##Name,
 
@@ -14,7 +15,8 @@ typedef struct DeclNode DeclNode;
 
 #define ENUMERATE_TYPES(M)                                                     \
   M(INT, 8)                                                                    \
-  M(PTR, 8)
+  M(PTR, 8)                                                                    \
+  M(FUN, 8)
 
 ENUMERATE_TYPES(GENERATE_TYPE_EXTERN)
 
@@ -48,7 +50,9 @@ DECLARE_REPR_ENUM(BinOpKind, ENUMERATE_BINOPS)
   M(EXPR_NUM)                                                                  \
   M(EXPR_VAR)                                                                  \
   M(EXPR_UN)                                                                   \
-  M(EXPR_BIN)
+  M(EXPR_BIN)                                                                  \
+  M(EXPR_CALL)                                                                 \
+  M(EXPR_INDEX)
 
 DECLARE_REPR_ENUM(ExprKind, ENUMERATE_EXPRS)
 
@@ -66,7 +70,14 @@ DECLARE_REPR_ENUM(StmtKind, ENUMERATE_STMTS)
 struct Type {
   TypeKind kind;
   uint8_t size;
-  Type *base;
+  union {
+    struct {
+      Type *base;
+    } ptr;
+    struct {
+      Type *ret;
+    } func;
+  } u;
 };
 
 struct ExprNode {
@@ -74,7 +85,7 @@ struct ExprNode {
   StringView lex;
   Type *type;
   union {
-    int32_t num;
+    int64_t num;
     struct {
       StmtNode *decl;
     } var;
@@ -87,6 +98,13 @@ struct ExprNode {
       ExprNode *lhs;
       ExprNode *rhs;
     } bin;
+    struct {
+      ExprNode *func;
+    } call;
+    struct {
+      ExprNode *array;
+      ExprNode *index;
+    } index;
   } u;
 };
 
@@ -127,9 +145,12 @@ struct StmtNode {
   } u;
 };
 
-typedef struct {
+struct FuncNode {
+  StringView lex;
+  Type *type;
+  FuncNode *next;
   StmtNode *body;
-} FuncNode;
+};
 
 void ast_debug(FILE *out, FuncNode *ast);
 
@@ -144,6 +165,9 @@ ExprNode *expr_init_unary(Arena *arena, StringView lex, UnOpKind op,
                           ExprNode *sub);
 ExprNode *expr_init_binary(Arena *arena, StringView lex, BinOpKind op,
                            ExprNode *lhs, ExprNode *rhs);
+ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func);
+ExprNode *expr_init_index(Arena *arena, StringView lex, ExprNode *array,
+                          ExprNode *index);
 
 StmtNode *stmt_init(Arena *arena, StringView lex, StmtKind kind);
 StmtNode *stmt_init_return(Arena *arena, StringView lex, ExprNode *expr);

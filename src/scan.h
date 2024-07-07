@@ -25,6 +25,6 @@ typedef struct ScanResult {
 
 void scan_result_free(ScanResult *result);
 
-ScanResult scan(SrcFile *file, bool comments);
+ScanResult scan(const SrcFile *file, bool comments);
 
 #endif // JCC_SCAN_H

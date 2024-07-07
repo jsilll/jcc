@@ -1,7 +1,5 @@
 #include "hash_set.h"
 
-#include <assert.h>
-
 static void hash_set_maybe_rehash(HashSet *set) {
   if (set->size >= set->capacity / 2) {
     size_t old_capacity = set->capacity;

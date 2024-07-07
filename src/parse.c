@@ -134,19 +134,33 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec) {
     if (token == NULL) {
       return lhs;
     }
-    BinOpPair bp = try_into_binop(token->kind);
-    if (bp.bind.lhs <= prec) {
-      return lhs;
+    switch (token->kind) {
+    case TK_LPAREN:
+      ++ctx->idx;
+      expect_token(ctx, TK_RPAREN);
+      lhs = expr_init_call(ctx->arena, token->lex, lhs);
+      break;
+    case TK_LBRACK:
+      ++ctx->idx;
+      expect_token(ctx, TK_RBRACK);
+      lhs = expr_init_index(ctx->arena, token->lex, lhs, NULL);
+      break;
+    default: {
+      BinOpPair bp = try_into_binop(token->kind);
+      if (bp.bind.lhs <= prec) {
+        return lhs;
+      }
+      ++ctx->idx;
+      ExprNode *expr = parse_expr(ctx, bp.bind.rhs);
+      lhs = expr_init_binary(ctx->arena, token->lex, bp.op, lhs, expr);
+    } break;
     }
-    next_token(ctx);
-    lhs = expr_init_binary(ctx->arena, token->lex, bp.op, lhs,
-                           parse_expr(ctx, bp.bind.rhs));
   }
   return lhs;
 }
 
 static Type *parse_declspec(ParseCtx *ctx) {
-  ++ctx->idx;
+  expect_token(ctx, TK_KW_INT);
   return TYPE_INT;
 }
 
@@ -277,18 +291,31 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
   }
 }
 
+FuncNode *parse_function(ParseCtx *ctx) {
+  FuncNode *function = arena_alloc(ctx->arena, sizeof(FuncNode));
+  Type *base = parse_declspec(ctx);
+  function->type = parse_decltype(ctx, base);
+  Token *token = expect_token(ctx, TK_IDENT);
+  function->lex = token != NULL ? token->lex : EMPTY_SV;
+  expect_token(ctx, TK_LPAREN);
+  expect_token(ctx, TK_RPAREN);
+  token = peek_some(ctx);
+  if (token != NULL && token->kind != TK_LBRACE) {
+    parse_error_stream_push(
+        &ctx->result->errors,
+        (ParseError){PARSE_ERR_EXPECTED_TOKEN, token, TK_LBRACE});
+  }
+  function->body = parse_stmt_block(ctx);
+  return function;
+}
+
 ParseResult parse(Arena *arena, TokenStream *tokens) {
   ParseResult result = {0};
   ParseCtx ctx = {0, arena, &result, tokens};
   parse_error_stream_init(&result.errors);
-  Token *token = peek_token(&ctx);
-  if (token == NULL) {
-    return result;
-  } else if (token->kind != TK_LBRACE) {
-    parse_error_stream_push(
-        &ctx.result->errors,
-        (ParseError){PARSE_ERR_EXPECTED_TOKEN, token, TK_LBRACE});
+  Token *first = peek_token(&ctx);
+  if (first != NULL) {
+    result.ast = parse_function(&ctx);
   }
-  result.ast.body = parse_stmt_block(&ctx);
   return result;
 }

@@ -22,7 +22,7 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
         expr->u.bin.rhs = expr_init_binary(
             ctx->arena, expr->lex, BINOP_MUL, expr->u.bin.rhs,
             expr_init_int_from_value(ctx->arena, expr->lex,
-                                     expr->u.bin.lhs->type->base->size));
+                                     expr->u.bin.lhs->type->u.ptr.base->size));
       }
       break;
     case BINOP_SUB:
@@ -31,8 +31,9 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
         case TY_INT:
           expr->u.bin.rhs = expr_init_binary(
               ctx->arena, expr->lex, BINOP_MUL, expr->u.bin.rhs,
-              expr_init_int_from_value(ctx->arena, expr->lex,
-                                       expr->u.bin.lhs->type->base->size));
+              expr_init_int_from_value(
+                  ctx->arena, expr->lex,
+                  expr->u.bin.lhs->type->u.ptr.base->size));
           break;
         case TY_PTR:
           expr->u.bin.op = BINOP_DIV;
@@ -40,13 +41,23 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
                                              expr->u.bin.lhs, expr->u.bin.rhs);
           expr->u.bin.rhs = expr_init_int_from_value(
               ctx->arena, expr->lex,
-              expr->u.bin.lhs->u.bin.lhs->type->base->size);
+              expr->u.bin.lhs->u.bin.lhs->type->u.ptr.base->size);
+          break;
+        case TY_FUN:
+          TODO("Handle TY_FUN");
           break;
         }
       }
     default:
       break;
     }
+    break;
+  case EXPR_CALL:
+    desugar_expr(ctx, expr->u.call.func);
+    break;
+  case EXPR_INDEX:
+    desugar_expr(ctx, expr->u.index.array);
+    desugar_expr(ctx, expr->u.index.index);
     break;
   }
 }

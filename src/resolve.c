@@ -2,8 +2,6 @@
 
 #include "hash_map.h"
 
-#include <assert.h>
-
 DEFINE_VECTOR(ResolveError, ResolveErrorStream, resolve_error_stream)
 
 void resolve_result_free(ResolveResult *result) {
@@ -49,6 +47,7 @@ static void scopes_push(Scopes *scopes) {
     scopes->capacity = GROW_CAP(scopes->capacity);
     scopes->scopes =
         realloc(scopes->scopes, scopes->capacity * sizeof(*scopes->scopes));
+    assert(scopes->scopes != NULL);
   }
   if (scopes->size == scopes->init) {
     hash_map_init(scopes->scopes + scopes->size, 32, name_hash, name_equals);
@@ -111,6 +110,14 @@ static void resolve_expr(ResolveCtx *ctx, ExprNode *expr) {
     }
     expr->u.var.decl = decl;
   } break;
+  case EXPR_CALL:
+    // TODO:
+    // resolve_expr(ctx, expr->u.call.func);
+    break;
+  case EXPR_INDEX:
+    resolve_expr(ctx, expr->u.index.array);
+    resolve_expr(ctx, expr->u.index.index);
+    break;
   }
 }
 

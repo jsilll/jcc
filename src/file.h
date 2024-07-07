@@ -10,7 +10,7 @@ typedef enum FileResult {
   FILE_ERR_EMPTY,
 } FileResult;
 
-typedef struct File {
+typedef struct SrcFile {
   const char *name;
   char *data;
   char *end;

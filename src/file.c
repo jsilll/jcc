@@ -15,8 +15,7 @@ static FileResult file_read(SrcFile *file, const char *name) {
   long size = ftell(fp);
   assert(fseek(fp, 0, SEEK_SET) == 0);
 
-  assert(size >= 0);
-  if (size == 0) {
+  if (size <= 0) {
     assert(fclose(fp) == 0);
     return FILE_ERR_EMPTY;
   }

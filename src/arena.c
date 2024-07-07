@@ -1,11 +1,5 @@
 #include "arena.h"
 
-#include <assert.h>
-
-#ifndef JCC_ARENA_L1_CACHE_LINE_SIZE
-#define JCC_ARENA_L1_CACHE_LINE_SIZE 64
-#endif
-
 struct ArenaBlock {
   uint8_t *ptr;
   size_t size;
@@ -47,6 +41,7 @@ void *arena_alloc(Arena *arena, size_t size) {
   if (arena->commited_size + size > arena->allocated_size) {
     if (arena->ptr != NULL) {
       ArenaBlock *block = malloc(sizeof(ArenaBlock));
+      assert(block != NULL);
       block->ptr = arena->ptr;
       block->size = arena->allocated_size;
       block->next = arena->used;
@@ -64,8 +59,8 @@ void *arena_alloc(Arena *arena, size_t size) {
     if (block == NULL) {
       arena->allocated_size =
           size > arena->default_size ? size : arena->default_size;
-      arena->ptr =
-          aligned_alloc(JCC_ARENA_L1_CACHE_LINE_SIZE, arena->allocated_size);
+      arena->ptr = malloc(arena->allocated_size);
+      assert(arena->ptr != NULL);
     } else if (prev != NULL) {
       prev->next = block->next;
       arena->allocated_size = block->size;

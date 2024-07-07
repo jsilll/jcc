@@ -1,9 +1,7 @@
 #include "ast.h"
 
-#include <assert.h>
-
 #define GENERATE_TYPE_VARIABLE(Name, Size)                                     \
-  Type *TYPE_##Name = &(Type){TY_##Name, Size, NULL};
+  Type *TYPE_##Name = &(Type){TY_##Name, Size, {{0}}};
 
 #define GENERATE_TYPE_STRING(Name, Size) #Name,
 
@@ -26,20 +24,20 @@ static void ast_expr_debug(FILE *out, ExprNode *expr, uint8_t indent) {
   switch (expr->kind) {
   case EXPR_VAR:
     if (expr->type != NULL) {
-      fprintf(out, "%s<%s>: '%.*s' %p\n", ExprKind_Repr[expr->kind],
+      fprintf(out, "%s<%s>: '%.*s' (%p)\n", ExprKind_Repr[expr->kind],
               TypeKind_Repr[expr->type->kind], (int)expr->lex.size,
               expr->lex.data, (void *)expr->u.var.decl);
     } else {
-      fprintf(out, "%s: '%.*s' %p\n", ExprKind_Repr[expr->kind],
+      fprintf(out, "%s: '%.*s' (%p)\n", ExprKind_Repr[expr->kind],
               (int)expr->lex.size, expr->lex.data, (void *)expr->u.var.decl);
     }
     break;
   case EXPR_NUM:
     if (expr->type != NULL) {
-      fprintf(out, "%s<%s>: %d\n", ExprKind_Repr[expr->kind],
+      fprintf(out, "%s<%s>: %ld\n", ExprKind_Repr[expr->kind],
               TypeKind_Repr[expr->type->kind], expr->u.num);
     } else {
-      fprintf(out, "%s: %d\n", ExprKind_Repr[expr->kind], expr->u.num);
+      fprintf(out, "%s: %ld\n", ExprKind_Repr[expr->kind], expr->u.num);
     }
     break;
   case EXPR_UN:
@@ -61,6 +59,23 @@ static void ast_expr_debug(FILE *out, ExprNode *expr, uint8_t indent) {
     ast_expr_debug(out, expr->u.bin.lhs, indent + 1);
     ast_expr_debug(out, expr->u.bin.rhs, indent + 1);
     break;
+  case EXPR_CALL:
+    if (expr->type != NULL) {
+      fprintf(out, "CALL<%s>:\n", TypeKind_Repr[expr->type->kind]);
+    } else {
+      fprintf(out, "CALL:\n");
+    }
+    ast_expr_debug(out, expr->u.call.func, indent + 1);
+    break;
+  case EXPR_INDEX:
+    if (expr->type != NULL) {
+      fprintf(out, "INDEX<%s>:\n", TypeKind_Repr[expr->type->kind]);
+    } else {
+      fprintf(out, "INDEX:\n");
+    }
+    ast_expr_debug(out, expr->u.index.array, indent + 1);
+    ast_expr_debug(out, expr->u.index.index, indent + 1);
+    break;
   }
 }
 
@@ -81,12 +96,12 @@ static void ast_stmt_debug(FILE *out, StmtNode *stmt, uint8_t indent) {
     break;
   case STMT_DECL:
     if (stmt->u.decl.type != NULL) {
-      fprintf(out, "%s<%s>: '%.*s' %p\n", StmtKind_Repr[stmt->kind],
+      fprintf(out, "%s<%s>: '%.*s' (%p)\n", StmtKind_Repr[stmt->kind],
               TypeKind_Repr[stmt->u.decl.type->kind],
               (int)stmt->u.decl.name.size, stmt->u.decl.name.data,
               (void *)stmt);
     } else {
-      fprintf(out, "%s: '%.*s' %p\n", StmtKind_Repr[stmt->kind],
+      fprintf(out, "%s: '%.*s' (%p)\n", StmtKind_Repr[stmt->kind],
               (int)stmt->u.decl.name.size, stmt->u.decl.name.data,
               (void *)stmt);
     }
@@ -143,7 +158,7 @@ Type *type_init(Arena *arena, TypeKind kind, uint8_t size) {
 
 Type *type_init_ptr(Arena *arena, Type *base) {
   Type *type = type_init(arena, TY_PTR, 8);
-  type->base = base;
+  type->u.ptr.base = base;
   return type;
 }
 
@@ -188,6 +203,20 @@ ExprNode *expr_init_binary(Arena *arena, StringView lex, BinOpKind op,
   expr->u.bin.lhs = lhs;
   expr->u.bin.rhs = rhs;
   expr->u.bin.op = op;
+  return expr;
+}
+
+ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func) {
+  ExprNode *expr = expr_init(arena, lex, EXPR_CALL);
+  expr->u.call.func = func;
+  return expr;
+}
+
+ExprNode *expr_init_index(Arena *arena, StringView lex, ExprNode *array,
+                          ExprNode *index) {
+  ExprNode *expr = expr_init(arena, lex, EXPR_INDEX);
+  expr->u.index.array = array;
+  expr->u.index.index = index;
   return expr;
 }
 

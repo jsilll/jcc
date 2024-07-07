@@ -240,7 +240,7 @@ static TokenKind lookup_keyword(StringView lex) {
 #define SCAN_ERR_STREAM_ICAP 32
 #endif
 
-ScanResult scan(SrcFile *file, bool comments) {
+ScanResult scan(const SrcFile *file, bool comments) {
   ScanResult result;
   token_stream_with_capacity(&result.tokens, TOKEN_STREAM_ICAP);
   scan_error_stream_with_capacity(&result.errors, SCAN_ERR_STREAM_ICAP);

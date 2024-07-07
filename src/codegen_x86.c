@@ -2,8 +2,6 @@
 
 #include "hash_map.h"
 
-#include <assert.h>
-
 static uint64_t stmt_hash(const void *key) { return (uint64_t)key; }
 
 static bool stmt_equals(const void *key1, const void *key2) {
@@ -89,7 +87,7 @@ static void codegen_x86_expr_addr(CodegenCtx *ctx, ExprNode *node) {
 static void codegen_x86_expr(CodegenCtx *ctx, ExprNode *expr) {
   switch (expr->kind) {
   case EXPR_NUM:
-    fprintf(ctx->out, "  mov $%d, %%rax\n", expr->u.num);
+    fprintf(ctx->out, "  mov $%ld, %%rax\n", expr->u.num);
     break;
   case EXPR_VAR:
     codegen_x86_expr_addr(ctx, expr);
@@ -175,8 +173,18 @@ static void codegen_x86_expr(CodegenCtx *ctx, ExprNode *expr) {
       fprintf(ctx->out, "  movzb %%al, %%rax\n");
       break;
     case BINOP_ASGN:
-      PANIC("codegen_x86_expr: BINOP_ASGN not implemented");
+      PANIC("codegen_x86_expr: BINOP_ASGN not handled here");
+      break;
     }
+    break;
+  case EXPR_CALL:
+    fprintf(ctx->out, "  mov $0, %%rax\n");
+    fprintf(ctx->out, "  call %.*s\n", (int)expr->u.call.func->lex.size,
+            expr->u.call.func->lex.data);
+    break;
+  case EXPR_INDEX:
+    TODO("codegen_x86_expr: handle EXPR_INDEX");
+    break;
   }
 }
 

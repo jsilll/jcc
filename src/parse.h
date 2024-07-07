@@ -20,7 +20,7 @@ typedef struct ParseError {
 DECLARE_VECTOR(ParseError, ParseErrorStream, parse_error_stream)
 
 typedef struct ParseResult {
-  FuncNode ast;
+  FuncNode *ast;
   ParseErrorStream errors;
 } ParseResult;
 

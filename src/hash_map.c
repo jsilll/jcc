@@ -1,7 +1,5 @@
 #include "hash_map.h"
 
-#include <assert.h>
-
 typedef struct HashEntry {
   const void *key;
   void *value;

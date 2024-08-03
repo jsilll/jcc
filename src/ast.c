@@ -59,15 +59,7 @@ static void ast_expr_debug(FILE *out, ExprNode *expr, uint8_t indent) {
     ast_expr_debug(out, expr->u.bin.lhs, indent + 1);
     ast_expr_debug(out, expr->u.bin.rhs, indent + 1);
     break;
-  case EXPR_CALL:
-    if (expr->type != NULL) {
-      fprintf(out, "CALL<%s>:\n", TypeKind_Repr[expr->type->kind]);
-    } else {
-      fprintf(out, "CALL:\n");
-    }
-    ast_expr_debug(out, expr->u.call.func, indent + 1);
-    break;
-  case EXPR_INDEX:
+  case EXPR_IDX:
     if (expr->type != NULL) {
       fprintf(out, "INDEX<%s>:\n", TypeKind_Repr[expr->type->kind]);
     } else {
@@ -75,6 +67,17 @@ static void ast_expr_debug(FILE *out, ExprNode *expr, uint8_t indent) {
     }
     ast_expr_debug(out, expr->u.index.array, indent + 1);
     ast_expr_debug(out, expr->u.index.index, indent + 1);
+    break;
+  case EXPR_CALL:
+    if (expr->type != NULL) {
+      fprintf(out, "CALL<%s>:\n", TypeKind_Repr[expr->type->kind]);
+    } else {
+      fprintf(out, "CALL:\n");
+    }
+    ast_expr_debug(out, expr->u.call.func, indent + 1);
+    for (ActualArg *arg = expr->u.call.args; arg != NULL; arg = arg->next) {
+      ast_expr_debug(out, arg->expr, indent + 1);
+    }
     break;
   }
 }
@@ -206,15 +209,17 @@ ExprNode *expr_init_binary(Arena *arena, StringView lex, BinOpKind op,
   return expr;
 }
 
-ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func) {
+ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func,
+                         ActualArg *args) {
   ExprNode *expr = expr_init(arena, lex, EXPR_CALL);
   expr->u.call.func = func;
+  expr->u.call.args = args;
   return expr;
 }
 
 ExprNode *expr_init_index(Arena *arena, StringView lex, ExprNode *array,
                           ExprNode *index) {
-  ExprNode *expr = expr_init(arena, lex, EXPR_INDEX);
+  ExprNode *expr = expr_init(arena, lex, EXPR_IDX);
   expr->u.index.array = array;
   expr->u.index.index = index;
   return expr;

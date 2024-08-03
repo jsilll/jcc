@@ -2,6 +2,9 @@
 
 #include "hash_map.h"
 
+static const char *const ARG_REG[] = {"%rdi", "%rsi", "%rdx",
+                                      "%rcx", "%r8",  "%r9"};
+
 static uint64_t stmt_hash(const void *key) { return (uint64_t)key; }
 
 static bool stmt_equals(const void *key1, const void *key2) {
@@ -177,14 +180,24 @@ static void codegen_x86_expr(CodegenCtx *ctx, ExprNode *expr) {
       break;
     }
     break;
-  case EXPR_CALL:
+  case EXPR_IDX:
+    TODO("codegen_x86_expr: handle EXPR_INDEX");
+    break;
+  case EXPR_CALL: {
+    int8_t nargs = 0;
+    for (ActualArg *arg = expr->u.call.args; arg != NULL;
+         arg = arg->next, ++nargs) {
+      codegen_x86_expr(ctx, arg->expr);
+      fprintf(ctx->out, "  push %%rax\n");
+    }
+    assert(nargs <= 6);
+    for (int8_t arg = nargs - 1; arg >= 0; --arg) {
+      fprintf(ctx->out, "  pop %s\n", ARG_REG[arg]);
+    }
     fprintf(ctx->out, "  mov $0, %%rax\n");
     fprintf(ctx->out, "  call %.*s\n", (int)expr->u.call.func->lex.size,
             expr->u.call.func->lex.data);
-    break;
-  case EXPR_INDEX:
-    TODO("codegen_x86_expr: handle EXPR_INDEX");
-    break;
+  } break;
   }
 }
 

@@ -135,16 +135,30 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec) {
       return lhs;
     }
     switch (token->kind) {
-    case TK_LPAREN:
+    case TK_LBRACK: {
       ++ctx->idx;
+      ExprNode *idx = parse_expr(ctx, 0);
+      expect_token(ctx, TK_LBRACK);
+      lhs = expr_init_index(ctx->arena, token->lex, lhs, idx);
+    } break;
+    case TK_LPAREN: {
+      ++ctx->idx;
+      ActualArg head = {0};
+      ActualArg *curr = &head;
+      Token *next = peek_some(ctx);
+      while (next != NULL && next->kind != TK_RPAREN) {
+        curr->next = arena_alloc(ctx->arena, sizeof(ActualArg));
+        curr = curr->next;
+        curr->expr = parse_expr(ctx, 0);
+        next = peek_some(ctx);
+        if (next != NULL && next->kind != TK_RPAREN) {
+          expect_token(ctx, TK_COMMA);
+          next = peek_some(ctx);
+        }
+      }
       expect_token(ctx, TK_RPAREN);
-      lhs = expr_init_call(ctx->arena, token->lex, lhs);
-      break;
-    case TK_LBRACK:
-      ++ctx->idx;
-      expect_token(ctx, TK_RBRACK);
-      lhs = expr_init_index(ctx->arena, token->lex, lhs, NULL);
-      break;
+      lhs = expr_init_call(ctx->arena, token->lex, lhs, head.next);
+    } break;
     default: {
       BinOpPair bp = try_into_binop(token->kind);
       if (bp.bind.lhs <= prec) {
@@ -153,7 +167,7 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec) {
       ++ctx->idx;
       ExprNode *expr = parse_expr(ctx, bp.bind.rhs);
       lhs = expr_init_binary(ctx->arena, token->lex, bp.op, lhs, expr);
-    } break;
+    }
     }
   }
   return lhs;
@@ -255,7 +269,7 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     Type *base = parse_declspec(ctx);
     uint32_t idx = 0;
     StmtNode head = {0};
-    StmtNode *cur = &head;
+    StmtNode *curr = &head;
     Token *next = peek_token(ctx);
     while (next != NULL && next->kind != TK_SEMICOLON) {
       if (idx++ > 0) {
@@ -268,10 +282,10 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
       if (next != NULL && next->kind == TK_EQ) {
         ++ctx->idx;
         ExprNode *expr = parse_expr(ctx, 0);
-        cur = cur->next =
+        curr = curr->next =
             stmt_init_decl(ctx->arena, token->lex, type, name, expr);
       } else {
-        cur = cur->next =
+        curr = curr->next =
             stmt_init_decl(ctx->arena, token->lex, type, name, NULL);
       }
       next = peek_token(ctx);

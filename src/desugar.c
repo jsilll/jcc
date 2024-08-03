@@ -52,12 +52,12 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
       break;
     }
     break;
-  case EXPR_CALL:
-    desugar_expr(ctx, expr->u.call.func);
-    break;
-  case EXPR_INDEX:
+  case EXPR_IDX:
     desugar_expr(ctx, expr->u.index.array);
     desugar_expr(ctx, expr->u.index.index);
+    break;
+  case EXPR_CALL:
+    desugar_expr(ctx, expr->u.call.func);
     break;
   }
 }

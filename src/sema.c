@@ -212,13 +212,13 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       break;
     }
     break;
-  case EXPR_CALL:
-    // TODO:
-    // type_check_expr(ctx, expr->u.call.func);
-    break;
-  case EXPR_INDEX:
+  case EXPR_IDX:
     type_check_expr(ctx, expr->u.index.array);
     type_check_expr(ctx, expr->u.index.index);
+    break;
+  case EXPR_CALL:
+    // TODO: for now, we don't check the types of the arguments
+    // type_check_expr(ctx, expr->u.call.func);
     break;
   }
 }

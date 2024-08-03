@@ -132,6 +132,10 @@ DECLARE_SLICE(char, StringView, sv)
 
 #define EMPTY_SV ((StringView){.data = NULL, .size = 0})
 
+static inline bool sv_equals(StringView *a, StringView *b) {
+  return a->size == b->size && memcmp(a->data, b->data, a->size) == 0;
+}
+
 static inline uint64_t sv_hash(StringView *sv) {
   uint64_t hash = 14695981039346656037UL;
   for (size_t i = 0; i < sv->size; i++) {
@@ -139,10 +143,6 @@ static inline uint64_t sv_hash(StringView *sv) {
     hash *= 1099511628211;
   }
   return hash;
-}
-
-static inline bool sv_equals(StringView *a, StringView *b) {
-  return a->size == b->size && memcmp(a->data, b->data, a->size) == 0;
 }
 
 /// Helper Functions ///

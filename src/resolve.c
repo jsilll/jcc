@@ -110,13 +110,13 @@ static void resolve_expr(ResolveCtx *ctx, ExprNode *expr) {
     }
     expr->u.var.decl = decl;
   } break;
-  case EXPR_CALL:
-    // TODO:
-    // resolve_expr(ctx, expr->u.call.func);
-    break;
-  case EXPR_INDEX:
+  case EXPR_IDX:
     resolve_expr(ctx, expr->u.index.array);
     resolve_expr(ctx, expr->u.index.index);
+    break;
+  case EXPR_CALL:
+    // TODO: for now we don't resolve function calls
+    // resolve_expr(ctx, expr->u.call.func);
     break;
   }
 }

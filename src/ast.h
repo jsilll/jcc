@@ -9,6 +9,14 @@ typedef struct StmtNode StmtNode;
 typedef struct DeclNode DeclNode;
 typedef struct FuncNode FuncNode;
 
+typedef struct ActualArg ActualArg;
+typedef struct FormalArg FormalArg;
+
+struct ActualArg {
+  ExprNode *expr;
+  ActualArg *next;
+};
+
 #define GENERATE_TYPE_ENUM(Name, Size) TY_##Name,
 
 #define GENERATE_TYPE_EXTERN(Name, Size) extern Type *TYPE_##Name;
@@ -51,8 +59,8 @@ DECLARE_REPR_ENUM(BinOpKind, ENUMERATE_BINOPS)
   M(EXPR_VAR)                                                                  \
   M(EXPR_UN)                                                                   \
   M(EXPR_BIN)                                                                  \
-  M(EXPR_CALL)                                                                 \
-  M(EXPR_INDEX)
+  M(EXPR_IDX)                                                                  \
+  M(EXPR_CALL)
 
 DECLARE_REPR_ENUM(ExprKind, ENUMERATE_EXPRS)
 
@@ -100,6 +108,7 @@ struct ExprNode {
     } bin;
     struct {
       ExprNode *func;
+      ActualArg *args;
     } call;
     struct {
       ExprNode *array;
@@ -165,7 +174,8 @@ ExprNode *expr_init_unary(Arena *arena, StringView lex, UnOpKind op,
                           ExprNode *sub);
 ExprNode *expr_init_binary(Arena *arena, StringView lex, BinOpKind op,
                            ExprNode *lhs, ExprNode *rhs);
-ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func);
+ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func,
+                         ActualArg *args);
 ExprNode *expr_init_index(Arena *arena, StringView lex, ExprNode *array,
                           ExprNode *index);
 

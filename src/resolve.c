@@ -1,6 +1,9 @@
 #include "resolve.h"
 
-#include "hash_map.h"
+#include "adt/hash_map.h"
+
+#include <stdlib.h>
+#include <assert.h>
 
 DEFINE_VECTOR(ResolveError, ResolveErrorStream, resolve_error_stream)
 
@@ -170,12 +173,18 @@ static void resolve_stmt(ResolveCtx *ctx, StmtNode *stmt) {
   }
 }
 
-ResolveResult resolve(FuncNode *func) {
-  ResolveResult result;
+ResolveResult resolve(FuncNode *function) {
+  ResolveResult result = {0};
   resolve_error_stream_init(&result.errors);
-  ResolveCtx ctx;
+
+  ResolveCtx ctx = {0};
   resolve_ctx_init(&ctx, &result);
-  resolve_stmt(&ctx, func->body);
+
+  for (FuncNode *func = function; func != NULL; func = func->next) {
+    resolve_stmt(&ctx, func->body);
+  }
+
   resolve_ctx_free(&ctx);
+
   return result;
 }

@@ -5,6 +5,7 @@
 #include "token.h"
 
 typedef enum ParseErrorKind {
+  PARSE_ERR_EXPECTED_EOF,
   PARSE_ERR_EXPECTED_SOME,
   PARSE_ERR_EXPECTED_TOKEN,
   PARSE_ERR_UNEXPECTED_EOF,

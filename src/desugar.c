@@ -1,5 +1,9 @@
 #include "desugar.h"
 
+#include "support/base.h"
+
+#include <stdlib.h>
+
 typedef struct DesugarCtx {
   Arena *arena;
 } DesugarCtx;
@@ -104,7 +108,9 @@ static void desugar_stmt(DesugarCtx *ctx, StmtNode *stmt) {
   }
 }
 
-void desugar(Arena *arena, FuncNode *func) {
+void desugar(Arena *arena, FuncNode *function) {
   DesugarCtx ctx = {arena};
-  desugar_stmt(&ctx, func->body);
+  for (FuncNode *func = function; func != NULL; func = func->next) {
+    desugar_stmt(&ctx, func->body);
+  }
 }

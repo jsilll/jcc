@@ -1,4 +1,10 @@
-#include "hash_set.h"
+#include "adt/hash_set.h"
+
+#include "support/base.h"
+
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 static void hash_set_maybe_rehash(HashSet *set) {
   if (set->size >= set->capacity / 2) {

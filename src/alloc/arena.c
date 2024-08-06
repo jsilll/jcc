@@ -1,4 +1,10 @@
-#include "arena.h"
+#include "alloc/arena.h"
+
+#include "support/base.h"
+
+#include <assert.h>
+#include <stddef.h>
+#include <stdlib.h>
 
 struct ArenaBlock {
   uint8_t *ptr;

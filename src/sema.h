@@ -1,6 +1,8 @@
 #ifndef JCC_SEMA_H
 #define JCC_SEMA_H
 
+#include "adt/vector.h"
+
 #include "ast.h"
 
 typedef enum SemaErrorKind { SEMA_ERR_MISMATCHED_TYPES } SemaErrorKind;

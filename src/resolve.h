@@ -1,6 +1,8 @@
 #ifndef JCC_RESOLVE_H
 #define JCC_RESOLVE_H
 
+#include "adt/vector.h"
+
 #include "ast.h"
 
 typedef enum ResolveErrorKind {

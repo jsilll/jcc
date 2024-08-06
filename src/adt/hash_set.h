@@ -1,7 +1,9 @@
 #ifndef JCC_HASH_SET_H
 #define JCC_HASH_SET_H
 
-#include "base.h"
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 typedef uint64_t (*HashFunc)(const void *);
 typedef bool (*EqualFunc)(const void *, const void *);

@@ -1,10 +1,10 @@
 # João's C Compiler (JCC)
 
-Welcome to my C Compiler project! This project aims to create a simple, yet functional C11 compiler written in C11, inspired by Rui Ueyema's [chibicc](https://github.com/rui314/chibicc) compiler. The goal is to provide a clear understanding of the compilation process while maintaining a clean and modular codebase.
+Welcome to JCC, a simple yet functional C11 compiler written in C11. Inspired by Rui Ueyema's [chibicc](https://github.com/rui314/chibicc), this project aims to provide a clear understanding of the compilation process while maintaining a clean and modular codebase.
 
 ## Current Status
 
-I'm currently working on implementing zero-arity function calls.
+Currently implementing zero-arity function calls.
 
 ## Table of Contents
 
@@ -18,15 +18,18 @@ I'm currently working on implementing zero-arity function calls.
 
 ## Overview
 
-This C compiler project follows a structured approach to compile C code into x86 machine code. It is designed for educational purposes, demonstrating the key stages of the compilation process.
+JCC is an educational C compiler that demonstrates the key stages of compiling C code into x86 machine code. It follows a structured approach, making it ideal for learning about compiler design and implementation.
 
 ## Features
 
-### Detailed and User-Friendly Error Messages
+- Compiles C11 code to x86 machine code
+- Multi-stage compilation process for clarity and modularity
+- Detailed and user-friendly error messages
+- Comprehensive test suite
 
-Special attention has been given to the quality of error messages. Inspired by Rust, the compiler provides error messages that include the source location and a snippet of the problematic code to help developers quickly identify and fix issues.
+### Detailed Error Messages
 
-Example:
+JCC provides Rust-inspired error messages that include source location and code snippets:
 
 ```
 ./bin/jcc '{ return ret3(); }'
@@ -40,15 +43,15 @@ error: undeclared identifier
 
 ## Compilation Pipeline
 
-Although C can be compiled with a single-stage compiler, this project follows a multi-stage compilation process to provide a clear understanding of the different problems that need to be solved during compilation. These stages are:
+JCC uses a multi-stage compilation process:
 
-1. **Scan:** Converts the input source code into a stream of tokens (`scan.c/h`).
-2. **Parse:** Analyzes the token stream to construct an abstract syntax tree (AST) (`parse.c/h`).
-3. **Resolve:** Links names to their declarations and definitions (`resolve.c/h`).
-4. **Sema:** Canonicalizes types found during parsing and type-checks the whole program for semantic correctness (`sema.c/h`).
-5. **Desugar:** Simplifies complex constructs, such as pointer arithmetic operations (`desugar.c/h`).
+1. **Scan:** Tokenize source code (`scan.c/h`)
+2. **Parse:** Construct abstract syntax tree (AST) (`parse.c/h`)
+3. **Resolve:** Link names to declarations/definitions (`resolve.c/h`)
+4. **Sema:** Canonicalize types and perform semantic checks (`sema.c/h`)
+5. **Desugar:** Simplify complex constructs (`desugar.c/h`)
 6. **Optimize:** Performs AST-level code optimizations (TODO)
-7. **Codegen:** Generates the final machine code from the optimized AST (`codegen_x86.c/h`).
+7. **Codegen:** Generates the final machine code from the optimized AST (`codegen_x86.c/h`)
 
 ## Installation
 

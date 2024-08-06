@@ -1,14 +1,6 @@
 #!/bin/bash
 
-cat <<EOF | gcc -xc -c -o ./obj/tmp2.o -
-int ret3() { return 3; }
-int ret5() { return 5; }
-int add(int x, int y) { return x+y; }
-int sub(int x, int y) { return x-y; }
-int add6(int a, int b, int c, int d, int e, int f) {
-  return a+b+c+d+e+f;
-}
-EOF
+COUNTER=0
 
 assert() {
     expected="$1"
@@ -26,9 +18,21 @@ assert() {
         echo "$input => $expected expected, but got $actual"
         exit 1
     fi
+
+    COUNTER=$((COUNTER+1))
 }
 
 make || exit
+
+cat <<EOF | gcc -xc -c -o ./obj/tmp2.o -
+int ret3() { return 3; }
+int ret5() { return 5; }
+int add(int x, int y) { return x+y; }
+int sub(int x, int y) { return x-y; }
+int add6(int a, int b, int c, int d, int e, int f) {
+  return a+b+c+d+e+f;
+}
+EOF
 
 assert 0 'int main() { return 0; }'
 assert 42 'int main() { return 42; }'
@@ -124,6 +128,8 @@ assert 21 'int main() { return add6(1,2,3,4,5,6); }'
 assert 66 'int main() { return add6(1,2,add6(3,4,5,6,7,8),9,10,11); }'
 assert 136 'int main() { return add6(1,2,add6(3,add6(4,5,6,7,8,9),10,11,12,13),14,15,16); }'
 
+assert 32 'int main() { return ret32(); } int ret32() { return 32; }'
+
 # assert 0 'int main() { 1 = 1; return 0; }'
 
-echo OK
+echo "All $COUNTER tests passed"

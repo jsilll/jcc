@@ -1,7 +1,8 @@
 #ifndef JCC_ARENA_H
 #define JCC_ARENA_H
 
-#include "base.h"
+#include <stdint.h>
+#include <stddef.h>
 
 typedef struct ArenaBlock ArenaBlock;
 

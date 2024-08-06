@@ -1,6 +1,10 @@
 #include "sema.h"
 
-#include "hash_set.h"
+#include "adt/hash_set.h"
+
+#include "support/base.h"
+
+#include <stdlib.h>
 
 DEFINE_VECTOR(SemaError, SemaErrorStream, sema_error_stream)
 
@@ -273,12 +277,18 @@ static void type_check_stmt(TypeCtx *ctx, StmtNode *stmt) {
   }
 }
 
-SemaResult sema(Arena *arena, FuncNode *func) {
-  SemaResult result;
+SemaResult sema(Arena *arena, FuncNode *function) {
+  SemaResult result = {0};
   sema_error_stream_init(&result.errors);
-  TypeCtx ctx;
+
+  TypeCtx ctx = {0};
   type_ctx_init(&ctx, arena, &result);
-  type_check_stmt(&ctx, func->body);
+
+  for (FuncNode *func = function; func != NULL; func = func->next) {
+    type_check_stmt(&ctx, func->body);
+  }
+
   type_ctx_free(&ctx);
+
   return result;
 }

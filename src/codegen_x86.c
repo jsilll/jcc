@@ -1,6 +1,9 @@
 #include "codegen_x86.h"
 
-#include "hash_map.h"
+#include "adt/hash_map.h"
+
+#include <assert.h>
+#include <stdlib.h>
 
 static const char *const ARG_REG[] = {"%rdi", "%rsi", "%rdx",
                                       "%rcx", "%r8",  "%r9"};
@@ -15,25 +18,35 @@ typedef struct CodegenCtx {
   FILE *out;
   HashMap offset;
   uint32_t label;
+  FuncNode *func;
   int64_t stack_size;
 } CodegenCtx;
 
 static void codegen_ctx_init(CodegenCtx *ctx, FILE *out) {
   ctx->out = out;
   ctx->label = 0;
+  ctx->func = NULL;
   ctx->stack_size = 0;
   hash_map_init(&ctx->offset, 32, stmt_hash, stmt_equals);
+}
+
+static void codegen_ctx_clear(CodegenCtx *ctx) {
+  ctx->label = 0;
+  ctx->func = NULL;
+  ctx->stack_size = 0;
+  hash_map_clear(&ctx->offset);
 }
 
 static void codegen_ctx_free(CodegenCtx *ctx) {
   DEBUGF("free offsets map of capacity: %zu", ctx->offset.capacity);
   hash_map_free(&ctx->offset);
-  ctx->label = 0;
   ctx->out = NULL;
+  ctx->label = 0;
+  ctx->func = NULL;
   ctx->stack_size = 0;
 }
 
-static void assign_offsets(CodegenCtx *ctx, StmtNode *stmt) {
+static void assign_offsets_stmt(CodegenCtx *ctx, StmtNode *stmt) {
   switch (stmt->kind) {
   case STMT_DECL:
     ctx->stack_size += 8;
@@ -41,26 +54,34 @@ static void assign_offsets(CodegenCtx *ctx, StmtNode *stmt) {
     break;
   case STMT_BLOCK:
     for (StmtNode *s = stmt->u.block.body; s; s = s->next) {
-      assign_offsets(ctx, s);
+      assign_offsets_stmt(ctx, s);
     }
     break;
   case STMT_WHILE:
-    assign_offsets(ctx, stmt->u.whil.body);
+    assign_offsets_stmt(ctx, stmt->u.whil.body);
     break;
   case STMT_IF:
-    assign_offsets(ctx, stmt->u.iff.then);
+    assign_offsets_stmt(ctx, stmt->u.iff.then);
     if (stmt->u.iff.elss) {
-      assign_offsets(ctx, stmt->u.iff.elss);
+      assign_offsets_stmt(ctx, stmt->u.iff.elss);
     }
     break;
   case STMT_FOR:
-    assign_offsets(ctx, stmt->u.forr.init);
-    assign_offsets(ctx, stmt->u.forr.body);
+    assign_offsets_stmt(ctx, stmt->u.forr.init);
+    assign_offsets_stmt(ctx, stmt->u.forr.body);
     break;
   case STMT_EXPR:
   case STMT_RETURN:
     break;
   }
+}
+
+static void assign_offsets_func(CodegenCtx *ctx, FuncNode *func) {
+  ctx->func = func;
+  for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
+    assign_offsets_stmt(ctx, stmt);
+  }
+  ctx->stack_size = ALIGN_UP(ctx->stack_size, 16);
 }
 
 static void codegen_x86_expr(CodegenCtx *ctx, ExprNode *expr);
@@ -209,7 +230,8 @@ static void codegen_x86_stmt(CodegenCtx *ctx, StmtNode *stmt) {
     break;
   case STMT_RETURN:
     codegen_x86_expr(ctx, stmt->u.ret.expr);
-    fprintf(ctx->out, "  jmp .L.return\n");
+    fprintf(ctx->out, "  jmp .L.return.%.*s\n", (int)ctx->func->lex.size,
+            ctx->func->lex.data);
     break;
   case STMT_DECL:
     if (stmt->u.decl.expr != NULL) {
@@ -269,23 +291,30 @@ static void codegen_x86_stmt(CodegenCtx *ctx, StmtNode *stmt) {
   }
 }
 
-void codegen_x86(FILE *out, FuncNode *func) {
-  CodegenCtx ctx;
+void codegen_x86(FILE *out, FuncNode *function) {
+  CodegenCtx ctx = {0};
   codegen_ctx_init(&ctx, out);
-  for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
-    assign_offsets(&ctx, stmt);
+
+  for (FuncNode *func = function; func != NULL; func = func->next) {
+    assign_offsets_func(&ctx, func);
+    DEBUGF("stack size: %ld", ctx.stack_size);
+
+    fprintf(out, "  .globl %.*s\n", (int)func->lex.size, func->lex.data);
+    fprintf(out, "%.*s:\n", (int)func->lex.size, func->lex.data);
+
+    fprintf(out, "  push %%rbp\n");
+    fprintf(out, "  mov %%rsp, %%rbp\n");
+    fprintf(out, "  sub $%ld, %%rsp\n", ctx.stack_size);
+
+    codegen_x86_stmt(&ctx, func->body);
+
+    fprintf(out, ".L.return.%.*s:\n", (int)func->lex.size, func->lex.data);
+    fprintf(out, "  mov %%rbp, %%rsp\n");
+    fprintf(out, "  pop %%rbp\n");
+    fprintf(out, "  ret\n");
+
+    codegen_ctx_clear(&ctx);
   }
-  DEBUGF("stack size: %ld", ctx.stack_size);
-  fprintf(out, "  .globl main\n");
-  fprintf(out, "main:\n");
-  fprintf(out, "  push %%rbp\n");
-  fprintf(out, "  mov %%rsp, %%rbp\n");
-  fprintf(out, "  sub $%ld, %%rsp\n", ctx.stack_size);
-  codegen_x86_stmt(&ctx, func->body);
-  ctx.stack_size = ALIGN_UP(ctx.stack_size, 16);
+
   codegen_ctx_free(&ctx);
-  fprintf(out, ".L.return:\n");
-  fprintf(out, "  mov %%rbp, %%rsp\n");
-  fprintf(out, "  pop %%rbp\n");
-  fprintf(out, "  ret\n");
 }

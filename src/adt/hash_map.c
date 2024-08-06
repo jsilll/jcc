@@ -1,4 +1,10 @@
-#include "hash_map.h"
+#include "adt/hash_map.h"
+
+#include "support/base.h"
+
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct HashEntry {
   const void *key;

@@ -1,11 +1,15 @@
 #include "codegen_x86.h"
 #include "desugar.h"
-#include "error.h"
-#include "file.h"
 #include "parse.h"
 #include "resolve.h"
 #include "scan.h"
 #include "sema.h"
+
+#include "support/base.h"
+#include "support/error.h"
+#include "support/file.h"
+
+#include <stdlib.h>
 
 /// Command Line Options ///
 
@@ -115,6 +119,10 @@ static void report_parse_errors(const SrcFile *file,
   max = MIN(max, errors->size);
   for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
+    case PARSE_ERR_EXPECTED_EOF:
+      error_at(file, errors->data[i].token->lex, "unexpected token",
+               "expected end of file instead");
+      break;
     case PARSE_ERR_EXPECTED_SOME:
       error_at(file, (StringView){file->end, 1}, "unexpected end of file",
                "expected some token instead");
@@ -140,7 +148,7 @@ static FuncNode *parse_driver(const CliOptions *options, const SrcFile *file,
   DEBUG("Scan");
   ScanResult sr = scan(file, true);
   if (options->emit_tokens) {
-    fprintf(stderr, "TOKENS\n");
+    fprintf(stderr, "== TOKENS ==\n");
     token_stream_debug(stderr, &sr.tokens, file);
   }
   if (sr.errors.size > 0) {
@@ -152,7 +160,7 @@ static FuncNode *parse_driver(const CliOptions *options, const SrcFile *file,
   DEBUG("Parse");
   ParseResult pr = parse(arena, &sr.tokens);
   if (options->emit_ast) {
-    fprintf(stderr, "AST\n");
+    fprintf(stderr, "== AST ==\n");
     ast_debug(stderr, pr.ast);
   }
   if (pr.errors.size > 0) {
@@ -193,7 +201,7 @@ static bool resolve_driver(const CliOptions *options, const SrcFile *file,
   DEBUG("Resolve");
   ResolveResult rr = resolve(ast);
   if (options->emit_ast) {
-    fprintf(stderr, "RESOLVED AST\n");
+    fprintf(stderr, "== RESOLVED AST ==\n");
     ast_debug(stderr, ast);
   }
   bool success = true;
@@ -225,7 +233,7 @@ static bool sema_driver(const CliOptions *options, const SrcFile *file,
   DEBUG("Sema");
   SemaResult smr = sema(arena, ast);
   if (options->emit_ast) {
-    fprintf(stderr, "SEMA AST\n");
+    fprintf(stderr, "== SEMA AST ==\n");
     ast_debug(stderr, ast);
   }
   bool success = true;
@@ -246,7 +254,7 @@ static void desugar_driver(const CliOptions *options, Arena *arena,
   DEBUG("Desugar");
   desugar(arena, ast);
   if (options->emit_ast) {
-    fprintf(stderr, "DESUGARED AST\n");
+    fprintf(stderr, "== DESUGARED AST ==\n");
     ast_debug(stderr, ast);
   }
   DEBUGF("arena total blocks: %d", arena_total_blocks(arena));

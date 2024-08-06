@@ -1,4 +1,6 @@
-#include "error.h"
+#include "support/error.h"
+
+#include "support/base.h"
 
 #include <stdarg.h>
 

@@ -1,6 +1,8 @@
 #ifndef JCC_SCAN_H
 #define JCC_SCAN_H
 
+#include "adt/vector.h"
+
 #include "token.h"
 
 typedef enum ScanErrorKind {

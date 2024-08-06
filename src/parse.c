@@ -325,11 +325,28 @@ FuncNode *parse_function(ParseCtx *ctx) {
 
 ParseResult parse(Arena *arena, TokenStream *tokens) {
   ParseResult result = {0};
-  ParseCtx ctx = {0, arena, &result, tokens};
   parse_error_stream_init(&result.errors);
-  Token *first = peek_token(&ctx);
-  if (first != NULL) {
-    result.ast = parse_function(&ctx);
+  ParseCtx ctx = {0, arena, &result, tokens};
+
+  FuncNode head = {0};
+  FuncNode *curr = &head;
+
+  while (true) {
+    Token *token = peek_token(&ctx);
+    if (token == NULL) {
+      break;
+    }
+    curr->next = parse_function(&ctx);
+    curr = curr->next;
   }
+
+  result.ast = head.next;
+
+  Token *remaining = peek_token(&ctx);
+  if (remaining != NULL) {
+    parse_error_stream_push(&result.errors, (ParseError){PARSE_ERR_EXPECTED_EOF,
+                                                         remaining, TK_IDENT});
+  }
+
   return result;
 }

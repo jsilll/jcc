@@ -1,6 +1,7 @@
 #include "scan.h"
 
 #include <ctype.h>
+#include <stdlib.h>
 
 DEFINE_VECTOR(ScanError, ScanErrorStream, scan_error_stream)
 
@@ -232,18 +233,10 @@ static TokenKind lookup_keyword(StringView lex) {
   return TK_IDENT;
 }
 
-#ifndef TOKEN_STREAM_ICAP
-#define TOKEN_STREAM_ICAP 64
-#endif
-
-#ifndef SCAN_ERR_STREAM_ICAP
-#define SCAN_ERR_STREAM_ICAP 32
-#endif
-
 ScanResult scan(const SrcFile *file, bool comments) {
   ScanResult result;
-  token_stream_with_capacity(&result.tokens, TOKEN_STREAM_ICAP);
-  scan_error_stream_with_capacity(&result.errors, SCAN_ERR_STREAM_ICAP);
+  scan_error_stream_init(&result.errors);
+  token_stream_with_capacity(&result.tokens, 64);
 
   char *c = file->data;
   StringView lex = {NULL, 0};

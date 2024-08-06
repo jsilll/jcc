@@ -1,8 +1,9 @@
 #ifndef JCC_ERROR_H
 #define JCC_ERROR_H
 
-#include "base.h"
-#include "file.h"
+#include "adt/slice.h"
+
+#include "support/file.h"
 
 void error(const char *msg, ...);
 void error_at(const SrcFile *file, StringView sv, const char *title,

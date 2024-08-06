@@ -1,9 +1,14 @@
 #ifndef JCC_AST_H
 #define JCC_AST_H
 
-#include "arena.h"
+#include "adt/slice.h"
+
+#include "alloc/arena.h"
+
+#include "support/base.h"
 
 typedef struct Type Type;
+
 typedef struct ExprNode ExprNode;
 typedef struct StmtNode StmtNode;
 typedef struct DeclNode DeclNode;
@@ -157,8 +162,8 @@ struct StmtNode {
 struct FuncNode {
   StringView lex;
   Type *type;
-  FuncNode *next;
   StmtNode *body;
+  FuncNode *next;
 };
 
 void ast_debug(FILE *out, FuncNode *ast);

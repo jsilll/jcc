@@ -5,12 +5,12 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 CC = gcc
-C_FLAGS = -std=c11 -Wall -Wextra -Wpedantic
+C_FLAGS = -std=c11 -Wall -Wextra -Wpedantic -I$(SRC_DIR)
 LD_FLAGS =
 
-SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
-OBJ_FILES = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRC_FILES))
-DEP_FILES = $(OBJ_FILES:.o=.d)
+SRC_FILES := $(shell find $(SRC_DIR) -name '*.c')
+OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRC_FILES))
+DEP_FILES := $(OBJ_FILES:.o=.d)
 
 BIN = $(BIN_DIR)/$(PROJECT)
 
@@ -22,17 +22,13 @@ all: $(BIN)
 release: C_FLAGS += -O3 -DNDEBUG
 release: $(BIN)
 
-$(BIN): $(OBJ_FILES) | $(BIN_DIR)
+$(BIN): $(OBJ_FILES)
+	@mkdir -p $(BIN_DIR)
 	$(CC) $(LD_FLAGS) -o $@ $^
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
 	$(CC) $(C_FLAGS) -MMD -MP -c -o $@ $<
-
-$(BIN_DIR):
-	@mkdir -p $(BIN_DIR)
-
-$(OBJ_DIR):
-	@mkdir -p $(OBJ_DIR)
 
 -include $(DEP_FILES)
 
@@ -40,4 +36,4 @@ clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 format:
-	clang-format -i $(SRC_FILES)
+	find $(SRC_DIR) -name '*.c' -o -name '*.h' | xargs clang-format -i

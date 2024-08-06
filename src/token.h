@@ -1,8 +1,11 @@
 #ifndef JCC_TOKEN_H
 #define JCC_TOKEN_H
 
-#include "base.h"
-#include "file.h"
+#include "adt/slice.h"
+#include "adt/vector.h"
+
+#include "support/base.h"
+#include "support/file.h"
 
 #define ENUMERATE_TOKENS(M)                                                    \
   M(TK_NUM)                                                                    \

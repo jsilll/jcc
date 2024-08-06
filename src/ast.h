@@ -4,6 +4,7 @@
 #include "arena.h"
 
 typedef struct Type Type;
+
 typedef struct ExprNode ExprNode;
 typedef struct StmtNode StmtNode;
 typedef struct DeclNode DeclNode;

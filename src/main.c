@@ -115,6 +115,10 @@ static void report_parse_errors(const SrcFile *file,
   max = MIN(max, errors->size);
   for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
+    case PARSE_ERR_EXPECTED_EOF:
+      error_at(file, errors->data[i].token->lex, "unexpected token",
+               "expected end of file instead");
+      break;
     case PARSE_ERR_EXPECTED_SOME:
       error_at(file, (StringView){file->end, 1}, "unexpected end of file",
                "expected some token instead");

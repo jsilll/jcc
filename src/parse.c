@@ -331,5 +331,10 @@ ParseResult parse(Arena *arena, TokenStream *tokens) {
   if (first != NULL) {
     result.ast = parse_function(&ctx);
   }
+  first = peek_token(&ctx);
+  if (first != NULL) {
+    parse_error_stream_push(
+        &result.errors, (ParseError){PARSE_ERR_EXPECTED_EOF, first, TK_IDENT});
+  }
   return result;
 }

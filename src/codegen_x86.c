@@ -78,6 +78,9 @@ static void assign_offsets_stmt(CodegenCtx *ctx, StmtNode *stmt) {
 
 static void assign_offsets_func(CodegenCtx *ctx, FuncNode *func) {
   ctx->func = func;
+  for (FormalArg *arg = func->args; arg != NULL; arg = arg->next) {
+    assign_offsets_stmt(ctx, arg->decl);
+  }
   for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
     assign_offsets_stmt(ctx, stmt);
   }

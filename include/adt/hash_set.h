@@ -21,6 +21,7 @@ void hash_set_init(HashSet *set, size_t capacity, HashFunc hash,
 void hash_set_free(HashSet *set);
 const void *hash_set_get(const HashSet *set, const void *key);
 const void *hash_set_insert(HashSet *set, const void *element);
+const void *hash_set_try_insert(HashSet *set, const void *element);
 void hash_set_clear(HashSet *set);
 
 #endif // JCC_HASH_SET_H

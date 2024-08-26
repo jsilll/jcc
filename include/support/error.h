@@ -6,7 +6,7 @@
 #include "support/file.h"
 
 void error(const char *msg, ...);
-void error_at(const SrcFile *file, StringView sv, const char *title,
+void error_at(const SrcFile *file, StringView span, const char *title,
               const char *msg, ...);
 
 #endif // JCC_ERROR_H

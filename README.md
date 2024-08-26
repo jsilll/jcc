@@ -32,13 +32,12 @@ JCC is an educational C compiler that demonstrates the key stages of compiling C
 JCC provides Rust-inspired error messages that include source location and code snippets:
 
 ```
-./bin/jcc '{ return ret3(); }'
+./bin/jcc 'int main() { return abc; }'
 error: undeclared identifier
- --> stdin:1:10
+ --> stdin:1:21
   |
-1 | { return ret3(); }
-  |          ┌───
-  |          └─ must be declared before usage
+1 | int main() { return abc; }
+  |                     ^~~ must be declared before usage
 ```
 
 ## Compilation Pipeline

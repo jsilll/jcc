@@ -1,9 +1,45 @@
 #include "parse.h"
+#include "ast.h"
 
 DEFINE_VECTOR(ParseError, ParseErrorStream, parse_error_stream)
 
 void parse_result_free(ParseResult *result) {
   parse_error_stream_free(&result->errors);
+}
+
+typedef struct BinOpPair {
+  BinOpKind op;
+  uint8_t precLHS;
+  uint8_t precRHS;
+} BinOpPair;
+
+static BinOpPair try_into_binop(TokenKind kind) {
+  switch (kind) {
+  case TK_EQ:
+    return (BinOpPair){BINOP_ASGN, 2, 1};
+  case TK_EQ_EQ:
+    return (BinOpPair){BINOP_EQ, 3, 4};
+  case TK_BANG_EQ:
+    return (BinOpPair){BINOP_NE, 3, 4};
+  case TK_LT:
+    return (BinOpPair){BINOP_LT, 5, 6};
+  case TK_LT_EQ:
+    return (BinOpPair){BINOP_LE, 5, 6};
+  case TK_GT:
+    return (BinOpPair){BINOP_GT, 5, 6};
+  case TK_GT_EQ:
+    return (BinOpPair){BINOP_GE, 5, 6};
+  case TK_PLUS:
+    return (BinOpPair){BINOP_ADD, 7, 8};
+  case TK_MINUS:
+    return (BinOpPair){BINOP_SUB, 7, 8};
+  case TK_STAR:
+    return (BinOpPair){BINOP_MUL, 9, 10};
+  case TK_SLASH:
+    return (BinOpPair){BINOP_DIV, 9, 10};
+  default:
+    return (BinOpPair){BINOP_ADD, 0, 0};
+  }
 }
 
 typedef struct ParseCtx {
@@ -54,44 +90,13 @@ static Token *expect_token(ParseCtx *ctx, TokenKind kind) {
   return token;
 }
 
-typedef struct BindingPower {
-  uint8_t lhs;
-  uint8_t rhs;
-} BindingPower;
-
-typedef struct BinOpPair {
-  BinOpKind op;
-  BindingPower bind;
-} BinOpPair;
-
-static BinOpPair try_into_binop(TokenKind kind) {
-  switch (kind) {
-  case TK_EQ:
-    return (BinOpPair){BINOP_ASGN, (BindingPower){2, 1}};
-  case TK_EQ_EQ:
-    return (BinOpPair){BINOP_EQ, (BindingPower){3, 4}};
-  case TK_BANG_EQ:
-    return (BinOpPair){BINOP_NE, (BindingPower){3, 4}};
-  case TK_LT:
-    return (BinOpPair){BINOP_LT, (BindingPower){5, 6}};
-  case TK_LT_EQ:
-    return (BinOpPair){BINOP_LE, (BindingPower){5, 6}};
-  case TK_GT:
-    return (BinOpPair){BINOP_GT, (BindingPower){5, 6}};
-  case TK_GT_EQ:
-    return (BinOpPair){BINOP_GE, (BindingPower){5, 6}};
-  case TK_PLUS:
-    return (BinOpPair){BINOP_ADD, (BindingPower){7, 8}};
-  case TK_MINUS:
-    return (BinOpPair){BINOP_SUB, (BindingPower){7, 8}};
-  case TK_STAR:
-    return (BinOpPair){BINOP_MUL, (BindingPower){9, 10}};
-  case TK_SLASH:
-    return (BinOpPair){BINOP_DIV, (BindingPower){9, 10}};
-  default:
-    return (BinOpPair){BINOP_ADD, (BindingPower){0, 0}};
-  }
-}
+// TODO: Start using this macro for most error handling
+#define RETURN_ON_ERROR(ctx, expr)                                             \
+  do {                                                                         \
+    if ((expr) == NULL) {                                                      \
+      return NULL;                                                             \
+    }                                                                          \
+  } while (0)
 
 static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec);
 
@@ -161,11 +166,11 @@ static ExprNode *parse_expr(ParseCtx *ctx, uint8_t prec) {
     } break;
     default: {
       BinOpPair bp = try_into_binop(token->kind);
-      if (bp.bind.lhs <= prec) {
+      if (bp.precLHS <= prec) {
         return lhs;
       }
       ++ctx->idx;
-      ExprNode *expr = parse_expr(ctx, bp.bind.rhs);
+      ExprNode *expr = parse_expr(ctx, bp.precRHS);
       lhs = expr_init_binary(ctx->arena, token->lex, bp.op, lhs, expr);
     }
     }
@@ -270,8 +275,10 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
     uint32_t idx = 0;
     StmtNode head = {0};
     StmtNode *curr = &head;
-    Token *next = peek_token(ctx);
+    Token *prev = peek_token(ctx);
+    Token *next = prev;
     while (next != NULL && next->kind != TK_SEMICOLON) {
+      DEBUG("Looping");
       if (idx++ > 0) {
         expect_token(ctx, TK_COMMA);
       }
@@ -284,11 +291,15 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
         ExprNode *expr = parse_expr(ctx, 0);
         curr = curr->next =
             stmt_init_decl(ctx->arena, token->lex, type, name, expr);
+        next = peek_token(ctx);
       } else {
         curr = curr->next =
             stmt_init_decl(ctx->arena, token->lex, type, name, NULL);
       }
-      next = peek_token(ctx);
+      if (prev == next) {
+        break;
+      }
+      prev = next;
     }
     expect_token(ctx, TK_SEMICOLON);
     return head.next;
@@ -307,11 +318,32 @@ static StmtNode *parse_stmt(ParseCtx *ctx) {
 
 FuncNode *parse_function(ParseCtx *ctx) {
   FuncNode *function = arena_alloc(ctx->arena, sizeof(FuncNode));
+  function->type = type_init_func(ctx->arena, NULL, TYPE_INT);
   Type *base = parse_declspec(ctx);
-  function->type = parse_decltype(ctx, base);
+  function->type->u.func.ret = parse_decltype(ctx, base);
   Token *token = expect_token(ctx, TK_IDENT);
   function->lex = token != NULL ? token->lex : EMPTY_SV;
   expect_token(ctx, TK_LPAREN);
+  token = peek_some(ctx);
+  if (token != NULL && token->kind != TK_RPAREN) {
+    FormalArg head = {0};
+    FormalArg *curr = &head;
+    while (true) {
+      Type *type = parse_declspec(ctx);
+      type = parse_decltype(ctx, type);
+      token = expect_token(ctx, TK_IDENT);
+      StringView lex = token != NULL ? token->lex : EMPTY_SV;
+      curr = curr->next = arena_alloc(ctx->arena, sizeof(FormalArg));
+      curr->decl = stmt_init_decl(ctx->arena, lex, type, lex, NULL);
+      token = peek_some(ctx);
+      if (token != NULL && token->kind != TK_RPAREN) {
+        expect_token(ctx, TK_COMMA);
+      } else {
+        break;
+      }
+    }
+    function->args = head.next;
+  }
   expect_token(ctx, TK_RPAREN);
   token = peek_some(ctx);
   if (token != NULL && token->kind != TK_LBRACE) {
@@ -320,6 +352,13 @@ FuncNode *parse_function(ParseCtx *ctx) {
         (ParseError){PARSE_ERR_EXPECTED_TOKEN, token, TK_LBRACE});
   }
   function->body = parse_stmt_block(ctx);
+  TypeList head = {0};
+  TypeList *curr = &head;
+  for (FormalArg *arg = function->args; arg != NULL; arg = arg->next) {
+    curr = curr->next = arena_alloc(ctx->arena, sizeof(TypeList));
+    curr->type = arg->decl->u.decl.type;
+  }
+  function->type->u.func.args = head.next;
   return function;
 }
 
@@ -336,6 +375,7 @@ ParseResult parse(Arena *arena, TokenStream *tokens) {
     if (token == NULL) {
       break;
     }
+
     curr->next = parse_function(&ctx);
     curr = curr->next;
   }

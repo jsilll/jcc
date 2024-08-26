@@ -1,8 +1,8 @@
 #ifndef JCC_ARENA_H
 #define JCC_ARENA_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct ArenaBlock ArenaBlock;
 
@@ -21,6 +21,7 @@ void *arena_alloc(Arena *arena, size_t size);
 void arena_clear(Arena *arena);
 void arena_garbage_collect(Arena *arena);
 void arena_undo(Arena *arena, size_t size);
+void *arena_current_ptr(const Arena *arena);
 size_t arena_total_bytes(const Arena *arena);
 size_t arena_commited_bytes(const Arena *arena);
 uint32_t arena_total_blocks(const Arena *arena);

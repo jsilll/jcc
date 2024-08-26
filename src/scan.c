@@ -40,6 +40,8 @@ static TokenKind lookup_keyword(StringView lex) {
       case 'G':
         // _Generic
         return check_keyword(2, 6, "eneric", lex, TK_KW__GENERIC);
+      default:
+        break;
       }
       break;
     case 9:
@@ -54,6 +56,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 14:
       // _Static_assert
       return check_keyword(1, 13, "Static_assert", lex, TK_KW__STATIC_ASSERT);
+    default:
+      break;
     }
     break;
   case 'a':
@@ -64,6 +68,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 7:
       // alignof
       return check_keyword(1, 6, "lignof", lex, TK_KW_ALIGNOF);
+    default:
+      break;
     }
     break;
   case 'b':
@@ -79,6 +85,8 @@ static TokenKind lookup_keyword(StringView lex) {
       case 'h':
         // char
         return check_keyword(2, 2, "ar", lex, TK_KW_CHAR);
+      default:
+        break;
       }
       break;
     case 5:
@@ -87,6 +95,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 8:
       // continue
       return check_keyword(1, 7, "ontinue", lex, TK_KW_CONTINUE);
+    default:
+      break;
     }
     break;
   case 'd':
@@ -100,6 +110,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 7:
       // default
       return check_keyword(1, 6, "efault", lex, TK_KW_DEFAULT);
+    default:
+      break;
     }
     break;
   case 'e':
@@ -112,11 +124,15 @@ static TokenKind lookup_keyword(StringView lex) {
       case 'n':
         // enum
         return check_keyword(2, 2, "um", lex, TK_KW_ENUM);
+      default:
+        break;
       }
       break;
     case 6:
       // extern
       return check_keyword(1, 5, "xtern", lex, TK_KW_EXTERN);
+    default:
+      break;
     }
     break;
   case 'f':
@@ -127,6 +143,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 5:
       // float
       return check_keyword(1, 4, "loat", lex, TK_KW_FLOAT);
+    default:
+      break;
     }
     break;
   case 'g':
@@ -143,6 +161,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 6:
       // inline
       return check_keyword(1, 5, "nline", lex, TK_KW_INLINE);
+    default:
+      break;
     }
     break;
   case 'l':
@@ -163,9 +183,15 @@ static TokenKind lookup_keyword(StringView lex) {
         case 's':
           // restrict
           return check_keyword(3, 5, "trict", lex, TK_KW_RESTRICT);
+        default:
+          break;
         }
         break;
+      default:
+        break;
       }
+      break;
+    default:
       break;
     }
     break;
@@ -184,6 +210,8 @@ static TokenKind lookup_keyword(StringView lex) {
         case 'z':
           // sizeof
           return check_keyword(3, 3, "eof", lex, TK_KW_SIZEOF);
+        default:
+          break;
         }
         break;
       case 't':
@@ -194,12 +222,18 @@ static TokenKind lookup_keyword(StringView lex) {
         case 'r':
           // struct
           return check_keyword(3, 3, "uct", lex, TK_KW_STRUCT);
+        default:
+          break;
         }
         break;
       case 'w':
         // switch
         return check_keyword(2, 4, "itch", lex, TK_KW_SWITCH);
+      default:
+        break;
       }
+      break;
+    default:
       break;
     }
     break;
@@ -214,6 +248,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 8:
       // unsigned
       return check_keyword(1, 7, "nsigned", lex, TK_KW_UNSIGNED);
+    default:
+      break;
     }
     break;
   case 'v':
@@ -224,11 +260,15 @@ static TokenKind lookup_keyword(StringView lex) {
     case 8:
       // volatile
       return check_keyword(1, 7, "olatile", lex, TK_KW_VOLATILE);
+    default:
+      break;
     }
     break;
   case 'w':
     // while
     return check_keyword(0, 5, "while", lex, TK_KW_WHILE);
+  default:
+    break;
   }
   return TK_IDENT;
 }

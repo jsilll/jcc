@@ -3,6 +3,6 @@
 
 #include "ast.h"
 
-void codegen_x86(FILE* out, FuncNode *ast);
+void codegen_x86(FILE *out, FuncNode *ast);
 
 #endif // JCC_CODEGEN_X86_H

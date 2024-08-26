@@ -8,6 +8,7 @@
 #include "support/base.h"
 
 typedef struct Type Type;
+typedef struct TypeList TypeList;
 
 typedef struct ExprNode ExprNode;
 typedef struct StmtNode StmtNode;
@@ -16,11 +17,6 @@ typedef struct FuncNode FuncNode;
 
 typedef struct ActualArg ActualArg;
 typedef struct FormalArg FormalArg;
-
-struct ActualArg {
-  ExprNode *expr;
-  ActualArg *next;
-};
 
 #define GENERATE_TYPE_ENUM(Name, Size) TY_##Name,
 
@@ -80,6 +76,11 @@ DECLARE_REPR_ENUM(ExprKind, ENUMERATE_EXPRS)
 
 DECLARE_REPR_ENUM(StmtKind, ENUMERATE_STMTS)
 
+struct TypeList {
+  Type *type;
+  TypeList *next;
+};
+
 struct Type {
   TypeKind kind;
   uint8_t size;
@@ -88,9 +89,15 @@ struct Type {
       Type *base;
     } ptr;
     struct {
+      TypeList *args;
       Type *ret;
     } func;
   } u;
+};
+
+struct ActualArg {
+  ExprNode *expr;
+  ActualArg *next;
 };
 
 struct ExprNode {
@@ -159,9 +166,15 @@ struct StmtNode {
   } u;
 };
 
+struct FormalArg {
+  StmtNode *decl;
+  FormalArg *next;
+};
+
 struct FuncNode {
   StringView lex;
   Type *type;
+  FormalArg *args;
   StmtNode *body;
   FuncNode *next;
 };
@@ -170,6 +183,7 @@ void ast_debug(FILE *out, FuncNode *ast);
 
 Type *type_init(Arena *arena, TypeKind kind, uint8_t size);
 Type *type_init_ptr(Arena *arena, Type *base);
+Type *type_init_func(Arena *arena, TypeList *args, Type *ret);
 
 ExprNode *expr_init(Arena *arena, StringView lex, ExprKind kind);
 ExprNode *expr_init_int(Arena *arena, StringView lex);

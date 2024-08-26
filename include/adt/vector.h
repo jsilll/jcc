@@ -44,8 +44,9 @@
   void Prefix##_push(Alias *v, T value) {                                      \
     if (v->size == v->capacity) {                                              \
       v->capacity = GROW_CAP(v->capacity);                                     \
-      v->data = realloc(v->data, v->capacity * sizeof(T));                     \
-      assert(v->data != NULL);                                                 \
+      void *tmp = realloc(v->data, v->capacity * sizeof(T));                   \
+      assert(tmp != NULL);                                                     \
+      v->data = tmp;                                                           \
     }                                                                          \
     v->data[v->size++] = value;                                                \
   }                                                                            \

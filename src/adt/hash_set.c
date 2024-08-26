@@ -63,6 +63,24 @@ const void *hash_set_insert(HashSet *set, const void *element) {
   size_t idx = h & (set->capacity - 1);
   while (set->elements[idx] != NULL) {
     if (set->equal(set->elements[idx], element)) {
+      const void *old = set->elements[idx];
+      set->elements[idx] = element;
+      return old;
+    }
+    idx = (idx + 1) & (set->capacity - 1);
+  }
+  ++set->size;
+  set->elements[idx] = element;
+  return element;
+}
+
+const void *hash_set_try_insert(HashSet *set, const void *element) {
+  assert(element != NULL);
+  hash_set_maybe_rehash(set);
+  uint64_t h = set->hash(element);
+  size_t idx = h & (set->capacity - 1);
+  while (set->elements[idx] != NULL) {
+    if (set->equal(set->elements[idx], element)) {
       return set->elements[idx];
     }
     idx = (idx + 1) & (set->capacity - 1);

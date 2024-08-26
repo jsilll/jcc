@@ -40,15 +40,15 @@ static void desugar_expr(DesugarCtx *ctx, ExprNode *expr) {
                   expr->u.bin.lhs->type->u.ptr.base->size));
           break;
         case TY_PTR:
-          expr->u.bin.op = BINOP_DIV;
           expr->u.bin.lhs = expr_init_binary(ctx->arena, expr->lex, BINOP_SUB,
                                              expr->u.bin.lhs, expr->u.bin.rhs);
           expr->u.bin.rhs = expr_init_int_from_value(
               ctx->arena, expr->lex,
               expr->u.bin.lhs->u.bin.lhs->type->u.ptr.base->size);
+          expr->u.bin.op = BINOP_DIV;
           break;
         case TY_FUN:
-          TODO("Handle TY_FUN");
+          TODO("Function pointer subtraction");
           break;
         }
       }

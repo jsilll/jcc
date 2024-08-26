@@ -3,10 +3,10 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#define GENERATE_TYPE_STRING(Name, Size) #Name,
+
 #define GENERATE_TYPE_VARIABLE(Name, Size)                                     \
   Type *TYPE_##Name = &(Type){TY_##Name, Size, {{0}}};
-
-#define GENERATE_TYPE_STRING(Name, Size) #Name,
 
 ENUMERATE_TYPES(GENERATE_TYPE_VARIABLE)
 
@@ -136,6 +136,10 @@ void ast_debug(FILE *out, FuncNode *func) {
   while (func != NULL) {
     fprintf(out, "FUNC: %.*s<%s>\n", (int)func->lex.size, func->lex.data,
             TypeKind_Repr[func->type->kind]);
+    for (FormalArg *arg = func->args; arg != NULL; arg = arg->next) {
+      fprintf(out, "  ARG: %.*s<%s>\n", (int)arg->decl->lex.size,
+              arg->decl->lex.data, TypeKind_Repr[arg->decl->u.decl.type->kind]);
+    }
     ast_stmt_debug(out, func->body, 1);
     func = func->next;
   }
@@ -151,6 +155,13 @@ Type *type_init(Arena *arena, TypeKind kind, uint8_t size) {
 Type *type_init_ptr(Arena *arena, Type *base) {
   Type *type = type_init(arena, TY_PTR, 8);
   type->u.ptr.base = base;
+  return type;
+}
+
+Type *type_init_func(Arena *arena, TypeList *args, Type *ret) {
+  Type *type = type_init(arena, TY_FUN, 0);
+  type->u.func.args = args;
+  type->u.func.ret = ret;
   return type;
 }
 

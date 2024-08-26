@@ -135,6 +135,10 @@ static size_t arena_free_bytes(const Arena *arena) {
   return total;
 }
 
+void *arena_current_ptr(const Arena *arena) {
+  return arena->ptr + arena->commited_size;
+}
+
 size_t arena_total_bytes(const Arena *arena) {
   return arena->allocated_size + arena_used_bytes(arena) +
          arena_free_bytes(arena);

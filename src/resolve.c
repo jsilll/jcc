@@ -2,8 +2,8 @@
 
 #include "adt/hash_map.h"
 
-#include <stdlib.h>
 #include <assert.h>
+#include <stdlib.h>
 
 DEFINE_VECTOR(ResolveError, ResolveErrorStream, resolve_error_stream)
 
@@ -48,9 +48,10 @@ static void scopes_free(Scopes *scopes) {
 static void scopes_push(Scopes *scopes) {
   if (scopes->size == scopes->capacity) {
     scopes->capacity = GROW_CAP(scopes->capacity);
-    scopes->scopes =
+    void *tmp =
         realloc(scopes->scopes, scopes->capacity * sizeof(*scopes->scopes));
-    assert(scopes->scopes != NULL);
+    assert(tmp != NULL);
+    scopes->scopes = tmp;
   }
   if (scopes->size == scopes->init) {
     hash_map_init(scopes->scopes + scopes->size, 32, name_hash, name_equals);
@@ -118,8 +119,11 @@ static void resolve_expr(ResolveCtx *ctx, ExprNode *expr) {
     resolve_expr(ctx, expr->u.index.index);
     break;
   case EXPR_CALL:
-    // TODO: for now we don't resolve function calls
+    // TODO: for now we don't resolve function calls, for testing purposes
     // resolve_expr(ctx, expr->u.call.func);
+    for (ActualArg *arg = expr->u.call.args; arg != NULL; arg = arg->next) {
+      resolve_expr(ctx, arg->expr);
+    }
     break;
   }
 }
@@ -181,7 +185,14 @@ ResolveResult resolve(FuncNode *function) {
   resolve_ctx_init(&ctx, &result);
 
   for (FuncNode *func = function; func != NULL; func = func->next) {
-    resolve_stmt(&ctx, func->body);
+    scopes_push(&ctx.scopes);
+    for (FormalArg *arg = func->args; arg != NULL; arg = arg->next) {
+      scopes_insert(&ctx.scopes, &arg->decl->u.decl.name, arg->decl);
+    }
+    for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
+      resolve_stmt(&ctx, stmt);
+    }
+    scopes_pop(&ctx.scopes);
   }
 
   resolve_ctx_free(&ctx);

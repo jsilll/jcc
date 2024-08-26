@@ -1,9 +1,9 @@
 #ifndef JCC_HASH_MAP_H
 #define JCC_HASH_MAP_H
 
-#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct HashEntry HashEntry;
 typedef uint64_t (*HashFunc)(const void *);

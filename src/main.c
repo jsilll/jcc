@@ -164,7 +164,7 @@ static FuncNode *parse_driver(const CliOptions *options, const SrcFile *file,
     ast_debug(stderr, pr.ast);
   }
   if (pr.errors.size > 0) {
-    report_parse_errors(file, &pr.errors, pr.errors.size);
+    report_parse_errors(file, &pr.errors, 1);
     pr.ast = NULL;
   } else if (pr.ast == NULL) {
     error("empty parse tree");
@@ -249,7 +249,7 @@ static bool sema_driver(const CliOptions *options, const SrcFile *file,
 
 /// Desugar ///
 
-static void desugar_driver(const CliOptions *options, Arena *arena,
+static bool desugar_driver(const CliOptions *options, Arena *arena,
                            FuncNode *ast) {
   DEBUG("Desugar");
   desugar(arena, ast);
@@ -259,13 +259,15 @@ static void desugar_driver(const CliOptions *options, Arena *arena,
   }
   DEBUGF("arena total blocks: %d", arena_total_blocks(arena));
   DEBUGF("arena commited bytes: %zu", arena_commited_bytes(arena));
+  return true;
 }
 
 /// Codegen ///
 
-static void codegen_driver(FuncNode *ast) {
+static bool codegen_driver(FuncNode *ast) {
   DEBUG("Codegen");
   codegen_x86(stdout, ast);
+  return true;
 }
 
 /// Main ///
@@ -309,11 +311,18 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  desugar_driver(&options, &arena, ast);
+  if (!desugar_driver(&options, &arena, ast)) {
+    arena_free(&arena);
+    src_file_free(&file);
+    return EXIT_FAILURE;
+  }
 
-  codegen_driver(ast);
+  if (!codegen_driver(ast)) {
+    arena_free(&arena);
+    src_file_free(&file);
+    return EXIT_FAILURE;
+  }
 
   arena_free(&arena);
   src_file_free(&file);
-  return EXIT_SUCCESS;
 }

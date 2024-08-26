@@ -15,10 +15,10 @@ typedef struct ResolveError {
   StringView span;
 } ResolveError;
 
-DECLARE_VECTOR(ResolveError, ResolveErrorStream, resolve_error_stream)
+DECLARE_VEC(ResolveError, ResolveErrorVec, resolve_error_vec)
 
 typedef struct ResolveResult {
-  ResolveErrorStream errors;
+  ResolveErrorVec errors;
 } ResolveResult;
 
 void resolve_result_free(ResolveResult *result);

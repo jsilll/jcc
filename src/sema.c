@@ -6,10 +6,8 @@
 
 #include <stdlib.h>
 
-DEFINE_VECTOR(SemaError, SemaErrorStream, sema_error_stream)
-
 void sema_result_free(SemaResult *result) {
-  sema_error_stream_free(&result->errors);
+  sema_error_vec_free(&result->errors);
 }
 
 static uint64_t type_hash(const void *key) {
@@ -54,14 +52,14 @@ typedef struct TypeCtx {
 } TypeCtx;
 
 static void type_ctx_init(TypeCtx *ctx, Arena *arena, SemaResult *result) {
-  hash_set_init(&ctx->types, 32, type_hash, type_equals);
+  hs_init(&ctx->types, type_hash, type_equals);
   ctx->arena = arena;
   ctx->result = result;
 }
 
 static void type_ctx_free(TypeCtx *ctx) {
   DEBUGF("free types of capacity: %zu", ctx->types.capacity);
-  hash_set_free(&ctx->types);
+  hs_free(&ctx->types);
   ctx->arena = NULL;
   ctx->result = NULL;
 }
@@ -72,7 +70,7 @@ static Type *type_ctx_register(TypeCtx *ctx, Type *type) {
     return type;
   case TY_PTR:
     type->u.ptr.base = type_ctx_register(ctx, type->u.ptr.base);
-    return (Type *)hash_set_insert(&ctx->types, type);
+    return (Type *)hs_try_insert(&ctx->types, type);
   case TY_FUN:
     TODO("Handle TY_FUN");
     break;
@@ -81,11 +79,9 @@ static Type *type_ctx_register(TypeCtx *ctx, Type *type) {
 }
 
 static Type *type_ctx_make_ptr(TypeCtx *ctx, Type *base) {
-  Type *type = arena_alloc(ctx->arena, sizeof(Type));
-  type->kind = TY_PTR;
-  type->u.ptr.base = base;
+  Type *type = type_init_ptr(ctx->arena, base);
   Type *existing = type_ctx_register(ctx, type);
-  if (existing != NULL) {
+  if (existing != type) {
     arena_undo(ctx->arena, sizeof(Type));
     return existing;
   }
@@ -94,7 +90,7 @@ static Type *type_ctx_make_ptr(TypeCtx *ctx, Type *base) {
 
 static void type_check_assert(TypeCtx *ctx, StringView span, bool pred) {
   if (!pred) {
-    sema_error_stream_push(&ctx->result->errors,
+    sema_error_vec_push(&ctx->result->errors,
                            (SemaError){SEMA_ERR_MISMATCHED_TYPES, span});
   }
 }
@@ -111,13 +107,7 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
     type_check_expr(ctx, expr->u.un.expr);
     switch (expr->u.un.op) {
     case UNOP_ADD:
-      type_check_assert(ctx, expr->lex, expr->u.un.expr->type == TYPE_INT);
-      expr->type = TYPE_INT;
-      break;
     case UNOP_NEG:
-      type_check_assert(ctx, expr->lex, expr->u.un.expr->type == TYPE_INT);
-      expr->type = TYPE_INT;
-      break;
     case UNOP_NOT:
       type_check_assert(ctx, expr->lex, expr->u.un.expr->type == TYPE_INT);
       expr->type = TYPE_INT;
@@ -162,8 +152,6 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       if (expr->u.bin.lhs->type == expr->u.bin.rhs->type) {
         switch (expr->u.bin.lhs->type->kind) {
         case TY_INT:
-          expr->type = TYPE_INT;
-          break;
         case TY_PTR:
           expr->type = TYPE_INT;
           break;
@@ -174,7 +162,7 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       } else {
         switch (expr->u.bin.lhs->type->kind) {
         case TY_INT:
-          sema_error_stream_push(
+          sema_error_vec_push(
               &ctx->result->errors,
               (SemaError){SEMA_ERR_MISMATCHED_TYPES, expr->lex});
           break;
@@ -190,15 +178,7 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
       }
       break;
     case BINOP_MUL:
-      type_check_assert(ctx, expr->lex, expr->u.bin.lhs->type == TYPE_INT);
-      type_check_assert(ctx, expr->lex, expr->u.bin.rhs->type == TYPE_INT);
-      expr->type = TYPE_INT;
-      break;
     case BINOP_DIV:
-      type_check_assert(ctx, expr->lex, expr->u.bin.lhs->type == TYPE_INT);
-      type_check_assert(ctx, expr->lex, expr->u.bin.rhs->type == TYPE_INT);
-      expr->type = TYPE_INT;
-      break;
     case BINOP_EQ:
     case BINOP_NE:
     case BINOP_LT:
@@ -221,7 +201,7 @@ static void type_check_expr(TypeCtx *ctx, ExprNode *expr) {
     type_check_expr(ctx, expr->u.index.index);
     break;
   case EXPR_CALL:
-    // TODO: for now, we don't check the types of the arguments
+    // TODO: for now we don't check the types of the arguments
     // type_check_expr(ctx, expr->u.call.func);
     break;
   }
@@ -240,7 +220,7 @@ static void type_check_stmt(TypeCtx *ctx, StmtNode *stmt) {
     if (stmt->u.decl.expr != NULL) {
       type_check_expr(ctx, stmt->u.decl.expr);
       if (stmt->u.decl.type != stmt->u.decl.expr->type) {
-        sema_error_stream_push(
+        sema_error_vec_push(
             &ctx->result->errors,
             (SemaError){SEMA_ERR_MISMATCHED_TYPES, stmt->lex});
       }
@@ -279,7 +259,7 @@ static void type_check_stmt(TypeCtx *ctx, StmtNode *stmt) {
 
 SemaResult sema(Arena *arena, FuncNode *function) {
   SemaResult result = {0};
-  sema_error_stream_init(&result.errors);
+  sema_error_vec_init(&result.errors);
 
   TypeCtx ctx = {0};
   type_ctx_init(&ctx, arena, &result);

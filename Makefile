@@ -3,9 +3,10 @@ PROJECT = jcc
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
+INCLUDE_DIR = include
 
 CC = gcc
-C_FLAGS = -std=c11 -Wall -Wextra -Wpedantic -I$(SRC_DIR)
+C_FLAGS = -std=c11 -Wall -Wextra -Wpedantic -I$(INCLUDE_DIR)
 LD_FLAGS =
 
 SRC_FILES := $(shell find $(SRC_DIR) -name '*.c')
@@ -36,4 +37,5 @@ clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 format:
-	find $(SRC_DIR) -name '*.c' -o -name '*.h' | xargs clang-format -i
+	find $(SRC_DIR) -name '*.c' | xargs clang-format -i
+	find $(INCLUDE_DIR) -name '*.h' | xargs clang-format -i

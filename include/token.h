@@ -1,7 +1,7 @@
 #ifndef JCC_TOKEN_H
 #define JCC_TOKEN_H
 
-#include "adt/slice.h"
+#include "adt/string_view.h"
 #include "adt/vector.h"
 
 #include "support/base.h"
@@ -125,9 +125,8 @@ typedef struct Token {
   StringView lex;
 } Token;
 
-DECLARE_VECTOR(Token, TokenStream, token_stream)
+DECLARE_VEC(Token, TokenVec, token_vec)
 
-void token_stream_debug(FILE *out, const TokenStream *stream,
-                        const SrcFile *file);
+void token_stream_debug(FILE *out, const TokenVec *stream, const SrcFile *file);
 
 #endif // JCC_TOKEN_H

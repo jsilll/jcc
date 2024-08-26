@@ -3,11 +3,9 @@
 #include <ctype.h>
 #include <stdlib.h>
 
-DEFINE_VECTOR(ScanError, ScanErrorStream, scan_error_stream)
-
 void scan_result_free(ScanResult *result) {
-  token_stream_free(&result->tokens);
-  scan_error_stream_free(&result->errors);
+  token_vec_free(&result->tokens);
+  scan_error_vec_free(&result->errors);
 }
 
 static inline TokenKind check_keyword(uint32_t start, uint32_t size,
@@ -40,6 +38,8 @@ static TokenKind lookup_keyword(StringView lex) {
       case 'G':
         // _Generic
         return check_keyword(2, 6, "eneric", lex, TK_KW__GENERIC);
+      default:
+        break;
       }
       break;
     case 9:
@@ -54,6 +54,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 14:
       // _Static_assert
       return check_keyword(1, 13, "Static_assert", lex, TK_KW__STATIC_ASSERT);
+    default:
+      break;
     }
     break;
   case 'a':
@@ -64,6 +66,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 7:
       // alignof
       return check_keyword(1, 6, "lignof", lex, TK_KW_ALIGNOF);
+    default:
+      break;
     }
     break;
   case 'b':
@@ -79,6 +83,8 @@ static TokenKind lookup_keyword(StringView lex) {
       case 'h':
         // char
         return check_keyword(2, 2, "ar", lex, TK_KW_CHAR);
+      default:
+        break;
       }
       break;
     case 5:
@@ -87,6 +93,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 8:
       // continue
       return check_keyword(1, 7, "ontinue", lex, TK_KW_CONTINUE);
+    default:
+      break;
     }
     break;
   case 'd':
@@ -100,6 +108,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 7:
       // default
       return check_keyword(1, 6, "efault", lex, TK_KW_DEFAULT);
+    default:
+      break;
     }
     break;
   case 'e':
@@ -112,11 +122,15 @@ static TokenKind lookup_keyword(StringView lex) {
       case 'n':
         // enum
         return check_keyword(2, 2, "um", lex, TK_KW_ENUM);
+      default:
+        break;
       }
       break;
     case 6:
       // extern
       return check_keyword(1, 5, "xtern", lex, TK_KW_EXTERN);
+    default:
+      break;
     }
     break;
   case 'f':
@@ -127,6 +141,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 5:
       // float
       return check_keyword(1, 4, "loat", lex, TK_KW_FLOAT);
+    default:
+      break;
     }
     break;
   case 'g':
@@ -143,6 +159,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 6:
       // inline
       return check_keyword(1, 5, "nline", lex, TK_KW_INLINE);
+    default:
+      break;
     }
     break;
   case 'l':
@@ -163,9 +181,15 @@ static TokenKind lookup_keyword(StringView lex) {
         case 's':
           // restrict
           return check_keyword(3, 5, "trict", lex, TK_KW_RESTRICT);
+        default:
+          break;
         }
         break;
+      default:
+        break;
       }
+      break;
+    default:
       break;
     }
     break;
@@ -184,6 +208,8 @@ static TokenKind lookup_keyword(StringView lex) {
         case 'z':
           // sizeof
           return check_keyword(3, 3, "eof", lex, TK_KW_SIZEOF);
+        default:
+          break;
         }
         break;
       case 't':
@@ -194,12 +220,18 @@ static TokenKind lookup_keyword(StringView lex) {
         case 'r':
           // struct
           return check_keyword(3, 3, "uct", lex, TK_KW_STRUCT);
+        default:
+          break;
         }
         break;
       case 'w':
         // switch
         return check_keyword(2, 4, "itch", lex, TK_KW_SWITCH);
+      default:
+        break;
       }
+      break;
+    default:
       break;
     }
     break;
@@ -214,6 +246,8 @@ static TokenKind lookup_keyword(StringView lex) {
     case 8:
       // unsigned
       return check_keyword(1, 7, "nsigned", lex, TK_KW_UNSIGNED);
+    default:
+      break;
     }
     break;
   case 'v':
@@ -224,19 +258,23 @@ static TokenKind lookup_keyword(StringView lex) {
     case 8:
       // volatile
       return check_keyword(1, 7, "olatile", lex, TK_KW_VOLATILE);
+    default:
+      break;
     }
     break;
   case 'w':
     // while
     return check_keyword(0, 5, "while", lex, TK_KW_WHILE);
+  default:
+    break;
   }
   return TK_IDENT;
 }
 
 ScanResult scan(const SrcFile *file, bool comments) {
   ScanResult result;
-  scan_error_stream_init(&result.errors);
-  token_stream_with_capacity(&result.tokens, 64);
+  scan_error_vec_init(&result.errors);
+  token_vec_with_capacity(&result.tokens, 64);
 
   char *c = file->data;
   StringView lex = {NULL, 0};
@@ -252,52 +290,52 @@ ScanResult scan(const SrcFile *file, bool comments) {
     case '[':
       // TK_LBRACK
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_LBRACK, lex});
+      token_vec_push(&result.tokens, (Token){TK_LBRACK, lex});
       break;
     case ']':
       // TK_RBRACK
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_RBRACK, lex});
+      token_vec_push(&result.tokens, (Token){TK_RBRACK, lex});
       break;
     case '(':
       // TK_LPAREN
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_LPAREN, lex});
+      token_vec_push(&result.tokens, (Token){TK_LPAREN, lex});
       break;
     case ')':
       // TK_RPAREN
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_RPAREN, lex});
+      token_vec_push(&result.tokens, (Token){TK_RPAREN, lex});
       break;
     case '{':
       // TK_LBRACE
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_LBRACE, lex});
+      token_vec_push(&result.tokens, (Token){TK_LBRACE, lex});
       break;
     case '}':
       // TK_RBRACE
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_RBRACE, lex});
+      token_vec_push(&result.tokens, (Token){TK_RBRACE, lex});
       break;
     case '~':
       // TK_TILDE
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_TILDE, lex});
+      token_vec_push(&result.tokens, (Token){TK_TILDE, lex});
       break;
     case ',':
       // TK_COMMA
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_COMMA, lex});
+      token_vec_push(&result.tokens, (Token){TK_COMMA, lex});
       break;
     case ';':
       // TK_SEMICOLON
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_SEMICOLON, lex});
+      token_vec_push(&result.tokens, (Token){TK_SEMICOLON, lex});
       break;
     case '?':
       // TK_QUESTION
       ++c;
-      token_stream_push(&result.tokens, (Token){TK_QUESTION, lex});
+      token_vec_push(&result.tokens, (Token){TK_QUESTION, lex});
       break;
     case '=':
       ++c;
@@ -306,11 +344,11 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_EQ_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_EQ_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_EQ_EQ, lex});
         break;
       default:
         // TK_EQ
-        token_stream_push(&result.tokens, (Token){TK_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_EQ, lex});
       }
       break;
     case '!':
@@ -320,11 +358,11 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_BANG_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_BANG_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_BANG_EQ, lex});
         break;
       default:
         // TK_BANG
-        token_stream_push(&result.tokens, (Token){TK_BANG, lex});
+        token_vec_push(&result.tokens, (Token){TK_BANG, lex});
       }
       break;
     case '*':
@@ -334,11 +372,11 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_STAR_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_STAR_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_STAR_EQ, lex});
         break;
       default:
         // TK_STAR
-        token_stream_push(&result.tokens, (Token){TK_STAR, lex});
+        token_vec_push(&result.tokens, (Token){TK_STAR, lex});
       }
       break;
     case '^':
@@ -348,11 +386,11 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_CARET_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_CARET_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_CARET_EQ, lex});
         break;
       default:
         // TK_CARET
-        token_stream_push(&result.tokens, (Token){TK_CARET, lex});
+        token_vec_push(&result.tokens, (Token){TK_CARET, lex});
       }
       break;
     case ':':
@@ -362,11 +400,11 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_COLON_GT
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_COLON_GT, lex});
+        token_vec_push(&result.tokens, (Token){TK_COLON_GT, lex});
         break;
       default:
         // TK_COLON
-        token_stream_push(&result.tokens, (Token){TK_COLON, lex});
+        token_vec_push(&result.tokens, (Token){TK_COLON, lex});
       }
       break;
     case '#':
@@ -376,11 +414,11 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_HASH_HASH
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_HASH_HASH, lex});
+        token_vec_push(&result.tokens, (Token){TK_HASH_HASH, lex});
         break;
       default:
         // TK_HASH
-        token_stream_push(&result.tokens, (Token){TK_HASH, lex});
+        token_vec_push(&result.tokens, (Token){TK_HASH, lex});
       }
       break;
     case '.':
@@ -394,16 +432,16 @@ ScanResult scan(const SrcFile *file, bool comments) {
           ++c;
           ++lex.size;
           ++lex.size;
-          token_stream_push(&result.tokens, (Token){TK_DOT_DOT_DOT, lex});
+          token_vec_push(&result.tokens, (Token){TK_DOT_DOT_DOT, lex});
           break;
         default:
           // TK_DOT
-          token_stream_push(&result.tokens, (Token){TK_DOT, lex});
+          token_vec_push(&result.tokens, (Token){TK_DOT, lex});
         }
         break;
       default:
         // TK_DOT
-        token_stream_push(&result.tokens, (Token){TK_DOT, lex});
+        token_vec_push(&result.tokens, (Token){TK_DOT, lex});
       }
       break;
       break;
@@ -414,17 +452,17 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_PIPE_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_PIPE_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_PIPE_EQ, lex});
         break;
       case '|':
         // TK_PIPE_PIPE
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_PIPE_PIPE, lex});
+        token_vec_push(&result.tokens, (Token){TK_PIPE_PIPE, lex});
         break;
       default:
         // TK_PIPE
-        token_stream_push(&result.tokens, (Token){TK_PIPE, lex});
+        token_vec_push(&result.tokens, (Token){TK_PIPE, lex});
       }
       break;
     case '+':
@@ -434,17 +472,17 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_PLUS_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_PLUS_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_PLUS_EQ, lex});
         break;
       case '+':
         // TK_PLUS_PLUS
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_PLUS_PLUS, lex});
+        token_vec_push(&result.tokens, (Token){TK_PLUS_PLUS, lex});
         break;
       default:
         // TK_PLUS
-        token_stream_push(&result.tokens, (Token){TK_PLUS, lex});
+        token_vec_push(&result.tokens, (Token){TK_PLUS, lex});
       }
       break;
     case '/':
@@ -454,7 +492,7 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_SLASH_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_SLASH_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_SLASH_EQ, lex});
         break;
       case '/':
         // TK_COMMENT
@@ -463,12 +501,12 @@ ScanResult scan(const SrcFile *file, bool comments) {
           ++lex.size;
         }
         if (comments) {
-          token_stream_push(&result.tokens, (Token){TK_COMMENT, lex});
+          token_vec_push(&result.tokens, (Token){TK_COMMENT, lex});
         }
         break;
       default:
         // TK_SLASH
-        token_stream_push(&result.tokens, (Token){TK_SLASH, lex});
+        token_vec_push(&result.tokens, (Token){TK_SLASH, lex});
       }
       break;
     case '&':
@@ -478,17 +516,17 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_AMP_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_AMP_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_AMP_EQ, lex});
         break;
       case '&':
         // TK_AMP_AMP
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_AMP_AMP, lex});
+        token_vec_push(&result.tokens, (Token){TK_AMP_AMP, lex});
         break;
       default:
         // TK_AMP
-        token_stream_push(&result.tokens, (Token){TK_AMP, lex});
+        token_vec_push(&result.tokens, (Token){TK_AMP, lex});
       }
       break;
     case '>':
@@ -498,7 +536,7 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_GT_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_GT_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_GT_EQ, lex});
         break;
       case '>':
         ++c;
@@ -508,17 +546,17 @@ ScanResult scan(const SrcFile *file, bool comments) {
           // TK_GT_GT_EQ
           ++c;
           ++lex.size;
-          token_stream_push(&result.tokens, (Token){TK_GT_GT_EQ, lex});
+          token_vec_push(&result.tokens, (Token){TK_GT_GT_EQ, lex});
           break;
         default:
           // TK_GT_GT
-          token_stream_push(&result.tokens, (Token){TK_GT_GT, lex});
+          token_vec_push(&result.tokens, (Token){TK_GT_GT, lex});
           break;
         }
         break;
       default:
         // TK_GT
-        token_stream_push(&result.tokens, (Token){TK_GT, lex});
+        token_vec_push(&result.tokens, (Token){TK_GT, lex});
       }
       break;
     case '-':
@@ -528,23 +566,23 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_MINUS_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_MINUS_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_MINUS_EQ, lex});
         break;
       case '-':
         // TK_MINUS_MINUS
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_MINUS_MINUS, lex});
+        token_vec_push(&result.tokens, (Token){TK_MINUS_MINUS, lex});
         break;
       case '>':
         // TK_ARROW
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_ARROW, lex});
+        token_vec_push(&result.tokens, (Token){TK_ARROW, lex});
         break;
       default:
         // TK_MINUS
-        token_stream_push(&result.tokens, (Token){TK_MINUS, lex});
+        token_vec_push(&result.tokens, (Token){TK_MINUS, lex});
       }
       break;
     case '%':
@@ -554,7 +592,7 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_PERCENT_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_PERCENT_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_PERCENT_EQ, lex});
         break;
       case ':':
         ++c;
@@ -568,28 +606,28 @@ ScanResult scan(const SrcFile *file, bool comments) {
             // TK_PERCENT_COLON_PERCENT_COLON
             ++c;
             ++lex.size;
-            token_stream_push(&result.tokens,
+            token_vec_push(&result.tokens,
                               (Token){TK_PERCENT_COLON_PERCENT_COLON, lex});
             break;
           default:
-            scan_error_stream_push(&result.errors,
-                                   (ScanError){SCAN_ERR_INVALID_SEQUENCE, lex});
+            scan_error_vec_push(&result.errors,
+                                (ScanError){SCAN_ERR_INVALID_SEQUENCE, lex});
           }
           break;
         default:
           // TK_PERCENT_COLON
-          token_stream_push(&result.tokens, (Token){TK_PERCENT_COLON, lex});
+          token_vec_push(&result.tokens, (Token){TK_PERCENT_COLON, lex});
         }
         break;
       case '>':
         // TK_PERCENT_GT
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_PERCENT_GT, lex});
+        token_vec_push(&result.tokens, (Token){TK_PERCENT_GT, lex});
         break;
       default:
         // TK_PERCENT
-        token_stream_push(&result.tokens, (Token){TK_PERCENT, lex});
+        token_vec_push(&result.tokens, (Token){TK_PERCENT, lex});
       }
       break;
     case '<':
@@ -599,7 +637,7 @@ ScanResult scan(const SrcFile *file, bool comments) {
         // TK_LT_EQ
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_LT_EQ, lex});
+        token_vec_push(&result.tokens, (Token){TK_LT_EQ, lex});
         break;
       case '<':
         ++c;
@@ -609,35 +647,35 @@ ScanResult scan(const SrcFile *file, bool comments) {
           // TK_LT_LT_EQ
           ++c;
           ++lex.size;
-          token_stream_push(&result.tokens, (Token){TK_LT_LT_EQ, lex});
+          token_vec_push(&result.tokens, (Token){TK_LT_LT_EQ, lex});
           break;
         default:
           // TK_LT_LT
-          token_stream_push(&result.tokens, (Token){TK_LT_LT, lex});
+          token_vec_push(&result.tokens, (Token){TK_LT_LT, lex});
         }
         break;
       case ':':
         // TK_LT_COLON
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_LT_COLON, lex});
+        token_vec_push(&result.tokens, (Token){TK_LT_COLON, lex});
         break;
       case '%':
         // TK_LT_PERCENT
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_LT_PERCENT, lex});
+        token_vec_push(&result.tokens, (Token){TK_LT_PERCENT, lex});
         break;
       default:
         // TK_LT
-        token_stream_push(&result.tokens, (Token){TK_LT, lex});
+        token_vec_push(&result.tokens, (Token){TK_LT, lex});
       }
       break;
     case '\'': // Character literals
       ++c;
       if (*c == '\0') {
-        scan_error_stream_push(&result.errors,
-                               (ScanError){SCAN_ERR_UNTERMINATED_CHAR, lex});
+        scan_error_vec_push(&result.errors,
+                            (ScanError){SCAN_ERR_UNTERMINATED_CHAR, lex});
       } else if (*c == '\\') {
         ++c;
         ++lex.size;
@@ -664,20 +702,20 @@ ScanResult scan(const SrcFile *file, bool comments) {
           TODO("Handle unicode value");
           break;
         default:
-          scan_error_stream_push(
+          scan_error_vec_push(
               &result.errors,
               (ScanError){SCAN_ERR_INVALID_ESCAPE, (StringView){c - 1, 2}});
           ++c;
           ++lex.size;
         }
         if (*c != '\'') {
-          scan_error_stream_push(
+          scan_error_vec_push(
               &result.errors,
               (ScanError){SCAN_ERR_UNTERMINATED_CHAR, (StringView){c++, 1}});
         }
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_CHAR, lex});
+        token_vec_push(&result.tokens, (Token){TK_CHAR, lex});
       } else if (*c != '\'' && *c != '\n') {
         ++c;
         ++lex.size;
@@ -685,24 +723,23 @@ ScanResult scan(const SrcFile *file, bool comments) {
         case '\'':
           ++c;
           ++lex.size;
-          token_stream_push(&result.tokens, (Token){TK_CHAR, lex});
+          token_vec_push(&result.tokens, (Token){TK_CHAR, lex});
           break;
         default:
           if (IS_ASCII(*c)) {
-            scan_error_stream_push(
+            scan_error_vec_push(
                 &result.errors,
                 (ScanError){SCAN_ERR_UNTERMINATED_CHAR, (StringView){c++, 1}});
           } else {
-            scan_error_stream_push(
+            scan_error_vec_push(
                 &result.errors,
                 (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c - 1, 1}});
             ++c;
           }
         }
       } else {
-        scan_error_stream_push(
-            &result.errors,
-            (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c++, 1}});
+        scan_error_vec_push(&result.errors, (ScanError){SCAN_ERR_INVALID_CHAR,
+                                                        (StringView){c++, 1}});
       }
       break;
     case '"': // String literals
@@ -713,9 +750,9 @@ ScanResult scan(const SrcFile *file, bool comments) {
       if (*c == '"') {
         ++c;
         ++lex.size;
-        token_stream_push(&result.tokens, (Token){TK_STRING, lex});
+        token_vec_push(&result.tokens, (Token){TK_STRING, lex});
       } else {
-        scan_error_stream_push(
+        scan_error_vec_push(
             &result.errors,
             (ScanError){SCAN_ERR_UNTERMINATED_STRING, (StringView){c++, 1}});
       }
@@ -726,16 +763,15 @@ ScanResult scan(const SrcFile *file, bool comments) {
         while (++c != file->end && isdigit(*c)) {
           ++lex.size;
         }
-        token_stream_push(&result.tokens, (Token){TK_NUM, lex});
+        token_vec_push(&result.tokens, (Token){TK_NUM, lex});
       } else if (isalpha(*c) || *c == '_') { // Identifiers
         while (++c != file->end && (isalnum(*c) || *c == '_')) {
           ++lex.size;
         }
-        token_stream_push(&result.tokens, (Token){lookup_keyword(lex), lex});
+        token_vec_push(&result.tokens, (Token){lookup_keyword(lex), lex});
       } else { // Invalid characters
-        scan_error_stream_push(
-            &result.errors,
-            (ScanError){SCAN_ERR_INVALID_CHAR, (StringView){c++, 1}});
+        scan_error_vec_push(&result.errors, (ScanError){SCAN_ERR_INVALID_CHAR,
+                                                        (StringView){c++, 1}});
       }
     }
   }

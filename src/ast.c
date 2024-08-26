@@ -3,10 +3,10 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#define GENERATE_TYPE_STRING(Name, Size) #Name,
+
 #define GENERATE_TYPE_VARIABLE(Name, Size)                                     \
   Type *TYPE_##Name = &(Type){TY_##Name, Size, {{0}}};
-
-#define GENERATE_TYPE_STRING(Name, Size) #Name,
 
 ENUMERATE_TYPES(GENERATE_TYPE_VARIABLE)
 
@@ -136,11 +136,16 @@ void ast_debug(FILE *out, FuncNode *func) {
   while (func != NULL) {
     fprintf(out, "FUNC: %.*s<%s>\n", (int)func->lex.size, func->lex.data,
             TypeKind_Repr[func->type->kind]);
+    for (FormalArg *arg = func->args; arg != NULL; arg = arg->next) {
+      fprintf(out, "  ARG: %.*s<%s>\n", (int)arg->decl->lex.size,
+              arg->decl->lex.data, TypeKind_Repr[arg->decl->u.decl.type->kind]);
+    }
     ast_stmt_debug(out, func->body, 1);
     func = func->next;
   }
 }
 
+// NOLINTNEXTLINE
 Type *type_init(Arena *arena, TypeKind kind, uint8_t size) {
   Type *type = arena_alloc(arena, sizeof(Type));
   type->kind = kind;
@@ -151,6 +156,13 @@ Type *type_init(Arena *arena, TypeKind kind, uint8_t size) {
 Type *type_init_ptr(Arena *arena, Type *base) {
   Type *type = type_init(arena, TY_PTR, 8);
   type->u.ptr.base = base;
+  return type;
+}
+
+Type *type_init_func(Arena *arena, TypeList *args, Type *ret) {
+  Type *type = type_init(arena, TY_FUN, 0);
+  type->u.func.args = args;
+  type->u.func.ret = ret;
   return type;
 }
 
@@ -206,6 +218,7 @@ ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func,
   return expr;
 }
 
+// NOLINTNEXTLINE
 ExprNode *expr_init_index(Arena *arena, StringView lex, ExprNode *array,
                           ExprNode *index) {
   ExprNode *expr = expr_init(arena, lex, EXPR_IDX);
@@ -258,6 +271,7 @@ StmtNode *stmt_init_while(Arena *arena, StringView lex, ExprNode *cond,
 }
 
 StmtNode *stmt_init_if(Arena *arena, StringView lex, ExprNode *cond,
+                       // NOLINTNEXTLINE
                        StmtNode *then, StmtNode *elss) {
   StmtNode *stmt = stmt_init(arena, lex, STMT_IF);
   stmt->u.iff.cond = cond;
@@ -267,6 +281,7 @@ StmtNode *stmt_init_if(Arena *arena, StringView lex, ExprNode *cond,
 }
 
 StmtNode *stmt_init_for(Arena *arena, StringView lex, StmtNode *init,
+                        // NOLINTNEXTLINE
                         ExprNode *cond, ExprNode *step, StmtNode *body) {
   StmtNode *stmt = stmt_init(arena, lex, STMT_FOR);
   stmt->u.forr.init = init;

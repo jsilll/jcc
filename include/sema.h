@@ -12,10 +12,10 @@ typedef struct SemaError {
   StringView span;
 } SemaError;
 
-DECLARE_VECTOR(SemaError, SemaErrorStream, sema_error_stream)
+DECLARE_VEC(SemaError, SemaErrorVec, sema_error_vec)
 
 typedef struct SemaResult {
-  SemaErrorStream errors;
+  SemaErrorVec errors;
 } SemaResult;
 
 void sema_result_free(SemaResult *result);

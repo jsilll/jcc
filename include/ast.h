@@ -1,13 +1,14 @@
 #ifndef JCC_AST_H
 #define JCC_AST_H
 
-#include "adt/slice.h"
+#include "adt/string_view.h"
 
 #include "alloc/arena.h"
 
 #include "support/base.h"
 
 typedef struct Type Type;
+typedef struct TypeList TypeList;
 
 typedef struct ExprNode ExprNode;
 typedef struct StmtNode StmtNode;
@@ -16,11 +17,6 @@ typedef struct FuncNode FuncNode;
 
 typedef struct ActualArg ActualArg;
 typedef struct FormalArg FormalArg;
-
-struct ActualArg {
-  ExprNode *expr;
-  ActualArg *next;
-};
 
 #define GENERATE_TYPE_ENUM(Name, Size) TY_##Name,
 
@@ -80,6 +76,11 @@ DECLARE_REPR_ENUM(ExprKind, ENUMERATE_EXPRS)
 
 DECLARE_REPR_ENUM(StmtKind, ENUMERATE_STMTS)
 
+struct TypeList {
+  Type *type;
+  TypeList *next;
+};
+
 struct Type {
   TypeKind kind;
   uint8_t size;
@@ -88,9 +89,15 @@ struct Type {
       Type *base;
     } ptr;
     struct {
+      TypeList *args;
       Type *ret;
     } func;
   } u;
+};
+
+struct ActualArg {
+  ExprNode *expr;
+  ActualArg *next;
 };
 
 struct ExprNode {
@@ -159,42 +166,65 @@ struct StmtNode {
   } u;
 };
 
+struct FormalArg {
+  StmtNode *decl;
+  FormalArg *next;
+};
+
 struct FuncNode {
   StringView lex;
   Type *type;
+  FormalArg *args;
   StmtNode *body;
   FuncNode *next;
 };
 
-void ast_debug(FILE *out, FuncNode *ast);
-
 Type *type_init(Arena *arena, TypeKind kind, uint8_t size);
+
 Type *type_init_ptr(Arena *arena, Type *base);
 
+Type *type_init_func(Arena *arena, TypeList *args, Type *ret);
+
 ExprNode *expr_init(Arena *arena, StringView lex, ExprKind kind);
+
 ExprNode *expr_init_int(Arena *arena, StringView lex);
+
 ExprNode *expr_init_int_from_value(Arena *arena, StringView lex, int32_t num);
+
 ExprNode *expr_init_var(Arena *arena, StringView lex);
+
 ExprNode *expr_init_unary(Arena *arena, StringView lex, UnOpKind op,
                           ExprNode *sub);
+
 ExprNode *expr_init_binary(Arena *arena, StringView lex, BinOpKind op,
                            ExprNode *lhs, ExprNode *rhs);
+
 ExprNode *expr_init_call(Arena *arena, StringView lex, ExprNode *func,
                          ActualArg *args);
+
 ExprNode *expr_init_index(Arena *arena, StringView lex, ExprNode *array,
                           ExprNode *index);
 
 StmtNode *stmt_init(Arena *arena, StringView lex, StmtKind kind);
+
 StmtNode *stmt_init_return(Arena *arena, StringView lex, ExprNode *expr);
+
 StmtNode *stmt_init_expr(Arena *arena, StringView lex, ExprNode *expr);
+
 StmtNode *stmt_init_decl(Arena *arena, StringView lex, Type *type,
                          StringView name, ExprNode *expr);
+
 StmtNode *stmt_init_block(Arena *arena, StringView lex, StmtNode *body);
+
 StmtNode *stmt_init_while(Arena *arena, StringView lex, ExprNode *cond,
                           StmtNode *body);
+
 StmtNode *stmt_init_if(Arena *arena, StringView lex, ExprNode *cond,
                        StmtNode *then, StmtNode *elss);
+
 StmtNode *stmt_init_for(Arena *arena, StringView lex, StmtNode *init,
                         ExprNode *cond, ExprNode *step, StmtNode *body);
+
+void ast_debug(FILE *out, FuncNode *ast);
 
 #endif // JCC_AST_H

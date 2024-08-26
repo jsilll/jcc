@@ -216,9 +216,7 @@ const char *token_kind_lex(TokenKind kind) {
   return "unknown";
 }
 
-DEFINE_VECTOR(Token, TokenStream, token_stream)
-
-void token_stream_debug(FILE *out, const TokenStream *stream,
+void token_stream_debug(FILE *out, const TokenVec *stream,
                         const SrcFile *file) {
   if (stream->size == 0) {
     return;
@@ -229,7 +227,7 @@ void token_stream_debug(FILE *out, const TokenStream *stream,
   line_number_fmt(fmt, sizeof(fmt), digits);
   for (uint32_t i = 0; i < stream->size; ++i) {
     const Token token = stream->data[i];
-    const Loc loc = src_file_get_loc(file, token.lex.data);
+    const Loc loc = sf_loc(file, token.lex.data);
     if (loc.line != line) {
       fprintf(out, fmt, loc.line);
       line = loc.line;

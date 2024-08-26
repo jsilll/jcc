@@ -78,8 +78,8 @@ static void report_file_error(const char *name, const FileResult result) {
 
 /// Scan ///
 
-static void report_scan_errors(const SrcFile *file,
-                               const ScanErrorStream *errors, size_t max) {
+static void report_scan_errors(const SrcFile *file, const ScanErrorVec *errors,
+                               size_t max) {
   max = MIN(max, errors->size);
   for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
@@ -115,7 +115,7 @@ static void report_scan_errors(const SrcFile *file,
 /// Parse ///
 
 static void report_parse_errors(const SrcFile *file,
-                                const ParseErrorStream *errors, size_t max) {
+                                const ParseErrorVec *errors, size_t max) {
   max = MIN(max, errors->size);
   for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
@@ -164,7 +164,7 @@ static FuncNode *parse_driver(const CliOptions *options, const SrcFile *file,
     ast_debug(stderr, pr.ast);
   }
   if (pr.errors.size > 0) {
-    report_parse_errors(file, &pr.errors, pr.errors.size);
+    report_parse_errors(file, &pr.errors, 1);
     pr.ast = NULL;
   } else if (pr.ast == NULL) {
     error("empty parse tree");
@@ -179,8 +179,7 @@ static FuncNode *parse_driver(const CliOptions *options, const SrcFile *file,
 /// Resolve ///
 
 static void report_resolve_errors(const SrcFile *file,
-                                  const ResolveErrorStream *errors,
-                                  size_t max) {
+                                  const ResolveErrorVec *errors, size_t max) {
   max = MIN(max, errors->size);
   for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
@@ -215,8 +214,8 @@ static bool resolve_driver(const CliOptions *options, const SrcFile *file,
 
 /// Sema ///
 
-static void report_sema_errors(const SrcFile *file,
-                               const SemaErrorStream *errors, size_t max) {
+static void report_sema_errors(const SrcFile *file, const SemaErrorVec *errors,
+                               size_t max) {
   max = MIN(max, errors->size);
   for (uint32_t i = 0; i < max; ++i) {
     switch (errors->data[i].kind) {
@@ -249,7 +248,7 @@ static bool sema_driver(const CliOptions *options, const SrcFile *file,
 
 /// Desugar ///
 
-static void desugar_driver(const CliOptions *options, Arena *arena,
+static bool desugar_driver(const CliOptions *options, Arena *arena,
                            FuncNode *ast) {
   DEBUG("Desugar");
   desugar(arena, ast);
@@ -259,13 +258,15 @@ static void desugar_driver(const CliOptions *options, Arena *arena,
   }
   DEBUGF("arena total blocks: %d", arena_total_blocks(arena));
   DEBUGF("arena commited bytes: %zu", arena_commited_bytes(arena));
+  return true;
 }
 
 /// Codegen ///
 
-static void codegen_driver(FuncNode *ast) {
+static bool codegen_driver(FuncNode *ast) {
   DEBUG("Codegen");
   codegen_x86(stdout, ast);
+  return true;
 }
 
 /// Main ///
@@ -278,9 +279,9 @@ int main(int argc, char *argv[]) {
 
   SrcFile file = {0};
   if (strcmp(options.filename, "stdin") == 0) {
-    src_file_init_from_raw(&file, "stdin", argv[1]);
+    sf_from_raw(&file, "stdin", argv[1]);
   } else {
-    FileResult fr = src_file_init(&file, options.filename);
+    FileResult fr = sf_init(&file, options.filename);
     if (fr != FILE_SUCCESS) {
       report_file_error(options.filename, fr);
       return EXIT_FAILURE;
@@ -293,27 +294,34 @@ int main(int argc, char *argv[]) {
   FuncNode *ast = parse_driver(&options, &file, &arena);
   if (ast == NULL) {
     arena_free(&arena);
-    src_file_free(&file);
+    sf_free(&file);
     return EXIT_FAILURE;
   }
 
   if (!resolve_driver(&options, &file, ast)) {
     arena_free(&arena);
-    src_file_free(&file);
+    sf_free(&file);
     return EXIT_FAILURE;
   }
 
   if (!sema_driver(&options, &file, &arena, ast)) {
     arena_free(&arena);
-    src_file_free(&file);
+    sf_free(&file);
     return EXIT_FAILURE;
   }
 
-  desugar_driver(&options, &arena, ast);
+  if (!desugar_driver(&options, &arena, ast)) {
+    arena_free(&arena);
+    sf_free(&file);
+    return EXIT_FAILURE;
+  }
 
-  codegen_driver(ast);
+  if (!codegen_driver(ast)) {
+    arena_free(&arena);
+    sf_free(&file);
+    return EXIT_FAILURE;
+  }
 
   arena_free(&arena);
-  src_file_free(&file);
-  return EXIT_SUCCESS;
+  sf_free(&file);
 }

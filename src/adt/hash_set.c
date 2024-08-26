@@ -1,7 +1,5 @@
 #include "adt/hash_set.h"
 
-#include "support/base.h"
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,25 +24,22 @@ static void hash_set_maybe_rehash(HashSet *set) {
   }
 }
 
-void hash_set_init(HashSet *set, size_t capacity, HashFunc hash,
-                   EqualFunc equal) {
-  capacity = next_power_of_two(capacity);
-  capacity = MAX(capacity, 16);
+void hs_init(HashSet *set, HashFunc hash, EqualFunc equal) {
+  set->size = 0;
+  set->capacity = 16;
   set->hash = hash;
   set->equal = equal;
-  set->size = 0;
-  set->capacity = capacity;
-  set->elements = calloc(capacity, sizeof(void *));
+  set->elements = calloc(set->capacity, sizeof(void *));
 }
 
-void hash_set_free(HashSet *set) {
+void hs_free(HashSet *set) {
   free(set->elements);
   set->elements = NULL;
   set->capacity = 0;
   set->size = 0;
 }
 
-const void *hash_set_get(const HashSet *set, const void *key) {
+const void *hs_get(const HashSet *set, const void *key) {
   uint64_t h = set->hash(key);
   uint64_t idx = h & (set->capacity - 1);
   while (set->elements[idx] != NULL) {
@@ -56,7 +51,25 @@ const void *hash_set_get(const HashSet *set, const void *key) {
   return NULL;
 }
 
-const void *hash_set_insert(HashSet *set, const void *element) {
+const void *hs_insert(HashSet *set, const void *element) {
+  assert(element != NULL);
+  hash_set_maybe_rehash(set);
+  uint64_t h = set->hash(element);
+  size_t idx = h & (set->capacity - 1);
+  while (set->elements[idx] != NULL) {
+    if (set->equal(set->elements[idx], element)) {
+      const void *old = set->elements[idx];
+      set->elements[idx] = element;
+      return old;
+    }
+    idx = (idx + 1) & (set->capacity - 1);
+  }
+  ++set->size;
+  set->elements[idx] = element;
+  return element;
+}
+
+const void *hs_try_insert(HashSet *set, const void *element) {
   assert(element != NULL);
   hash_set_maybe_rehash(set);
   uint64_t h = set->hash(element);
@@ -72,7 +85,7 @@ const void *hash_set_insert(HashSet *set, const void *element) {
   return element;
 }
 
-void hash_set_clear(HashSet *set) {
+void hs_clear(HashSet *set) {
   set->size = 0;
   memset(set->elements, 0, set->capacity * sizeof(void *));
 }

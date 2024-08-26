@@ -26,10 +26,6 @@
 #define DEBUGF(fmt, ...) // Do nothing in release mode
 #endif
 
-#define KB(x) ((x) * 1024)
-#define MB(x) ((x) * 1024 * 1024)
-#define GB(x) ((x) * 1024 * 1024 * 1024)
-
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define CLAMP(x, low, high)                                                    \
@@ -43,7 +39,7 @@
 #define ALIGN_UP(x, align) (((x) + (align)-1) & ~((align)-1))
 #define IS_ALIGNED(x, align) (((x) & ((align)-1)) == 0)
 
-#define GROW_CAP(capacity) ((capacity) < 8 ? 8 : (capacity) * 2)
+#define GROW_CAP(capacity) ((capacity) < 8 ? 8 : (capacity)*2)
 
 #define GENERATE_ENUM(Enum) Enum,
 

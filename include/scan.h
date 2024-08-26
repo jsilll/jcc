@@ -18,11 +18,11 @@ typedef struct ScanError {
   StringView lex;
 } ScanError;
 
-DECLARE_VECTOR(ScanError, ScanErrorStream, scan_error_stream)
+DECLARE_VEC(ScanError, ScanErrorVec, scan_error_vec)
 
 typedef struct ScanResult {
-  TokenStream tokens;
-  ScanErrorStream errors;
+  TokenVec tokens;
+  ScanErrorVec errors;
 } ScanResult;
 
 void scan_result_free(ScanResult *result);

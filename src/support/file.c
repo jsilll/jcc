@@ -20,7 +20,9 @@ static FileResult file_read(SrcFile *file, const char *name) {
     return FILE_ERR_EMPTY;
   }
 
-  assert((file->data = malloc(size + 1)) != NULL);
+  file->data = malloc(size + 1);
+
+  assert(file->data != NULL);
   assert(fread(file->data, 1, size, fp) == (unsigned long)size);
   assert(fclose(fp) == 0);
 
@@ -48,7 +50,7 @@ static void file_init_lines(SrcFile *file) {
   }
 }
 
-FileResult src_file_init(SrcFile *file, const char *name) {
+FileResult sf_init(SrcFile *file, const char *name) {
   const FileResult res = file_read(file, name);
   if (res != FILE_SUCCESS) {
     return res;
@@ -58,7 +60,7 @@ FileResult src_file_init(SrcFile *file, const char *name) {
   return FILE_SUCCESS;
 }
 
-void src_file_free(SrcFile *file) {
+void sf_free(SrcFile *file) {
   free(file->lines);
   free(file->data);
   file->data = NULL;
@@ -67,7 +69,8 @@ void src_file_free(SrcFile *file) {
   file->num_lines = 0;
 }
 
-void src_file_init_from_raw(SrcFile *file, const char *name, const char *data) {
+// NOLINTNEXTLINE
+void sf_from_raw(SrcFile *file, const char *name, const char *data) {
   file->name = name;
   unsigned long size = strlen(data);
   file->data = malloc(size + 1);
@@ -78,7 +81,7 @@ void src_file_init_from_raw(SrcFile *file, const char *name, const char *data) {
   file_init_lines(file);
 }
 
-Loc src_file_get_loc(const SrcFile *file, const char *loc) {
+Loc sf_loc(const SrcFile *file, const char *loc) {
   uint32_t mid = 0;
   uint32_t left = 0;
   uint32_t right = file->num_lines - 1;

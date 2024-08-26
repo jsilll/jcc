@@ -2,13 +2,11 @@
 
 #include "adt/hash_map.h"
 
-#include <stdlib.h>
 #include <assert.h>
-
-DEFINE_VECTOR(ResolveError, ResolveErrorStream, resolve_error_stream)
+#include <stdlib.h>
 
 void resolve_result_free(ResolveResult *result) {
-  resolve_error_stream_free(&result->errors);
+  resolve_error_vec_free(&result->errors);
 }
 
 static uint64_t name_hash(const void *key) {
@@ -36,7 +34,7 @@ static void scopes_init(Scopes *scopes) {
 static void scopes_free(Scopes *scopes) {
   for (size_t i = 0; i < scopes->init; ++i) {
     DEBUGF("free scope of capacity: %zu", scopes->scopes[i].capacity);
-    hash_map_free(scopes->scopes + i);
+    hm_free(scopes->scopes + i);
   }
   free(scopes->scopes);
   scopes->scopes = NULL;
@@ -48,12 +46,13 @@ static void scopes_free(Scopes *scopes) {
 static void scopes_push(Scopes *scopes) {
   if (scopes->size == scopes->capacity) {
     scopes->capacity = GROW_CAP(scopes->capacity);
-    scopes->scopes =
+    void *tmp =
         realloc(scopes->scopes, scopes->capacity * sizeof(*scopes->scopes));
-    assert(scopes->scopes != NULL);
+    assert(tmp != NULL);
+    scopes->scopes = tmp;
   }
   if (scopes->size == scopes->init) {
-    hash_map_init(scopes->scopes + scopes->size, 32, name_hash, name_equals);
+    hm_init(scopes->scopes + scopes->size, name_hash, name_equals);
     ++scopes->init;
   }
   ++scopes->size;
@@ -61,19 +60,19 @@ static void scopes_push(Scopes *scopes) {
 
 static void scopes_pop(Scopes *scopes) {
   assert(scopes->size > 0);
-  hash_map_clear(scopes->scopes + scopes->size - 1);
+  hm_clear(scopes->scopes + scopes->size - 1);
   --scopes->size;
 }
 
 static StmtNode *scopes_insert(Scopes *scopes, StringView *name,
                                StmtNode *decl) {
   assert(scopes->size > 0);
-  return hash_map_set(scopes->scopes + scopes->size - 1, name, decl);
+  return hm_set(scopes->scopes + scopes->size - 1, name, decl);
 }
 
 static StmtNode *scopes_lookup(Scopes *scopes, StringView *name) {
   for (size_t i = scopes->size; i > 0; --i) {
-    StmtNode *decl = hash_map_get(scopes->scopes + i - 1, name);
+    StmtNode *decl = hm_get(scopes->scopes + i - 1, name);
     if (decl != NULL) {
       return decl;
     }
@@ -107,7 +106,7 @@ static void resolve_expr(ResolveCtx *ctx, ExprNode *expr) {
   case EXPR_VAR: {
     StmtNode *decl = scopes_lookup(&ctx->scopes, &expr->lex);
     if (decl == NULL) {
-      resolve_error_stream_push(
+      resolve_error_vec_push(
           &ctx->result->errors,
           (ResolveError){RESOLVE_ERR_UNDECLARED, expr->lex});
     }
@@ -118,8 +117,11 @@ static void resolve_expr(ResolveCtx *ctx, ExprNode *expr) {
     resolve_expr(ctx, expr->u.index.index);
     break;
   case EXPR_CALL:
-    // TODO: for now we don't resolve function calls
+    // TODO: for now we don't resolve function calls, for testing purposes
     // resolve_expr(ctx, expr->u.call.func);
+    for (ActualArg *arg = expr->u.call.args; arg != NULL; arg = arg->next) {
+      resolve_expr(ctx, arg->expr);
+    }
     break;
   }
 }
@@ -137,7 +139,7 @@ static void resolve_stmt(ResolveCtx *ctx, StmtNode *stmt) {
       resolve_expr(ctx, stmt->u.decl.expr);
     }
     if (scopes_insert(&ctx->scopes, &stmt->u.decl.name, stmt) != NULL) {
-      resolve_error_stream_push(
+      resolve_error_vec_push(
           &ctx->result->errors,
           (ResolveError){RESOLVE_ERR_DUPLICATE, stmt->u.decl.name});
     }
@@ -175,13 +177,20 @@ static void resolve_stmt(ResolveCtx *ctx, StmtNode *stmt) {
 
 ResolveResult resolve(FuncNode *function) {
   ResolveResult result = {0};
-  resolve_error_stream_init(&result.errors);
+  resolve_error_vec_init(&result.errors);
 
   ResolveCtx ctx = {0};
   resolve_ctx_init(&ctx, &result);
 
   for (FuncNode *func = function; func != NULL; func = func->next) {
-    resolve_stmt(&ctx, func->body);
+    scopes_push(&ctx.scopes);
+    for (FormalArg *arg = func->args; arg != NULL; arg = arg->next) {
+      scopes_insert(&ctx.scopes, &arg->decl->u.decl.name, arg->decl);
+    }
+    for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
+      resolve_stmt(&ctx, stmt);
+    }
+    scopes_pop(&ctx.scopes);
   }
 
   resolve_ctx_free(&ctx);

@@ -13,10 +13,11 @@ void error(const char *msg, ...) {
   va_end(args);
 }
 
-static void verror_at(const SrcFile *file, StringView sv, const char *title,
+// NOLINTNEXTLINE
+static void verror_at(const SrcFile *file, StringView span, const char *title,
                       const char *msg, va_list args) {
   char fmt[32] = {0};
-  const Loc loc = src_file_get_loc(file, sv.data);
+  const Loc loc = sf_loc(file, span.data);
   const uint32_t digits = digit_count(loc.line);
   line_number_fmt(fmt, sizeof(fmt), digits);
 
@@ -27,25 +28,23 @@ static void verror_at(const SrcFile *file, StringView sv, const char *title,
   fprintf(stderr, fmt, loc.line);
   fprintf(stderr, "%s\n", loc.str);
 
-  if (sv.size <= 1) {
-    fprintf(stderr, "%*s | %*s┌\n", digits, "", loc.col - 1, "");
+  if (span.size <= 1) {
+    fprintf(stderr, "%*s | %*s^\n", digits, "", loc.col - 1, "");
   } else {
-    fprintf(stderr, "%*s | %*s┌", digits, "", loc.col - 1, "");
-    for (uint32_t i = 0; i < sv.size - 1; ++i) {
-      fprintf(stderr, "─");
+    fprintf(stderr, "%*s | %*s^", digits, "", loc.col - 1, "");
+    for (uint32_t i = 0; i < span.size - 1; ++i) {
+      fprintf(stderr, "~");
     }
+    fprintf(stderr, " ");
+    vfprintf(stderr, msg, args);
     fprintf(stderr, "\n");
   }
-
-  fprintf(stderr, "%*s | %*s└─ ", digits, "", loc.col - 1, "");
-  vfprintf(stderr, msg, args);
-  fprintf(stderr, "\n");
 }
 
-void error_at(const SrcFile *file, StringView sv, const char *title,
+void error_at(const SrcFile *file, StringView span, const char *title,
               const char *msg, ...) {
   va_list args;
   va_start(args, msg);
-  verror_at(file, sv, title, msg, args);
+  verror_at(file, span, title, msg, args);
   va_end(args);
 }

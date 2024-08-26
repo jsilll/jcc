@@ -18,15 +18,15 @@ typedef struct ParseError {
   TokenKind expected;
 } ParseError;
 
-DECLARE_VECTOR(ParseError, ParseErrorStream, parse_error_stream)
+DECLARE_VEC(ParseError, ParseErrorVec, parse_error_vec)
 
 typedef struct ParseResult {
   FuncNode *ast;
-  ParseErrorStream errors;
+  ParseErrorVec errors;
 } ParseResult;
 
 void parse_result_free(ParseResult *result);
 
-ParseResult parse(Arena *arena, TokenStream *tokens);
+ParseResult parse(Arena *arena, TokenVec *tokens);
 
 #endif // JCC_PARSE_H

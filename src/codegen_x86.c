@@ -27,19 +27,19 @@ static void codegen_ctx_init(CodegenCtx *ctx, FILE *out) {
   ctx->label = 0;
   ctx->func = NULL;
   ctx->stack_size = 0;
-  hash_map_init(&ctx->offset, 32, stmt_hash, stmt_equals);
+  hm_init(&ctx->offset, stmt_hash, stmt_equals);
 }
 
 static void codegen_ctx_clear(CodegenCtx *ctx) {
   ctx->label = 0;
   ctx->func = NULL;
   ctx->stack_size = 0;
-  hash_map_clear(&ctx->offset);
+  hm_clear(&ctx->offset);
 }
 
 static void codegen_ctx_free(CodegenCtx *ctx) {
   DEBUGF("free offsets map of capacity: %zu", ctx->offset.capacity);
-  hash_map_free(&ctx->offset);
+  hm_free(&ctx->offset);
   ctx->out = NULL;
   ctx->label = 0;
   ctx->func = NULL;
@@ -50,7 +50,7 @@ static void assign_offsets_stmt(CodegenCtx *ctx, StmtNode *stmt) {
   switch (stmt->kind) {
   case STMT_DECL:
     ctx->stack_size += 8;
-    hash_map_set(&ctx->offset, stmt, (void *)-ctx->stack_size);
+    hm_set(&ctx->offset, stmt, (void *)-ctx->stack_size);
     break;
   case STMT_BLOCK:
     for (StmtNode *s = stmt->u.block.body; s; s = s->next) {
@@ -78,6 +78,9 @@ static void assign_offsets_stmt(CodegenCtx *ctx, StmtNode *stmt) {
 
 static void assign_offsets_func(CodegenCtx *ctx, FuncNode *func) {
   ctx->func = func;
+  for (FormalArg *arg = func->args; arg != NULL; arg = arg->next) {
+    assign_offsets_stmt(ctx, arg->decl);
+  }
   for (StmtNode *stmt = func->body; stmt != NULL; stmt = stmt->next) {
     assign_offsets_stmt(ctx, stmt);
   }
@@ -90,7 +93,7 @@ static void codegen_x86_expr_addr(CodegenCtx *ctx, ExprNode *node) {
   int64_t offset = 0;
   switch (node->kind) {
   case EXPR_VAR:
-    offset = (int64_t)hash_map_get(&ctx->offset, node->u.var.decl);
+    offset = (int64_t)hm_get(&ctx->offset, node->u.var.decl);
     assert(offset != 0);
     fprintf(ctx->out, "  lea %ld(%%rbp), %%rax\n", offset);
     break;
@@ -212,7 +215,7 @@ static void codegen_x86_expr(CodegenCtx *ctx, ExprNode *expr) {
       fprintf(ctx->out, "  push %%rax\n");
     }
     assert(nargs <= 6);
-    for (int8_t arg = nargs - 1; arg >= 0; --arg) {
+    for (int arg = nargs - 1; arg >= 0; --arg) {
       fprintf(ctx->out, "  pop %s\n", ARG_REG[arg]);
     }
     fprintf(ctx->out, "  mov $0, %%rax\n");
@@ -235,7 +238,7 @@ static void codegen_x86_stmt(CodegenCtx *ctx, StmtNode *stmt) {
     break;
   case STMT_DECL:
     if (stmt->u.decl.expr != NULL) {
-      offset = (int64_t)hash_map_get(&ctx->offset, stmt);
+      offset = (int64_t)hm_get(&ctx->offset, stmt);
       assert(offset != 0);
       fprintf(ctx->out, "  lea %ld(%%rbp), %%rax\n", offset);
       fprintf(ctx->out, "  push %%rax\n");

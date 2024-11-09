@@ -1,7 +1,1 @@
-# Makefile
-obj/
-bin/
-
-# Clangd
-.cache/
-compile_commands.json
+/target

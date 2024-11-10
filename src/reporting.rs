@@ -1,28 +1,67 @@
 use crate::source_file::{SourceFile, SourceSpan};
+use std::{
+    fmt::{self, Display},
+    io::{Result, Write},
+};
 
-use std::io::{Result, Write};
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Diagnostic {
     span: SourceSpan,
     title: String,
     msg: String,
+    level: DiagnosticLevel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticLevel {
+    Error,
+    Warning,
+    Note,
+}
+
+impl Display for DiagnosticLevel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Error => write!(f, "Error"),
+            Self::Warning => write!(f, "Warning"),
+            Self::Note => write!(f, "Note"),
+        }
+    }
 }
 
 impl Diagnostic {
-    pub fn new(span: SourceSpan, title: impl Into<String>, msg: impl Into<String>) -> Self {
+    pub fn error(span: SourceSpan, title: impl Into<String>, msg: impl Into<String>) -> Self {
         Self {
             span,
             title: title.into(),
             msg: msg.into(),
+            level: DiagnosticLevel::Error,
         }
     }
 
-    pub fn report(&self, stream: &mut impl Write, file: &SourceFile) -> Result<()> {
+    pub fn warning(span: SourceSpan, title: impl Into<String>, msg: impl Into<String>) -> Self {
+        Self {
+            span,
+            title: title.into(),
+            msg: msg.into(),
+            level: DiagnosticLevel::Warning,
+        }
+    }
+
+    pub fn note(span: SourceSpan, title: impl Into<String>, msg: impl Into<String>) -> Self {
+        Self {
+            span,
+            title: title.into(),
+            msg: msg.into(),
+            level: DiagnosticLevel::Note,
+        }
+    }
+
+    pub fn report(&self, file: &SourceFile, stream: &mut impl Write) -> Result<()> {
         let location = file.locate(&self.span);
         let digit_count = location.line.checked_ilog10().unwrap_or(0) + 1;
 
-        writeln!(stream, "Error: {}", self.title)?;
+        writeln!(stream, "{}: {}", self.level, self.title)?;
         writeln!(
             stream,
             "{}--> {}:{}:{}",

@@ -78,7 +78,10 @@ impl SourceFile {
     }
 
     pub fn locate(&self, span: &SourceSpan) -> SourceLocation {
-        let line = self.lines.binary_search(&span.start).unwrap_or_else(|x| x);
+        let line = self
+            .lines
+            .binary_search(&span.start)
+            .unwrap_or_else(|x| x - 1);
         let start = self.lines[line];
         let end = self
             .lines

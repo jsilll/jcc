@@ -1,5 +1,6 @@
 use std::{
     io,
+    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -10,10 +11,12 @@ pub struct SourceSpan {
 }
 
 impl SourceSpan {
-    pub fn new(start: u32, end: u32) -> Option<Self> {
-        match start <= end {
-            false => None,
-            true => Some(Self { start, end }),
+    pub fn new(span: impl Into<Range<u32>>) -> Option<Self> {
+        let Range { start, end } = span.into();
+        if start > end {
+            None
+        } else {
+            Some(Self { start, end })
         }
     }
 
@@ -24,13 +27,13 @@ impl SourceSpan {
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
-}
 
-#[derive(Debug)]
-pub struct SourceFile {
-    data: String,
-    path: PathBuf,
-    lines: Vec<u32>,
+    pub fn merge(&self, other: &Self) -> Self {
+        Self {
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +41,13 @@ pub struct SourceLocation<'a> {
     pub line: u32,
     pub column: u32,
     pub line_text: &'a str,
+}
+
+#[derive(Debug)]
+pub struct SourceFile {
+    data: String,
+    path: PathBuf,
+    lines: Vec<u32>,
 }
 
 impl SourceFile {
@@ -73,28 +83,35 @@ impl SourceFile {
         self.lines.len()
     }
 
-    pub fn slice(&self, span: &SourceSpan) -> Option<&str> {
-        self.data.get(span.start as usize..span.end as usize)
-    }
-
-    pub fn locate(&self, span: &SourceSpan) -> SourceLocation {
-        let line = self
+    pub fn locate(&self, span: &SourceSpan) -> Option<SourceLocation> {
+        let idx_first = self
             .lines
             .binary_search(&span.start)
             .unwrap_or_else(|x| x - 1);
-        let start = self.lines[line];
-        let end = self
+
+        let idx_last = self
             .lines
-            .get(line + 1)
-            .copied()
-            .unwrap_or(self.data.len() as u32);
-        let column = span.start - start;
-        let line_text = &self.data[start as usize..end as usize];
-        SourceLocation {
-            line: line as u32 + 1,
+            .get(idx_first..)?
+            .binary_search(&span.end)
+            .unwrap_or_else(|x| x)
+            + idx_first;
+
+        let start_offset = self.lines.get(idx_first).copied()? as usize;
+        let end_offset = self.lines.get(idx_last).copied()? as usize;
+
+        let column = self
+            .data
+            .get(start_offset..span.start as usize)?
+            .chars()
+            .count() as u32;
+
+        let line_text = &self.data.get(start_offset..end_offset)?;
+
+        Some(SourceLocation {
+            line: idx_first as u32 + 1,
             column: column + 1,
             line_text,
-        }
+        })
     }
 }
 
@@ -106,8 +123,8 @@ mod tests {
 
     #[test]
     fn test_source_span() {
-        assert!(SourceSpan::new(10, 5).is_none());
-        let span = SourceSpan::new(5, 10).unwrap();
+        assert!(SourceSpan::new(10..5).is_none());
+        let span = SourceSpan::new(5..10).unwrap();
         assert_eq!(span.len(), 5);
         assert!(!span.is_empty());
     }
@@ -120,14 +137,14 @@ mod tests {
         let source = SourceFile::new(temp.path())?;
         assert_eq!(source.line_count(), 3);
 
-        let span = SourceSpan::new(0, 5).unwrap();
-        let location = source.locate(&span);
+        let span = SourceSpan::new(0..5).unwrap();
+        let location = source.locate(&span).unwrap();
         assert_eq!(location.line, 1);
         assert_eq!(location.column, 1);
         assert_eq!(location.line_text, "Hello\n");
 
-        let span = SourceSpan::new(6, 11).unwrap();
-        let location = source.locate(&span);
+        let span = SourceSpan::new(6..11).unwrap();
+        let location = source.locate(&span).unwrap();
         assert_eq!(location.line, 2);
         assert_eq!(location.column, 1);
         assert_eq!(location.line_text, "World\n");

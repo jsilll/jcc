@@ -13,7 +13,7 @@ pub struct Diagnostic {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiagnosticLevel {
+enum DiagnosticLevel {
     Error,
     Warning,
     Note,
@@ -57,34 +57,61 @@ impl Diagnostic {
         }
     }
 
-    pub fn report(&self, file: &SourceFile, stream: &mut impl Write) -> Result<()> {
-        let location = file.locate(&self.span);
-        let digit_count = location.line.checked_ilog10().unwrap_or(0) + 1;
+    pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> Result<()> {
+        let start_location = file.locate(&self.span).unwrap();
+        let last_line = start_location.line + start_location.line_text.lines().count() as u32 - 1;
+        let digit_count = last_line.checked_ilog10().unwrap_or(0) + 1;
 
-        writeln!(stream, "{}: {}", self.level, self.title)?;
+        writeln!(buffer, "{}: {}", self.level, self.title)?;
         writeln!(
-            stream,
+            buffer,
             "{}--> {}:{}:{}",
             " ".repeat(digit_count as usize),
             file.path().display(),
-            location.line,
-            location.column
+            start_location.line,
+            start_location.column
         )?;
-        writeln!(stream, "{} |", " ".repeat(digit_count as usize))?;
+        writeln!(buffer, "{} |", " ".repeat(digit_count as usize))?;
+
         writeln!(
-            stream,
-            "{} | {}",
-            location.line,
-            location.line_text.trim_end()
+            buffer,
+            "{}{} | {}",
+            " ".repeat(
+                (digit_count - start_location.line.checked_ilog10().unwrap_or(0) - 1) as usize
+            ),
+            start_location.line,
+            start_location.line_text.lines().next().unwrap_or(""),
         )?;
-        writeln!(
-            stream,
-            "{} |{}^{} {}",
+        write!(
+            buffer,
+            "{} |{}^{}",
             " ".repeat(digit_count as usize),
-            " ".repeat(location.column as usize),
-            "~".repeat(self.span.len() as usize - 1),
-            self.msg
+            " ".repeat(start_location.column as usize),
+            "~".repeat(std::cmp::min(
+                self.span.len() as usize,
+                start_location.line_text.lines().next().unwrap().len(),
+            )),
         )?;
+
+        for (i, line) in start_location.line_text.lines().skip(1).enumerate() {
+            writeln!(
+                buffer,
+                "\n{}{} | {}",
+                " ".repeat(
+                    (digit_count - start_location.line.checked_ilog10().unwrap_or(0) - 1) as usize
+                ),
+                start_location.line + i as u32 + 1,
+                line
+            )?;
+            write!(
+                buffer,
+                "{} | {}",
+                " ".repeat(digit_count as usize),
+                "~".repeat(line.len())
+            )?;
+        }
+
+        writeln!(buffer, " {}", self.msg)?;
 
         Ok(())
     }

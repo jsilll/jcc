@@ -58,7 +58,7 @@ impl Diagnostic {
     }
 
     pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> Result<()> {
-        let start_location = file.locate(&self.span).unwrap();
+        let start_location = file.locate(self.span).unwrap();
         let last_line = start_location.line + start_location.line_text.lines().count() as u32 - 1;
         let digit_count = last_line.checked_ilog10().unwrap_or(0) + 1;
 

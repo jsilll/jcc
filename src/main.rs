@@ -1,6 +1,9 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 use clap::Parser;
-use jcc::{reporting::Diagnostic, source_file::SourceFile};
+use jcc::{
+    diagnostic::Diagnostic,
+    source_file::{SourceDb, SourceFile},
+};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -8,12 +11,15 @@ struct Args {
     pub path: PathBuf,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
 
-    let file = SourceFile::new(args.path).context("Failed to read file")?;
-    let span = file.span(1..200).context("Failed to create span")?;
-    let diag = Diagnostic::error(span, "title", "msg");
+    let mut db = SourceDb::new();
+    db.add(SourceFile::new(args.path).context("Failed to read file")?);
+    let file = db.files().last().context("Failed to store file in db")?;
+
+    let span = file.span(2244..2416).context("Failed to create span")?;
+    let diag = Diagnostic::error(span, "title", "message");
     diag.report(&file, &mut std::io::stderr())?;
 
     // let interner = StringInterner::default();

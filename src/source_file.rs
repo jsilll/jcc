@@ -1,6 +1,6 @@
 use std::{
     io,
-    ops::Range,
+    ops::{Add, Range, Sub},
     path::{Path, PathBuf},
 };
 
@@ -17,6 +17,28 @@ pub struct SourceSpan {
     end: u32,
 }
 
+impl Add<u32> for SourceSpan {
+    type Output = Self;
+
+    fn add(self, offset: u32) -> Self {
+        Self {
+            start: self.start + offset,
+            end: self.end + offset,
+        }
+    }
+}
+
+impl Sub<u32> for SourceSpan {
+    type Output = Self;
+
+    fn sub(self, offset: u32) -> Self {
+        Self {
+            start: self.start - offset,
+            end: self.end - offset,
+        }
+    }
+}
+
 impl SourceSpan {
     fn new(range: impl Into<Range<u32>>) -> Option<Self> {
         let Range { start, end } = range.into();
@@ -27,26 +49,8 @@ impl SourceSpan {
         }
     }
 
-    pub fn len(&self) -> u32 {
-        self.end - self.start
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.start == self.end
-    }
-
-    fn shift(&self, offset: u32) -> Self {
-        Self {
-            start: self.start + offset,
-            end: self.end + offset,
-        }
-    }
-
-    fn unshift(&self, offset: u32) -> Self {
-        Self {
-            start: self.start - offset,
-            end: self.end - offset,
-        }
+    pub fn len(&self) -> usize {
+        (self.end - self.start) as usize
     }
 
     pub fn merge(&self, other: &Self) -> Self {
@@ -57,6 +61,7 @@ impl SourceSpan {
     }
 }
 
+#[derive(Debug)]
 pub struct SourceFile {
     offset: u32,
     data: String,
@@ -97,11 +102,11 @@ impl SourceFile {
     }
 
     pub fn span(&self, range: impl Into<Range<u32>>) -> Option<SourceSpan> {
-        SourceSpan::new(range).map(|span| span.shift(self.offset))
+        SourceSpan::new(range).map(|span| span + self.offset)
     }
 
     pub fn locate(&self, span: SourceSpan) -> Option<SourceLocation> {
-        let span = span.unshift(self.offset);
+        let span = span - self.offset;
 
         let index_first = self
             .lines
@@ -122,13 +127,14 @@ impl SourceFile {
             .data
             .get(start_offset..span.start as usize)?
             .chars()
-            .count() as u32;
+            .count() as u32
+            + 1;
 
         let line_text = &self.data.get(start_offset..end_offset)?;
 
         Some(SourceLocation {
             line: index_first as u32 + 1,
-            column: column + 1,
+            column,
             line_text,
         })
     }
@@ -177,7 +183,6 @@ mod tests {
         assert!(SourceSpan::new(10..5).is_none());
         let span = SourceSpan::new(5..10).unwrap();
         assert_eq!(span.len(), 5);
-        assert!(!span.is_empty());
     }
 
     #[test]
@@ -228,6 +233,10 @@ mod tests {
         assert_eq!(location.line_text, "World\n");
         assert_eq!(location, db.locate(span).unwrap());
 
+        let span = source.span(0..30).unwrap();
+        assert_eq!(source.locate(span), None);
+        assert_eq!(db.locate(span), None);
+
         let source = db.files().last().unwrap();
 
         let span = source.span(0..4).unwrap();
@@ -244,9 +253,8 @@ mod tests {
         assert_eq!(location.line_text, "Forever\n");
         assert_eq!(location, db.locate(span).unwrap());
 
-        let file = db.files().first().unwrap();
-        let span = file.span(0..30).unwrap();
-        assert_eq!(None, file.locate(span));
-        assert_eq!(None, db.locate(span));
+        let span = source.span(0..30).unwrap();
+        assert_eq!(source.locate(span), None);
+        assert_eq!(db.locate(span), None);
     }
 }

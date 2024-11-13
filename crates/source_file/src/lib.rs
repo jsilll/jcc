@@ -1,3 +1,5 @@
+pub mod diagnostic;
+
 use std::{
     io,
     ops::{Add, Range, Sub},
@@ -11,7 +13,17 @@ pub struct SourceLocation<'a> {
     pub line_text: &'a str,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl<'a> Default for SourceLocation<'a> {
+    fn default() -> Self {
+        Self {
+            line: 1,
+            column: 1,
+            line_text: "",
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SourceSpan {
     start: u32,
     end: u32,
@@ -51,6 +63,10 @@ impl SourceSpan {
 
     pub fn len(&self) -> usize {
         (self.end - self.start) as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
     }
 
     pub fn merge(&self, other: &Self) -> Self {

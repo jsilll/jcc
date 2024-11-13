@@ -1,4 +1,4 @@
-use crate::source_file::{SourceFile, SourceSpan};
+use crate::{SourceFile, SourceSpan};
 use std::{
     fmt::{self, Display},
     io::{Result, Write},
@@ -71,37 +71,39 @@ impl Diagnostic {
             spaces
         }
 
-        let location = file.locate(self.span).unwrap();
+        let location = file.locate(self.span).unwrap_or_default();
         let lines = location.line_text.lines().collect::<Vec<_>>();
         let max_digits = count_digits(location.line + lines.len() as u32 - 1) as usize;
 
         // Title + Source File Location + First Line
-        if let Some(line_text) = lines.first().copied() {
-            let line_digits = count_digits(location.line) as usize;
-            write!(
-                buffer,
-                "{}: {}\n{}--> {}:{}:{}\n{} |\n{}{} | {}\n{} |{}^{}",
-                self.level,
-                self.title,
-                " ".repeat(max_digits),
-                file.path().display(),
-                location.line,
-                location.column,
-                " ".repeat(max_digits),
-                " ".repeat(max_digits - line_digits),
-                location.line,
-                line_text,
-                " ".repeat(max_digits),
-                " ".repeat(location.column as usize),
-                "~".repeat(std::cmp::min(
-                    self.span.len(),
-                    line_text.len() - location.column as usize
-                )),
-            )?;
-        }
+        let line_text = lines.first().copied().unwrap_or("");
+        let line_digits = count_digits(location.line) as usize;
+        write!(
+            buffer,
+            "{}: {}\n{}--> {}:{}:{}\n{} |\n{}{} | {}\n{} |{}^{}",
+            self.level,
+            self.title,
+            " ".repeat(max_digits),
+            file.path().display(),
+            location.line,
+            location.column,
+            " ".repeat(max_digits),
+            " ".repeat(max_digits - line_digits),
+            location.line,
+            line_text,
+            " ".repeat(max_digits),
+            " ".repeat(location.column as usize),
+            "^".repeat(std::cmp::min(
+                self.span.len().checked_sub(1).unwrap_or(0),
+                line_text
+                    .len()
+                    .checked_sub(location.column as usize)
+                    .unwrap_or(0)
+            )),
+        )?;
 
         // Middle Lines
-        for (line, line_digits, line_text, line_leading_spaces) in lines
+        lines
             .iter()
             .skip(1)
             .enumerate()
@@ -115,22 +117,22 @@ impl Diagnostic {
                     count_leading_spaces(line_text),
                 )
             })
-        {
-            write!(
-                buffer,
-                "\n{}{} | {}\n{} | {}{}",
-                " ".repeat(max_digits - line_digits),
-                line,
-                line_text,
-                " ".repeat(max_digits),
-                " ".repeat(line_leading_spaces),
-                "~".repeat(line_text.len() - line_leading_spaces),
-            )?;
-        }
+            .try_for_each(|(line, line_digits, line_text, line_leading_spaces)| {
+                write!(
+                    buffer,
+                    "\n{}{} | {}\n{} | {}{}",
+                    " ".repeat(max_digits - line_digits),
+                    line,
+                    line_text,
+                    " ".repeat(max_digits),
+                    " ".repeat(line_leading_spaces),
+                    "^".repeat(line_text.len() - line_leading_spaces),
+                )
+            })?;
 
         // Last Line
-        if let Some(line_text) = lines.last().copied() {
-            if lines.len() >= 2 {
+        if lines.len() >= 2 {
+            if let Some(line_text) = lines.last().copied() {
                 let line = location.line + lines.len() as u32 - 1;
                 let line_digits = count_digits(line) as usize;
                 let line_text_leading_spaces = count_leading_spaces(line_text);
@@ -143,7 +145,7 @@ impl Diagnostic {
                     line_text,
                     " ".repeat(max_digits),
                     " ".repeat(line_text_leading_spaces),
-                    "~".repeat(
+                    "^".repeat(
                         (line_text.len() - line_text_leading_spaces)
                             .checked_sub(rtrim)
                             .unwrap_or(0)

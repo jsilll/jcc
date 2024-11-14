@@ -94,11 +94,8 @@ impl Diagnostic {
             " ".repeat(max_digits),
             " ".repeat(location.column as usize),
             "^".repeat(std::cmp::min(
-                self.span.len().checked_sub(1).unwrap_or(0),
-                line_text
-                    .len()
-                    .checked_sub(location.column as usize)
-                    .unwrap_or(0)
+                self.span.len().saturating_sub(1),
+                line_text.len().saturating_sub(location.column as usize)
             )),
         )?;
 
@@ -107,7 +104,7 @@ impl Diagnostic {
             .iter()
             .skip(1)
             .enumerate()
-            .take(lines.len().checked_sub(2).unwrap_or(0))
+            .take(lines.len().saturating_sub(2))
             .map(|(index, line_text)| {
                 let line = location.line + index as u32 + 1;
                 (
@@ -145,11 +142,7 @@ impl Diagnostic {
                     line_text,
                     " ".repeat(max_digits),
                     " ".repeat(line_text_leading_spaces),
-                    "^".repeat(
-                        (line_text.len() - line_text_leading_spaces)
-                            .checked_sub(rtrim)
-                            .unwrap_or(0)
-                    )
+                    "^".repeat((line_text.len() - line_text_leading_spaces).saturating_sub(rtrim))
                 )?;
             }
         }

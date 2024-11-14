@@ -128,7 +128,7 @@ impl SourceFile {
 
     pub fn end_span(&self) -> SourceSpan {
         SourceSpan {
-            start: self.offset + self.data.len() as u32,
+            start: self.offset + self.data.len().saturating_sub(1) as u32,
             end: self.offset + self.data.len() as u32,
         }
     }

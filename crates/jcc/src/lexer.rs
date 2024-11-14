@@ -75,6 +75,15 @@ impl<'a> Lexer<'a> {
                         .unwrap_or_else(|| begin) + 1;
                     let number = self.file.slice(begin..end).unwrap_or_default();
                     let number = number.parse().unwrap_or_default();
+                    if let Some((_, c)) = self.chars.peek() {
+                        if c.is_ascii_alphabetic() {
+                            self.diagnostics.push(LexerDiagnostic {
+                                kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
+                                span: self.file.span(begin..end).unwrap_or_default(),
+                            });
+                        }
+                        continue;
+                    }
                     self.tokens.push(Token {
                         kind: TokenKind::Number(number),
                         span: self.file.span(begin..end).unwrap_or_default(),
@@ -181,6 +190,7 @@ pub struct LexerDiagnostic {
 pub enum LexerDiagnosticKind {
     UnexpectedCharacter,
     UnbalancedToken(TokenKind),
+    IdentifierStartsWithDigit,
 }
 
 impl From<LexerDiagnostic> for Diagnostic {
@@ -195,6 +205,11 @@ impl From<LexerDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "unbalanced token",
                 format!("expected a matching '{}'", c),
+            ),
+            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
+                diagnostic.span,
+                "identifier starts with digit",
+                "identifiers cannot start with a digit",
             ),
         }
     }

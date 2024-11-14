@@ -117,8 +117,20 @@ impl SourceFile {
         &self.path
     }
 
+    pub fn slice(&self, range: impl Into<Range<u32>>) -> Option<&str> {
+        let range = range.into();
+        self.data.get(range.start as usize..range.end as usize)
+    }
+
     pub fn span(&self, range: impl Into<Range<u32>>) -> Option<SourceSpan> {
         SourceSpan::new(range).map(|span| span + self.offset)
+    }
+
+    pub fn end_span(&self) -> SourceSpan {
+        SourceSpan {
+            start: self.offset + self.data.len() as u32,
+            end: self.offset + self.data.len() as u32,
+        }
     }
 
     pub fn locate(&self, span: SourceSpan) -> Option<SourceLocation> {

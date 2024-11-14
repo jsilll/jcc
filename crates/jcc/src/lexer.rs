@@ -1,24 +1,37 @@
+use core::fmt;
+use peeking_take_while::PeekableExt;
 use source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
-use std::{iter::Peekable, str::CharIndices};
-use string_interner::{backend::Backend, StringInterner};
+use std::{
+    fmt::{Display, Formatter},
+    iter::Peekable,
+    str::CharIndices,
+};
+use string_interner::{DefaultStringInterner, DefaultSymbol};
+
+static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
+    "int" => TokenKind::KwInt,
+    "main" => TokenKind::KwMain,
+    "void" => TokenKind::KwVoid,
+    "return" => TokenKind::KwReturn,
+};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Token<StringBackend: Backend> {
-    pub kind: TokenKind<StringBackend>,
+pub struct Token {
+    pub kind: TokenKind,
     pub span: SourceSpan,
 }
 
-pub struct Lexer<'a, StringBackend: Backend> {
+pub struct Lexer<'a> {
     file: &'a SourceFile,
     chars: Peekable<CharIndices<'a>>,
-    tokens: Vec<Token<StringBackend>>,
+    tokens: Vec<Token>,
     diagnostics: Vec<LexerDiagnostic>,
-    nesting: Vec<TokenKind<StringBackend>>,
-    interner: &'a mut StringInterner<StringBackend>,
+    nesting: Vec<TokenKind>,
+    interner: &'a mut DefaultStringInterner,
 }
 
-impl<'a, StringBackend: Backend> Lexer<'a, StringBackend> {
-    pub fn new(file: &'a SourceFile, interner: &'a mut StringInterner<StringBackend>) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(file: &'a SourceFile, interner: &'a mut DefaultStringInterner) -> Self {
         Self {
             file,
             chars: file.data().char_indices().peekable(),
@@ -29,36 +42,82 @@ impl<'a, StringBackend: Backend> Lexer<'a, StringBackend> {
         }
     }
 
-    pub fn lex(mut self) -> LexerResult<StringBackend> {
-        self.nesting.push(TokenKind::RBrace);
-        self.tokens.push(Token {
-            span: self.file.span(0..1).unwrap_or_default(),
-            kind: TokenKind::Identifier(self.interner.get_or_intern("Hello World")),
-        });
-        // self.diagnostics.push(LexerDiagnostic {
-        //     kind: LexerDiagnosticKind::UnexpectedCharacter,
-        //     span: self.file.span(555..565).unwrap(),
-        // });
+    pub fn lex(mut self) -> LexerResult {
         while let Some((begin, c)) = self.chars.next().map(|(begin, c)| (begin as u32, c)) {
             match c {
+                // Single character tokens
+                ';' => self.lex_char(begin, TokenKind::Semi),
+
                 // Nesting tokens
                 '(' => {
                     self.nesting.push(TokenKind::RParen);
-                    self.lex_char(TokenKind::LParen, begin)
+                    self.lex_char(begin, TokenKind::LParen)
                 }
                 '{' => {
                     self.nesting.push(TokenKind::RBrace);
-                    self.lex_char(TokenKind::LBrace, begin)
+                    self.lex_char(begin, TokenKind::LBrace)
                 }
                 '[' => {
                     self.nesting.push(TokenKind::RBrack);
-                    self.lex_char(TokenKind::LBrack, begin)
+                    self.lex_char(begin, TokenKind::LBrack)
                 }
-                ')' => self.lex_char(TokenKind::RParen, begin),
-                '}' => self.lex_char(TokenKind::RBrace, begin),
-                ']' => self.lex_char(TokenKind::RBrack, begin),
-                _ => {}
+                ')' => self.fix_nesting(begin, TokenKind::LParen, TokenKind::RParen),
+                '}' => self.fix_nesting(begin, TokenKind::LBrace, TokenKind::RBrace),
+                ']' => self.fix_nesting(begin, TokenKind::LBrack, TokenKind::RBrack),
+
+                // Numbers
+                c if c.is_digit(10) => {
+                    let end = self
+                        .chars
+                        .peeking_take_while(|(_, c)| c.is_digit(10))
+                        .last()
+                        .map(|(end, _)| end as u32)
+                        .unwrap_or_else(|| begin) + 1;
+                    let number = self.file.slice(begin..end).unwrap_or_default();
+                    let number = number.parse().unwrap_or_default();
+                    self.tokens.push(Token {
+                        kind: TokenKind::Number(number),
+                        span: self.file.span(begin..end).unwrap_or_default(),
+                    });
+                }
+
+                // Keywords and identifiers
+                c if c.is_ascii_alphabetic() => {
+                    let end = self
+                        .chars
+                        .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric())
+                        .last()
+                        .map(|(end, _)| end as u32)
+                        .unwrap_or_else(|| begin) + 1;
+                    let ident = self.file.slice(begin..end).unwrap_or_default();
+                    let kind = KEYWORDS
+                        .get(ident)
+                        .copied()
+                        .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
+                    self.tokens.push(Token {
+                        kind,
+                        span: self.file.span(begin..end).unwrap_or_default(),
+                    });
+                }
+
+                c if c.is_whitespace() => continue,
+                _ => self.diagnostics.push(LexerDiagnostic {
+                    kind: LexerDiagnosticKind::UnexpectedCharacter,
+                    span: self.file.span(begin..begin + 1).unwrap_or_default(),
+                }),
             }
+        }
+        if !self.nesting.is_empty() {
+            self.nesting.iter().for_each(|kind| {
+                self.tokens.push(Token {
+                    kind: *kind,
+                    span: self.file.end_span(),
+                });
+                self.diagnostics.push(LexerDiagnostic {
+                    kind: LexerDiagnosticKind::UnbalancedToken(*kind),
+                    span: self.file.end_span(),
+                });
+            });
         }
         LexerResult {
             tokens: self.tokens,
@@ -66,17 +125,49 @@ impl<'a, StringBackend: Backend> Lexer<'a, StringBackend> {
         }
     }
 
-    fn lex_char(&mut self, kind: TokenKind<StringBackend>, begin: u32) {
+    fn lex_char(&mut self, begin: u32, kind: TokenKind) {
         self.tokens.push(Token {
             kind,
             span: self.file.span(begin..begin + 1).unwrap_or_default(),
         })
     }
+
+    fn fix_nesting(&mut self, begin: u32, open: TokenKind, close: TokenKind) {
+        let mut matched = false;
+        while let Some(kind) = self.nesting.pop() {
+            if kind == close {
+                matched = true;
+                break;
+            }
+            self.tokens.push(Token {
+                kind,
+                span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            });
+            self.diagnostics.push(LexerDiagnostic {
+                kind: LexerDiagnosticKind::UnbalancedToken(kind),
+                span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            });
+        }
+        if !matched {
+            self.tokens.push(Token {
+                kind: open,
+                span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            });
+            self.diagnostics.push(LexerDiagnostic {
+                kind: LexerDiagnosticKind::UnbalancedToken(open),
+                span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            });
+        }
+        self.tokens.push(Token {
+            kind: close,
+            span: self.file.span(begin..begin + 1).unwrap_or_default(),
+        });
+    }
 }
 
 #[derive(Clone)]
-pub struct LexerResult<StringBackend: Backend> {
-    pub tokens: Vec<Token<StringBackend>>,
+pub struct LexerResult {
+    pub tokens: Vec<Token>,
     pub diagnostics: Vec<LexerDiagnostic>,
 }
 
@@ -89,6 +180,7 @@ pub struct LexerDiagnostic {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LexerDiagnosticKind {
     UnexpectedCharacter,
+    UnbalancedToken(TokenKind),
 }
 
 impl From<LexerDiagnostic> for Diagnostic {
@@ -99,17 +191,46 @@ impl From<LexerDiagnostic> for Diagnostic {
                 "unexpected character",
                 "expected a valid character",
             ),
+            LexerDiagnosticKind::UnbalancedToken(c) => Diagnostic::error(
+                diagnostic.span,
+                "unbalanced token",
+                format!("expected a matching '{}'", c),
+            ),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenKind<StringBackend: Backend> {
+pub enum TokenKind {
+    Semi,
+
     LBrace,
     RBrace,
     LParen,
     RParen,
     LBrack,
     RBrack,
-    Identifier(StringBackend::Symbol),
+
+    KwInt,
+    KwMain,
+    KwVoid,
+    KwReturn,
+
+    Number(u32),
+    Identifier(DefaultSymbol),
+}
+
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenKind::Semi => write!(f, ";"),
+            TokenKind::LBrace => write!(f, "{{"),
+            TokenKind::RBrace => write!(f, "}}"),
+            TokenKind::LParen => write!(f, "("),
+            TokenKind::RParen => write!(f, ")"),
+            TokenKind::LBrack => write!(f, "["),
+            TokenKind::RBrack => write!(f, "]"),
+            _ => unimplemented!(),
+        }
+    }
 }

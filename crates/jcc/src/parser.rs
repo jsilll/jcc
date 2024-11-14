@@ -1,16 +1,15 @@
 use crate::lexer::Token;
-use string_interner::backend::Backend;
 
-pub struct Parser<'a, StringBackend: Backend> {
-    tokens: &'a [Token<StringBackend>],
+pub struct Parser<'a> {
+    tokens: &'a [Token],
 }
 
-impl<'a, StringBackend: Backend> Parser<'a, StringBackend> {
-    pub fn new(tokens: &'a [Token<StringBackend>]) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(tokens: &'a [Token]) -> Self {
         Self { tokens }
     }
 
-    pub fn tokens(&self) -> &'a [Token<StringBackend>] {
+    pub fn tokens(&self) -> &'a [Token] {
         self.tokens
     }
 }

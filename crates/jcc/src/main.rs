@@ -1,12 +1,16 @@
+use jcc::{
+    lexer::{Lexer, LexerDiagnosticKind},
+    parser::Parser,
+};
+
 use anyhow::{Context, Result};
-// use bumpalo::Bump;
-use clap::Parser;
-use jcc::lexer::{Lexer, LexerDiagnosticKind};
+use clap::Parser as ClapParser;
 use source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
-use std::{path::PathBuf, process::Command};
 use string_interner::StringInterner;
 
-#[derive(Parser)]
+use std::{path::PathBuf, process::Command};
+
+#[derive(ClapParser)]
 struct Args {
     /// Run the compiler in verbose mode
     #[clap(long)]
@@ -53,7 +57,6 @@ fn try_main() -> Result<()> {
     // Global data structures
     let mut db = SourceDb::new();
     let mut interner = StringInterner::default();
-    // let bump = Bump::new();
 
     // Add file to db
     db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
@@ -84,12 +87,22 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // let parser = Parser::new(&file, &interner, &tokens);
+    // Parse the tokens
+    let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
+    if !parser_result.diagnostics.is_empty() {
+        parser_result.diagnostics.iter().try_for_each(|d| {
+            let diag = Diagnostic::from(d.clone());
+            diag.report(&file, &mut std::io::stderr())
+        })?;
+        return Err(anyhow::anyhow!("\nexiting due to parser errors"));
+    }
+    if args.verbose {
+        println!("{:#?}", parser_result.program);
+    }
     if args.parse {
         return Ok(());
     }
 
-    // let ast = parser.parse()?;
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 

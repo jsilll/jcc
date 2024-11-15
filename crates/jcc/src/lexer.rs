@@ -1,12 +1,12 @@
-use core::fmt;
 use peeking_take_while::PeekableExt;
 use source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
+use string_interner::{DefaultStringInterner, DefaultSymbol};
+
 use std::{
-    fmt::{Display, Formatter},
+    fmt::{self, Display, Formatter},
     iter::Peekable,
     str::CharIndices,
 };
-use string_interner::{DefaultStringInterner, DefaultSymbol};
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "int" => TokenKind::KwInt,
@@ -15,30 +15,28 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "return" => TokenKind::KwReturn,
 };
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub span: SourceSpan,
-}
+// ---------------------------------------------------------------------------
+// Lexer
+// ---------------------------------------------------------------------------
 
 pub struct Lexer<'a> {
     file: &'a SourceFile,
+    interner: &'a mut DefaultStringInterner,
     chars: Peekable<CharIndices<'a>>,
     tokens: Vec<Token>,
     diagnostics: Vec<LexerDiagnostic>,
     nesting: Vec<TokenKind>,
-    interner: &'a mut DefaultStringInterner,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile, interner: &'a mut DefaultStringInterner) -> Self {
         Self {
             file,
+            interner,
             chars: file.data().char_indices().peekable(),
             tokens: Vec::new(),
             diagnostics: Vec::new(),
             nesting: Vec::new(),
-            interner,
         }
     }
 
@@ -178,11 +176,19 @@ impl<'a> Lexer<'a> {
     }
 }
 
-#[derive(Clone)]
+// ---------------------------------------------------------------------------
+// LexerResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct LexerResult {
     pub tokens: Vec<Token>,
     pub diagnostics: Vec<LexerDiagnostic>,
 }
+
+// ---------------------------------------------------------------------------
+// LexerDiagnostic
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct LexerDiagnostic {
@@ -193,8 +199,8 @@ pub struct LexerDiagnostic {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LexerDiagnosticKind {
     UnexpectedCharacter,
-    UnbalancedToken(TokenKind),
     IdentifierStartsWithDigit,
+    UnbalancedToken(TokenKind),
 }
 
 impl From<LexerDiagnostic> for Diagnostic {
@@ -205,21 +211,31 @@ impl From<LexerDiagnostic> for Diagnostic {
                 "unexpected character",
                 "expected a valid character",
             ),
-            LexerDiagnosticKind::UnbalancedToken(c) => Diagnostic::error(
-                diagnostic.span,
-                "unbalanced token",
-                format!("expected a matching '{}'", c),
-            ),
             LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
                 diagnostic.span,
                 "identifier starts with digit",
                 "identifiers cannot start with a digit",
             ),
+            LexerDiagnosticKind::UnbalancedToken(c) => Diagnostic::error(
+                diagnostic.span,
+                "unbalanced token",
+                format!("expected a matching {}", c),
+            ),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// ---------------------------------------------------------------------------
+// Token
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     Semi,
 
@@ -242,14 +258,22 @@ pub enum TokenKind {
 impl Display for TokenKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            TokenKind::Semi => write!(f, ";"),
-            TokenKind::LBrace => write!(f, "{{"),
-            TokenKind::RBrace => write!(f, "}}"),
-            TokenKind::LParen => write!(f, "("),
-            TokenKind::RParen => write!(f, ")"),
-            TokenKind::LBrack => write!(f, "["),
-            TokenKind::RBrack => write!(f, "]"),
-            _ => unimplemented!(),
+            TokenKind::Semi => write!(f, "';'"),
+
+            TokenKind::LBrace => write!(f, "'{{'"),
+            TokenKind::RBrace => write!(f, "'}}'"),
+            TokenKind::LParen => write!(f, "'('"),
+            TokenKind::RParen => write!(f, "')'"),
+            TokenKind::LBrack => write!(f, "'['"),
+            TokenKind::RBrack => write!(f, "']'"),
+
+            TokenKind::KwInt => write!(f, "'int'"),
+            TokenKind::KwMain => write!(f, "'main'"),
+            TokenKind::KwVoid => write!(f, "'void'"),
+            TokenKind::KwReturn => write!(f, "'return'"),
+
+            TokenKind::Number(_) => write!(f, "a number"),
+            TokenKind::Identifier(_) => write!(f, "an identifier"),
         }
     }
 }

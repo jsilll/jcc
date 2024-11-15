@@ -45,6 +45,9 @@ impl<'a> Lexer<'a> {
     pub fn lex(mut self) -> LexerResult {
         while let Some((begin, c)) = self.chars.next().map(|(begin, c)| (begin as u32, c)) {
             match c {
+                // Skip whitespace
+                c if c.is_whitespace() => continue,
+
                 // Single character tokens
                 ';' => self.lex_char(begin, TokenKind::Semi),
 
@@ -72,7 +75,8 @@ impl<'a> Lexer<'a> {
                         .peeking_take_while(|(_, c)| c.is_digit(10))
                         .last()
                         .map(|(end, _)| end as u32)
-                        .unwrap_or_else(|| begin) + 1;
+                        .unwrap_or_else(|| begin)
+                        + 1;
                     let number = self.file.slice(begin..end).unwrap_or_default();
                     let number = number.parse().unwrap_or_default();
                     if let Some((_, c)) = self.chars.peek() {
@@ -97,7 +101,8 @@ impl<'a> Lexer<'a> {
                         .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric())
                         .last()
                         .map(|(end, _)| end as u32)
-                        .unwrap_or_else(|| begin) + 1;
+                        .unwrap_or_else(|| begin)
+                        + 1;
                     let ident = self.file.slice(begin..end).unwrap_or_default();
                     let kind = KEYWORDS
                         .get(ident)
@@ -109,7 +114,6 @@ impl<'a> Lexer<'a> {
                     });
                 }
 
-                c if c.is_whitespace() => continue,
                 _ => self.diagnostics.push(LexerDiagnostic {
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
                     span: self.file.span(begin..begin + 1).unwrap_or_default(),

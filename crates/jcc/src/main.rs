@@ -1,13 +1,16 @@
 use anyhow::{Context, Result};
 // use bumpalo::Bump;
 use clap::Parser;
-use jcc::lexer::Lexer;
+use jcc::lexer::{Lexer, LexerDiagnosticKind};
 use source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
 use std::{path::PathBuf, process::Command};
 use string_interner::StringInterner;
 
 #[derive(Parser)]
 struct Args {
+    /// Run the compiler in verbose mode
+    #[clap(long)]
+    pub verbose: bool,
     /// Run the lexer, but stop before parsing
     #[clap(long)]
     pub lex: bool,
@@ -56,8 +59,14 @@ fn try_main() -> Result<()> {
     db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
-    // Compile the file
-    let lexer_result = Lexer::new(&file, &mut interner).lex();
+    // Lex the file
+    let mut lexer_result = Lexer::new(&file, &mut interner).lex();
+    if args.lex {
+        lexer_result.diagnostics.retain(|d| match d.kind {
+            LexerDiagnosticKind::UnbalancedToken(_) => false,
+            _ => true,
+        });
+    }
     if !lexer_result.diagnostics.is_empty() {
         lexer_result.diagnostics.iter().try_for_each(|d| {
             let diag = Diagnostic::from(d.clone());
@@ -65,10 +74,12 @@ fn try_main() -> Result<()> {
         })?;
         return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
     }
-    lexer_result.tokens.iter().try_for_each(|t| {
-        let diag = Diagnostic::note(t.span, "token", "here");
-        diag.report(&file, &mut std::io::stdout())
-    })?;
+    if args.verbose {
+        lexer_result.tokens.iter().try_for_each(|t| {
+            let diag = Diagnostic::note(t.span, "token", "here");
+            diag.report(&file, &mut std::io::stdout())
+        })?;
+    }
     if args.lex {
         return Ok(());
     }

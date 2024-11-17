@@ -32,6 +32,7 @@ impl<'a> Parser<'a> {
                     if let Some(p) = self.parse_fn_def().map(|f| Program(f)) {
                         program = Some(p)
                     } else {
+                        // NOTE: for now since a program only contains the main function for now
                         break;
                     }
                 }
@@ -40,6 +41,7 @@ impl<'a> Parser<'a> {
                         kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
                         span: token.span,
                     });
+                    // NOTE: for now since a program only contains the main function for now
                     break;
                 }
             }

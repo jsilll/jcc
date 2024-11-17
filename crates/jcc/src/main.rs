@@ -1,6 +1,5 @@
 use jcc::{
-    lexer::{Lexer, LexerDiagnosticKind},
-    parser::Parser,
+    ir::IrBuilder, lexer::{Lexer, LexerDiagnosticKind}, parser::Parser
 };
 
 use anyhow::{Context, Result};
@@ -110,14 +109,20 @@ fn try_main() -> Result<()> {
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 
-    // let codegen = Codegen::new(&file, &interner, &ast);
-    // codegen.generate()?;
+    let ast = parser_result.program.context("Parsed an empty program")?;
+    let ir_builder = IrBuilder::new(&ast);
+    let ir = ir_builder.build();
+    if args.verbose {
+        println!("{:#?}", ir);
+    }
     if args.codegen {
         return Ok(());
     }
 
     // Make a dummy assembly file for now with a simple main function
     let asm_path = args.path.with_extension("s");
+    // TODO: Should be _main if on macOS
+    // NOTE: Last line means that the stack is not executable
     std::fs::write(
         &asm_path,
         "
@@ -125,6 +130,7 @@ fn try_main() -> Result<()> {
     main:
         movl $0, %eax
         ret
+    .section .note.GNU-stack,\"\",@progbits
     ",
     )?;
     if args.emit_asm {

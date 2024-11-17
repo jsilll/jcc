@@ -20,22 +20,23 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
 
 pub struct Lexer<'a> {
     file: &'a SourceFile,
-    interner: &'a mut DefaultStringInterner,
     chars: Peekable<CharIndices<'a>>,
+    interner: &'a mut DefaultStringInterner,
     tokens: Vec<Token>,
-    diagnostics: Vec<LexerDiagnostic>,
     nesting: Vec<TokenKind>,
+    diagnostics: Vec<LexerDiagnostic>,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile, interner: &'a mut DefaultStringInterner) -> Self {
+        let chars = file.data().char_indices().peekable();
         Self {
             file,
+            chars,
             interner,
-            chars: file.data().char_indices().peekable(),
             tokens: Vec::new(),
-            diagnostics: Vec::new(),
             nesting: Vec::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -117,13 +118,13 @@ impl<'a> Lexer<'a> {
             }
         }
         if !self.nesting.is_empty() {
-            self.nesting.iter().for_each(|kind| {
+            self.nesting.into_iter().for_each(|kind| {
                 self.tokens.push(Token {
-                    kind: *kind,
+                    kind,
                     span: self.file.end_span(),
                 });
                 self.diagnostics.push(LexerDiagnostic {
-                    kind: LexerDiagnosticKind::UnbalancedToken(*kind),
+                    kind: LexerDiagnosticKind::UnbalancedToken(kind),
                     span: self.file.end_span(),
                 });
             });

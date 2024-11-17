@@ -1,4 +1,5 @@
 use crate::{SourceFile, SourceLocation, SourceSpan};
+
 use std::{
     fmt::{self, Display},
     io::{Result, Write},
@@ -43,6 +44,7 @@ impl Diagnostic {
             level,
         }
     }
+
     pub fn error(span: SourceSpan, title: impl Into<String>, message: impl Into<String>) -> Self {
         Diagnostic::new(span, title, message, DiagnosticLevel::Error)
     }
@@ -63,11 +65,11 @@ impl Diagnostic {
     pub fn report_hint(
         &self,
         file: &SourceFile,
-        hint: &mut SourceSpan,
+        hint: &mut usize,
         buffer: &mut impl Write,
     ) -> Result<()> {
         let location = file.locate_hint(self.span, *hint).unwrap_or_default();
-        *hint = self.span;
+        *hint = location.line as usize - 1;
         self.report_internal(file, location, buffer)
     }
 

@@ -27,6 +27,7 @@ struct Args {
     /// Emit an assembly file but not an executable
     #[clap(long, short = 'S')]
     pub emit_asm: bool,
+    /// The source file to compile
     pub path: PathBuf,
 }
 
@@ -71,7 +72,7 @@ fn try_main() -> Result<()> {
         });
     }
     if !lexer_result.diagnostics.is_empty() {
-        let mut hint = file.begin_span();
+        let mut hint = 0;
         lexer_result.diagnostics.iter().try_for_each(|d| {
             let diag = Diagnostic::from(d.clone());
             diag.report_hint(&file, &mut hint, &mut std::io::stderr())
@@ -79,7 +80,7 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
     }
     if args.verbose {
-        let mut hint = file.begin_span();
+        let mut hint = 0;
         lexer_result.tokens.iter().try_for_each(|t| {
             let diag = Diagnostic::note(t.span, "token", "here");
             diag.report_hint(&file, &mut hint, &mut std::io::stdout())
@@ -92,7 +93,7 @@ fn try_main() -> Result<()> {
     // Parse the tokens
     let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        let mut hint = file.begin_span();
+        let mut hint = 0;
         parser_result.diagnostics.iter().try_for_each(|d| {
             let diag = Diagnostic::from(d.clone());
             diag.report_hint(&file, &mut hint, &mut std::io::stderr())

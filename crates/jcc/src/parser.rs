@@ -29,14 +29,18 @@ impl<'a> Parser<'a> {
         while let Some(token) = self.iter.peek() {
             match token.kind {
                 TokenKind::KwInt => {
-                    program = self.parse_fn_def().map(|f| Program(f));
+                    if let Some(p) = self.parse_fn_def().map(|f| Program(f)) {
+                        program = Some(p)
+                    } else {
+                        break;
+                    }
                 }
                 _ => {
                     self.diagnostics.push(ParserDiagnostic {
-                        kind: ParserDiagnosticKind::ExpectedToken(TokenKind::KwInt),
+                        kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
                         span: token.span,
                     });
-                    self.iter.next();
+                    break;
                 }
             }
         }
@@ -50,8 +54,8 @@ impl<'a> Parser<'a> {
         match self.iter.peek() {
             Some(token) => {
                 let eq = match (token.kind, kind) {
-                    (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
                     (TokenKind::Number(_), TokenKind::Number(_)) => true,
+                    (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
                     _ => token.kind == kind,
                 };
                 if eq {
@@ -59,7 +63,7 @@ impl<'a> Parser<'a> {
                 } else {
                     self.diagnostics.push(ParserDiagnostic {
                         span: token.span,
-                        kind: ParserDiagnosticKind::ExpectedToken(kind),
+                        kind: ParserDiagnosticKind::UnexpectedToken(kind),
                     });
                     None
                 }
@@ -77,15 +81,14 @@ impl<'a> Parser<'a> {
     fn expect_number(&mut self) -> Option<(SourceSpan, u32)> {
         match self.iter.peek() {
             Some(token) => {
-                if let TokenKind::Number(_) = token.kind {
-                    self.iter.next().map(|t| match t.kind {
-                        TokenKind::Number(n) => (t.span, n),
-                        _ => unreachable!(),
-                    })
+                if let TokenKind::Number(n) = token.kind {
+                    let r = (token.span, n);
+                    self.iter.next();
+                    Some(r)
                 } else {
                     self.diagnostics.push(ParserDiagnostic {
                         span: token.span,
-                        kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Number(0)),
+                        kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Number(0)),
                     });
                     None
                 }
@@ -103,15 +106,14 @@ impl<'a> Parser<'a> {
     fn expect_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
         match self.iter.peek() {
             Some(token) => {
-                if let TokenKind::Identifier(_) = token.kind {
-                    self.iter.next().map(|t| match t.kind {
-                        TokenKind::Identifier(s) => (t.span, s),
-                        _ => unreachable!(),
-                    })
+                if let TokenKind::Identifier(s) = token.kind {
+                    let r = (token.span, s);
+                    self.iter.next();
+                    Some(r)
                 } else {
                     self.diagnostics.push(ParserDiagnostic {
                         span: token.span,
-                        kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
+                        kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Identifier(
                             DefaultSymbol::try_from_usize(0).unwrap(),
                         )),
                     });
@@ -176,7 +178,7 @@ pub struct ParserDiagnostic {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ParserDiagnosticKind {
     UnexpectedEof,
-    ExpectedToken(TokenKind),
+    UnexpectedToken(TokenKind),
 }
 
 impl From<ParserDiagnostic> for Diagnostic {
@@ -187,9 +189,11 @@ impl From<ParserDiagnostic> for Diagnostic {
                 "unexpected end of file",
                 "expected more tokens",
             ),
-            ParserDiagnosticKind::ExpectedToken(t) => {
-                Diagnostic::error(diagnostic.span, "expected token", format!("expected {}", t))
-            }
+            ParserDiagnosticKind::UnexpectedToken(t) => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                format!("expected {}", t),
+            ),
         }
     }
 }

@@ -1,5 +1,8 @@
 use jcc::{
-    ir::IrBuilder, lexer::{Lexer, LexerDiagnosticKind}, parser::Parser
+    emit::X86Emitter,
+    ir::IrBuilder,
+    lexer::{Lexer, LexerDiagnosticKind},
+    parser::Parser,
 };
 
 use anyhow::{Context, Result};
@@ -109,6 +112,7 @@ fn try_main() -> Result<()> {
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 
+    // Generate IR
     let ast = parser_result.program.context("Parsed an empty program")?;
     let ir_builder = IrBuilder::new(&ast);
     let ir = ir_builder.build();
@@ -119,20 +123,10 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Make a dummy assembly file for now with a simple main function
+    // Emit assembly
     let asm_path = args.path.with_extension("s");
-    // TODO: Should be _main if on macOS
-    // NOTE: Last line means that the stack is not executable
-    std::fs::write(
-        &asm_path,
-        "
-        .globl main
-    main:
-        movl $0, %eax
-        ret
-    .section .note.GNU-stack,\"\",@progbits
-    ",
-    )?;
+    let x86_emmiter = X86Emitter::new(&ir, &interner);
+    std::fs::write(&asm_path, x86_emmiter.emit()).context("Failed to write assembly file")?;
     if args.emit_asm {
         return Ok(());
     }

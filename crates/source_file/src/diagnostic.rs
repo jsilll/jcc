@@ -1,4 +1,4 @@
-use crate::{SourceFile, SourceSpan};
+use crate::{SourceFile, SourceLocation, SourceSpan};
 use std::{
     fmt::{self, Display},
     io::{Result, Write},
@@ -56,6 +56,27 @@ impl Diagnostic {
     }
 
     pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> Result<()> {
+        let location = file.locate(self.span).unwrap_or_default();
+        self.report_internal(file, location, buffer)
+    }
+
+    pub fn report_hint(
+        &self,
+        file: &SourceFile,
+        hint: &mut SourceSpan,
+        buffer: &mut impl Write,
+    ) -> Result<()> {
+        let location = file.locate_hint(self.span, *hint).unwrap_or_default();
+        *hint = self.span;
+        self.report_internal(file, location, buffer)
+    }
+
+    pub fn report_internal(
+        &self,
+        file: &SourceFile,
+        location: SourceLocation,
+        buffer: &mut impl Write,
+    ) -> Result<()> {
         fn count_digits(n: u32) -> u32 {
             n.checked_ilog10().unwrap_or(0) + 1
         }
@@ -71,7 +92,6 @@ impl Diagnostic {
             spaces
         }
 
-        let location = file.locate(self.span).unwrap_or_default();
         let lines = location.line_text.lines().collect::<Vec<_>>();
         let max_digits = count_digits(location.line + lines.len() as u32 - 1) as usize;
 

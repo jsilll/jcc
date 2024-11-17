@@ -126,6 +126,13 @@ impl SourceFile {
         SourceSpan::new(range).map(|span| span + self.offset)
     }
 
+    pub fn begin_span(&self) -> SourceSpan {
+        SourceSpan {
+            start: self.offset,
+            end: self.offset,
+        }
+    }
+
     pub fn end_span(&self) -> SourceSpan {
         SourceSpan {
             start: self.offset + self.data.len().saturating_sub(1) as u32,
@@ -135,31 +142,50 @@ impl SourceFile {
 
     pub fn locate(&self, span: SourceSpan) -> Option<SourceLocation> {
         let span = span - self.offset;
-
         let index_first = self
             .lines
             .binary_search(&span.start)
             .unwrap_or_else(|x| x - 1);
-
         let index_last = self
             .lines
             .get(index_first..)?
             .binary_search(&span.end)
             .unwrap_or_else(|x| x)
             + index_first;
+        self.locate_internal(span, index_first, index_last)
+    }
 
+    pub fn locate_hint(&self, span: SourceSpan, hint: SourceSpan) -> Option<SourceLocation> {
+        let span = span - self.offset;
+        let index_first = self
+            .lines
+            .get(hint.end as usize..)?
+            .binary_search(&span.start)
+            .unwrap_or_else(|x| x - 1);
+        let index_last = self
+            .lines
+            .get(index_first..)?
+            .binary_search(&span.end)
+            .unwrap_or_else(|x| x)
+            + index_first;
+        self.locate_internal(span, index_first, index_last)
+    }
+
+    fn locate_internal(
+        &self,
+        span: SourceSpan,
+        index_first: usize,
+        index_last: usize,
+    ) -> Option<SourceLocation> {
         let start_offset = self.lines.get(index_first).copied()? as usize;
         let end_offset = self.lines.get(index_last).copied()? as usize;
-
         let column = self
             .data
             .get(start_offset..span.start as usize)?
             .chars()
             .count() as u32
             + 1;
-
         let line_text = &self.data.get(start_offset..end_offset)?;
-
         Some(SourceLocation {
             line: index_first as u32 + 1,
             column,

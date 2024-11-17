@@ -10,7 +10,6 @@ use std::{
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "int" => TokenKind::KwInt,
-    "main" => TokenKind::KwMain,
     "void" => TokenKind::KwVoid,
     "return" => TokenKind::KwReturn,
 };
@@ -84,7 +83,6 @@ impl<'a> Lexer<'a> {
                                 span: self.file.span(begin..end).unwrap_or_default(),
                             });
                         }
-                        continue;
                     }
                     self.tokens.push(Token {
                         kind: TokenKind::Number(number),
@@ -247,7 +245,6 @@ pub enum TokenKind {
     RBrack,
 
     KwInt,
-    KwMain,
     KwVoid,
     KwReturn,
 
@@ -268,7 +265,6 @@ impl Display for TokenKind {
             TokenKind::RBrack => write!(f, "']'"),
 
             TokenKind::KwInt => write!(f, "'int'"),
-            TokenKind::KwMain => write!(f, "'main'"),
             TokenKind::KwVoid => write!(f, "'void'"),
             TokenKind::KwReturn => write!(f, "'return'"),
 

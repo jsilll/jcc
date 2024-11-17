@@ -25,23 +25,23 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParserResult {
+        let mut program = None;
         while let Some(token) = self.iter.peek() {
             match token.kind {
                 TokenKind::KwInt => {
-                    let program = self.parse_fn_def().map(|f| Program(f));
-                    return ParserResult {
-                        program,
-                        diagnostics: self.diagnostics,
-                    };
+                    program = self.parse_fn_def().map(|f| Program(f));
                 }
-                _ => self.diagnostics.push(ParserDiagnostic {
-                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::KwInt),
-                    span: token.span,
-                }),
+                _ => {
+                    self.diagnostics.push(ParserDiagnostic {
+                        kind: ParserDiagnosticKind::ExpectedToken(TokenKind::KwInt),
+                        span: token.span,
+                    });
+                    self.iter.next();
+                }
             }
         }
         ParserResult {
-            program: None,
+            program,
             diagnostics: self.diagnostics,
         }
     }
@@ -187,11 +187,9 @@ impl From<ParserDiagnostic> for Diagnostic {
                 "unexpected end of file",
                 "expected more tokens",
             ),
-            ParserDiagnosticKind::ExpectedToken(t) => Diagnostic::error(
-                diagnostic.span,
-                "expected token",
-                format!("expected {}", t),
-            ),
+            ParserDiagnosticKind::ExpectedToken(t) => {
+                Diagnostic::error(diagnostic.span, "expected token", format!("expected {}", t))
+            }
         }
     }
 }
@@ -217,5 +215,5 @@ pub enum Stmt {
 
 #[derive(Debug)]
 pub enum Expr {
-    Constant{ span: SourceSpan, value: u32 },
+    Constant { span: SourceSpan, value: u32 },
 }

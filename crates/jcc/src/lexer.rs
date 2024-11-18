@@ -2,11 +2,7 @@ use peeking_take_while::PeekableExt;
 use source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use string_interner::{DefaultStringInterner, DefaultSymbol};
 
-use std::{
-    fmt::{self, Display, Formatter},
-    iter::Peekable,
-    str::CharIndices,
-};
+use std::{fmt, iter::Peekable, str::CharIndices};
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "int" => TokenKind::KwInt,
@@ -29,13 +25,12 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile, interner: &'a mut DefaultStringInterner) -> Self {
-        let chars = file.data().char_indices().peekable();
         Self {
             file,
-            chars,
+            chars: file.data().char_indices().peekable(),
             interner,
-            tokens: Vec::new(),
-            nesting: Vec::new(),
+            tokens: Vec::with_capacity(128),
+            nesting: Vec::with_capacity(16),
             diagnostics: Vec::new(),
         }
     }
@@ -43,74 +38,16 @@ impl<'a> Lexer<'a> {
     pub fn lex(mut self) -> LexerResult {
         while let Some((begin, c)) = self.chars.next().map(|(begin, c)| (begin as u32, c)) {
             match c {
-                // Skip whitespace
                 c if c.is_whitespace() => continue,
-
-                // Single character tokens
+                c if c.is_digit(10) => self.lex_number(begin),
+                c if c.is_ascii_alphabetic() => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
-
-                // Nesting tokens
-                '(' => {
-                    self.nesting.push(TokenKind::RParen);
-                    self.lex_char(begin, TokenKind::LParen)
-                }
-                '{' => {
-                    self.nesting.push(TokenKind::RBrace);
-                    self.lex_char(begin, TokenKind::LBrace)
-                }
-                '[' => {
-                    self.nesting.push(TokenKind::RBrack);
-                    self.lex_char(begin, TokenKind::LBrack)
-                }
-                ')' => self.fix_nesting(begin, TokenKind::LParen, TokenKind::RParen),
-                '}' => self.fix_nesting(begin, TokenKind::LBrace, TokenKind::RBrace),
-                ']' => self.fix_nesting(begin, TokenKind::LBrack, TokenKind::RBrack),
-
-                // Numbers
-                c if c.is_digit(10) => {
-                    let end = self
-                        .chars
-                        .peeking_take_while(|(_, c)| c.is_digit(10))
-                        .last()
-                        .map(|(end, _)| end as u32)
-                        .unwrap_or_else(|| begin)
-                        + 1;
-                    let number = self.file.slice(begin..end).unwrap_or_default();
-                    let number = number.parse().unwrap_or_default();
-                    if let Some((_, c)) = self.chars.peek() {
-                        if c.is_ascii_alphabetic() {
-                            self.diagnostics.push(LexerDiagnostic {
-                                kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
-                                span: self.file.span(begin..end).unwrap_or_default(),
-                            });
-                        }
-                    }
-                    self.tokens.push(Token {
-                        kind: TokenKind::Number(number),
-                        span: self.file.span(begin..end).unwrap_or_default(),
-                    });
-                }
-
-                // Keywords and identifiers
-                c if c.is_ascii_alphabetic() => {
-                    let end = self
-                        .chars
-                        .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric())
-                        .last()
-                        .map(|(end, _)| end as u32)
-                        .unwrap_or_else(|| begin)
-                        + 1;
-                    let ident = self.file.slice(begin..end).unwrap_or_default();
-                    let kind = KEYWORDS
-                        .get(ident)
-                        .copied()
-                        .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
-                    self.tokens.push(Token {
-                        kind,
-                        span: self.file.span(begin..end).unwrap_or_default(),
-                    });
-                }
-
+                '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),
+                '{' => self.handle_nesting_open(begin, TokenKind::LBrace, TokenKind::RBrace),
+                '[' => self.handle_nesting_open(begin, TokenKind::LBrack, TokenKind::RBrack),
+                ')' => self.handle_nesting_close(begin, TokenKind::LParen, TokenKind::RParen),
+                '}' => self.handle_nesting_close(begin, TokenKind::LBrace, TokenKind::RBrace),
+                ']' => self.handle_nesting_close(begin, TokenKind::LBrack, TokenKind::RBrack),
                 _ => self.diagnostics.push(LexerDiagnostic {
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
                     span: self.file.span(begin..begin + 1).unwrap_or_default(),
@@ -118,15 +55,8 @@ impl<'a> Lexer<'a> {
             }
         }
         if !self.nesting.is_empty() {
-            self.nesting.into_iter().for_each(|kind| {
-                self.tokens.push(Token {
-                    kind,
-                    span: self.file.end_span(),
-                });
-                self.diagnostics.push(LexerDiagnostic {
-                    kind: LexerDiagnosticKind::UnbalancedToken(kind),
-                    span: self.file.end_span(),
-                });
+            self.nesting.clone().into_iter().for_each(|kind| {
+                self.insert_unbalanced(kind, None);
             });
         }
         LexerResult {
@@ -142,35 +72,81 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn fix_nesting(&mut self, begin: u32, open: TokenKind, close: TokenKind) {
+    fn lex_number(&mut self, begin: u32) {
+        let end = self
+            .chars
+            .peeking_take_while(|(_, c)| c.is_digit(10))
+            .last()
+            .map(|(end, _)| end as u32)
+            .unwrap_or_else(|| begin)
+            + 1;
+        let number = self.file.slice(begin..end).unwrap_or_default();
+        let number = number.parse().unwrap_or_default();
+        if let Some((_, c)) = self.chars.peek() {
+            if c.is_ascii_alphabetic() {
+                self.diagnostics.push(LexerDiagnostic {
+                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
+                    span: self.file.span(begin..end).unwrap_or_default(),
+                });
+            }
+        }
+        self.tokens.push(Token {
+            kind: TokenKind::Number(number),
+            span: self.file.span(begin..end).unwrap_or_default(),
+        });
+    }
+
+    fn lex_keyword_or_identifier(&mut self, begin: u32) {
+        let end = self
+            .chars
+            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric())
+            .last()
+            .map(|(end, _)| end as u32)
+            .unwrap_or_else(|| begin)
+            + 1;
+        let ident = self.file.slice(begin..end).unwrap_or_default();
+        let kind = KEYWORDS
+            .get(ident)
+            .copied()
+            .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
+        self.tokens.push(Token {
+            kind,
+            span: self.file.span(begin..end).unwrap_or_default(),
+        });
+    }
+
+    fn handle_nesting_open(&mut self, begin: u32, open: TokenKind, close: TokenKind) {
+        self.nesting.push(close);
+        self.lex_char(begin, open);
+    }
+
+    fn handle_nesting_close(&mut self, begin: u32, open: TokenKind, close: TokenKind) {
         let mut matched = false;
         while let Some(kind) = self.nesting.pop() {
             if kind == close {
                 matched = true;
                 break;
             }
-            self.tokens.push(Token {
-                kind,
-                span: self.file.span(begin..begin + 1).unwrap_or_default(),
-            });
-            self.diagnostics.push(LexerDiagnostic {
-                kind: LexerDiagnosticKind::UnbalancedToken(kind),
-                span: self.file.span(begin..begin + 1).unwrap_or_default(),
-            });
+            self.insert_unbalanced(kind, Some(begin));
         }
         if !matched {
-            self.tokens.push(Token {
-                kind: open,
-                span: self.file.span(begin..begin + 1).unwrap_or_default(),
-            });
-            self.diagnostics.push(LexerDiagnostic {
-                kind: LexerDiagnosticKind::UnbalancedToken(open),
-                span: self.file.span(begin..begin + 1).unwrap_or_default(),
-            });
+            self.insert_unbalanced(open, Some(begin));
         }
         self.tokens.push(Token {
             kind: close,
             span: self.file.span(begin..begin + 1).unwrap_or_default(),
+        });
+    }
+
+    fn insert_unbalanced(&mut self, kind: TokenKind, begin: Option<u32>) {
+        let span = match begin {
+            Some(begin) => self.file.span(begin..begin + 1).unwrap_or_default(),
+            None => self.file.end_span(),
+        };
+        self.tokens.push(Token { kind, span });
+        self.diagnostics.push(LexerDiagnostic {
+            kind: LexerDiagnosticKind::UnbalancedToken(kind),
+            span,
         });
     }
 }
@@ -215,10 +191,10 @@ impl From<LexerDiagnostic> for Diagnostic {
                 "identifier starts with digit",
                 "identifiers cannot start with a digit",
             ),
-            LexerDiagnosticKind::UnbalancedToken(c) => Diagnostic::error(
+            LexerDiagnosticKind::UnbalancedToken(token) => Diagnostic::error(
                 diagnostic.span,
                 "unbalanced token",
-                format!("expected a matching {}", c),
+                format!("expected a matching {token}"),
             ),
         }
     }
@@ -253,8 +229,8 @@ pub enum TokenKind {
     Identifier(DefaultSymbol),
 }
 
-impl Display for TokenKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::Semi => write!(f, "';'"),
 

@@ -1,5 +1,5 @@
 use jcc::{
-    emit::X86Emitter,
+    emit::X64Emitter,
     ir::IrBuilder,
     lexer::{Lexer, LexerDiagnosticKind},
     parser::Parser,
@@ -29,7 +29,7 @@ struct Args {
     /// Emit an assembly file but not an executable
     #[clap(long, short = 'S')]
     pub emit_asm: bool,
-    /// The source file to compile
+    /// The path to the source file to compile
     pub path: PathBuf,
 }
 
@@ -57,35 +57,34 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to preprocessor errors"));
     }
 
-    // Global data structures
-    let mut db = SourceDb::new();
-    let mut interner = StringInterner::default();
-
     // Add file to db
+    let mut db = SourceDb::new();
     db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
     // Lex the file
+    let mut interner = StringInterner::default();
     let mut lexer_result = Lexer::new(&file, &mut interner).lex();
     if args.lex {
-        lexer_result.diagnostics.retain(|d| match d.kind {
-            LexerDiagnosticKind::UnbalancedToken(_) => false,
-            _ => true,
-        });
+        lexer_result
+            .diagnostics
+            .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
         let mut hint = 0;
         lexer_result.diagnostics.iter().try_for_each(|d| {
-            let diag = Diagnostic::from(d.clone());
-            diag.report_hint(&file, &mut hint, &mut std::io::stderr())
+            Diagnostic::from(d.clone()).report_hint(&file, &mut hint, &mut std::io::stderr())
         })?;
         return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
     }
     if args.verbose {
         let mut hint = 0;
         lexer_result.tokens.iter().try_for_each(|t| {
-            let diag = Diagnostic::note(t.span, "token", "here");
-            diag.report_hint(&file, &mut hint, &mut std::io::stdout())
+            Diagnostic::note(t.span, "token", "here").report_hint(
+                &file,
+                &mut hint,
+                &mut std::io::stdout(),
+            )
         })?;
     }
     if args.lex {
@@ -97,8 +96,7 @@ fn try_main() -> Result<()> {
     if !parser_result.diagnostics.is_empty() {
         let mut hint = 0;
         parser_result.diagnostics.iter().try_for_each(|d| {
-            let diag = Diagnostic::from(d.clone());
-            diag.report_hint(&file, &mut hint, &mut std::io::stderr())
+            Diagnostic::from(d.clone()).report_hint(&file, &mut hint, &mut std::io::stderr())
         })?;
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));
     }
@@ -109,6 +107,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
+    // TODO: Check the AST
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 
@@ -125,8 +124,8 @@ fn try_main() -> Result<()> {
 
     // Emit assembly
     let asm_path = args.path.with_extension("s");
-    let x86_emmiter = X86Emitter::new(&ir, &interner);
-    std::fs::write(&asm_path, x86_emmiter.emit()).context("Failed to write assembly file")?;
+    let asm = X64Emitter::new(&ir, &interner).emit();
+    std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.emit_asm {
         return Ok(());
     }

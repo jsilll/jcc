@@ -25,26 +25,12 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParserResult {
-        let mut program = None;
-        while let Some(token) = self.iter.peek() {
-            match token.kind {
-                TokenKind::KwInt => {
-                    if let Some(p) = self.parse_fn_def().map(|f| Program(f)) {
-                        program = Some(p)
-                    } else {
-                        // NOTE: for now since a program only contains the main function for now
-                        break;
-                    }
-                }
-                _ => {
-                    self.diagnostics.push(ParserDiagnostic {
-                        kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
-                        span: token.span,
-                    });
-                    // NOTE: for now since a program only contains the main function for now
-                    break;
-                }
-            }
+        let program = self.parse_program();
+        if !self.iter.peek().is_none() {
+            self.diagnostics.push(ParserDiagnostic {
+                kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
+                span: self.file.end_span(),
+            })
         }
         ParserResult {
             program,
@@ -52,80 +38,84 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect(&mut self, kind: TokenKind) -> Option<Token> {
-        match self.iter.peek() {
-            Some(token) => {
-                let eq = match (token.kind, kind) {
-                    (TokenKind::Number(_), TokenKind::Number(_)) => true,
-                    (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
-                    _ => token.kind == kind,
-                };
-                if eq {
-                    self.iter.next().cloned()
-                } else {
-                    self.diagnostics.push(ParserDiagnostic {
-                        span: token.span,
-                        kind: ParserDiagnosticKind::UnexpectedToken(kind),
-                    });
-                    None
-                }
-            }
-            None => {
-                self.diagnostics.push(ParserDiagnostic {
-                    span: self.file.end_span(),
-                    kind: ParserDiagnosticKind::UnexpectedEof,
-                });
-                None
-            }
+    fn expect(&mut self, kind: TokenKind) -> Option<&Token> {
+        let token = self.iter.peek().or_else(|| {
+            self.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })?;
+        let matches = match (token.kind, kind) {
+            (TokenKind::Number(_), TokenKind::Number(_))
+            | (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
+            _ => token.kind == kind,
+        };
+        if matches {
+            self.iter.next()
+        } else {
+            self.diagnostics.push(ParserDiagnostic {
+                span: token.span,
+                kind: ParserDiagnosticKind::UnexpectedToken(kind),
+            });
+            None
         }
     }
 
     fn expect_number(&mut self) -> Option<(SourceSpan, u32)> {
-        match self.iter.peek() {
-            Some(token) => {
-                if let TokenKind::Number(n) = token.kind {
-                    let r = (token.span, n);
-                    self.iter.next();
-                    Some(r)
-                } else {
-                    self.diagnostics.push(ParserDiagnostic {
-                        span: token.span,
-                        kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Number(0)),
-                    });
-                    None
-                }
-            }
-            None => {
-                self.diagnostics.push(ParserDiagnostic {
-                    span: self.file.end_span(),
-                    kind: ParserDiagnosticKind::UnexpectedEof,
-                });
-                None
-            }
+        let token = self.iter.peek().or_else(|| {
+            self.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })?;
+        if let TokenKind::Number(n) = token.kind {
+            let span = token.span;
+            self.iter.next();
+            Some((span, n))
+        } else {
+            self.diagnostics.push(ParserDiagnostic {
+                span: token.span,
+                kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Number(0)),
+            });
+            None
         }
     }
 
     fn expect_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
-        match self.iter.peek() {
-            Some(token) => {
-                if let TokenKind::Identifier(s) = token.kind {
-                    let r = (token.span, s);
-                    self.iter.next();
-                    Some(r)
-                } else {
-                    self.diagnostics.push(ParserDiagnostic {
-                        span: token.span,
-                        kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Identifier(
-                            DefaultSymbol::try_from_usize(0).unwrap(),
-                        )),
-                    });
-                    None
-                }
-            }
-            None => {
+        let token = self.iter.peek().or_else(|| {
+            self.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })?;
+        if let TokenKind::Identifier(s) = token.kind {
+            let span = token.span;
+            self.iter.next();
+            Some((span, s))
+        } else {
+            self.diagnostics.push(ParserDiagnostic {
+                span: token.span,
+                kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Identifier(
+                    DefaultSymbol::try_from_usize(0).unwrap(),
+                )),
+            });
+            None
+        }
+    }
+
+    fn parse_program(&mut self) -> Option<Program> {
+        match self.iter.peek()? {
+            Token {
+                kind: TokenKind::KwInt,
+                ..
+            } => self.parse_fn_def().map(Program),
+            Token { span, .. } => {
                 self.diagnostics.push(ParserDiagnostic {
-                    span: self.file.end_span(),
-                    kind: ParserDiagnosticKind::UnexpectedEof,
+                    kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
+                    span: *span,
                 });
                 None
             }
@@ -191,10 +181,10 @@ impl From<ParserDiagnostic> for Diagnostic {
                 "unexpected end of file",
                 "expected more tokens",
             ),
-            ParserDiagnosticKind::UnexpectedToken(t) => Diagnostic::error(
+            ParserDiagnosticKind::UnexpectedToken(token) => Diagnostic::error(
                 diagnostic.span,
                 "unexpected token",
-                format!("expected {}", t),
+                format!("expected {token}"),
             ),
         }
     }

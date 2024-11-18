@@ -17,40 +17,38 @@ impl<'a> IrBuilder<'a> {
     }
 
     pub fn build(self) -> Program {
-        Program(self.visit_fn_def(&self.program.0))
+        Program(self.build_from_fn_def(&self.program.0))
     }
 
-    fn visit_fn_def(&self, fn_def: &parser::FnDef) -> FnDef {
+    fn build_from_fn_def(&self, fn_def: &parser::FnDef) -> FnDef {
         FnDef {
             span: fn_def.span,
             name: fn_def.name,
-            body: self.visit_stmt(&fn_def.body),
+            body: self.build_from_stmt(&fn_def.body),
         }
     }
 
-    fn visit_stmt(&self, stmt: &parser::Stmt) -> Vec<Instr> {
-        let mut instrs = Vec::new();
+    fn build_from_stmt(&self, stmt: &parser::Stmt) -> Vec<Instr> {
         match stmt {
-            parser::Stmt::Return(expr) => {
-                instrs.push(Instr::Mov {
-                    src: self.visit_expr(expr),
+            parser::Stmt::Return(expr) => vec![
+                Instr::Mov {
+                    src: self.build_from_expr(expr),
                     dst: Oper::Reg,
-                });
-                instrs.push(Instr::Ret);
-            }
+                },
+                Instr::Ret,
+            ],
         }
-        instrs
     }
 
-    fn visit_expr(&self, expr: &parser::Expr) -> Oper {
+    fn build_from_expr(&self, expr: &parser::Expr) -> Oper {
         match expr {
-            parser::Expr::Constant { span: _, value } => Oper::Imm(*value),
+            parser::Expr::Constant { value, .. } => Oper::Imm(*value),
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// AST
+// IR
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]

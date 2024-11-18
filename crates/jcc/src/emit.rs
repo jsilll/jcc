@@ -3,38 +3,30 @@ use crate::ir;
 use string_interner::DefaultStringInterner;
 
 // ---------------------------------------------------------------------------
-// X86Emitter
+// X64Emitter
 // ---------------------------------------------------------------------------
 
-pub struct X86Emitter<'a> {
-    ident: usize,
+pub struct X64Emitter<'a> {
     output: String,
+    indent_level: usize,
     program: &'a ir::Program,
     interner: &'a DefaultStringInterner,
 }
 
-impl<'a> X86Emitter<'a> {
+impl<'a> X64Emitter<'a> {
     pub fn new(program: &'a ir::Program, interner: &'a DefaultStringInterner) -> Self {
         Self {
             program,
             interner,
-            ident: 0,
-            output: String::new(),
+            indent_level: 0,
+            output: String::with_capacity(1024),
         }
     }
 
     pub fn emit(mut self) -> String {
         self.emit_fn_def(&self.program.0);
-        self.ident += 1;
-        self.write(".section .note.GNU-stack,\"\",@progbits");
-        self.ident -= 1;
+        self.writeln(".section .note.GNU-stack,\"\",@progbits");
         self.output
-    }
-
-    fn write(&mut self, s: &str) {
-        self.output.push_str(&"    ".repeat(self.ident));
-        self.output.push_str(s);
-        self.output.push('\n');
     }
 
     fn emit_fn_def(&mut self, fn_def: &ir::FnDef) {
@@ -44,34 +36,47 @@ impl<'a> X86Emitter<'a> {
             .interner
             .resolve(fn_def.name)
             .expect("unresolved symbol");
-        self.ident += 1;
-        self.write(&format!(".globl {}", name));
-        self.ident -= 1;
-        self.write(&format!("{}:", name));
-        self.ident += 1;
-        for instr in &fn_def.body {
-            self.emit_instr(instr);
-        }
-        self.ident -= 1;
+        self.writeln(&format!(".globl {name}"));
+        self.writeln(&format!("{name}:"));
+        self.with_indent(|emitter| {
+            for instr in &fn_def.body {
+                emitter.emit_instr(instr);
+            }
+        });
     }
 
     fn emit_instr(&mut self, instr: &ir::Instr) {
         match instr {
-            ir::Instr::Ret => {
-                self.write("ret");
-            }
+            ir::Instr::Ret => self.writeln("ret"),
             ir::Instr::Mov { src, dst } => {
-                let src = self.resolve_oper(src);
-                let dst = self.resolve_oper(dst);
-                self.write(&format!("movl {}, {}", src, dst));
+                let src = self.emit_oper(src);
+                let dst = self.emit_oper(dst);
+                self.writeln(&format!("movl {src}, {dst}"));
             }
         }
     }
 
-    fn resolve_oper(&self, oper: &ir::Oper) -> String {
+    fn emit_oper(&self, oper: &ir::Oper) -> String {
         match oper {
             ir::Oper::Reg => "%eax".to_string(),
-            ir::Oper::Imm(value) => format!("${}", value),
+            ir::Oper::Imm(value) => format!("${value}"),
         }
+    }
+
+    fn writeln(&mut self, s: &str) {
+        if !s.is_empty() {
+            self.output.push_str(&"    ".repeat(self.indent_level));
+            self.output.push_str(s);
+        }
+        self.output.push('\n');
+    }
+
+    fn with_indent<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        self.indent_level += 1;
+        f(self);
+        self.indent_level -= 1;
     }
 }

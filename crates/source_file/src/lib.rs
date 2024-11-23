@@ -45,8 +45,8 @@ impl Sub<u32> for SourceSpan {
 
     fn sub(self, offset: u32) -> Self {
         Self {
-            start: self.start - offset,
-            end: self.end - offset,
+            start: self.start.saturating_sub(offset),
+            end: self.end.saturating_sub(offset),
         }
     }
 }
@@ -102,10 +102,10 @@ impl SourceFile {
         lines.shrink_to_fit();
 
         Ok(Self {
-            offset: 0,
             data,
-            path: path.as_ref().to_path_buf(),
             lines,
+            offset: 0,
+            path: path.as_ref().to_path_buf(),
         })
     }
 
@@ -117,37 +117,70 @@ impl SourceFile {
         &self.path
     }
 
+    pub fn end_span(&self) -> SourceSpan {
+        let end = self.offset + self.data.len() as u32;
+        SourceSpan {
+            start: end.saturating_sub(1),
+            end,
+        }
+    }
+
+    pub fn slice(&self, range: impl Into<Range<u32>>) -> Option<&str> {
+        let range = range.into();
+        self.data.get(range.start as usize..range.end as usize)
+    }
+
     pub fn span(&self, range: impl Into<Range<u32>>) -> Option<SourceSpan> {
         SourceSpan::new(range).map(|span| span + self.offset)
     }
 
     pub fn locate(&self, span: SourceSpan) -> Option<SourceLocation> {
         let span = span - self.offset;
-
         let index_first = self
             .lines
             .binary_search(&span.start)
             .unwrap_or_else(|x| x - 1);
-
         let index_last = self
             .lines
             .get(index_first..)?
             .binary_search(&span.end)
             .unwrap_or_else(|x| x)
             + index_first;
+        self.locate_internal(span, index_first, index_last)
+    }
 
+    pub fn locate_hint(&self, span: SourceSpan, hint: usize) -> Option<SourceLocation> {
+        let span = span - self.offset;
+        let index_first = self
+            .lines
+            .get(hint..)?
+            .binary_search(&span.start)
+            .unwrap_or_else(|x| x - 1)
+            + hint;
+        let index_last = self
+            .lines
+            .get(index_first..)?
+            .binary_search(&span.end)
+            .unwrap_or_else(|x| x)
+            + index_first;
+        self.locate_internal(span, index_first, index_last)
+    }
+
+    fn locate_internal(
+        &self,
+        span: SourceSpan,
+        index_first: usize,
+        index_last: usize,
+    ) -> Option<SourceLocation> {
         let start_offset = self.lines.get(index_first).copied()? as usize;
         let end_offset = self.lines.get(index_last).copied()? as usize;
-
         let column = self
             .data
             .get(start_offset..span.start as usize)?
             .chars()
             .count() as u32
             + 1;
-
         let line_text = &self.data.get(start_offset..end_offset)?;
-
         Some(SourceLocation {
             line: index_first as u32 + 1,
             column,
@@ -185,6 +218,14 @@ impl SourceDb {
             .binary_search_by_key(&span.start, |file| file.offset)
             .unwrap_or_else(|x| x - 1);
         self.files.get(index)?.locate(span)
+    }
+
+    pub fn locate_hint(&self, span: SourceSpan, hint: usize) -> Option<SourceLocation> {
+        let index = self
+            .files
+            .binary_search_by_key(&span.start, |file| file.offset)
+            .unwrap_or_else(|x| x - 1);
+        self.files.get(index)?.locate_hint(span, hint)
     }
 }
 

@@ -1,49 +1,145 @@
+use jcc::{
+    emit::X64Emitter,
+    ir::IrBuilder,
+    lexer::{Lexer, LexerDiagnosticKind},
+    parser::Parser,
+};
+
 use anyhow::{Context, Result};
-// use bumpalo::Bump;
-use clap::Parser;
-use jcc::lexer::Lexer;
+use clap::Parser as ClapParser;
 use source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
-use std::path::PathBuf;
 use string_interner::StringInterner;
 
-#[derive(Parser)]
+use std::{path::PathBuf, process::Command};
+
+#[derive(ClapParser)]
 struct Args {
+    /// Run the compiler in verbose mode
+    #[clap(long)]
+    pub verbose: bool,
+    /// Run the lexer, but stop before parsing
+    #[clap(long)]
+    pub lex: bool,
+    /// Run the lexer and parser, but stop before assembly generation
+    #[clap(long)]
+    pub parse: bool,
+    /// Run the lexer, parser, and assembly generation, but stop before code emission
+    #[clap(long)]
+    pub codegen: bool,
+    /// Emit an assembly file but not an executable
+    #[clap(long, short = 'S')]
+    pub emit_asm: bool,
+    /// The path to the source file to compile
     pub path: PathBuf,
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = try_main() {
+        println!("{:?}", e);
+        std::process::exit(1)
+    }
+}
+
+fn try_main() -> Result<()> {
     let args = Args::parse();
 
-    // Global data structures
-    let mut db = SourceDb::new();
-    let mut interner = StringInterner::default();
-    // let bump = Bump::new();
+    // Run the preprocessor with `gcc -E -P`
+    let pp_path = args.path.with_extension("i");
+    let output = Command::new("gcc")
+        .arg("-E")
+        .arg("-P")
+        .arg(&args.path)
+        .arg("-o")
+        .arg(&pp_path)
+        .output()?;
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        return Err(anyhow::anyhow!("\nexiting due to preprocessor errors"));
+    }
 
     // Add file to db
-    db.add(SourceFile::new(args.path).context("Failed to read file")?);
+    let mut db = SourceDb::new();
+    db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
-    // Compile the file
-    let lexer_result = Lexer::new(&file, &mut interner).lex();
+    // Lex the file
+    let mut interner = StringInterner::default();
+    let mut lexer_result = Lexer::new(&file, &mut interner).lex();
+    if args.lex {
+        lexer_result
+            .diagnostics
+            .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
+    }
     if !lexer_result.diagnostics.is_empty() {
+        let mut hint = 0;
         lexer_result.diagnostics.iter().try_for_each(|d| {
-            let diag = Diagnostic::from(d.clone());
-            diag.report(&file, &mut std::io::stderr())
+            Diagnostic::from(d.clone()).report_hint(&file, &mut hint, &mut std::io::stderr())
+        })?;
+        return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
+    }
+    if args.verbose {
+        let mut hint = 0;
+        lexer_result.tokens.iter().try_for_each(|t| {
+            Diagnostic::note(t.span, "token", "here").report_hint(
+                &file,
+                &mut hint,
+                &mut std::io::stdout(),
+            )
         })?;
     }
-    if !lexer_result.tokens.is_empty() {
-        lexer_result.tokens.iter().try_for_each(|t| {
-            let diag = Diagnostic::note(t.span, "lexed token", format!("{:?}", t.kind));
-            diag.report(&file, &mut std::io::stdout())
-        })?;
+    if args.lex {
+        return Ok(());
     }
 
-    // let parser = Parser::new(&file, &interner, &tokens);
-    // let ast = parser.parse()?;
+    // Parse the tokens
+    let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
+    if !parser_result.diagnostics.is_empty() {
+        let mut hint = 0;
+        parser_result.diagnostics.iter().try_for_each(|d| {
+            Diagnostic::from(d.clone()).report_hint(&file, &mut hint, &mut std::io::stderr())
+        })?;
+        return Err(anyhow::anyhow!("\nexiting due to parser errors"));
+    }
+    if args.verbose {
+        println!("{:#?}", parser_result.program);
+    }
+    if args.parse {
+        return Ok(());
+    }
+
+    // TODO: Check the AST
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
-    // let codegen = Codegen::new(&file, &interner, &ast);
-    // codegen.generate()?;
+
+    // Generate IR
+    let ast = parser_result.program.context("Parsed an empty program")?;
+    let ir_builder = IrBuilder::new(&ast);
+    let ir = ir_builder.build();
+    if args.verbose {
+        println!("{:#?}", ir);
+    }
+    if args.codegen {
+        return Ok(());
+    }
+
+    // Emit assembly
+    let asm_path = args.path.with_extension("s");
+    let asm = X64Emitter::new(&ir, &interner).emit();
+    std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
+    if args.emit_asm {
+        return Ok(());
+    }
+
+    // Run the assembler and linker with `gcc`
+    let output = Command::new("gcc")
+        .arg(&asm_path)
+        .arg("-o")
+        .arg(&args.path.with_extension(""))
+        .output()?;
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
+    }
 
     Ok(())
 }

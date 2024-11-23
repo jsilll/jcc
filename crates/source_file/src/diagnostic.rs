@@ -1,4 +1,5 @@
-use crate::{SourceFile, SourceSpan};
+use crate::{SourceFile, SourceLocation, SourceSpan};
+
 use std::{
     fmt::{self, Display},
     io::{Result, Write},
@@ -43,6 +44,7 @@ impl Diagnostic {
             level,
         }
     }
+
     pub fn error(span: SourceSpan, title: impl Into<String>, message: impl Into<String>) -> Self {
         Diagnostic::new(span, title, message, DiagnosticLevel::Error)
     }
@@ -56,6 +58,27 @@ impl Diagnostic {
     }
 
     pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> Result<()> {
+        let location = file.locate(self.span).unwrap_or_default();
+        self.report_internal(file, location, buffer)
+    }
+
+    pub fn report_hint(
+        &self,
+        file: &SourceFile,
+        hint: &mut usize,
+        buffer: &mut impl Write,
+    ) -> Result<()> {
+        let location = file.locate_hint(self.span, *hint).unwrap_or_default();
+        *hint = location.line as usize - 1;
+        self.report_internal(file, location, buffer)
+    }
+
+    pub fn report_internal(
+        &self,
+        file: &SourceFile,
+        location: SourceLocation,
+        buffer: &mut impl Write,
+    ) -> Result<()> {
         fn count_digits(n: u32) -> u32 {
             n.checked_ilog10().unwrap_or(0) + 1
         }
@@ -71,7 +94,6 @@ impl Diagnostic {
             spaces
         }
 
-        let location = file.locate(self.span).unwrap_or_default();
         let lines = location.line_text.lines().collect::<Vec<_>>();
         let max_digits = count_digits(location.line + lines.len() as u32 - 1) as usize;
 
@@ -94,11 +116,8 @@ impl Diagnostic {
             " ".repeat(max_digits),
             " ".repeat(location.column as usize),
             "^".repeat(std::cmp::min(
-                self.span.len().checked_sub(1).unwrap_or(0),
-                line_text
-                    .len()
-                    .checked_sub(location.column as usize)
-                    .unwrap_or(0)
+                self.span.len().saturating_sub(1),
+                line_text.len().saturating_sub(location.column as usize)
             )),
         )?;
 
@@ -107,7 +126,7 @@ impl Diagnostic {
             .iter()
             .skip(1)
             .enumerate()
-            .take(lines.len().checked_sub(2).unwrap_or(0))
+            .take(lines.len().saturating_sub(2))
             .map(|(index, line_text)| {
                 let line = location.line + index as u32 + 1;
                 (
@@ -145,11 +164,7 @@ impl Diagnostic {
                     line_text,
                     " ".repeat(max_digits),
                     " ".repeat(line_text_leading_spaces),
-                    "^".repeat(
-                        (line_text.len() - line_text_leading_spaces)
-                            .checked_sub(rtrim)
-                            .unwrap_or(0)
-                    )
+                    "^".repeat((line_text.len() - line_text_leading_spaces).saturating_sub(rtrim))
                 )?;
             }
         }

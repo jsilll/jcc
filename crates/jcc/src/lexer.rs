@@ -42,6 +42,8 @@ impl<'a> Lexer<'a> {
                 c if c.is_digit(10) => self.lex_number(begin),
                 c if c.is_ascii_alphabetic() => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
+                '~' => self.lex_char(begin, TokenKind::Tilde),
+                '-' => self.lex_char_double(begin, '-', TokenKind::MinusMinus, TokenKind::Minus),
                 '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),
                 '{' => self.handle_nesting_open(begin, TokenKind::LBrace, TokenKind::RBrace),
                 '[' => self.handle_nesting_open(begin, TokenKind::LBrack, TokenKind::RBrack),
@@ -70,6 +72,22 @@ impl<'a> Lexer<'a> {
             kind,
             span: self.file.span(begin..begin + 1).unwrap_or_default(),
         })
+    }
+
+    fn lex_char_double(&mut self, begin: u32, ch: char, kind1: TokenKind, kind2: TokenKind) {
+        match self.chars.peek() {
+            Some((_, ch2)) if *ch2 == ch => {
+                self.chars.next();
+                self.tokens.push(Token {
+                    kind: kind1,
+                    span: self.file.span(begin..begin + 2).unwrap_or_default(),
+                });
+            }
+            _ => self.tokens.push(Token {
+                kind: kind2,
+                span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            }),
+        }
     }
 
     fn lex_number(&mut self, begin: u32) {
@@ -213,6 +231,9 @@ pub struct Token {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     Semi,
+    Tilde,
+    Minus,
+    MinusMinus,
 
     LBrace,
     RBrace,
@@ -233,6 +254,9 @@ impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::Semi => write!(f, "';'"),
+            TokenKind::Tilde => write!(f, "'~'"),
+            TokenKind::Minus => write!(f, "'-'"),
+            TokenKind::MinusMinus => write!(f, "'--'"),
 
             TokenKind::LBrace => write!(f, "'{{'"),
             TokenKind::RBrace => write!(f, "'}}'"),

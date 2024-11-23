@@ -118,9 +118,10 @@ impl SourceFile {
     }
 
     pub fn end_span(&self) -> SourceSpan {
+        let end = self.offset + self.data.len() as u32;
         SourceSpan {
-            start: self.offset + self.data.len().saturating_sub(1) as u32,
-            end: self.offset + self.data.len() as u32,
+            start: end.saturating_sub(1),
+            end,
         }
     }
 
@@ -154,7 +155,8 @@ impl SourceFile {
             .lines
             .get(hint..)?
             .binary_search(&span.start)
-            .unwrap_or_else(|x| x - 1);
+            .unwrap_or_else(|x| x - 1)
+            + hint;
         let index_last = self
             .lines
             .get(index_first..)?

@@ -101,7 +101,7 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));
     }
     if args.verbose {
-        println!("{:#?}", parser_result.program);
+        println!("{:#?}", parser_result.ast.items[0]);
     }
     if args.parse {
         return Ok(());
@@ -112,8 +112,11 @@ fn try_main() -> Result<()> {
     // checker.check()?;
 
     // Generate IR
-    let ast = parser_result.program.context("Parsed an empty program")?;
-    let ir_builder = IrBuilder::new(&ast);
+    if parser_result.ast.items.is_empty() {
+        eprintln!("Error: codegen was given an empty parse tree");
+        return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
+    }
+    let ir_builder = IrBuilder::new(&parser_result.ast);
     let ir = ir_builder.build();
     if args.verbose {
         println!("{:#?}", ir);

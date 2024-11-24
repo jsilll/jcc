@@ -12,20 +12,29 @@ use std::{iter::Peekable, slice::Iter};
 pub struct Parser<'a> {
     file: &'a SourceFile,
     iter: Peekable<Iter<'a, Token>>,
+    ast: Ast,
     diagnostics: Vec<ParserDiagnostic>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(file: &'a SourceFile, iter: Iter<'a, Token>) -> Self {
+        let ast = Ast {
+            items: Vec::new(),
+            exprs: Vec::new(),
+            stmts: Vec::new(),
+        };
         Self {
             file,
             iter: iter.peekable(),
+            ast,
             diagnostics: Vec::new(),
         }
     }
 
     pub fn parse(mut self) -> ParserResult {
-        let program = self.parse_program();
+        if let Some(fn_def) = self.parse_fn_def() {
+            self.ast.items.push(fn_def);
+        }
         if !self.iter.peek().is_none() {
             self.diagnostics.push(ParserDiagnostic {
                 kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
@@ -33,9 +42,33 @@ impl<'a> Parser<'a> {
             })
         }
         ParserResult {
-            program,
+            ast: self.ast,
             diagnostics: self.diagnostics,
         }
+    }
+
+    fn parse_fn_def(&mut self) -> Option<FnDef> {
+        self.expect(TokenKind::KwInt)?;
+        let (span, name) = self.expect_identifier()?;
+        self.expect(TokenKind::LParen)?;
+        self.expect(TokenKind::KwVoid)?;
+        self.expect(TokenKind::RParen)?;
+        self.expect(TokenKind::LBrace)?;
+        let body = self.parse_stmt()?;
+        self.expect(TokenKind::RBrace)?;
+        Some(FnDef { span, name, body })
+    }
+
+    fn parse_stmt(&mut self) -> Option<Stmt> {
+        self.expect(TokenKind::KwReturn)?;
+        let expr = self.parse_expr()?;
+        self.expect(TokenKind::Semi)?;
+        Some(Stmt::Return(expr))
+    }
+
+    fn parse_expr(&mut self) -> Option<ExprRef> {
+        let (span, value) = self.expect_number()?;
+        Some(self.ast.push_expr(Expr::Constant { span, value }))
     }
 
     fn expect(&mut self, kind: TokenKind) -> Option<&Token> {
@@ -105,55 +138,14 @@ impl<'a> Parser<'a> {
             None
         }
     }
-
-    fn parse_program(&mut self) -> Option<Program> {
-        match self.iter.peek()? {
-            Token {
-                kind: TokenKind::KwInt,
-                ..
-            } => self.parse_fn_def().map(Program),
-            Token { span, .. } => {
-                self.diagnostics.push(ParserDiagnostic {
-                    kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
-                    span: *span,
-                });
-                None
-            }
-        }
-    }
-
-    fn parse_fn_def(&mut self) -> Option<FnDef> {
-        self.expect(TokenKind::KwInt)?;
-        let (span, name) = self.expect_identifier()?;
-        self.expect(TokenKind::LParen)?;
-        self.expect(TokenKind::KwVoid)?;
-        self.expect(TokenKind::RParen)?;
-        self.expect(TokenKind::LBrace)?;
-        let body = self.parse_stmt()?;
-        self.expect(TokenKind::RBrace)?;
-        Some(FnDef { span, name, body })
-    }
-
-    fn parse_stmt(&mut self) -> Option<Stmt> {
-        self.expect(TokenKind::KwReturn)?;
-        let expr = self.parse_expr()?;
-        self.expect(TokenKind::Semi)?;
-        Some(Stmt::Return(expr))
-    }
-
-    fn parse_expr(&mut self) -> Option<Expr> {
-        let (span, value) = self.expect_number()?;
-        Some(Expr::Constant { span, value })
-    }
 }
 
 // ---------------------------------------------------------------------------
 // ParserResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
 pub struct ParserResult {
-    pub program: Option<Program>,
+    pub ast: Ast,
     pub diagnostics: Vec<ParserDiagnostic>,
 }
 
@@ -194,8 +186,47 @@ impl From<ParserDiagnostic> for Diagnostic {
 // AST
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub struct Program(pub FnDef);
+pub struct Ast {
+    pub items: Vec<FnDef>,
+    exprs: Vec<Expr>,
+    stmts: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ExprRef(u32);
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StmtRef(u32);
+
+impl Ast {
+    fn push_expr(&mut self, expr: Expr) -> ExprRef {
+        let r = ExprRef(self.exprs.len() as u32);
+        self.exprs.push(expr);
+        r
+    }
+
+    // fn push_stmt(&mut self, stmt: Stmt) -> StmtRef {
+    //     let r = StmtRef(self.exprs.len() as u32);
+    //     self.stmts.push(stmt);
+    //     r
+    // }
+
+    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
+        &self.exprs[expr.0 as usize]
+    }
+
+    pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
+        &self.stmts[stmt.0 as usize]
+    }
+
+    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
+        &mut self.exprs[expr.0 as usize]
+    }
+
+    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
+        &mut self.stmts[stmt.0 as usize]
+    }
+}
 
 #[derive(Debug)]
 pub struct FnDef {
@@ -206,10 +237,24 @@ pub struct FnDef {
 
 #[derive(Debug)]
 pub enum Stmt {
-    Return(Expr),
+    Return(ExprRef),
+}
+
+#[derive(Debug)]
+pub enum UnOp {
+    Not,
+    Neg,
 }
 
 #[derive(Debug)]
 pub enum Expr {
-    Constant { span: SourceSpan, value: u32 },
+    Constant {
+        span: SourceSpan,
+        value: u32,
+    },
+    Unary {
+        span: SourceSpan,
+        op: UnOp,
+        expr: ExprRef,
+    },
 }

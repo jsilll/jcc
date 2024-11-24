@@ -8,16 +8,16 @@ use string_interner::DefaultSymbol;
 // ---------------------------------------------------------------------------
 
 pub struct IrBuilder<'a> {
-    program: &'a parser::Program,
+    ast: &'a parser::Ast,
 }
 
 impl<'a> IrBuilder<'a> {
-    pub fn new(program: &'a parser::Program) -> Self {
-        Self { program }
+    pub fn new(ast: &'a parser::Ast) -> Self {
+        Self { ast }
     }
 
     pub fn build(self) -> Program {
-        Program(self.build_from_fn_def(&self.program.0))
+        Program(self.build_from_fn_def(&self.ast.items[0]))
     }
 
     fn build_from_fn_def(&self, fn_def: &parser::FnDef) -> FnDef {
@@ -32,7 +32,7 @@ impl<'a> IrBuilder<'a> {
         match stmt {
             parser::Stmt::Return(expr) => vec![
                 Instr::Mov {
-                    src: self.build_from_expr(expr),
+                    src: self.build_from_expr(*expr),
                     dst: Oper::Reg,
                 },
                 Instr::Ret,
@@ -40,8 +40,10 @@ impl<'a> IrBuilder<'a> {
         }
     }
 
-    fn build_from_expr(&self, expr: &parser::Expr) -> Oper {
+    fn build_from_expr(&self, expr: parser::ExprRef) -> Oper {
+        let expr = self.ast.get_expr(expr);
         match expr {
+            parser::Expr::Unary { .. } => todo!(),
             parser::Expr::Constant { value, .. } => Oper::Imm(*value),
         }
     }

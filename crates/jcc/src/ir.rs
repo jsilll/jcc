@@ -17,14 +17,14 @@ impl<'a> IrBuilder<'a> {
     }
 
     pub fn build(self) -> Program {
-        Program(self.build_from_fn_def(&self.ast.items[0]))
+        Program(self.build_from_item(&self.ast.items()[0]))
     }
 
-    fn build_from_fn_def(&self, fn_def: &parser::FnDef) -> FnDef {
+    fn build_from_item(&self, item: &parser::Item) -> FnDef {
         FnDef {
-            span: fn_def.span,
-            name: fn_def.name,
-            body: self.build_from_stmt(fn_def.body),
+            span: item.span,
+            name: item.name,
+            body: self.build_from_stmt(item.body),
         }
     }
 

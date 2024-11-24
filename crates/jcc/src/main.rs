@@ -112,7 +112,7 @@ fn try_main() -> Result<()> {
     // checker.check()?;
 
     // Generate IR
-    if parser_result.ast.items.is_empty() {
+    if parser_result.ast.items().is_empty() {
         eprintln!("Error: codegen was given an empty parse tree");
         return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
     }

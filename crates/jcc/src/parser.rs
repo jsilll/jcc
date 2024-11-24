@@ -27,8 +27,8 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParserResult {
-        if let Some(fn_def) = self.parse_fn_def() {
-            self.ast.items.push(fn_def);
+        if let Some(item) = self.parse_item() {
+            self.ast.items.push(item);
         }
         if !self.iter.peek().is_none() {
             self.diagnostics.push(ParserDiagnostic {
@@ -42,7 +42,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_fn_def(&mut self) -> Option<FnDef> {
+    fn parse_item(&mut self) -> Option<Item> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
         self.eat(TokenKind::LParen)?;
@@ -51,7 +51,7 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::LBrace)?;
         let body = self.parse_stmt()?;
         self.eat(TokenKind::RBrace)?;
-        Some(FnDef { span, name, body })
+        Some(Item { span, name, body })
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -76,7 +76,7 @@ impl<'a> Parser<'a> {
                 self.iter.next();
                 let expr = self.parse_expr()?;
                 self.eat(TokenKind::RParen)?;
-                Some(expr)
+                Some(self.ast.push_expr(Expr::Grouped(expr), token.span))
             }
             TokenKind::Minus => {
                 self.iter.next();
@@ -212,7 +212,7 @@ impl From<ParserDiagnostic> for Diagnostic {
 
 #[derive(Default)]
 pub struct Ast {
-    pub items: Vec<FnDef>,
+    items: Vec<Item>,
     exprs: Vec<Expr>,
     stmts: Vec<Stmt>,
     exprs_span: Vec<SourceSpan>,
@@ -228,6 +228,10 @@ pub struct StmtRef(u32);
 impl Ast {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
     }
 
     pub fn get_expr(&self, expr: ExprRef) -> &Expr {
@@ -246,12 +250,12 @@ impl Ast {
         &mut self.stmts[stmt.0 as usize]
     }
 
-    pub fn get_expr_span(&self, expr: ExprRef) -> SourceSpan {
-        self.exprs_span[expr.0 as usize]
+    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
+        &self.exprs_span[expr.0 as usize]
     }
 
-    pub fn get_stmt_span(&self, stmt: StmtRef) -> SourceSpan {
-        self.stmts_span[stmt.0 as usize]
+    pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
+        &self.stmts_span[stmt.0 as usize]
     }
 
     fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
@@ -272,15 +276,19 @@ impl Ast {
 impl fmt::Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Ast")
-           .field("items", &self.items)
-           .field("exprs", &self.exprs)
-           .field("stmts", &self.stmts)
-           .finish()
+            .field("items", &self.items)
+            .field("exprs", &self.exprs)
+            .field("stmts", &self.stmts)
+            .finish()
     }
 }
 
+// ---------------------------------------------------------------------------
+// Ast Nodes
+// ---------------------------------------------------------------------------
+
 #[derive(Debug)]
-pub struct FnDef {
+pub struct Item {
     pub span: SourceSpan,
     pub name: DefaultSymbol,
     pub body: StmtRef,
@@ -288,19 +296,26 @@ pub struct FnDef {
 
 #[derive(Debug)]
 pub enum Stmt {
+    /// A return statement.
     Return(ExprRef),
 }
 
 #[derive(Debug)]
 pub enum Expr {
+    /// A constant integer value.
     Constant(u32),
+    /// A variable reference.
     Variable(DefaultSymbol),
+    /// A grouped expression.
     Grouped(ExprRef),
+    /// An unary operation.
     Unary { op: UnaryOp, expr: ExprRef },
 }
 
 #[derive(Debug)]
 pub enum UnaryOp {
+    /// The `-` operator.
     Minus,
+    /// The `~` operator.
     BitwiseNot,
 }

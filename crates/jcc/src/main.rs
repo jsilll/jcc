@@ -127,7 +127,9 @@ fn try_main() -> Result<()> {
 
     // Emit assembly
     let asm_path = args.path.with_extension("s");
-    let asm = X64Emitter::new(&ir, &interner).emit();
+    let asm = X64Emitter::new(&ir, &interner)
+        .emit()
+        .context("Failed to emit assembly")?;
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.emit_asm {
         return Ok(());

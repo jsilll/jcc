@@ -1,6 +1,7 @@
 use crate::ir;
 
-use string_interner::DefaultStringInterner;
+use string_interner::{DefaultStringInterner, DefaultSymbol};
+use thiserror::Error;
 
 // ---------------------------------------------------------------------------
 // X64Emitter
@@ -23,19 +24,18 @@ impl<'a> X64Emitter<'a> {
         }
     }
 
-    pub fn emit(mut self) -> String {
-        self.emit_fn_def(&self.program.0);
+    pub fn emit(mut self) -> Result<String, X64EmitterError> {
+        self.emit_fn_def(&self.program.0)?;
         self.writeln(".section .note.GNU-stack,\"\",@progbits");
-        self.output
+        Ok(self.output)
     }
 
-    fn emit_fn_def(&mut self, fn_def: &ir::FnDef) {
-        // TODO: Improve handle interner errors
+    fn emit_fn_def(&mut self, fn_def: &ir::FnDef) -> Result<(), X64EmitterError> {
         // TODO: If in macOS, use .globl _name instead of .globl name
         let name = self
             .interner
             .resolve(fn_def.name)
-            .expect("unresolved symbol");
+            .ok_or(X64EmitterError::UnresolvedSymbol(fn_def.name))?;
         self.writeln(&format!(".globl {name}"));
         self.writeln(&format!("{name}:"));
         self.with_indent(|emitter| {
@@ -43,6 +43,7 @@ impl<'a> X64Emitter<'a> {
                 emitter.emit_instr(instr);
             }
         });
+        Ok(())
     }
 
     fn emit_instr(&mut self, instr: &ir::Instr) {
@@ -79,4 +80,14 @@ impl<'a> X64Emitter<'a> {
         f(self);
         self.indent_level -= 1;
     }
+}
+
+// ---------------------------------------------------------------------------
+// X64EmitterError
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+pub enum X64EmitterError {
+    #[error("unresolved symbol {0:?}")]
+    UnresolvedSymbol(DefaultSymbol),
 }

@@ -3,7 +3,7 @@ use crate::lexer::{Token, TokenKind};
 use source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use string_interner::{DefaultSymbol, Symbol};
 
-use std::{iter::Peekable, slice::Iter};
+use std::{fmt, iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Parser
@@ -18,15 +18,10 @@ pub struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub fn new(file: &'a SourceFile, iter: Iter<'a, Token>) -> Self {
-        let ast = Ast {
-            items: Vec::new(),
-            exprs: Vec::new(),
-            stmts: Vec::new(),
-        };
         Self {
             file,
             iter: iter.peekable(),
-            ast,
+            ast: Ast::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -63,10 +58,7 @@ impl<'a> Parser<'a> {
         let span = self.eat(TokenKind::KwReturn)?.span;
         let expr = self.parse_expr()?;
         self.eat(TokenKind::Semi)?;
-        Some(self.ast.push_stmt(Stmt {
-            span,
-            kind: StmtKind::Return(expr),
-        }))
+        Some(self.ast.push_stmt(Stmt::Return(expr), span))
     }
 
     fn parse_expr(&mut self) -> Option<ExprRef> {
@@ -74,16 +66,12 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::Number(value) => {
                 self.iter.next();
-                Some(self.ast.push_expr(Expr {
-                span: token.span,
-                kind: ExprKind::Constant(value),
-            }))},
+                Some(self.ast.push_expr(Expr::Constant(value), token.span))
+            }
             TokenKind::Identifier(name) => {
                 self.iter.next();
-                Some(self.ast.push_expr(Expr {
-                span: token.span,
-                kind: ExprKind::Variable(name),
-            }))},
+                Some(self.ast.push_expr(Expr::Variable(name), token.span))
+            }
             TokenKind::LParen => {
                 self.iter.next();
                 let expr = self.parse_expr()?;
@@ -93,24 +81,24 @@ impl<'a> Parser<'a> {
             TokenKind::Minus => {
                 self.iter.next();
                 let expr = self.parse_expr()?;
-                Some(self.ast.push_expr(Expr {
-                    span: token.span,
-                    kind: ExprKind::Unary {
+                Some(self.ast.push_expr(
+                    Expr::Unary {
                         op: UnaryOp::Minus,
                         expr,
                     },
-                }))
+                    token.span,
+                ))
             }
             TokenKind::Tilde => {
                 self.iter.next();
                 let expr = self.parse_expr()?;
-                Some(self.ast.push_expr(Expr {
-                    span: token.span,
-                    kind: ExprKind::Unary {
+                Some(self.ast.push_expr(
+                    Expr::Unary {
                         op: UnaryOp::BitwiseNot,
                         expr,
                     },
-                }))
+                    token.span,
+                ))
             }
             _ => {
                 self.diagnostics.push(ParserDiagnostic {
@@ -222,11 +210,13 @@ impl From<ParserDiagnostic> for Diagnostic {
 // Ast
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Default)]
 pub struct Ast {
     pub items: Vec<FnDef>,
     exprs: Vec<Expr>,
     stmts: Vec<Stmt>,
+    exprs_span: Vec<SourceSpan>,
+    stmts_span: Vec<SourceSpan>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -236,16 +226,8 @@ pub struct ExprRef(u32);
 pub struct StmtRef(u32);
 
 impl Ast {
-    fn push_expr(&mut self, expr: Expr) -> ExprRef {
-        let r = ExprRef(self.exprs.len() as u32);
-        self.exprs.push(expr);
-        r
-    }
-
-    fn push_stmt(&mut self, stmt: Stmt) -> StmtRef {
-        let r = StmtRef(self.stmts.len() as u32);
-        self.stmts.push(stmt);
-        r
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn get_expr(&self, expr: ExprRef) -> &Expr {
@@ -263,6 +245,38 @@ impl Ast {
     pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
         &mut self.stmts[stmt.0 as usize]
     }
+
+    pub fn get_expr_span(&self, expr: ExprRef) -> SourceSpan {
+        self.exprs_span[expr.0 as usize]
+    }
+
+    pub fn get_stmt_span(&self, stmt: StmtRef) -> SourceSpan {
+        self.stmts_span[stmt.0 as usize]
+    }
+
+    fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
+        let r = ExprRef(self.exprs.len() as u32);
+        self.exprs.push(expr);
+        self.exprs_span.push(span);
+        r
+    }
+
+    fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
+        let r = StmtRef(self.stmts.len() as u32);
+        self.stmts.push(stmt);
+        self.stmts_span.push(span);
+        r
+    }
+}
+
+impl fmt::Debug for Ast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Ast")
+           .field("items", &self.items)
+           .field("exprs", &self.exprs)
+           .field("stmts", &self.stmts)
+           .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -273,24 +287,12 @@ pub struct FnDef {
 }
 
 #[derive(Debug)]
-pub struct Stmt {
-    pub span: SourceSpan,
-    pub kind: StmtKind,
-}
-
-#[derive(Debug)]
-pub struct Expr {
-    pub span: SourceSpan,
-    pub kind: ExprKind,
-}
-
-#[derive(Debug)]
-pub enum StmtKind {
+pub enum Stmt {
     Return(ExprRef),
 }
 
 #[derive(Debug)]
-pub enum ExprKind {
+pub enum Expr {
     Constant(u32),
     Variable(DefaultSymbol),
     Grouped(ExprRef),

@@ -30,10 +30,10 @@ impl<'a> IrBuilder<'a> {
 
     fn build_from_stmt(&self, stmt: parser::StmtRef) -> Vec<Instr> {
         let stmt = self.ast.get_stmt(stmt);
-        match stmt.kind {
-            parser::StmtKind::Return(expr) => vec![
+        match stmt {
+            parser::Stmt::Return(expr) => vec![
                 Instr::Mov {
-                    src: self.build_from_expr(expr),
+                    src: self.build_from_expr(*expr),
                     dst: Oper::Reg,
                 },
                 Instr::Ret,
@@ -43,11 +43,11 @@ impl<'a> IrBuilder<'a> {
 
     fn build_from_expr(&self, expr: parser::ExprRef) -> Oper {
         let expr = self.ast.get_expr(expr);
-        match expr.kind {
-            parser::ExprKind::Constant(value) => Oper::Imm(value),
-            parser::ExprKind::Variable(_) => todo!(),
-            parser::ExprKind::Grouped(_) => todo!(),
-            parser::ExprKind::Unary { .. } => todo!(),
+        match expr {
+            parser::Expr::Constant(value) => Oper::Imm(*value),
+            parser::Expr::Variable(_) => todo!(),
+            parser::Expr::Grouped(_) => todo!(),
+            parser::Expr::Unary { .. } => todo!(),
         }
     }
 }

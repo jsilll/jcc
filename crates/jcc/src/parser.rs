@@ -37,7 +37,7 @@ impl<'a> Parser<'a> {
         }
         if !self.iter.peek().is_none() {
             self.diagnostics.push(ParserDiagnostic {
-                kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::KwInt),
+                kind: ParserDiagnosticKind::UnexpectedToken,
                 span: self.file.end_span(),
             })
         }
@@ -48,21 +48,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_fn_def(&mut self) -> Option<FnDef> {
-        self.expect(TokenKind::KwInt)?;
-        let (span, name) = self.expect_identifier()?;
-        self.expect(TokenKind::LParen)?;
-        self.expect(TokenKind::KwVoid)?;
-        self.expect(TokenKind::RParen)?;
-        self.expect(TokenKind::LBrace)?;
+        self.eat(TokenKind::KwInt)?;
+        let (span, name) = self.eat_identifier()?;
+        self.eat(TokenKind::LParen)?;
+        self.eat(TokenKind::KwVoid)?;
+        self.eat(TokenKind::RParen)?;
+        self.eat(TokenKind::LBrace)?;
         let body = self.parse_stmt()?;
-        self.expect(TokenKind::RBrace)?;
+        self.eat(TokenKind::RBrace)?;
         Some(FnDef { span, name, body })
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
-        let span = self.expect(TokenKind::KwReturn)?.span;
+        let span = self.eat(TokenKind::KwReturn)?.span;
         let expr = self.parse_expr()?;
-        self.expect(TokenKind::Semi)?;
+        self.eat(TokenKind::Semi)?;
         Some(self.ast.push_stmt(Stmt {
             span,
             kind: StmtKind::Return(expr),
@@ -70,32 +70,59 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Option<ExprRef> {
-        let token = self.iter.next().cloned()?;
+        let token = self.iter.peek().cloned()?;
         match token.kind {
-            TokenKind::Number(value) => Some(self.ast.push_expr(Expr {
+            TokenKind::Number(value) => {
+                self.iter.next();
+                Some(self.ast.push_expr(Expr {
                 span: token.span,
                 kind: ExprKind::Constant(value),
-            })),
-            TokenKind::Identifier(name) => Some(self.ast.push_expr(Expr {
+            }))},
+            TokenKind::Identifier(name) => {
+                self.iter.next();
+                Some(self.ast.push_expr(Expr {
                 span: token.span,
                 kind: ExprKind::Variable(name),
-            })),
+            }))},
             TokenKind::LParen => {
-                todo!("Handle TokenKind::LParen")
+                self.iter.next();
+                let expr = self.parse_expr()?;
+                self.eat(TokenKind::RParen)?;
+                Some(expr)
             }
             TokenKind::Minus => {
-                todo!()
+                self.iter.next();
+                let expr = self.parse_expr()?;
+                Some(self.ast.push_expr(Expr {
+                    span: token.span,
+                    kind: ExprKind::Unary {
+                        op: UnaryOp::Minus,
+                        expr,
+                    },
+                }))
             }
             TokenKind::Tilde => {
-                todo!()
+                self.iter.next();
+                let expr = self.parse_expr()?;
+                Some(self.ast.push_expr(Expr {
+                    span: token.span,
+                    kind: ExprKind::Unary {
+                        op: UnaryOp::BitwiseNot,
+                        expr,
+                    },
+                }))
             }
             _ => {
-                todo!()
+                self.diagnostics.push(ParserDiagnostic {
+                    span: token.span,
+                    kind: ParserDiagnosticKind::UnexpectedToken,
+                });
+                None
             }
         }
     }
 
-    fn expect(&mut self, kind: TokenKind) -> Option<&Token> {
+    fn eat(&mut self, kind: TokenKind) -> Option<&Token> {
         let token = self.iter.peek().or_else(|| {
             self.diagnostics.push(ParserDiagnostic {
                 span: self.file.end_span(),
@@ -113,13 +140,13 @@ impl<'a> Parser<'a> {
         } else {
             self.diagnostics.push(ParserDiagnostic {
                 span: token.span,
-                kind: ParserDiagnosticKind::UnexpectedToken(kind),
+                kind: ParserDiagnosticKind::ExpectedToken(kind),
             });
             None
         }
     }
 
-    fn expect_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
+    fn eat_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
         let token = self.iter.peek().or_else(|| {
             self.diagnostics.push(ParserDiagnostic {
                 span: self.file.end_span(),
@@ -134,7 +161,7 @@ impl<'a> Parser<'a> {
         } else {
             self.diagnostics.push(ParserDiagnostic {
                 span: token.span,
-                kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Identifier(
+                kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
                     DefaultSymbol::try_from_usize(0).unwrap(),
                 )),
             });
@@ -165,7 +192,8 @@ pub struct ParserDiagnostic {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ParserDiagnosticKind {
     UnexpectedEof,
-    UnexpectedToken(TokenKind),
+    UnexpectedToken,
+    ExpectedToken(TokenKind),
 }
 
 impl From<ParserDiagnostic> for Diagnostic {
@@ -176,7 +204,12 @@ impl From<ParserDiagnostic> for Diagnostic {
                 "unexpected end of file",
                 "expected more tokens",
             ),
-            ParserDiagnosticKind::UnexpectedToken(token) => Diagnostic::error(
+            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                "expected a different token",
+            ),
+            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
                 diagnostic.span,
                 "unexpected token",
                 format!("expected {token}"),
@@ -186,7 +219,7 @@ impl From<ParserDiagnostic> for Diagnostic {
 }
 
 // ---------------------------------------------------------------------------
-// AST
+// Ast
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -261,11 +294,11 @@ pub enum ExprKind {
     Constant(u32),
     Variable(DefaultSymbol),
     Grouped(ExprRef),
-    Unary { op: UnOp, expr: ExprRef },
+    Unary { op: UnaryOp, expr: ExprRef },
 }
 
 #[derive(Debug)]
-pub enum UnOp {
-    Comp,
-    Neg,
+pub enum UnaryOp {
+    Minus,
+    BitwiseNot,
 }

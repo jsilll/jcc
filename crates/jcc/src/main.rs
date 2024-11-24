@@ -101,7 +101,7 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));
     }
     if args.verbose {
-        println!("{:#?}", parser_result.ast.items[0]);
+        println!("{:#?}", parser_result.ast);
     }
     if args.parse {
         return Ok(());

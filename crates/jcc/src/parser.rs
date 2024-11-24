@@ -59,16 +59,40 @@ impl<'a> Parser<'a> {
         Some(FnDef { span, name, body })
     }
 
-    fn parse_stmt(&mut self) -> Option<Stmt> {
-        self.expect(TokenKind::KwReturn)?;
+    fn parse_stmt(&mut self) -> Option<StmtRef> {
+        let span = self.expect(TokenKind::KwReturn)?.span;
         let expr = self.parse_expr()?;
         self.expect(TokenKind::Semi)?;
-        Some(Stmt::Return(expr))
+        Some(self.ast.push_stmt(Stmt {
+            span,
+            kind: StmtKind::Return(expr),
+        }))
     }
 
     fn parse_expr(&mut self) -> Option<ExprRef> {
-        let (span, value) = self.expect_number()?;
-        Some(self.ast.push_expr(Expr::Constant { span, value }))
+        let token = self.iter.next().cloned()?;
+        match token.kind {
+            TokenKind::Number(value) => Some(self.ast.push_expr(Expr {
+                span: token.span,
+                kind: ExprKind::Constant(value),
+            })),
+            TokenKind::Identifier(name) => Some(self.ast.push_expr(Expr {
+                span: token.span,
+                kind: ExprKind::Variable(name),
+            })),
+            TokenKind::LParen => {
+                todo!("Handle TokenKind::LParen")
+            }
+            TokenKind::Minus => {
+                todo!()
+            }
+            TokenKind::Tilde => {
+                todo!()
+            }
+            _ => {
+                todo!()
+            }
+        }
     }
 
     fn expect(&mut self, kind: TokenKind) -> Option<&Token> {
@@ -90,27 +114,6 @@ impl<'a> Parser<'a> {
             self.diagnostics.push(ParserDiagnostic {
                 span: token.span,
                 kind: ParserDiagnosticKind::UnexpectedToken(kind),
-            });
-            None
-        }
-    }
-
-    fn expect_number(&mut self) -> Option<(SourceSpan, u32)> {
-        let token = self.iter.peek().or_else(|| {
-            self.diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
-            None
-        })?;
-        if let TokenKind::Number(n) = token.kind {
-            let span = token.span;
-            self.iter.next();
-            Some((span, n))
-        } else {
-            self.diagnostics.push(ParserDiagnostic {
-                span: token.span,
-                kind: ParserDiagnosticKind::UnexpectedToken(TokenKind::Number(0)),
             });
             None
         }
@@ -186,6 +189,7 @@ impl From<ParserDiagnostic> for Diagnostic {
 // AST
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct Ast {
     pub items: Vec<FnDef>,
     exprs: Vec<Expr>,
@@ -205,11 +209,11 @@ impl Ast {
         r
     }
 
-    // fn push_stmt(&mut self, stmt: Stmt) -> StmtRef {
-    //     let r = StmtRef(self.exprs.len() as u32);
-    //     self.stmts.push(stmt);
-    //     r
-    // }
+    fn push_stmt(&mut self, stmt: Stmt) -> StmtRef {
+        let r = StmtRef(self.stmts.len() as u32);
+        self.stmts.push(stmt);
+        r
+    }
 
     pub fn get_expr(&self, expr: ExprRef) -> &Expr {
         &self.exprs[expr.0 as usize]
@@ -232,29 +236,36 @@ impl Ast {
 pub struct FnDef {
     pub span: SourceSpan,
     pub name: DefaultSymbol,
-    pub body: Stmt,
+    pub body: StmtRef,
 }
 
 #[derive(Debug)]
-pub enum Stmt {
+pub struct Stmt {
+    pub span: SourceSpan,
+    pub kind: StmtKind,
+}
+
+#[derive(Debug)]
+pub struct Expr {
+    pub span: SourceSpan,
+    pub kind: ExprKind,
+}
+
+#[derive(Debug)]
+pub enum StmtKind {
     Return(ExprRef),
 }
 
 #[derive(Debug)]
-pub enum UnOp {
-    Not,
-    Neg,
+pub enum ExprKind {
+    Constant(u32),
+    Variable(DefaultSymbol),
+    Grouped(ExprRef),
+    Unary { op: UnOp, expr: ExprRef },
 }
 
 #[derive(Debug)]
-pub enum Expr {
-    Constant {
-        span: SourceSpan,
-        value: u32,
-    },
-    Unary {
-        span: SourceSpan,
-        op: UnOp,
-        expr: ExprRef,
-    },
+pub enum UnOp {
+    Comp,
+    Neg,
 }

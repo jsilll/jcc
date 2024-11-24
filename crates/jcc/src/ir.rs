@@ -24,15 +24,16 @@ impl<'a> IrBuilder<'a> {
         FnDef {
             span: fn_def.span,
             name: fn_def.name,
-            body: self.build_from_stmt(&fn_def.body),
+            body: self.build_from_stmt(fn_def.body),
         }
     }
 
-    fn build_from_stmt(&self, stmt: &parser::Stmt) -> Vec<Instr> {
-        match stmt {
-            parser::Stmt::Return(expr) => vec![
+    fn build_from_stmt(&self, stmt: parser::StmtRef) -> Vec<Instr> {
+        let stmt = self.ast.get_stmt(stmt);
+        match stmt.kind {
+            parser::StmtKind::Return(expr) => vec![
                 Instr::Mov {
-                    src: self.build_from_expr(*expr),
+                    src: self.build_from_expr(expr),
                     dst: Oper::Reg,
                 },
                 Instr::Ret,
@@ -42,9 +43,11 @@ impl<'a> IrBuilder<'a> {
 
     fn build_from_expr(&self, expr: parser::ExprRef) -> Oper {
         let expr = self.ast.get_expr(expr);
-        match expr {
-            parser::Expr::Unary { .. } => todo!(),
-            parser::Expr::Constant { value, .. } => Oper::Imm(*value),
+        match expr.kind {
+            parser::ExprKind::Constant(value) => Oper::Imm(value),
+            parser::ExprKind::Variable(_) => todo!(),
+            parser::ExprKind::Grouped(_) => todo!(),
+            parser::ExprKind::Unary { .. } => todo!(),
         }
     }
 }

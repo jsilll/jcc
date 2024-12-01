@@ -172,8 +172,8 @@ dependencies = [
  "clap",
  "peeking_take_while",
  "phf",
- "source_file",
  "string-interner",
+ "tacky",
  "thiserror",
 ]
 
@@ -348,6 +348,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tacky"
+version = "0.1.0"
+dependencies = [
+ "source_file",
 ]
 
 [[package]]

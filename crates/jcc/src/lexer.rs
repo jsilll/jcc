@@ -1,6 +1,6 @@
 use peeking_take_while::PeekableExt;
-use source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use string_interner::{DefaultStringInterner, DefaultSymbol};
+use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 
 use std::{fmt, iter::Peekable, str::CharIndices};
 
@@ -58,7 +58,7 @@ impl<'a> Lexer<'a> {
         }
         if !self.nesting.is_empty() {
             self.nesting.clone().into_iter().for_each(|kind| {
-                self.insert_unbalanced(kind, None);
+                self.insert_unbalanced_token(kind, None);
             });
         }
         LexerResult {
@@ -145,10 +145,10 @@ impl<'a> Lexer<'a> {
                 matched = true;
                 break;
             }
-            self.insert_unbalanced(kind, Some(begin));
+            self.insert_unbalanced_token(kind, Some(begin));
         }
         if !matched {
-            self.insert_unbalanced(open, Some(begin));
+            self.insert_unbalanced_token(open, Some(begin));
         }
         self.tokens.push(Token {
             kind: close,
@@ -156,11 +156,10 @@ impl<'a> Lexer<'a> {
         });
     }
 
-    fn insert_unbalanced(&mut self, kind: TokenKind, begin: Option<u32>) {
-        let span = match begin {
-            Some(begin) => self.file.span(begin..begin + 1).unwrap_or_default(),
-            None => self.file.end_span(),
-        };
+    fn insert_unbalanced_token(&mut self, kind: TokenKind, begin: Option<u32>) {
+        let span = begin
+            .map(|b| self.file.span(b..b + 1).unwrap_or_default())
+            .unwrap_or_else(|| self.file.end_span());
         self.tokens.push(Token { kind, span });
         self.diagnostics.push(LexerDiagnostic {
             kind: LexerDiagnosticKind::UnbalancedToken(kind),

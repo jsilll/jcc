@@ -1,7 +1,7 @@
 use crate::lexer::{Token, TokenKind};
 
-use source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use string_interner::{DefaultSymbol, Symbol};
+use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 
 use std::{fmt, iter::Peekable, slice::Iter};
 
@@ -312,10 +312,19 @@ pub enum Expr {
     Unary { op: UnaryOp, expr: ExprRef },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     /// The `-` operator.
     Minus,
     /// The `~` operator.
     BitwiseNot,
+}
+
+impl From<UnaryOp> for tacky::UnaryOp {
+    fn from(op: UnaryOp) -> Self {
+        match op {
+            UnaryOp::Minus => tacky::UnaryOp::Minus,
+            UnaryOp::BitwiseNot => tacky::UnaryOp::BitwiseNot,
+        }
+    }
 }

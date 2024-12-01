@@ -1,14 +1,13 @@
 use jcc::{
-    emit::X64Emitter,
-    ir::IrBuilder,
+    codegen::TackyBuilder,
     lexer::{Lexer, LexerDiagnosticKind},
     parser::Parser,
 };
 
 use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
-use source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
 use string_interner::StringInterner;
+use tacky::source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
 
 use std::{path::PathBuf, process::Command};
 
@@ -116,8 +115,8 @@ fn try_main() -> Result<()> {
         eprintln!("Error: codegen was given an empty parse tree");
         return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
     }
-    let ir_builder = IrBuilder::new(&parser_result.ast);
-    let ir = ir_builder.build();
+    let tacky_builder = TackyBuilder::new(&parser_result.ast);
+    let ir = tacky_builder.build();
     if args.verbose {
         println!("{:#?}", ir);
     }
@@ -126,25 +125,25 @@ fn try_main() -> Result<()> {
     }
 
     // Emit assembly
-    let asm_path = args.path.with_extension("s");
-    let asm = X64Emitter::new(&ir, &interner)
-        .emit()
-        .context("Failed to emit assembly")?;
-    std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
-    if args.emit_asm {
-        return Ok(());
-    }
+    // let asm_path = args.path.with_extension("s");
+    // let asm = X64Emitter::new(&ir, &interner)
+    //     .emit()
+    //     .context("Failed to emit assembly")?;
+    // std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
+    // if args.emit_asm {
+    //     return Ok(());
+    // }
 
     // Run the assembler and linker with `gcc`
-    let output = Command::new("gcc")
-        .arg(&asm_path)
-        .arg("-o")
-        .arg(&args.path.with_extension(""))
-        .output()?;
-    if !output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
-    }
+    // let output = Command::new("gcc")
+    //     .arg(&asm_path)
+    //     .arg("-o")
+    //     .arg(&args.path.with_extension(""))
+    //     .output()?;
+    // if !output.status.success() {
+    //     eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    //     return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
+    // }
 
     Ok(())
 }

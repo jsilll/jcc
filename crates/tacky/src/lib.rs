@@ -1,23 +1,35 @@
-pub use source_file;
+pub mod x64;
 
+use std::fmt;
+
+pub use source_file;
 use source_file::SourceSpan;
 
 // TODO: Build a TACKY checker:
 // - The dst of a unary instruction must be a variable.
 
 // ---------------------------------------------------------------------------
-// Tacky
+// Tacky IR
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct Program(pub FnDef);
 
-#[derive(Debug)]
 pub struct FnDef {
     pub id: u32,
     pub span: SourceSpan,
     pub instrs: Vec<Instr>,
     pub instrs_span: Vec<SourceSpan>,
+}
+
+impl fmt::Debug for FnDef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("FnDef")
+            .field("id", &self.id)
+            .field("span", &self.span)
+            .field("instrs", &self.instrs)
+            .finish()
+    }
 }
 
 #[derive(Debug)]

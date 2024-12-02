@@ -1,13 +1,16 @@
 use jcc::{
-    codegen::TackyBuilder,
     lexer::{Lexer, LexerDiagnosticKind},
     parser::Parser,
+    tacky::TackyBuilder,
 };
 
 use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 use string_interner::StringInterner;
-use tacky::source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
+use tacky::{
+    source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
+    x64::X64Builder,
+};
 
 use std::{path::PathBuf, process::Command};
 
@@ -113,29 +116,39 @@ fn try_main() -> Result<()> {
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 
-    // Generate IR
+    // Generate Tacky
     if parser_result.ast.items().is_empty() {
         eprintln!("Error: codegen was given an empty parse tree");
         return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
     }
     let tacky_builder = TackyBuilder::new(&parser_result.ast);
-    let ir = tacky_builder.build();
+    let tacky = tacky_builder.build();
     if args.verbose {
-        println!("{:#?}", ir);
+        println!("{:#?}", tacky);
+    }
+    if args.tacky {
+        return Ok(());
+    }
+
+    // Generate x64
+    let x64_builder = X64Builder::new(&tacky);
+    let x64 = x64_builder.build();
+    if args.verbose {
+        println!("{:#?}", x64);
     }
     if args.codegen {
         return Ok(());
     }
 
-    // Emit assembly
+    // Emit asm
     // let asm_path = args.path.with_extension("s");
     // let asm = X64Emitter::new(&ir, &interner)
     //     .emit()
     //     .context("Failed to emit assembly")?;
     // std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
-    // if args.emit_asm {
-    //     return Ok(());
-    // }
+    if args.emit_asm {
+        return Ok(());
+    }
 
     // Run the assembler and linker with `gcc`
     // let output = Command::new("gcc")

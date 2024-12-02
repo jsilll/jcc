@@ -5,13 +5,9 @@ use std::{
     io::{Result, Write},
 };
 
-#[derive(Debug, Clone)]
-pub struct Diagnostic {
-    span: SourceSpan,
-    title: String,
-    message: String,
-    level: DiagnosticLevel,
-}
+// ---------------------------------------------------------------------------
+// DiagnosticLevel
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiagnosticLevel {
@@ -30,6 +26,18 @@ impl Display for DiagnosticLevel {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    title: String,
+    message: String,
+    span: SourceSpan,
+    level: DiagnosticLevel,
+}
+
 impl Diagnostic {
     fn new(
         span: SourceSpan,
@@ -39,9 +47,9 @@ impl Diagnostic {
     ) -> Self {
         Self {
             span,
+            level,
             title: title.into(),
             message: message.into(),
-            level,
         }
     }
 
@@ -150,7 +158,7 @@ impl Diagnostic {
             })?;
 
         // Last Line
-        if lines.len() >= 2 {
+        if lines.len() > 1 {
             if let Some(line_text) = lines.last().copied() {
                 let line = location.line + lines.len() as u32 - 1;
                 let line_digits = count_digits(line) as usize;

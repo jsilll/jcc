@@ -19,10 +19,13 @@ struct Args {
     /// Run the lexer, but stop before parsing
     #[clap(long)]
     pub lex: bool,
-    /// Run the lexer and parser, but stop before assembly generation
+    /// Run the lexer and parser, but stop before tacky generation
     #[clap(long)]
     pub parse: bool,
-    /// Run the lexer, parser, and assembly generation, but stop before code emission
+    /// Run the lexer, parser, tacky generation, but stop before assembly generation
+    #[clap(long)]
+    pub tacky: bool,
+    /// Run the lexer, parser, tacky generation, assembly generation, but stop before code emission
     #[clap(long)]
     pub codegen: bool,
     /// Emit an assembly file but not an executable

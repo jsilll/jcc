@@ -2,6 +2,9 @@ pub use source_file;
 
 use source_file::SourceSpan;
 
+// TODO: Build a TACKY checker:
+// - The dst of a unary instruction must be a variable.
+
 // ---------------------------------------------------------------------------
 // Tacky
 // ---------------------------------------------------------------------------
@@ -11,26 +14,32 @@ pub struct Program(pub FnDef);
 
 #[derive(Debug)]
 pub struct FnDef {
-    pub span: SourceSpan,
     pub id: u32,
+    pub span: SourceSpan,
     pub instrs: Vec<Instr>,
     pub instrs_span: Vec<SourceSpan>,
 }
 
 #[derive(Debug)]
 pub enum Instr {
-    Ret(Value),
+    /// A return instruction.
+    Return(Value),
+    /// A unary instruction.
     Unary { op: UnaryOp, src: Value, dst: Value },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Value {
+    /// A constant integer value.
     Constant(u32),
+    /// A variable reference.
     Variable(u32),
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
+    /// The unary minus operator.
     Minus,
+    /// The bitwise not operator.
     BitwiseNot,
 }

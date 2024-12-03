@@ -42,7 +42,39 @@ impl FnDefBuilder {
     fn build(mut self, fn_def: &crate::FnDef) -> FnDef {
         self.res.id = fn_def.id;
         self.res.span = fn_def.span;
+        for (instr, span) in fn_def.instrs.iter().zip(fn_def.instrs_span.iter()) {
+            self.build_from_instr(instr, span);
+        }
         self.res
+    }
+
+    fn build_from_instr(&mut self, instr: &crate::Instr, span: &SourceSpan) {
+        match instr {
+            crate::Instr::Return(value) => {
+                let src = Self::build_from_value(*value);
+                let dst = Operand::Reg(Reg::Rax);
+                self.res.instrs.push(Instr::Mov { src, dst });
+                self.res.instrs_span.push(*span);
+                self.res.instrs.push(Instr::Ret);
+                self.res.instrs_span.push(*span);
+            }
+            crate::Instr::Unary { op, src, dst } => {
+                let op = UnaryOp::from(*op);
+                let src = Self::build_from_value(*src);
+                let dst = Self::build_from_value(*dst);
+                self.res.instrs.push(Instr::Mov { src, dst });
+                self.res.instrs_span.push(*span);
+                self.res.instrs.push(Instr::Unary { op, src: dst });
+                self.res.instrs_span.push(*span);
+            }
+        }
+    }
+
+    fn build_from_value(value: crate::Value) -> Operand {
+        match value {
+            crate::Value::Constant(value) => Operand::Imm(value),
+            crate::Value::Variable(id) => Operand::Pseudo(id),
+        }
     }
 }
 
@@ -97,8 +129,8 @@ pub enum Operand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reg {
-    /// The ax register.
-    Ax,
+    /// The RAX register.
+    Rax,
     /// The R10 register.
     Rg10,
 }
@@ -109,4 +141,13 @@ pub enum UnaryOp {
     Not,
     /// The unary arithmetic negation operator.
     Neg,
+}
+
+impl From<crate::UnaryOp> for UnaryOp {
+    fn from(op: crate::UnaryOp) -> UnaryOp {
+        match op {
+            crate::UnaryOp::Neg => UnaryOp::Neg,
+            crate::UnaryOp::Not => UnaryOp::Not,
+        }
+    }
 }

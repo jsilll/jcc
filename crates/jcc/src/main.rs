@@ -8,8 +8,8 @@ use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 use string_interner::StringInterner;
 use tacky::{
+    amd64::AMD64Builder,
     source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
-    x64::X64Builder,
 };
 
 use std::{path::PathBuf, process::Command};
@@ -28,7 +28,7 @@ struct Args {
     /// Run the lexer, parser, tacky generation, but stop before assembly generation
     #[clap(long)]
     pub tacky: bool,
-    /// Run the lexer, parser, tacky generation, assembly generation, but stop before code emission
+    /// Run the lexer, parser, tacky generation, assembly generation, but stop before code generation
     #[clap(long)]
     pub codegen: bool,
     /// Emit an assembly file but not an executable
@@ -130,11 +130,11 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Generate x64
-    let x64_builder = X64Builder::new(&tacky);
-    let x64 = x64_builder.build();
+    // Generate amd64
+    let amd64_builder = AMD64Builder::new(&tacky);
+    let amd64 = amd64_builder.build();
     if args.verbose {
-        println!("{:#?}", x64);
+        println!("{:#?}", amd64);
     }
     if args.codegen {
         return Ok(());
@@ -142,7 +142,7 @@ fn try_main() -> Result<()> {
 
     // Emit asm
     // let asm_path = args.path.with_extension("s");
-    // let asm = X64Emitter::new(&ir, &interner)
+    // let asm = AMD64Emitter::new(&ir, &interner)
     //     .emit()
     //     .context("Failed to emit assembly")?;
     // std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;

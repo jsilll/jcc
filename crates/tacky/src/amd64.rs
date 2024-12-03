@@ -1,19 +1,17 @@
-use std::fmt;
-
 use source_file::SourceSpan;
 
-// TODO: Build an x64 checker:
+// TODO: Build an AMD64 checker:
 // - Certain instructions do not allow to use the stack for both operands
 
 // ---------------------------------------------------------------------------
-// X64Builder
+// AMD64Builder
 // ---------------------------------------------------------------------------
 
-pub struct X64Builder<'a> {
+pub struct AMD64Builder<'a> {
     program: &'a crate::Program,
 }
 
-impl<'a> X64Builder<'a> {
+impl<'a> AMD64Builder<'a> {
     pub fn new(program: &'a crate::Program) -> Self {
         Self { program }
     }
@@ -33,8 +31,7 @@ impl<'a> X64Builder<'a> {
 
 #[derive(Default)]
 struct FnDefBuilder {
-    instrs: Vec<Instr>,
-    instrs_span: Vec<SourceSpan>,
+    res: FnDef,
 }
 
 impl FnDefBuilder {
@@ -42,23 +39,21 @@ impl FnDefBuilder {
         Self::default()
     }
 
-    fn build(self, fn_def: &crate::FnDef) -> FnDef {
-        FnDef {
-            id: fn_def.id,
-            span: fn_def.span,
-            instrs: self.instrs,
-            instrs_span: self.instrs_span,
-        }
+    fn build(mut self, fn_def: &crate::FnDef) -> FnDef {
+        self.res.id = fn_def.id;
+        self.res.span = fn_def.span;
+        self.res
     }
 }
 
 // ---------------------------------------------------------------------------
-// x64 IR
+// AMD64 IR
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Program(pub FnDef);
 
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct FnDef {
     pub id: u32,
     pub span: SourceSpan,
@@ -66,8 +61,8 @@ pub struct FnDef {
     pub instrs_span: Vec<SourceSpan>,
 }
 
-impl fmt::Debug for FnDef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Debug for FnDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("FnDef")
             .field("id", &self.id)
             .field("span", &self.span)
@@ -76,18 +71,42 @@ impl fmt::Debug for FnDef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instr {
-    /// A `ret` instruction
+    /// A `ret` instruction.
     Ret,
-    /// A `mov` instruction
-    Mov { src: Oper, dst: Oper },
+    /// Stack allocation instruction.
+    Alloca(u32),
+    /// A `mov` instruction.
+    Mov { src: Operand, dst: Operand },
+    /// A unary operation instruction.
+    Unary { op: UnaryOp, src: Operand },
 }
 
-#[derive(Debug)]
-pub enum Oper {
-    /// A register
-    Reg,
-    /// An immediate value
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operand {
+    /// An immediate value.
     Imm(u32),
+    /// A register.
+    Reg(Reg),
+    /// A stack operand.
+    Stack(u32),
+    /// Pseudo register.
+    Pseudo(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reg {
+    /// The ax register.
+    Ax,
+    /// The R10 register.
+    Rg10,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    /// The unary logical not operator.
+    Not,
+    /// The unary arithmetic negation operator.
+    Neg,
 }

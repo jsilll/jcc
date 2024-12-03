@@ -3,7 +3,7 @@ use crate::lexer::{Token, TokenKind};
 use string_interner::{DefaultSymbol, Symbol};
 use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 
-use std::{fmt, iter::Peekable, slice::Iter};
+use std::{iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Parser
@@ -12,8 +12,7 @@ use std::{fmt, iter::Peekable, slice::Iter};
 pub struct Parser<'a> {
     file: &'a SourceFile,
     iter: Peekable<Iter<'a, Token>>,
-    ast: Ast,
-    diagnostics: Vec<ParserDiagnostic>,
+    res: ParserResult,
 }
 
 impl<'a> Parser<'a> {
@@ -21,25 +20,21 @@ impl<'a> Parser<'a> {
         Self {
             file,
             iter: iter.peekable(),
-            ast: Ast::new(),
-            diagnostics: Vec::new(),
+            res: ParserResult::default(),
         }
     }
 
     pub fn parse(mut self) -> ParserResult {
         if let Some(item) = self.parse_item() {
-            self.ast.items.push(item);
+            self.res.ast.items.push(item);
         }
         if !self.iter.peek().is_none() {
-            self.diagnostics.push(ParserDiagnostic {
+            self.res.diagnostics.push(ParserDiagnostic {
                 kind: ParserDiagnosticKind::UnexpectedToken,
                 span: self.file.end_span(),
             })
         }
-        ParserResult {
-            ast: self.ast,
-            diagnostics: self.diagnostics,
-        }
+        self.res
     }
 
     fn parse_item(&mut self) -> Option<Item> {
@@ -58,7 +53,7 @@ impl<'a> Parser<'a> {
         let span = self.eat(TokenKind::KwReturn)?.span;
         let expr = self.parse_expr()?;
         self.eat(TokenKind::Semi)?;
-        Some(self.ast.push_stmt(Stmt::Return(expr), span))
+        Some(self.res.ast.push_stmt(Stmt::Return(expr), span))
     }
 
     fn parse_expr(&mut self) -> Option<ExprRef> {
@@ -66,24 +61,24 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::Number(value) => {
                 self.iter.next();
-                Some(self.ast.push_expr(Expr::Constant(value), token.span))
+                Some(self.res.ast.push_expr(Expr::Constant(value), token.span))
             }
             TokenKind::Identifier(name) => {
                 self.iter.next();
-                Some(self.ast.push_expr(Expr::Variable(name), token.span))
+                Some(self.res.ast.push_expr(Expr::Variable(name), token.span))
             }
             TokenKind::LParen => {
                 self.iter.next();
                 let expr = self.parse_expr()?;
                 self.eat(TokenKind::RParen)?;
-                Some(self.ast.push_expr(Expr::Grouped(expr), token.span))
+                Some(self.res.ast.push_expr(Expr::Grouped(expr), token.span))
             }
             TokenKind::Minus => {
                 self.iter.next();
                 let expr = self.parse_expr()?;
-                Some(self.ast.push_expr(
+                Some(self.res.ast.push_expr(
                     Expr::Unary {
-                        op: UnaryOp::Minus,
+                        op: UnaryOp::Neg,
                         expr,
                     },
                     token.span,
@@ -92,16 +87,16 @@ impl<'a> Parser<'a> {
             TokenKind::Tilde => {
                 self.iter.next();
                 let expr = self.parse_expr()?;
-                Some(self.ast.push_expr(
+                Some(self.res.ast.push_expr(
                     Expr::Unary {
-                        op: UnaryOp::BitwiseNot,
+                        op: UnaryOp::BitNot,
                         expr,
                     },
                     token.span,
                 ))
             }
             _ => {
-                self.diagnostics.push(ParserDiagnostic {
+                self.res.diagnostics.push(ParserDiagnostic {
                     span: token.span,
                     kind: ParserDiagnosticKind::UnexpectedToken,
                 });
@@ -112,7 +107,7 @@ impl<'a> Parser<'a> {
 
     fn eat(&mut self, kind: TokenKind) -> Option<&Token> {
         let token = self.iter.peek().or_else(|| {
-            self.diagnostics.push(ParserDiagnostic {
+            self.res.diagnostics.push(ParserDiagnostic {
                 span: self.file.end_span(),
                 kind: ParserDiagnosticKind::UnexpectedEof,
             });
@@ -126,7 +121,7 @@ impl<'a> Parser<'a> {
         if matches {
             self.iter.next()
         } else {
-            self.diagnostics.push(ParserDiagnostic {
+            self.res.diagnostics.push(ParserDiagnostic {
                 span: token.span,
                 kind: ParserDiagnosticKind::ExpectedToken(kind),
             });
@@ -136,7 +131,7 @@ impl<'a> Parser<'a> {
 
     fn eat_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
         let token = self.iter.peek().or_else(|| {
-            self.diagnostics.push(ParserDiagnostic {
+            self.res.diagnostics.push(ParserDiagnostic {
                 span: self.file.end_span(),
                 kind: ParserDiagnosticKind::UnexpectedEof,
             });
@@ -147,7 +142,7 @@ impl<'a> Parser<'a> {
             self.iter.next();
             Some((span, s))
         } else {
-            self.diagnostics.push(ParserDiagnostic {
+            self.res.diagnostics.push(ParserDiagnostic {
                 span: token.span,
                 kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
                     DefaultSymbol::try_from_usize(0).unwrap(),
@@ -162,6 +157,7 @@ impl<'a> Parser<'a> {
 // ParserResult
 // ---------------------------------------------------------------------------
 
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct ParserResult {
     pub ast: Ast,
     pub diagnostics: Vec<ParserDiagnostic>,
@@ -210,7 +206,7 @@ impl From<ParserDiagnostic> for Diagnostic {
 // Ast
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct Ast {
     items: Vec<Item>,
     exprs: Vec<Expr>,
@@ -273,8 +269,8 @@ impl Ast {
     }
 }
 
-impl fmt::Debug for Ast {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for Ast {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ast")
             .field("items", &self.items)
             .field("exprs", &self.exprs)
@@ -287,20 +283,20 @@ impl fmt::Debug for Ast {
 // Ast Nodes
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub span: SourceSpan,
     pub name: DefaultSymbol,
     pub body: StmtRef,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
     /// A return statement.
     Return(ExprRef),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     /// A constant integer value.
     Constant(u32),
@@ -312,19 +308,19 @@ pub enum Expr {
     Unary { op: UnaryOp, expr: ExprRef },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     /// The `-` operator.
-    Minus,
+    Neg,
     /// The `~` operator.
-    BitwiseNot,
+    BitNot,
 }
 
 impl From<UnaryOp> for tacky::UnaryOp {
     fn from(op: UnaryOp) -> Self {
         match op {
-            UnaryOp::Minus => tacky::UnaryOp::Minus,
-            UnaryOp::BitwiseNot => tacky::UnaryOp::BitwiseNot,
+            UnaryOp::Neg => tacky::UnaryOp::Neg,
+            UnaryOp::BitNot => tacky::UnaryOp::Not,
         }
     }
 }

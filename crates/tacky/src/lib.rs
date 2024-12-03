@@ -1,6 +1,5 @@
-pub mod x64;
-
-use std::fmt;
+pub mod amd64;
+pub mod arm64;
 
 pub use source_file;
 use source_file::SourceSpan;
@@ -12,9 +11,10 @@ use source_file::SourceSpan;
 // Tacky IR
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct Program(pub FnDef);
 
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct FnDef {
     pub id: u32,
     pub span: SourceSpan,
@@ -22,8 +22,8 @@ pub struct FnDef {
     pub instrs_span: Vec<SourceSpan>,
 }
 
-impl fmt::Debug for FnDef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Debug for FnDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("FnDef")
             .field("id", &self.id)
             .field("span", &self.span)
@@ -32,26 +32,26 @@ impl fmt::Debug for FnDef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instr {
     /// A return instruction.
     Return(Value),
-    /// A unary instruction.
+    /// A unary operation instruction.
     Unary { op: UnaryOp, src: Value, dst: Value },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
-    /// A constant integer value.
+    /// A constant value.
     Constant(u32),
     /// A variable reference.
     Variable(u32),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    /// The unary minus operator.
-    Minus,
-    /// The bitwise not operator.
-    BitwiseNot,
+    /// The unary logical not operator.
+    Not,
+    /// The unary arithmetic negation operator.
+    Neg,
 }

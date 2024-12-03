@@ -1,7 +1,7 @@
 use crate::{SourceFile, SourceLocation, SourceSpan};
 
 use std::{
-    fmt::{self, Display},
+    fmt::Display,
     io::{Result, Write},
 };
 
@@ -17,7 +17,7 @@ enum DiagnosticLevel {
 }
 
 impl Display for DiagnosticLevel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Error => write!(f, "error"),
             Self::Warning => write!(f, "warning"),
@@ -30,7 +30,7 @@ impl Display for DiagnosticLevel {
 // Diagnostic
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     title: String,
     message: String,

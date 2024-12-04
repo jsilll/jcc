@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 use string_interner::StringInterner;
 use tacky::{
-    amd64::AMD64Builder,
+    amd64::{AMD64Builder, AMD64PseudoReplacer},
     source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
 };
 
@@ -121,8 +121,7 @@ fn try_main() -> Result<()> {
         eprintln!("Error: codegen was given an empty parse tree");
         return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
     }
-    let tacky_builder = TackyBuilder::new(&parser_result.ast);
-    let tacky = tacky_builder.build();
+    let tacky = TackyBuilder::new(&parser_result.ast).build();
     if args.verbose {
         println!("{:#?}", tacky);
     }
@@ -131,13 +130,18 @@ fn try_main() -> Result<()> {
     }
 
     // Generate amd64
-    let amd64_builder = AMD64Builder::new(&tacky);
-    let amd64 = amd64_builder.build();
+    let mut amd64 = AMD64Builder::new(&tacky).build();
     if args.verbose {
         println!("{:#?}", amd64);
     }
     if args.codegen {
         return Ok(());
+    }
+
+    // Replace Pseudoregisters
+    AMD64PseudoReplacer::new().replace(&mut amd64);
+    if args.verbose {
+        println!("{:#?}", amd64);
     }
 
     // Emit asm

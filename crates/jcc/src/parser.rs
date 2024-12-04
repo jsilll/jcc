@@ -209,10 +209,10 @@ impl From<ParserDiagnostic> for Diagnostic {
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Ast {
     items: Vec<Item>,
-    exprs: Vec<Expr>,
     stmts: Vec<Stmt>,
-    exprs_span: Vec<SourceSpan>,
+    exprs: Vec<Expr>,
     stmts_span: Vec<SourceSpan>,
+    exprs_span: Vec<SourceSpan>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -230,35 +230,28 @@ impl Ast {
         &self.items
     }
 
-    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
-        &self.exprs[expr.0 as usize]
-    }
-
     pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
         &self.stmts[stmt.0 as usize]
     }
 
-    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
-        &mut self.exprs[expr.0 as usize]
+    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
+        &self.exprs[expr.0 as usize]
     }
 
     pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
         &mut self.stmts[stmt.0 as usize]
     }
 
-    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
-        &self.exprs_span[expr.0 as usize]
+    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
+        &mut self.exprs[expr.0 as usize]
     }
 
     pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
         &self.stmts_span[stmt.0 as usize]
     }
 
-    fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
-        let r = ExprRef(self.exprs.len() as u32);
-        self.exprs.push(expr);
-        self.exprs_span.push(span);
-        r
+    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
+        &self.exprs_span[expr.0 as usize]
     }
 
     fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
@@ -267,14 +260,21 @@ impl Ast {
         self.stmts_span.push(span);
         r
     }
+
+    fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
+        let r = ExprRef(self.exprs.len() as u32);
+        self.exprs.push(expr);
+        self.exprs_span.push(span);
+        r
+    }
 }
 
 impl std::fmt::Debug for Ast {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ast")
             .field("items", &self.items)
-            .field("exprs", &self.exprs)
             .field("stmts", &self.stmts)
+            .field("exprs", &self.exprs)
             .finish()
     }
 }

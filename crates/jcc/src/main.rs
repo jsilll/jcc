@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 use string_interner::StringInterner;
 use tacky::{
-    amd64::{AMD64Builder, AMD64PseudoReplacer},
+    amd64::{AMD64Builder, AMD64Emitter, AMD64PseudoReplacer},
     source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
 };
 
@@ -145,25 +145,23 @@ fn try_main() -> Result<()> {
     }
 
     // Emit asm
-    // let asm_path = args.path.with_extension("s");
-    // let asm = AMD64Emitter::new(&ir, &interner)
-    //     .emit()
-    //     .context("Failed to emit assembly")?;
-    // std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
+    let asm_path = args.path.with_extension("s");
+    let asm = AMD64Emitter::new(&amd64).emit();
+    std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.emit_asm {
         return Ok(());
     }
 
     // Run the assembler and linker with `gcc`
-    // let output = Command::new("gcc")
-    //     .arg(&asm_path)
-    //     .arg("-o")
-    //     .arg(&args.path.with_extension(""))
-    //     .output()?;
-    // if !output.status.success() {
-    //     eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-    //     return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
-    // }
+    let output = Command::new("gcc")
+        .arg(&asm_path)
+        .arg("-o")
+        .arg(&args.path.with_extension(""))
+        .output()?;
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
+    }
 
     Ok(())
 }

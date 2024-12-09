@@ -1,9 +1,6 @@
 use source_file::SourceSpan;
 
-use std::collections::{HashMap, LinkedList};
-
-// TODO: Build an AMD64 checker:
-// - Certain instructions do not allow to use the stack for both operands
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // AMD64Builder
@@ -11,24 +8,15 @@ use std::collections::{HashMap, LinkedList};
 
 pub struct AMD64Builder<'a> {
     tacky: &'a crate::Program,
-    program: Program,
 }
 
 impl<'a> AMD64Builder<'a> {
     pub fn new(tacky: &'a crate::Program) -> Self {
-        Self {
-            tacky,
-            program: Program::default(),
-        }
+        Self { tacky }
     }
 
-    pub fn build(mut self) -> Program {
-        self.program.fn_def = self.build_from_fn_def(&self.tacky.0);
-        self.program
-    }
-
-    fn build_from_fn_def(&mut self, fn_def: &crate::FnDef) -> FnDef {
-        FnDefBuilder::new(&mut self.program).build(fn_def)
+    pub fn build(self) -> Program {
+        Program(FnDefBuilder::new().build(&self.tacky.0))
     }
 }
 
@@ -36,15 +24,13 @@ impl<'a> AMD64Builder<'a> {
 // FnDefBuilder
 // ---------------------------------------------------------------------------
 
-struct FnDefBuilder<'a> {
+struct FnDefBuilder {
     fn_def: FnDef,
-    program: &'a mut Program,
 }
 
-impl<'a> FnDefBuilder<'a> {
-    fn new(program: &'a mut Program) -> Self {
+impl FnDefBuilder {
+    fn new() -> Self {
         Self {
-            program,
             fn_def: Default::default(),
         }
     }
@@ -52,9 +38,8 @@ impl<'a> FnDefBuilder<'a> {
     fn build(mut self, fn_def: &crate::FnDef) -> FnDef {
         self.fn_def.id = fn_def.id;
         self.fn_def.span = fn_def.span;
-        self.fn_def.instrs.push_back(Instr::Alloca(0));
-        self.program
-            .insert_instr_span(self.fn_def.instrs.back(), fn_def.span);
+        self.fn_def.instrs.push(Instr::Alloca(0));
+        self.fn_def.instrs_span.push(fn_def.span);
         for (instr, span) in fn_def.instrs.iter().zip(fn_def.instrs_span.iter()) {
             self.build_from_instr(instr, span);
         }
@@ -66,23 +51,19 @@ impl<'a> FnDefBuilder<'a> {
             crate::Instr::Return(value) => {
                 let src = Self::build_from_value(*value);
                 let dst = Operand::Reg(Reg::Rax);
-                self.fn_def.instrs.push_back(Instr::Mov { src, dst });
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
-                self.fn_def.instrs.push_back(Instr::Ret);
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
+                self.fn_def.instrs.push(Instr::Mov { src, dst });
+                self.fn_def.instrs_span.push(*span);
+                self.fn_def.instrs.push(Instr::Ret);
+                self.fn_def.instrs_span.push(*span);
             }
             crate::Instr::Unary { op, src, dst } => {
                 let op = UnaryOp::from(*op);
                 let src = Self::build_from_value(*src);
                 let dst = Self::build_from_value(*dst);
-                self.fn_def.instrs.push_back(Instr::Mov { src, dst });
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
-                self.fn_def.instrs.push_back(Instr::Unary { op, src: dst });
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
+                self.fn_def.instrs.push(Instr::Mov { src, dst });
+                self.fn_def.instrs_span.push(*span);
+                self.fn_def.instrs.push(Instr::Unary { op, src: dst });
+                self.fn_def.instrs_span.push(*span);
             }
         }
     }
@@ -113,20 +94,34 @@ impl AMD64PseudoReplacer {
     }
 
     pub fn replace(mut self, program: &mut Program) {
-        for instr in program.fn_def.instrs.iter_mut() {
-            self.replace_inside_instr(instr);
+        let mut idx = 0;
+        while idx < program.0.instrs.len() {
+            self.replace_instr(program, idx);
+            idx += 1;
         }
-        if let Some(Instr::Alloca(size)) = program.fn_def.instrs.front_mut() {
+        if let Some(Instr::Alloca(size)) = program.0.instrs.first_mut() {
             *size = self.offset;
         }
     }
 
-    fn replace_inside_instr(&mut self, instr: &mut Instr) {
+    fn replace_instr(&mut self, program: &mut Program, idx: usize) {
+        let instr = &mut program.0.instrs[idx];
         match instr {
             Instr::Ret | Instr::Alloca(_) => {}
             Instr::Mov { src, dst } => {
                 self.replace_operand(src);
                 self.replace_operand(dst);
+                if matches!(src, Operand::Stack(_)) && matches!(src, Operand::Stack(_)) {
+                    let tmp = *dst;
+                    *dst = Operand::Reg(Reg::Rg10);
+                    program.0.instrs.insert(
+                        idx + 1,
+                        Instr::Mov {
+                            src: Operand::Reg(Reg::Rg10),
+                            dst: tmp,
+                        },
+                    );
+                }
             }
             Instr::Unary { src, .. } => {
                 self.replace_operand(src);
@@ -145,50 +140,120 @@ impl AMD64PseudoReplacer {
 }
 
 // ---------------------------------------------------------------------------
+// AMD64Emitter
+// ---------------------------------------------------------------------------
+
+pub struct AMD64Emitter<'a> {
+    output: String,
+    indent_level: usize,
+    program: &'a Program,
+}
+
+impl<'a> AMD64Emitter<'a> {
+    pub fn new(program: &'a Program) -> Self {
+        Self {
+            program,
+            indent_level: 0,
+            output: String::with_capacity(1024),
+        }
+    }
+
+    pub fn emit(mut self) -> String {
+        self.emit_fn_def(&self.program.0);
+        self.with_indent(|emitter| emitter.writeln(".section .note.GNU-stack,\"\",@progbits"));
+        self.output
+    }
+
+    fn emit_fn_def(&mut self, fn_def: &FnDef) {
+        // TODO: use interner data for function names
+        // TODO: If in macOS, use .globl _name instead of .globl name
+        let name = "main";
+        self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
+        self.writeln(&format!("{name}:"));
+        self.with_indent(|emitter| {
+            emitter.writeln("pushq %rbp");
+            emitter.writeln("movq %rsp, %rbp");
+        });
+        self.with_indent(|emitter| {
+            for instr in &fn_def.instrs {
+                emitter.emit_instr(instr);
+            }
+        });
+    }
+
+    fn emit_instr(&mut self, instr: &Instr) {
+        match instr {
+            Instr::Ret => {
+                self.writeln("movq %rbp, %rsp");
+                self.writeln("popq %rbp");
+                self.writeln("ret");
+            }
+            Instr::Alloca(size) => {
+                if *size > 0 {
+                    self.writeln(&format!("subq ${size}, %rsp"));
+                }
+            }
+            Instr::Mov { src, dst } => {
+                let src = Self::emit_operand(src);
+                let dst = Self::emit_operand(dst);
+                self.writeln(&format!("movl {src}, {dst}"));
+            }
+            Instr::Unary { op, src } => {
+                let op = Self::emit_unary_operator(op);
+                let src = Self::emit_operand(src);
+                self.writeln(&format!("{op} {src}"));
+            }
+        }
+    }
+
+    fn emit_operand(oper: &Operand) -> String {
+        match oper {
+            Operand::Imm(value) => format!("${value}"),
+            Operand::Reg(Reg::Rax) => "%eax".to_owned(),
+            Operand::Reg(Reg::Rg10) => "%r10d".to_owned(),
+            Operand::Stack(offset) => format!("-{offset}(%rbp)"),
+            Operand::Pseudo(_) => unreachable!(),
+        }
+    }
+
+    fn emit_unary_operator(op: &UnaryOp) -> String {
+        match op {
+            UnaryOp::Neg => "negl".to_owned(),
+            UnaryOp::Not => "notl".to_owned(),
+        }
+    }
+
+    fn with_indent<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        self.indent_level += 1;
+        f(self);
+        self.indent_level -= 1;
+    }
+
+    fn writeln(&mut self, s: &str) {
+        if !s.is_empty() {
+            self.output.push_str(&"    ".repeat(self.indent_level));
+            self.output.push_str(s);
+        }
+        self.output.push('\n');
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AMD64 IR
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct Program {
-    pub fn_def: FnDef,
-    pub instrs_span: HashMap<InstrId, SourceSpan>,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct InstrId(*const Instr);
-
-impl TryFrom<Option<&Instr>> for InstrId {
-    type Error = ();
-
-    fn try_from(instr: Option<&Instr>) -> Result<Self, Self::Error> {
-        match instr {
-            Some(instr) => Ok(Self(instr as *const Instr)),
-            None => Err(()),
-        }
-    }
-}
-
-impl Program {
-    pub fn insert_instr_span(&mut self, instr: impl TryInto<InstrId>, span: SourceSpan) {
-        if let Ok(instr) = instr.try_into() {
-            self.instrs_span.insert(instr, span);
-        }
-    }
-}
-
-impl std::fmt::Debug for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("FnDef")
-            .field("fn_def", &self.fn_def)
-            .finish()
-    }
-}
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Program(pub FnDef);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct FnDef {
     pub id: u32,
     pub span: SourceSpan,
-    pub instrs: LinkedList<Instr>,
+    pub instrs: Vec<Instr>,
+    pub instrs_span: Vec<SourceSpan>,
 }
 
 impl std::fmt::Debug for FnDef {

@@ -1,6 +1,6 @@
 use source_file::SourceSpan;
 
-use std::collections::{HashMap, LinkedList};
+use std::collections::HashMap;
 
 // TODO: Build an AMD64 checker:
 // - Certain instructions do not allow to use the stack for both operands
@@ -10,8 +10,8 @@ use std::collections::{HashMap, LinkedList};
 // ---------------------------------------------------------------------------
 
 pub struct AMD64Builder<'a> {
-    tacky: &'a crate::Program,
     program: Program,
+    tacky: &'a crate::Program,
 }
 
 impl<'a> AMD64Builder<'a> {
@@ -23,12 +23,8 @@ impl<'a> AMD64Builder<'a> {
     }
 
     pub fn build(mut self) -> Program {
-        self.program.fn_def = self.build_from_fn_def(&self.tacky.0);
+        self.program.0 = FnDefBuilder::new().build(&self.tacky.0);
         self.program
-    }
-
-    fn build_from_fn_def(&mut self, fn_def: &crate::FnDef) -> FnDef {
-        FnDefBuilder::new(&mut self.program).build(fn_def)
     }
 }
 
@@ -36,29 +32,26 @@ impl<'a> AMD64Builder<'a> {
 // FnDefBuilder
 // ---------------------------------------------------------------------------
 
-struct FnDefBuilder<'a> {
-    fn_def: FnDef,
-    program: &'a mut Program,
+struct FnDefBuilder {
+    res: FnDef,
 }
 
-impl<'a> FnDefBuilder<'a> {
-    fn new(program: &'a mut Program) -> Self {
+impl FnDefBuilder {
+    fn new() -> Self {
         Self {
-            program,
-            fn_def: Default::default(),
+            res: Default::default(),
         }
     }
 
     fn build(mut self, fn_def: &crate::FnDef) -> FnDef {
-        self.fn_def.id = fn_def.id;
-        self.fn_def.span = fn_def.span;
-        self.fn_def.instrs.push_back(Instr::Alloca(0));
-        self.program
-            .insert_instr_span(self.fn_def.instrs.back(), fn_def.span);
+        self.res.id = fn_def.id;
+        self.res.span = fn_def.span;
+        self.res.instrs.push(Instr::Alloca(0));
+        self.res.instrs_span.push(fn_def.span);
         for (instr, span) in fn_def.instrs.iter().zip(fn_def.instrs_span.iter()) {
             self.build_from_instr(instr, span);
         }
-        self.fn_def
+        self.res
     }
 
     fn build_from_instr(&mut self, instr: &crate::Instr, span: &SourceSpan) {
@@ -66,23 +59,19 @@ impl<'a> FnDefBuilder<'a> {
             crate::Instr::Return(value) => {
                 let src = Self::build_from_value(*value);
                 let dst = Operand::Reg(Reg::Rax);
-                self.fn_def.instrs.push_back(Instr::Mov { src, dst });
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
-                self.fn_def.instrs.push_back(Instr::Ret);
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
+                self.res.instrs.push(Instr::Mov { src, dst });
+                self.res.instrs_span.push(*span);
+                self.res.instrs.push(Instr::Ret);
+                self.res.instrs_span.push(*span);
             }
             crate::Instr::Unary { op, src, dst } => {
                 let op = UnaryOp::from(*op);
                 let src = Self::build_from_value(*src);
                 let dst = Self::build_from_value(*dst);
-                self.fn_def.instrs.push_back(Instr::Mov { src, dst });
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
-                self.fn_def.instrs.push_back(Instr::Unary { op, src: dst });
-                self.program
-                    .insert_instr_span(self.fn_def.instrs.back(), *span);
+                self.res.instrs.push(Instr::Mov { src, dst });
+                self.res.instrs_span.push(*span);
+                self.res.instrs.push(Instr::Unary { op, src: dst });
+                self.res.instrs_span.push(*span);
             }
         }
     }
@@ -113,20 +102,24 @@ impl AMD64PseudoReplacer {
     }
 
     pub fn replace(mut self, program: &mut Program) {
-        for instr in program.fn_def.instrs.iter_mut() {
-            self.replace_inside_instr(instr);
+        for idx in (0..).take_while(|idx| *idx < program.0.instrs.len()) {
+            self.replace_instr(program, idx);
         }
-        if let Some(Instr::Alloca(size)) = program.fn_def.instrs.front_mut() {
+        if let Some(Instr::Alloca(size)) = program.0.instrs.first_mut() {
             *size = self.offset;
         }
     }
 
-    fn replace_inside_instr(&mut self, instr: &mut Instr) {
+    fn replace_instr(&mut self, program: &mut Program, idx: usize) {
+        let instr = &mut program.0.instrs[idx];
         match instr {
             Instr::Ret | Instr::Alloca(_) => {}
             Instr::Mov { src, dst } => {
                 self.replace_operand(src);
                 self.replace_operand(dst);
+                if matches!(src, Operand::Stack(_)) && matches!(src, Operand::Stack(_)) {
+                    todo!()
+                }
             }
             Instr::Unary { src, .. } => {
                 self.replace_operand(src);
@@ -148,47 +141,15 @@ impl AMD64PseudoReplacer {
 // AMD64 IR
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct Program {
-    pub fn_def: FnDef,
-    pub instrs_span: HashMap<InstrId, SourceSpan>,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct InstrId(*const Instr);
-
-impl TryFrom<Option<&Instr>> for InstrId {
-    type Error = ();
-
-    fn try_from(instr: Option<&Instr>) -> Result<Self, Self::Error> {
-        match instr {
-            Some(instr) => Ok(Self(instr as *const Instr)),
-            None => Err(()),
-        }
-    }
-}
-
-impl Program {
-    pub fn insert_instr_span(&mut self, instr: impl TryInto<InstrId>, span: SourceSpan) {
-        if let Ok(instr) = instr.try_into() {
-            self.instrs_span.insert(instr, span);
-        }
-    }
-}
-
-impl std::fmt::Debug for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("FnDef")
-            .field("fn_def", &self.fn_def)
-            .finish()
-    }
-}
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Program(pub FnDef);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct FnDef {
     pub id: u32,
     pub span: SourceSpan,
-    pub instrs: LinkedList<Instr>,
+    pub instrs: Vec<Instr>,
+    pub instrs_span: Vec<SourceSpan>,
 }
 
 impl std::fmt::Debug for FnDef {

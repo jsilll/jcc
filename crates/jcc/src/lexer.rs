@@ -41,6 +41,10 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_alphabetic() => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
                 '~' => self.lex_char(begin, TokenKind::Tilde),
+                '*' => self.lex_char(begin, TokenKind::Star),
+                '/' => self.lex_char(begin, TokenKind::Slash),
+                '%' => self.lex_char(begin, TokenKind::Percent),
+                '+' => self.lex_char_double(begin, '+', TokenKind::PlusPlus, TokenKind::Plus),
                 '-' => self.lex_char_double(begin, '-', TokenKind::MinusMinus, TokenKind::Minus),
                 '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),
                 '{' => self.handle_nesting_open(begin, TokenKind::LBrace, TokenKind::RBrace),
@@ -226,6 +230,12 @@ pub struct Token {
 pub enum TokenKind {
     Semi,
     Tilde,
+    Star,
+    Slash,
+    Percent,
+
+    Plus,
+    PlusPlus,
     Minus,
     MinusMinus,
 
@@ -249,6 +259,12 @@ impl std::fmt::Display for TokenKind {
         match self {
             TokenKind::Semi => write!(f, "';'"),
             TokenKind::Tilde => write!(f, "'~'"),
+            TokenKind::Star => write!(f, "'*'"),
+            TokenKind::Slash => write!(f, "'/'"),
+            TokenKind::Percent => write!(f, "'%'"),
+
+            TokenKind::Plus => write!(f, "'+'"),
+            TokenKind::PlusPlus => write!(f, "'++'"),
             TokenKind::Minus => write!(f, "'-'"),
             TokenKind::MinusMinus => write!(f, "'--'"),
 

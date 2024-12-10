@@ -1,14 +1,16 @@
 use jcc::{
-    emit::X64Emitter,
-    ir::IrBuilder,
     lexer::{Lexer, LexerDiagnosticKind},
     parser::Parser,
+    tacky::TackyBuilder,
 };
 
 use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
-use source_file::{diagnostic::Diagnostic, SourceDb, SourceFile};
 use string_interner::StringInterner;
+use tacky::{
+    amd64::{AMD64Builder, AMD64Emitter, AMD64PseudoReplacer},
+    source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
+};
 
 use std::{path::PathBuf, process::Command};
 
@@ -20,10 +22,13 @@ struct Args {
     /// Run the lexer, but stop before parsing
     #[clap(long)]
     pub lex: bool,
-    /// Run the lexer and parser, but stop before assembly generation
+    /// Run the lexer and parser, but stop before tacky generation
     #[clap(long)]
     pub parse: bool,
-    /// Run the lexer, parser, and assembly generation, but stop before code emission
+    /// Run the lexer, parser, tacky generation, but stop before assembly generation
+    #[clap(long)]
+    pub tacky: bool,
+    /// Run the lexer, parser, tacky generation, assembly generation, but stop before code generation
     #[clap(long)]
     pub codegen: bool,
     /// Emit an assembly file but not an executable
@@ -101,7 +106,7 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));
     }
     if args.verbose {
-        println!("{:#?}", parser_result.program);
+        println!("{:#?}", parser_result.ast);
     }
     if args.parse {
         return Ok(());
@@ -111,20 +116,37 @@ fn try_main() -> Result<()> {
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 
-    // Generate IR
-    let ast = parser_result.program.context("Parsed an empty program")?;
-    let ir_builder = IrBuilder::new(&ast);
-    let ir = ir_builder.build();
+    // Generate Tacky
+    if parser_result.ast.items().is_empty() {
+        eprintln!("Error: codegen was given an empty parse tree");
+        return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
+    }
+    let tacky = TackyBuilder::new(&parser_result.ast).build();
     if args.verbose {
-        println!("{:#?}", ir);
+        println!("{:#?}", tacky);
+    }
+    if args.tacky {
+        return Ok(());
+    }
+
+    // Generate amd64
+    let mut amd64 = AMD64Builder::new(&tacky).build();
+    if args.verbose {
+        println!("{:#?}", amd64);
     }
     if args.codegen {
         return Ok(());
     }
 
-    // Emit assembly
+    // Replace Pseudoregisters
+    AMD64PseudoReplacer::new().replace(&mut amd64);
+    if args.verbose {
+        println!("{:#?}", amd64);
+    }
+
+    // Emit asm
     let asm_path = args.path.with_extension("s");
-    let asm = X64Emitter::new(&ir, &interner).emit();
+    let asm = AMD64Emitter::new(&amd64).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.emit_asm {
         return Ok(());

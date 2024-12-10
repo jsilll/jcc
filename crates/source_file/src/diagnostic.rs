@@ -1,17 +1,13 @@
 use crate::{SourceFile, SourceLocation, SourceSpan};
 
 use std::{
-    fmt::{self, Display},
+    fmt::Display,
     io::{Result, Write},
 };
 
-#[derive(Debug, Clone)]
-pub struct Diagnostic {
-    span: SourceSpan,
-    title: String,
-    message: String,
-    level: DiagnosticLevel,
-}
+// ---------------------------------------------------------------------------
+// DiagnosticLevel
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiagnosticLevel {
@@ -21,13 +17,25 @@ enum DiagnosticLevel {
 }
 
 impl Display for DiagnosticLevel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Error => write!(f, "error"),
             Self::Warning => write!(f, "warning"),
             Self::Note => write!(f, "note"),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
+    title: String,
+    message: String,
+    span: SourceSpan,
+    level: DiagnosticLevel,
 }
 
 impl Diagnostic {
@@ -39,9 +47,9 @@ impl Diagnostic {
     ) -> Self {
         Self {
             span,
+            level,
             title: title.into(),
             message: message.into(),
-            level,
         }
     }
 
@@ -150,7 +158,7 @@ impl Diagnostic {
             })?;
 
         // Last Line
-        if lines.len() >= 2 {
+        if lines.len() > 1 {
             if let Some(line_text) = lines.last().copied() {
                 let line = location.line + lines.len() as u32 - 1;
                 let line_digits = count_digits(line) as usize;

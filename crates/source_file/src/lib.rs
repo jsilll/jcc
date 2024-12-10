@@ -77,7 +77,7 @@ impl SourceSpan {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
     offset: u32,
     data: String,
@@ -189,7 +189,7 @@ impl SourceFile {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct SourceDb {
     files: Vec<SourceFile>,
 }

@@ -11,8 +11,8 @@ use std::{iter::Peekable, slice::Iter};
 
 struct Precedence {
     op: BinaryOp,
-    lhs: u8,
-    rhs: u8,
+    plhs: u8,
+    prhs: u8,
 }
 
 impl From<TokenKind> for Option<Precedence> {
@@ -20,28 +20,28 @@ impl From<TokenKind> for Option<Precedence> {
         match token {
             TokenKind::Plus => Some(Precedence {
                 op: BinaryOp::Add,
-                lhs: 0,
-                rhs: 0,
+                plhs: 0,
+                prhs: 1,
             }),
             TokenKind::Minus => Some(Precedence {
                 op: BinaryOp::Sub,
-                lhs: 0,
-                rhs: 0,
+                plhs: 0,
+                prhs: 1,
             }),
             TokenKind::Star => Some(Precedence {
                 op: BinaryOp::Mul,
-                lhs: 0,
-                rhs: 0,
+                plhs: 1,
+                prhs: 2,
             }),
             TokenKind::Slash => Some(Precedence {
                 op: BinaryOp::Div,
-                lhs: 0,
-                rhs: 0,
+                plhs: 1,
+                prhs: 2,
             }),
             TokenKind::Percent => Some(Precedence {
                 op: BinaryOp::Rem,
-                lhs: 0,
-                rhs: 0,
+                plhs: 1,
+                prhs: 2,
             }),
             _ => None,
         }
@@ -71,11 +71,13 @@ impl<'a> Parser<'a> {
         if let Some(item) = self.parse_item() {
             self.res.ast.items.push(item);
         }
-        if !self.iter.peek().is_none() {
-            self.res.diagnostics.push(ParserDiagnostic {
-                kind: ParserDiagnosticKind::UnexpectedToken,
-                span: self.file.end_span(),
-            })
+        if let Some(Token { span, .. }) = self.iter.next().cloned() {
+            if self.res.diagnostics.is_empty() {
+                self.res.diagnostics.push(ParserDiagnostic {
+                    kind: ParserDiagnosticKind::UnexpectedToken,
+                    span,
+                })
+            }
         }
         self.res
     }
@@ -99,26 +101,19 @@ impl<'a> Parser<'a> {
         Some(self.res.ast.push_stmt(Stmt::Return(expr), span))
     }
 
-    fn parse_expr(&mut self, precedence: u8) -> Option<ExprRef> {
+    fn parse_expr(&mut self, min_prec: u8) -> Option<ExprRef> {
         let mut lhs = self.parse_expr_prefix()?;
-        loop {
-            match self.iter.peek() {
-                None => break,
-                Some(Token { kind, span }) => match Option::<Precedence>::from(*kind) {
-                    None => break,
-                    Some(Precedence {
-                        op,
-                        lhs: prec_lhs,
-                        rhs: prec_rhs,
-                    }) => {
-                        self.iter.next();
-                        if prec_lhs < precedence {
-                            break;
-                        }
-                        let rhs = self.parse_expr(prec_rhs)?;
-                        lhs = self.res.ast.push_expr(Expr::Binary { op, lhs, rhs }, *span);
+        while let Some(Token { kind, span }) = self.iter.peek() {
+            match Option::<Precedence>::from(*kind) {
+                Some(Precedence { op, plhs, prhs }) => {
+                    if plhs < min_prec {
+                        break;
                     }
-                },
+                    self.iter.next();
+                    let rhs = self.parse_expr(prhs)?;
+                    lhs = self.res.ast.push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                }
+                None => break,
             }
         }
         Some(lhs)

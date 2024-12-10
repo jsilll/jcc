@@ -31,7 +31,7 @@ impl<'a> TackyBuilder<'a> {
 struct FnDefBuilder<'a> {
     ast: &'a parser::Ast,
     tmp_count: u32,
-    res: FnDef,
+    fn_def: FnDef,
 }
 
 impl<'a> FnDefBuilder<'a> {
@@ -39,22 +39,22 @@ impl<'a> FnDefBuilder<'a> {
         Self {
             ast,
             tmp_count: 0,
-            res: FnDef::default(),
+            fn_def: FnDef::default(),
         }
     }
 
     fn build(mut self, item: &parser::Item) -> FnDef {
-        self.res.span = item.span;
+        self.fn_def.span = item.span;
         self.build_from_stmt(item.body);
-        self.res
+        self.fn_def
     }
 
     fn build_from_stmt(&mut self, stmt: parser::StmtRef) {
         match self.ast.get_stmt(stmt) {
             parser::Stmt::Return(inner) => {
                 let value = self.build_from_expr(*inner);
-                self.res.instrs.push(Instr::Return(value));
-                self.res.instrs_span.push(*self.ast.get_stmt_span(stmt));
+                self.fn_def.instrs.push(Instr::Return(value));
+                self.fn_def.instrs_span.push(*self.ast.get_stmt_span(stmt));
             }
         }
     }
@@ -73,10 +73,11 @@ impl<'a> FnDefBuilder<'a> {
                 let op = UnaryOp::from(*op);
                 let src = self.build_from_expr(*inner);
                 let dst = self.make_tmp();
-                self.res.instrs.push(Instr::Unary { op, src, dst });
-                self.res.instrs_span.push(*self.ast.get_expr_span(expr));
+                self.fn_def.instrs.push(Instr::Unary { op, src, dst });
+                self.fn_def.instrs_span.push(*self.ast.get_expr_span(expr));
                 dst
             }
+            parser::Expr::Binary { .. } => todo!("handle tacky generation of binary expressions"),
         }
     }
 

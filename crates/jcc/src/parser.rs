@@ -6,6 +6,49 @@ use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use std::{iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
+// Precedence
+// ---------------------------------------------------------------------------
+
+struct Precedence {
+    op: BinaryOp,
+    lhs: u8,
+    rhs: u8,
+}
+
+impl From<TokenKind> for Option<Precedence> {
+    fn from(token: TokenKind) -> Self {
+        match token {
+            TokenKind::Plus => Some(Precedence {
+                op: BinaryOp::Add,
+                lhs: 0,
+                rhs: 0,
+            }),
+            TokenKind::Minus => Some(Precedence {
+                op: BinaryOp::Sub,
+                lhs: 0,
+                rhs: 0,
+            }),
+            TokenKind::Star => Some(Precedence {
+                op: BinaryOp::Mul,
+                lhs: 0,
+                rhs: 0,
+            }),
+            TokenKind::Slash => Some(Precedence {
+                op: BinaryOp::Div,
+                lhs: 0,
+                rhs: 0,
+            }),
+            TokenKind::Percent => Some(Precedence {
+                op: BinaryOp::Rem,
+                lhs: 0,
+                rhs: 0,
+            }),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
@@ -51,12 +94,37 @@ impl<'a> Parser<'a> {
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
         let span = self.eat(TokenKind::KwReturn)?.span;
-        let expr = self.parse_expr()?;
+        let expr = self.parse_expr(0)?;
         self.eat(TokenKind::Semi)?;
         Some(self.res.ast.push_stmt(Stmt::Return(expr), span))
     }
 
-    fn parse_expr(&mut self) -> Option<ExprRef> {
+    fn parse_expr(&mut self, precedence: u8) -> Option<ExprRef> {
+        let mut lhs = self.parse_expr_prefix()?;
+        loop {
+            match self.iter.peek() {
+                None => break,
+                Some(Token { kind, span }) => match Option::<Precedence>::from(*kind) {
+                    None => break,
+                    Some(Precedence {
+                        op,
+                        lhs: prec_lhs,
+                        rhs: prec_rhs,
+                    }) => {
+                        self.iter.next();
+                        if prec_lhs < precedence {
+                            break;
+                        }
+                        let rhs = self.parse_expr(prec_rhs)?;
+                        lhs = self.res.ast.push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                    }
+                },
+            }
+        }
+        Some(lhs)
+    }
+
+    fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
         let token = self.iter.peek().cloned()?;
         match token.kind {
             TokenKind::Number(value) => {
@@ -69,13 +137,13 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LParen => {
                 self.iter.next();
-                let expr = self.parse_expr()?;
+                let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 Some(self.res.ast.push_expr(Expr::Grouped(expr), token.span))
             }
             TokenKind::Minus => {
                 self.iter.next();
-                let expr = self.parse_expr()?;
+                let expr = self.parse_expr_prefix()?;
                 Some(self.res.ast.push_expr(
                     Expr::Unary {
                         op: UnaryOp::Neg,
@@ -86,7 +154,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Tilde => {
                 self.iter.next();
-                let expr = self.parse_expr()?;
+                let expr = self.parse_expr_prefix()?;
                 Some(self.res.ast.push_expr(
                     Expr::Unary {
                         op: UnaryOp::BitNot,
@@ -304,8 +372,14 @@ pub enum Expr {
     Variable(DefaultSymbol),
     /// A grouped expression.
     Grouped(ExprRef),
-    /// An unary operation.
+    /// An unary expression.
     Unary { op: UnaryOp, expr: ExprRef },
+    /// A binary expression.
+    Binary {
+        op: BinaryOp,
+        lhs: ExprRef,
+        rhs: ExprRef,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,4 +397,18 @@ impl From<UnaryOp> for tacky::UnaryOp {
             UnaryOp::BitNot => tacky::UnaryOp::Not,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    // The `+` operator.
+    Add,
+    // The `-` operator.
+    Sub,
+    // The `*` operator.
+    Mul,
+    // The `/` operator.
+    Div,
+    // The `%` operator.
+    Rem,
 }

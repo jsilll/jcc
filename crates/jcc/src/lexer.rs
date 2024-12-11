@@ -4,6 +4,10 @@ use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 
 use std::{iter::Peekable, str::CharIndices};
 
+// ---------------------------------------------------------------------------
+// Keywords
+// ---------------------------------------------------------------------------
+
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "int" => TokenKind::KwInt,
     "void" => TokenKind::KwVoid,

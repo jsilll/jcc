@@ -65,6 +65,7 @@ impl FnDefBuilder {
                 self.fn_def.instrs.push(Instr::Unary { op, src: dst });
                 self.fn_def.instrs_span.push(*span);
             }
+            crate::Instr::Binary { .. } => todo!(),
         }
     }
 
@@ -212,14 +213,14 @@ impl<'a> AMD64Emitter<'a> {
             Operand::Reg(Reg::Rax) => "%eax".to_owned(),
             Operand::Reg(Reg::Rg10) => "%r10d".to_owned(),
             Operand::Stack(offset) => format!("-{offset}(%rbp)"),
-            Operand::Pseudo(_) => unreachable!(),
+            Operand::Pseudo(_) => panic!("invalid operand"),
         }
     }
 
-    fn emit_unary_operator(op: &UnaryOp) -> String {
+    fn emit_unary_operator(op: &UnaryOp) -> &'static str {
         match op {
-            UnaryOp::Neg => "negl".to_owned(),
-            UnaryOp::Not => "notl".to_owned(),
+            UnaryOp::Neg => "negl",
+            UnaryOp::Not => "notl",
         }
     }
 

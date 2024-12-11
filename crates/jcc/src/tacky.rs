@@ -1,6 +1,6 @@
 use crate::parser;
 
-use tacky::{FnDef, Instr, Program, UnaryOp, Value};
+use tacky::{BinaryOp, FnDef, Instr, Program, UnaryOp, Value};
 
 // ---------------------------------------------------------------------------
 // TackyBuilder
@@ -77,7 +77,15 @@ impl<'a> FnDefBuilder<'a> {
                 self.fn_def.instrs_span.push(*self.ast.get_expr_span(expr));
                 dst
             }
-            parser::Expr::Binary { .. } => todo!("handle tacky generation of binary expressions"),
+            parser::Expr::Binary { op, lhs, rhs } => {
+                let op = BinaryOp::from(*op);
+                let lhs = self.build_from_expr(*lhs);
+                let rhs = self.build_from_expr(*rhs);
+                let dst = self.make_tmp();
+                self.fn_def.instrs.push(Instr::Binary { op, lhs, rhs, dst });
+                self.fn_def.instrs_span.push(*self.ast.get_expr_span(expr));
+                dst
+            }
         }
     }
 

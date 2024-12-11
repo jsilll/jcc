@@ -5,7 +5,7 @@ pub use source_file;
 use source_file::SourceSpan;
 
 // TODO: Build a TACKY checker:
-// - The dst of a unary instruction must be a variable.
+// - The dst of a unary instruction must always be a variable.
 
 // ---------------------------------------------------------------------------
 // Tacky IR
@@ -38,6 +38,13 @@ pub enum Instr {
     Return(Value),
     /// A unary operation instruction.
     Unary { op: UnaryOp, src: Value, dst: Value },
+    /// A binary operation instruction.
+    Binary {
+        op: BinaryOp,
+        lhs: Value,
+        rhs: Value,
+        dst: Value,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,4 +61,18 @@ pub enum UnaryOp {
     Not,
     /// The unary arithmetic negation operator.
     Neg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    /// The binary add operator.
+    Add,
+    /// The binary sub operator.
+    Sub,
+    /// The binary mul operator.
+    Mul,
+    /// The binary div operator.
+    Div,
+    /// The binary rem operator.
+    Rem,
 }

@@ -407,3 +407,15 @@ pub enum BinaryOp {
     // The `%` operator.
     Rem,
 }
+
+impl From<BinaryOp> for tacky::BinaryOp {
+    fn from(op: BinaryOp) -> tacky::BinaryOp {
+        match op {
+            BinaryOp::Add => tacky::BinaryOp::Add,
+            BinaryOp::Sub => tacky::BinaryOp::Sub,
+            BinaryOp::Mul => tacky::BinaryOp::Mul,
+            BinaryOp::Div => tacky::BinaryOp::Div,
+            BinaryOp::Rem => tacky::BinaryOp::Rem,
+        }
+    }
+}

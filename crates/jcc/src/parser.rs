@@ -6,49 +6,6 @@ use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use std::{iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
-// Precedence
-// ---------------------------------------------------------------------------
-
-struct Precedence {
-    op: BinaryOp,
-    plhs: u8,
-    prhs: u8,
-}
-
-impl From<TokenKind> for Option<Precedence> {
-    fn from(token: TokenKind) -> Self {
-        match token {
-            TokenKind::Plus => Some(Precedence {
-                op: BinaryOp::Add,
-                plhs: 0,
-                prhs: 1,
-            }),
-            TokenKind::Minus => Some(Precedence {
-                op: BinaryOp::Sub,
-                plhs: 0,
-                prhs: 1,
-            }),
-            TokenKind::Star => Some(Precedence {
-                op: BinaryOp::Mul,
-                plhs: 1,
-                prhs: 2,
-            }),
-            TokenKind::Slash => Some(Precedence {
-                op: BinaryOp::Div,
-                plhs: 1,
-                prhs: 2,
-            }),
-            TokenKind::Percent => Some(Precedence {
-                op: BinaryOp::Rem,
-                plhs: 1,
-                prhs: 2,
-            }),
-            _ => None,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
@@ -416,6 +373,49 @@ impl From<BinaryOp> for tacky::BinaryOp {
             BinaryOp::Mul => tacky::BinaryOp::Mul,
             BinaryOp::Div => tacky::BinaryOp::Div,
             BinaryOp::Rem => tacky::BinaryOp::Rem,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Precedence
+// ---------------------------------------------------------------------------
+
+struct Precedence {
+    op: BinaryOp,
+    plhs: u8,
+    prhs: u8,
+}
+
+impl From<TokenKind> for Option<Precedence> {
+    fn from(token: TokenKind) -> Self {
+        match token {
+            TokenKind::Plus => Some(Precedence {
+                op: BinaryOp::Add,
+                plhs: 0,
+                prhs: 1,
+            }),
+            TokenKind::Minus => Some(Precedence {
+                op: BinaryOp::Sub,
+                plhs: 0,
+                prhs: 1,
+            }),
+            TokenKind::Star => Some(Precedence {
+                op: BinaryOp::Mul,
+                plhs: 1,
+                prhs: 2,
+            }),
+            TokenKind::Slash => Some(Precedence {
+                op: BinaryOp::Div,
+                plhs: 1,
+                prhs: 2,
+            }),
+            TokenKind::Percent => Some(Precedence {
+                op: BinaryOp::Rem,
+                plhs: 1,
+                prhs: 2,
+            }),
+            _ => None,
         }
     }
 }

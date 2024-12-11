@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 use string_interner::StringInterner;
 use tacky::{
-    amd64::{AMD64Builder, AMD64Emitter, AMD64PseudoReplacer},
+    amd64::{AMD64Builder, AMD64Emitter, AMD64Fixer},
     source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
 };
 
@@ -134,14 +134,14 @@ fn try_main() -> Result<()> {
     if args.verbose {
         println!("{:#?}", amd64);
     }
-    if args.codegen {
-        return Ok(());
-    }
 
     // Replace Pseudoregisters
-    AMD64PseudoReplacer::new().replace(&mut amd64);
+    AMD64Fixer::new().replace(&mut amd64);
     if args.verbose {
         println!("{:#?}", amd64);
+    }
+    if args.codegen {
+        return Ok(());
     }
 
     // Emit asm

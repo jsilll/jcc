@@ -65,7 +65,45 @@ impl FnDefBuilder {
                 self.fn_def.instrs.push(Instr::Unary { op, src: dst });
                 self.fn_def.instrs_span.push(*span);
             }
-            crate::Instr::Binary { .. } => todo!(),
+            crate::Instr::Binary { op, lhs, rhs, dst } => {
+                let lhs = Self::build_from_value(*lhs);
+                let rhs = Self::build_from_value(*rhs);
+                let dst = Self::build_from_value(*dst);
+                match op {
+                    crate::BinaryOp::Div | crate::BinaryOp::Rem => {
+                        self.fn_def.instrs.push(Instr::Mov {
+                            src: lhs,
+                            dst: Operand::Reg(Reg::Rax),
+                        });
+                        self.fn_def.instrs_span.push(*span);
+                        self.fn_def.instrs.push(Instr::Cdq);
+                        self.fn_def.instrs_span.push(*span);
+                        self.fn_def.instrs.push(Instr::Idiv(rhs));
+                        self.fn_def.instrs_span.push(*span);
+                        self.fn_def.instrs.push(Instr::Mov {
+                            src: if matches!(op, crate::BinaryOp::Div) {
+                                Operand::Reg(Reg::Rax)
+                            } else {
+                                Operand::Reg(Reg::Rdx)
+                            },
+                            dst,
+                        });
+                        self.fn_def.instrs_span.push(*span);
+                    }
+                    _ => {
+                        if let Ok(op) = BinaryOp::try_from(*op) {
+                            self.fn_def.instrs.push(Instr::Mov { src: lhs, dst });
+                            self.fn_def.instrs_span.push(*span);
+                            self.fn_def.instrs.push(Instr::Binary {
+                                op,
+                                lhs: rhs,
+                                rhs: dst,
+                            });
+                            self.fn_def.instrs_span.push(*span);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -78,15 +116,15 @@ impl FnDefBuilder {
 }
 
 // ---------------------------------------------------------------------------
-// AMD64PseudoReplacer
+// AMD64Fixer
 // ---------------------------------------------------------------------------
 
-pub struct AMD64PseudoReplacer {
+pub struct AMD64Fixer {
     offset: u32,
     offsets: HashMap<u32, u32>,
 }
 
-impl AMD64PseudoReplacer {
+impl AMD64Fixer {
     pub fn new() -> Self {
         Self {
             offset: 0,
@@ -97,7 +135,7 @@ impl AMD64PseudoReplacer {
     pub fn replace(mut self, program: &mut Program) {
         let mut idx = 0;
         while idx < program.0.instrs.len() {
-            self.replace_instr(program, idx);
+            self.replace_instr(program, &mut idx);
             idx += 1;
         }
         if let Some(Instr::Alloca(size)) = program.0.instrs.first_mut() {
@@ -105,10 +143,25 @@ impl AMD64PseudoReplacer {
         }
     }
 
-    fn replace_instr(&mut self, program: &mut Program, idx: usize) {
-        let instr = &mut program.0.instrs[idx];
+    fn replace_instr(&mut self, program: &mut Program, idx: &mut usize) {
+        let instr = &mut program.0.instrs[*idx];
         match instr {
-            Instr::Ret | Instr::Alloca(_) => {}
+            Instr::Ret | Instr::Cdq | Instr::Alloca(_) => {}
+            Instr::Idiv(oper) => {
+                self.replace_operand(oper);
+                if let Operand::Imm(_) = oper {
+                    let tmp = *oper;
+                    *oper = Operand::Reg(Reg::Rg10);
+                    program.0.instrs.insert(
+                        *idx,
+                        Instr::Mov {
+                            src: tmp,
+                            dst: Operand::Reg(Reg::Rg10),
+                        },
+                    );
+                    *idx += 1;
+                }
+            }
             Instr::Mov { src, dst } => {
                 self.replace_operand(src);
                 self.replace_operand(dst);
@@ -116,16 +169,31 @@ impl AMD64PseudoReplacer {
                     let tmp = *dst;
                     *dst = Operand::Reg(Reg::Rg10);
                     program.0.instrs.insert(
-                        idx + 1,
+                        *idx + 1,
                         Instr::Mov {
                             src: Operand::Reg(Reg::Rg10),
                             dst: tmp,
                         },
                     );
+                    *idx += 1;
                 }
             }
-            Instr::Unary { src, .. } => {
-                self.replace_operand(src);
+            Instr::Unary { src, .. } => self.replace_operand(src),
+            Instr::Binary { lhs, rhs, .. } => {
+                self.replace_operand(lhs);
+                self.replace_operand(rhs);
+                if matches!(lhs, Operand::Stack(_)) && matches!(rhs, Operand::Stack(_)) {
+                    let tmp = *lhs;
+                    *lhs = Operand::Reg(Reg::Rg10);
+                    program.0.instrs.insert(
+                        *idx,
+                        Instr::Mov {
+                            src: tmp,
+                            dst: Operand::Reg(Reg::Rg10),
+                        },
+                    );
+                    *idx += 1;
+                }
             }
         }
     }
@@ -194,6 +262,8 @@ impl<'a> AMD64Emitter<'a> {
                     self.writeln(&format!("subq ${size}, %rsp"));
                 }
             }
+            Instr::Cdq => todo!(),
+            Instr::Idiv(_) => todo!(),
             Instr::Mov { src, dst } => {
                 let src = Self::emit_operand(src);
                 let dst = Self::emit_operand(dst);
@@ -204,6 +274,7 @@ impl<'a> AMD64Emitter<'a> {
                 let src = Self::emit_operand(src);
                 self.writeln(&format!("{op} {src}"));
             }
+            Instr::Binary { .. } => todo!(),
         }
     }
 
@@ -211,7 +282,9 @@ impl<'a> AMD64Emitter<'a> {
         match oper {
             Operand::Imm(value) => format!("${value}"),
             Operand::Reg(Reg::Rax) => "%eax".to_owned(),
+            Operand::Reg(Reg::Rdx) => "%edx".to_owned(),
             Operand::Reg(Reg::Rg10) => "%r10d".to_owned(),
+            Operand::Reg(Reg::Rg11) => "%r11d".to_owned(),
             Operand::Stack(offset) => format!("-{offset}(%rbp)"),
             Operand::Pseudo(_) => panic!("invalid operand"),
         }
@@ -271,12 +344,22 @@ impl std::fmt::Debug for FnDef {
 pub enum Instr {
     /// A `ret` instruction.
     Ret,
+    /// A `cdq` instruction.
+    Cdq,
     /// Stack allocation instruction.
     Alloca(u32),
+    /// An `idiv` instruction.
+    Idiv(Operand),
     /// A `mov` instruction.
     Mov { src: Operand, dst: Operand },
     /// A unary operation instruction.
     Unary { op: UnaryOp, src: Operand },
+    /// A binary operation instruction.
+    Binary {
+        op: BinaryOp,
+        lhs: Operand,
+        rhs: Operand,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,8 +378,12 @@ pub enum Operand {
 pub enum Reg {
     /// The RAX register.
     Rax,
+    /// The RDX register.
+    Rdx,
     /// The R10 register.
     Rg10,
+    /// The R10 register.
+    Rg11,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,10 +395,33 @@ pub enum UnaryOp {
 }
 
 impl From<crate::UnaryOp> for UnaryOp {
-    fn from(op: crate::UnaryOp) -> UnaryOp {
+    fn from(op: crate::UnaryOp) -> Self {
         match op {
-            crate::UnaryOp::Neg => UnaryOp::Neg,
-            crate::UnaryOp::Not => UnaryOp::Not,
+            crate::UnaryOp::Neg => Self::Neg,
+            crate::UnaryOp::Not => Self::Not,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    /// The binary add operator.
+    Add,
+    /// The binary sub operator.
+    Sub,
+    /// The binary sub operator.
+    Mul,
+}
+
+impl TryFrom<crate::BinaryOp> for BinaryOp {
+    type Error = ();
+
+    fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
+        match op {
+            crate::BinaryOp::Add => Ok(Self::Add),
+            crate::BinaryOp::Sub => Ok(Self::Sub),
+            crate::BinaryOp::Mul => Ok(Self::Mul),
+            _ => Err(()),
         }
     }
 }

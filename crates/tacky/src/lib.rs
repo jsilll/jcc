@@ -1,10 +1,13 @@
 pub mod amd64;
+
 pub mod arm64;
 
 pub use source_file;
+
 use source_file::SourceSpan;
 
-// TODO: Build a TACKY checker:
+// TODO:
+// Build a TACKY checker to enforce the following rules:
 // - The dst of a unary instruction must always be a variable.
 
 // ---------------------------------------------------------------------------

@@ -7,9 +7,10 @@ use jcc::{
 use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 use string_interner::StringInterner;
+
 use tacky::{
     amd64::{AMD64Builder, AMD64Emitter, AMD64Fixer},
-    source_file::{diagnostic::Diagnostic, SourceDb, SourceFile},
+    source_file::{self, SourceDb, SourceFile},
 };
 
 use std::{path::PathBuf, process::Command};
@@ -76,21 +77,19 @@ fn try_main() -> Result<()> {
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
-        let mut hint = 0;
-        lexer_result.diagnostics.iter().try_for_each(|d| {
-            Diagnostic::from(d.clone()).report_hint(&file, &mut hint, &mut std::io::stderr())
-        })?;
+        source_file::diagnostic::report_batch(
+            &file,
+            &mut std::io::stderr(),
+            &lexer_result.diagnostics,
+        )?;
         return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
     }
     if args.verbose {
-        let mut hint = 0;
-        lexer_result.tokens.iter().try_for_each(|t| {
-            Diagnostic::note(t.span, "token", "here").report_hint(
-                &file,
-                &mut hint,
-                &mut std::io::stdout(),
-            )
-        })?;
+        source_file::diagnostic::report_batch(
+            &file,
+            &mut std::io::stderr(),
+            &lexer_result.diagnostics,
+        )?;
     }
     if args.lex {
         return Ok(());
@@ -99,10 +98,11 @@ fn try_main() -> Result<()> {
     // Parse the tokens
     let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        let mut hint = 0;
-        parser_result.diagnostics.iter().try_for_each(|d| {
-            Diagnostic::from(d.clone()).report_hint(&file, &mut hint, &mut std::io::stderr())
-        })?;
+        source_file::diagnostic::report_batch(
+            &file,
+            &mut std::io::stderr(),
+            &parser_result.diagnostics,
+        )?;
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));
     }
     if args.verbose {

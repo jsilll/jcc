@@ -6,6 +6,253 @@ use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use std::{iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
+// Ast
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct Ast {
+    items: Vec<Item>,
+    stmts: Vec<Stmt>,
+    exprs: Vec<Expr>,
+    stmts_span: Vec<SourceSpan>,
+    exprs_span: Vec<SourceSpan>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ExprRef(u32);
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StmtRef(u32);
+
+impl Ast {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
+
+    pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
+        &self.stmts[stmt.0 as usize]
+    }
+
+    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
+        &self.exprs[expr.0 as usize]
+    }
+
+    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
+        &mut self.stmts[stmt.0 as usize]
+    }
+
+    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
+        &mut self.exprs[expr.0 as usize]
+    }
+
+    pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
+        &self.stmts_span[stmt.0 as usize]
+    }
+
+    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
+        &self.exprs_span[expr.0 as usize]
+    }
+
+    fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
+        let r = StmtRef(self.stmts.len() as u32);
+        self.stmts.push(stmt);
+        self.stmts_span.push(span);
+        r
+    }
+
+    fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
+        let r = ExprRef(self.exprs.len() as u32);
+        self.exprs.push(expr);
+        self.exprs_span.push(span);
+        r
+    }
+}
+
+impl std::fmt::Debug for Ast {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ast")
+            .field("items", &self.items)
+            .field("stmts", &self.stmts)
+            .field("exprs", &self.exprs)
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ast Nodes
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Item {
+    pub span: SourceSpan,
+    pub name: DefaultSymbol,
+    pub body: StmtRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stmt {
+    /// A return statement.
+    Return(ExprRef),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expr {
+    /// A constant integer value.
+    Constant(u32),
+    /// A variable reference.
+    Variable(DefaultSymbol),
+    /// A grouped expression.
+    Grouped(ExprRef),
+    /// An unary expression.
+    Unary { op: UnaryOp, expr: ExprRef },
+    /// A binary expression.
+    Binary {
+        op: BinaryOp,
+        lhs: ExprRef,
+        rhs: ExprRef,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    /// The `-` operator.
+    Neg,
+    /// The `~` operator.
+    BitNot,
+}
+
+impl From<UnaryOp> for tacky::UnaryOp {
+    fn from(op: UnaryOp) -> Self {
+        match op {
+            UnaryOp::Neg => tacky::UnaryOp::Neg,
+            UnaryOp::BitNot => tacky::UnaryOp::Not,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    // The `+` operator.
+    Add,
+    // The `-` operator.
+    Sub,
+    // The `*` operator.
+    Mul,
+    // The `/` operator.
+    Div,
+    // The `%` operator.
+    Rem,
+}
+
+impl From<BinaryOp> for tacky::BinaryOp {
+    fn from(op: BinaryOp) -> tacky::BinaryOp {
+        match op {
+            BinaryOp::Add => tacky::BinaryOp::Add,
+            BinaryOp::Sub => tacky::BinaryOp::Sub,
+            BinaryOp::Mul => tacky::BinaryOp::Mul,
+            BinaryOp::Div => tacky::BinaryOp::Div,
+            BinaryOp::Rem => tacky::BinaryOp::Rem,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ParserResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct ParserResult {
+    pub ast: Ast,
+    pub diagnostics: Vec<ParserDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
+// ParserDiagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ParserDiagnostic {
+    pub kind: ParserDiagnosticKind,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ParserDiagnosticKind {
+    UnexpectedEof,
+    UnexpectedToken,
+    ExpectedToken(TokenKind),
+}
+
+impl From<ParserDiagnostic> for Diagnostic {
+    fn from(diagnostic: ParserDiagnostic) -> Self {
+        match diagnostic.kind {
+            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error(
+                diagnostic.span,
+                "unexpected end of file",
+                "expected more tokens",
+            ),
+            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                "expected a different token",
+            ),
+            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                format!("expected {token}"),
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Precedence
+// ---------------------------------------------------------------------------
+
+struct Precedence {
+    op: BinaryOp,
+    plhs: u8,
+    prhs: u8,
+}
+
+impl From<TokenKind> for Option<Precedence> {
+    fn from(token: TokenKind) -> Self {
+        match token {
+            TokenKind::Plus => Some(Precedence {
+                op: BinaryOp::Add,
+                plhs: 0,
+                prhs: 1,
+            }),
+            TokenKind::Minus => Some(Precedence {
+                op: BinaryOp::Sub,
+                plhs: 0,
+                prhs: 1,
+            }),
+            TokenKind::Star => Some(Precedence {
+                op: BinaryOp::Mul,
+                plhs: 1,
+                prhs: 2,
+            }),
+            TokenKind::Slash => Some(Precedence {
+                op: BinaryOp::Div,
+                plhs: 1,
+                prhs: 2,
+            }),
+            TokenKind::Percent => Some(Precedence {
+                op: BinaryOp::Rem,
+                plhs: 1,
+                prhs: 2,
+            }),
+            _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
@@ -169,253 +416,6 @@ impl<'a> Parser<'a> {
                 )),
             });
             None
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ParserResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct ParserResult {
-    pub ast: Ast,
-    pub diagnostics: Vec<ParserDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// ParserDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct ParserDiagnostic {
-    pub kind: ParserDiagnosticKind,
-    pub span: SourceSpan,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ParserDiagnosticKind {
-    UnexpectedEof,
-    UnexpectedToken,
-    ExpectedToken(TokenKind),
-}
-
-impl From<ParserDiagnostic> for Diagnostic {
-    fn from(diagnostic: ParserDiagnostic) -> Self {
-        match diagnostic.kind {
-            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error(
-                diagnostic.span,
-                "unexpected end of file",
-                "expected more tokens",
-            ),
-            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                "expected a different token",
-            ),
-            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                format!("expected {token}"),
-            ),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Ast
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct Ast {
-    items: Vec<Item>,
-    stmts: Vec<Stmt>,
-    exprs: Vec<Expr>,
-    stmts_span: Vec<SourceSpan>,
-    exprs_span: Vec<SourceSpan>,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ExprRef(u32);
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StmtRef(u32);
-
-impl Ast {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn items(&self) -> &[Item] {
-        &self.items
-    }
-
-    pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
-        &self.stmts[stmt.0 as usize]
-    }
-
-    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
-        &self.exprs[expr.0 as usize]
-    }
-
-    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
-        &mut self.stmts[stmt.0 as usize]
-    }
-
-    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
-        &mut self.exprs[expr.0 as usize]
-    }
-
-    pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
-        &self.stmts_span[stmt.0 as usize]
-    }
-
-    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
-        &self.exprs_span[expr.0 as usize]
-    }
-
-    fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
-        let r = StmtRef(self.stmts.len() as u32);
-        self.stmts.push(stmt);
-        self.stmts_span.push(span);
-        r
-    }
-
-    fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
-        let r = ExprRef(self.exprs.len() as u32);
-        self.exprs.push(expr);
-        self.exprs_span.push(span);
-        r
-    }
-}
-
-impl std::fmt::Debug for Ast {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Ast")
-            .field("items", &self.items)
-            .field("stmts", &self.stmts)
-            .field("exprs", &self.exprs)
-            .finish()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Ast Nodes
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Item {
-    pub span: SourceSpan,
-    pub name: DefaultSymbol,
-    pub body: StmtRef,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Stmt {
-    /// A return statement.
-    Return(ExprRef),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Expr {
-    /// A constant integer value.
-    Constant(u32),
-    /// A variable reference.
-    Variable(DefaultSymbol),
-    /// A grouped expression.
-    Grouped(ExprRef),
-    /// An unary expression.
-    Unary { op: UnaryOp, expr: ExprRef },
-    /// A binary expression.
-    Binary {
-        op: BinaryOp,
-        lhs: ExprRef,
-        rhs: ExprRef,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
-    /// The `-` operator.
-    Neg,
-    /// The `~` operator.
-    BitNot,
-}
-
-impl From<UnaryOp> for tacky::UnaryOp {
-    fn from(op: UnaryOp) -> Self {
-        match op {
-            UnaryOp::Neg => tacky::UnaryOp::Neg,
-            UnaryOp::BitNot => tacky::UnaryOp::Not,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
-    // The `+` operator.
-    Add,
-    // The `-` operator.
-    Sub,
-    // The `*` operator.
-    Mul,
-    // The `/` operator.
-    Div,
-    // The `%` operator.
-    Rem,
-}
-
-impl From<BinaryOp> for tacky::BinaryOp {
-    fn from(op: BinaryOp) -> tacky::BinaryOp {
-        match op {
-            BinaryOp::Add => tacky::BinaryOp::Add,
-            BinaryOp::Sub => tacky::BinaryOp::Sub,
-            BinaryOp::Mul => tacky::BinaryOp::Mul,
-            BinaryOp::Div => tacky::BinaryOp::Div,
-            BinaryOp::Rem => tacky::BinaryOp::Rem,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Precedence
-// ---------------------------------------------------------------------------
-
-struct Precedence {
-    op: BinaryOp,
-    plhs: u8,
-    prhs: u8,
-}
-
-impl From<TokenKind> for Option<Precedence> {
-    fn from(token: TokenKind) -> Self {
-        match token {
-            TokenKind::Plus => Some(Precedence {
-                op: BinaryOp::Add,
-                plhs: 0,
-                prhs: 1,
-            }),
-            TokenKind::Minus => Some(Precedence {
-                op: BinaryOp::Sub,
-                plhs: 0,
-                prhs: 1,
-            }),
-            TokenKind::Star => Some(Precedence {
-                op: BinaryOp::Mul,
-                plhs: 1,
-                prhs: 2,
-            }),
-            TokenKind::Slash => Some(Precedence {
-                op: BinaryOp::Div,
-                plhs: 1,
-                prhs: 2,
-            }),
-            TokenKind::Percent => Some(Precedence {
-                op: BinaryOp::Rem,
-                plhs: 1,
-                prhs: 2,
-            }),
-            _ => None,
         }
     }
 }

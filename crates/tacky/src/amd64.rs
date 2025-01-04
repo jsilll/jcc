@@ -3,6 +3,117 @@ use source_file::SourceSpan;
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
+// AMD64 IR
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Program(pub FnDef);
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct FnDef {
+    pub id: u32,
+    pub span: SourceSpan,
+    pub instrs: Vec<Instr>,
+    pub instrs_span: Vec<SourceSpan>,
+}
+
+impl std::fmt::Debug for FnDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("FnDef")
+            .field("id", &self.id)
+            .field("span", &self.span)
+            .field("instrs", &self.instrs)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Instr {
+    /// A `ret` instruction.
+    Ret,
+    /// A `cdq` instruction.
+    Cdq,
+    /// Stack allocation instruction.
+    Alloca(u32),
+    /// An `idiv` instruction.
+    Idiv(Operand),
+    /// A `mov` instruction.
+    Mov { src: Operand, dst: Operand },
+    /// A unary operation instruction.
+    Unary { op: UnaryOp, src: Operand },
+    /// A binary operation instruction.
+    Binary {
+        op: BinaryOp,
+        lhs: Operand,
+        rhs: Operand,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Operand {
+    /// An immediate value.
+    Imm(u32),
+    /// A register.
+    Reg(Reg),
+    /// A stack operand.
+    Stack(u32),
+    /// Pseudo register.
+    Pseudo(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reg {
+    /// The RAX register.
+    Rax,
+    /// The RDX register.
+    Rdx,
+    /// The R10 register.
+    Rg10,
+    /// The R10 register.
+    Rg11,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    /// The unary logical not operator.
+    Not,
+    /// The unary arithmetic negation operator.
+    Neg,
+}
+
+impl From<crate::UnaryOp> for UnaryOp {
+    fn from(op: crate::UnaryOp) -> Self {
+        match op {
+            crate::UnaryOp::Neg => Self::Neg,
+            crate::UnaryOp::Not => Self::Not,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    /// The binary add operator.
+    Add,
+    /// The binary sub operator.
+    Sub,
+    /// The binary sub operator.
+    Mul,
+}
+
+impl TryFrom<crate::BinaryOp> for BinaryOp {
+    type Error = ();
+
+    fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
+        match op {
+            crate::BinaryOp::Add => Ok(Self::Add),
+            crate::BinaryOp::Sub => Ok(Self::Sub),
+            crate::BinaryOp::Mul => Ok(Self::Mul),
+            _ => Err(()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AMD64Builder
 // ---------------------------------------------------------------------------
 
@@ -312,116 +423,5 @@ impl<'a> AMD64Emitter<'a> {
             self.output.push_str(s);
         }
         self.output.push('\n');
-    }
-}
-
-// ---------------------------------------------------------------------------
-// AMD64 IR
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Program(pub FnDef);
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct FnDef {
-    pub id: u32,
-    pub span: SourceSpan,
-    pub instrs: Vec<Instr>,
-    pub instrs_span: Vec<SourceSpan>,
-}
-
-impl std::fmt::Debug for FnDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("FnDef")
-            .field("id", &self.id)
-            .field("span", &self.span)
-            .field("instrs", &self.instrs)
-            .finish()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Instr {
-    /// A `ret` instruction.
-    Ret,
-    /// A `cdq` instruction.
-    Cdq,
-    /// Stack allocation instruction.
-    Alloca(u32),
-    /// An `idiv` instruction.
-    Idiv(Operand),
-    /// A `mov` instruction.
-    Mov { src: Operand, dst: Operand },
-    /// A unary operation instruction.
-    Unary { op: UnaryOp, src: Operand },
-    /// A binary operation instruction.
-    Binary {
-        op: BinaryOp,
-        lhs: Operand,
-        rhs: Operand,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operand {
-    /// An immediate value.
-    Imm(u32),
-    /// A register.
-    Reg(Reg),
-    /// A stack operand.
-    Stack(u32),
-    /// Pseudo register.
-    Pseudo(u32),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reg {
-    /// The RAX register.
-    Rax,
-    /// The RDX register.
-    Rdx,
-    /// The R10 register.
-    Rg10,
-    /// The R10 register.
-    Rg11,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
-    /// The unary logical not operator.
-    Not,
-    /// The unary arithmetic negation operator.
-    Neg,
-}
-
-impl From<crate::UnaryOp> for UnaryOp {
-    fn from(op: crate::UnaryOp) -> Self {
-        match op {
-            crate::UnaryOp::Neg => Self::Neg,
-            crate::UnaryOp::Not => Self::Not,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
-    /// The binary add operator.
-    Add,
-    /// The binary sub operator.
-    Sub,
-    /// The binary sub operator.
-    Mul,
-}
-
-impl TryFrom<crate::BinaryOp> for BinaryOp {
-    type Error = ();
-
-    fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
-        match op {
-            crate::BinaryOp::Add => Ok(Self::Add),
-            crate::BinaryOp::Sub => Ok(Self::Sub),
-            crate::BinaryOp::Mul => Ok(Self::Mul),
-            _ => Err(()),
-        }
     }
 }

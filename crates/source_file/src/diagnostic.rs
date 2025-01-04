@@ -6,6 +6,25 @@ use std::{
 };
 
 // ---------------------------------------------------------------------------
+// Support Functions
+// ---------------------------------------------------------------------------
+
+/// Reports a batch of diagnostics to a buffer.
+///
+/// The diagnostics must be sorted in ascending order by their spans.
+pub fn report_batch(
+    file: &SourceFile,
+    buffer: &mut impl Write,
+    diagnostics: &[impl Into<Diagnostic> + Clone],
+) -> Result<()> {
+    let mut hint = 0;
+    diagnostics
+        .iter()
+        .map(|d| d.clone().into())
+        .try_for_each(|d| d.report_hint(file, &mut hint, buffer))
+}
+
+// ---------------------------------------------------------------------------
 // DiagnosticLevel
 // ---------------------------------------------------------------------------
 

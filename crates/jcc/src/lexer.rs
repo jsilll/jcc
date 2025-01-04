@@ -5,6 +5,124 @@ use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
 use std::{iter::Peekable, str::CharIndices};
 
 // ---------------------------------------------------------------------------
+// Token
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TokenKind {
+    Semi,
+    Tilde,
+    Star,
+    Slash,
+    Percent,
+
+    Plus,
+    PlusPlus,
+    Minus,
+    MinusMinus,
+
+    LBrace,
+    RBrace,
+    LParen,
+    RParen,
+    LBrack,
+    RBrack,
+
+    KwInt,
+    KwVoid,
+    KwReturn,
+
+    Number(u32),
+    Identifier(DefaultSymbol),
+}
+
+impl std::fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenKind::Semi => write!(f, "';'"),
+            TokenKind::Tilde => write!(f, "'~'"),
+            TokenKind::Star => write!(f, "'*'"),
+            TokenKind::Slash => write!(f, "'/'"),
+            TokenKind::Percent => write!(f, "'%'"),
+
+            TokenKind::Plus => write!(f, "'+'"),
+            TokenKind::PlusPlus => write!(f, "'++'"),
+            TokenKind::Minus => write!(f, "'-'"),
+            TokenKind::MinusMinus => write!(f, "'--'"),
+
+            TokenKind::LBrace => write!(f, "'{{'"),
+            TokenKind::RBrace => write!(f, "'}}'"),
+            TokenKind::LParen => write!(f, "'('"),
+            TokenKind::RParen => write!(f, "')'"),
+            TokenKind::LBrack => write!(f, "'['"),
+            TokenKind::RBrack => write!(f, "']'"),
+
+            TokenKind::KwInt => write!(f, "'int'"),
+            TokenKind::KwVoid => write!(f, "'void'"),
+            TokenKind::KwReturn => write!(f, "'return'"),
+
+            TokenKind::Number(_) => write!(f, "a number"),
+            TokenKind::Identifier(_) => write!(f, "an identifier"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LexerResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct LexerResult {
+    pub tokens: Vec<Token>,
+    pub diagnostics: Vec<LexerDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
+// LexerDiagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct LexerDiagnostic {
+    pub kind: LexerDiagnosticKind,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LexerDiagnosticKind {
+    UnexpectedCharacter,
+    IdentifierStartsWithDigit,
+    UnbalancedToken(TokenKind),
+}
+
+impl From<LexerDiagnostic> for Diagnostic {
+    fn from(diagnostic: LexerDiagnostic) -> Self {
+        match diagnostic.kind {
+            LexerDiagnosticKind::UnexpectedCharacter => Diagnostic::error(
+                diagnostic.span,
+                "unexpected character",
+                "expected a valid character",
+            ),
+            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
+                diagnostic.span,
+                "identifier starts with digit",
+                "identifiers cannot start with a digit",
+            ),
+            LexerDiagnosticKind::UnbalancedToken(token) => Diagnostic::error(
+                diagnostic.span,
+                "unbalanced token",
+                format!("expected a matching {token}"),
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Keywords
 // ---------------------------------------------------------------------------
 
@@ -168,123 +286,5 @@ impl<'a> Lexer<'a> {
             kind: LexerDiagnosticKind::UnbalancedToken(kind),
             span,
         });
-    }
-}
-
-// ---------------------------------------------------------------------------
-// LexerResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct LexerResult {
-    pub tokens: Vec<Token>,
-    pub diagnostics: Vec<LexerDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// LexerDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct LexerDiagnostic {
-    pub kind: LexerDiagnosticKind,
-    pub span: SourceSpan,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum LexerDiagnosticKind {
-    UnexpectedCharacter,
-    IdentifierStartsWithDigit,
-    UnbalancedToken(TokenKind),
-}
-
-impl From<LexerDiagnostic> for Diagnostic {
-    fn from(diagnostic: LexerDiagnostic) -> Self {
-        match diagnostic.kind {
-            LexerDiagnosticKind::UnexpectedCharacter => Diagnostic::error(
-                diagnostic.span,
-                "unexpected character",
-                "expected a valid character",
-            ),
-            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
-                diagnostic.span,
-                "identifier starts with digit",
-                "identifiers cannot start with a digit",
-            ),
-            LexerDiagnosticKind::UnbalancedToken(token) => Diagnostic::error(
-                diagnostic.span,
-                "unbalanced token",
-                format!("expected a matching {token}"),
-            ),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Token
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub span: SourceSpan,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum TokenKind {
-    Semi,
-    Tilde,
-    Star,
-    Slash,
-    Percent,
-
-    Plus,
-    PlusPlus,
-    Minus,
-    MinusMinus,
-
-    LBrace,
-    RBrace,
-    LParen,
-    RParen,
-    LBrack,
-    RBrack,
-
-    KwInt,
-    KwVoid,
-    KwReturn,
-
-    Number(u32),
-    Identifier(DefaultSymbol),
-}
-
-impl std::fmt::Display for TokenKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TokenKind::Semi => write!(f, "';'"),
-            TokenKind::Tilde => write!(f, "'~'"),
-            TokenKind::Star => write!(f, "'*'"),
-            TokenKind::Slash => write!(f, "'/'"),
-            TokenKind::Percent => write!(f, "'%'"),
-
-            TokenKind::Plus => write!(f, "'+'"),
-            TokenKind::PlusPlus => write!(f, "'++'"),
-            TokenKind::Minus => write!(f, "'-'"),
-            TokenKind::MinusMinus => write!(f, "'--'"),
-
-            TokenKind::LBrace => write!(f, "'{{'"),
-            TokenKind::RBrace => write!(f, "'}}'"),
-            TokenKind::LParen => write!(f, "'('"),
-            TokenKind::RParen => write!(f, "')'"),
-            TokenKind::LBrack => write!(f, "'['"),
-            TokenKind::RBrack => write!(f, "']'"),
-
-            TokenKind::KwInt => write!(f, "'int'"),
-            TokenKind::KwVoid => write!(f, "'void'"),
-            TokenKind::KwReturn => write!(f, "'return'"),
-
-            TokenKind::Number(_) => write!(f, "a number"),
-            TokenKind::Identifier(_) => write!(f, "an identifier"),
-        }
     }
 }

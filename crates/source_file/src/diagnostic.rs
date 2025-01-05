@@ -11,7 +11,8 @@ use std::{
 
 /// Reports a batch of diagnostics to a buffer.
 ///
-/// The diagnostics must be sorted in ascending order by their spans.
+/// The diagnostics must be from the same source file
+/// and must be sorted in ascending order by their spans.
 pub fn report_batch(
     file: &SourceFile,
     buffer: &mut impl Write,

@@ -49,6 +49,12 @@ impl<'a> FnDefBuilder<'a> {
         self.fn_def
     }
 
+    fn make_tmp(&mut self) -> Value {
+        let tmp = Value::Variable(self.tmp_count);
+        self.tmp_count += 1;
+        tmp
+    }
+
     fn build_from_stmt(&mut self, stmt: parser::StmtRef) {
         match self.ast.get_stmt(stmt) {
             parser::Stmt::Return(inner) => {
@@ -87,11 +93,5 @@ impl<'a> FnDefBuilder<'a> {
                 dst
             }
         }
-    }
-
-    fn make_tmp(&mut self) -> Value {
-        let tmp = Value::Variable(self.tmp_count);
-        self.tmp_count += 1;
-        tmp
     }
 }

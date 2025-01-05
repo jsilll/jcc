@@ -34,7 +34,7 @@ struct Args {
     pub codegen: bool,
     /// Emit an assembly file but not an executable
     #[clap(long, short = 'S')]
-    pub emit_asm: bool,
+    pub assembly: bool,
     /// The path to the source file to compile
     pub path: PathBuf,
 }
@@ -136,7 +136,7 @@ fn try_main() -> Result<()> {
     }
 
     // Replace Pseudoregisters
-    AMD64Fixer::new().replace(&mut amd64);
+    AMD64Fixer::new().fix(&mut amd64);
     if args.verbose {
         println!("{:#?}", amd64);
     }
@@ -148,7 +148,7 @@ fn try_main() -> Result<()> {
     let asm_path = args.path.with_extension("s");
     let asm = AMD64Emitter::new(&amd64).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
-    if args.emit_asm {
+    if args.assembly {
         return Ok(());
     }
 

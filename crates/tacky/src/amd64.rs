@@ -44,8 +44,8 @@ pub enum Instr {
     /// A binary operation instruction.
     Binary {
         op: BinaryOp,
-        lhs: Operand,
-        rhs: Operand,
+        src: Operand,
+        dst: Operand,
     },
 }
 
@@ -205,11 +205,7 @@ impl FnDefBuilder {
                         if let Ok(op) = BinaryOp::try_from(*op) {
                             self.fn_def.instrs.push(Instr::Mov { src: lhs, dst });
                             self.fn_def.instrs_span.push(*span);
-                            self.fn_def.instrs.push(Instr::Binary {
-                                op,
-                                lhs: rhs,
-                                rhs: dst,
-                            });
+                            self.fn_def.instrs.push(Instr::Binary { op, src: rhs, dst });
                             self.fn_def.instrs_span.push(*span);
                         }
                     }
@@ -243,10 +239,10 @@ impl AMD64Fixer {
         }
     }
 
-    pub fn replace(mut self, program: &mut Program) {
+    pub fn fix(mut self, program: &mut Program) {
         let mut idx = 0;
         while idx < program.0.instrs.len() {
-            self.replace_instr(program, &mut idx);
+            self.fix_instr(program, &mut idx);
             idx += 1;
         }
         if let Some(Instr::Alloca(size)) = program.0.instrs.first_mut() {
@@ -254,13 +250,14 @@ impl AMD64Fixer {
         }
     }
 
-    fn replace_instr(&mut self, program: &mut Program, idx: &mut usize) {
+    fn fix_instr(&mut self, program: &mut Program, idx: &mut usize) {
         let instr = &mut program.0.instrs[*idx];
         match instr {
             Instr::Ret | Instr::Cdq | Instr::Alloca(_) => {}
             Instr::Idiv(oper) => {
-                self.replace_operand(oper);
+                self.fix_operand(oper);
                 if let Operand::Imm(_) = oper {
+                    // Fixup note: The `idiv` doesn't support immediate values, so we need to move it to a register.
                     let tmp = *oper;
                     *oper = Operand::Reg(Reg::Rg10);
                     program.0.instrs.insert(
@@ -274,9 +271,10 @@ impl AMD64Fixer {
                 }
             }
             Instr::Mov { src, dst } => {
-                self.replace_operand(src);
-                self.replace_operand(dst);
-                if matches!(src, Operand::Stack(_)) && matches!(src, Operand::Stack(_)) {
+                self.fix_operand(src);
+                self.fix_operand(dst);
+                if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
+                    // Fixup note: The `mov` instruction doesn't support moving from memory to memory, so we need to use a register as a temporary.
                     let tmp = *dst;
                     *dst = Operand::Reg(Reg::Rg10);
                     program.0.instrs.insert(
@@ -289,13 +287,33 @@ impl AMD64Fixer {
                     *idx += 1;
                 }
             }
-            Instr::Unary { src, .. } => self.replace_operand(src),
-            Instr::Binary { lhs, rhs, .. } => {
-                self.replace_operand(lhs);
-                self.replace_operand(rhs);
-                if matches!(lhs, Operand::Stack(_)) && matches!(rhs, Operand::Stack(_)) {
-                    let tmp = *lhs;
-                    *lhs = Operand::Reg(Reg::Rg10);
+            Instr::Unary { src, .. } => self.fix_operand(src),
+            Instr::Binary { op, src, dst } => {
+                self.fix_operand(src);
+                self.fix_operand(dst);
+                if matches!(op, BinaryOp::Mul) && matches!(dst, Operand::Stack(_)) {
+                    // Fixup note: The `imul` can't use a memory address as the destination operand, so we need to use a register as a temporary.
+                    let tmp = *dst;
+                    *dst = Operand::Reg(Reg::Rg11);
+                    program.0.instrs.insert(
+                        *idx,
+                        Instr::Mov {
+                            src: tmp,
+                            dst: Operand::Reg(Reg::Rg11),
+                        },
+                    );
+                    *idx += 2;
+                    program.0.instrs.insert(
+                        *idx,
+                        Instr::Mov {
+                            src: Operand::Reg(Reg::Rg11),
+                            dst: tmp,
+                        },
+                    );
+                } else if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
+                    // Fixup note: The binary instructions don't support moving from memory to memory, so we need to use a register as a temporary.
+                    let tmp = *src;
+                    *src = Operand::Reg(Reg::Rg10);
                     program.0.instrs.insert(
                         *idx,
                         Instr::Mov {
@@ -309,7 +327,7 @@ impl AMD64Fixer {
         }
     }
 
-    fn replace_operand(&mut self, oper: &mut Operand) {
+    fn fix_operand(&mut self, oper: &mut Operand) {
         if let Operand::Pseudo(id) = oper {
             *oper = Operand::Stack(*self.offsets.entry(*id).or_insert_with(|| {
                 self.offset += 4;
@@ -355,9 +373,10 @@ impl<'a> AMD64Emitter<'a> {
             emitter.writeln("movq %rsp, %rbp");
         });
         self.with_indent(|emitter| {
-            for instr in &fn_def.instrs {
-                emitter.emit_instr(instr);
-            }
+            fn_def
+                .instrs
+                .iter()
+                .for_each(|instr| emitter.emit_instr(instr));
         });
     }
 
@@ -368,43 +387,51 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln("popq %rbp");
                 self.writeln("ret");
             }
+            Instr::Cdq => self.writeln("cdq"),
             Instr::Alloca(size) => {
                 if *size > 0 {
                     self.writeln(&format!("subq ${size}, %rsp"));
                 }
             }
-            Instr::Cdq => todo!(),
-            Instr::Idiv(_) => todo!(),
+            Instr::Idiv(oper) => {
+                let oper = self.emit_operand(oper);
+                self.writeln(&format!("idivl {oper}"));
+            }
             Instr::Mov { src, dst } => {
-                let src = Self::emit_operand(src);
-                let dst = Self::emit_operand(dst);
+                let src = self.emit_operand(src);
+                let dst = self.emit_operand(dst);
                 self.writeln(&format!("movl {src}, {dst}"));
             }
             Instr::Unary { op, src } => {
-                let op = Self::emit_unary_operator(op);
-                let src = Self::emit_operand(src);
-                self.writeln(&format!("{op} {src}"));
+                let src = self.emit_operand(src);
+                match op {
+                    UnaryOp::Not => self.writeln(&format!("notl {src}")),
+                    UnaryOp::Neg => self.writeln(&format!("negl {src}")),
+                };
             }
-            Instr::Binary { .. } => todo!(),
+            Instr::Binary { op, src, dst } => {
+                let src = self.emit_operand(src);
+                let dst = self.emit_operand(dst);
+                match op {
+                    BinaryOp::Add => self.writeln(&format!("addl {src}, {dst}")),
+                    BinaryOp::Sub => self.writeln(&format!("subl {src}, {dst}")),
+                    BinaryOp::Mul => self.writeln(&format!("imull {src}, {dst}")),
+                };
+            }
         }
     }
 
-    fn emit_operand(oper: &Operand) -> String {
+    fn emit_operand(&mut self, oper: &Operand) -> String {
         match oper {
-            Operand::Imm(value) => format!("${value}"),
-            Operand::Reg(Reg::Rax) => "%eax".to_owned(),
-            Operand::Reg(Reg::Rdx) => "%edx".to_owned(),
-            Operand::Reg(Reg::Rg10) => "%r10d".to_owned(),
-            Operand::Reg(Reg::Rg11) => "%r11d".to_owned(),
-            Operand::Stack(offset) => format!("-{offset}(%rbp)"),
-            Operand::Pseudo(_) => panic!("invalid operand"),
-        }
-    }
-
-    fn emit_unary_operator(op: &UnaryOp) -> &'static str {
-        match op {
-            UnaryOp::Neg => "negl",
-            UnaryOp::Not => "notl",
+            Operand::Imm(value) => format!("${}", value),
+            Operand::Reg(reg) => match reg {
+                Reg::Rax => "%eax".to_string(),
+                Reg::Rdx => "%edx".to_string(),
+                Reg::Rg10 => "%r10d".to_string(),
+                Reg::Rg11 => "%r11d".to_string(),
+            },
+            Operand::Stack(offset) => format!("-{}(%rbp)", offset),
+            Operand::Pseudo(id) => format!("pseudo({})", id),
         }
     }
 

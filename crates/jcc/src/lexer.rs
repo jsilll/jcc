@@ -16,34 +16,36 @@ pub struct Token {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
+    Amp,
+    AmpAmp,
+    Bang,
+    BangEq,
     Caret,
+    Eq,
+    EqEq,
+    Gt,
+    GtEq,
+    GtGt,
+    LBrace,
+    LBrack,
+    LParen,
+    Lt,
+    LtEq,
+    LtLt,
+    Minus,
+    MinusMinus,
     Percent,
+    Pipe,
+    PipePipe,
+    Plus,
+    PlusPlus,
+    RBrace,
+    RBrack,
+    RParen,
     Semi,
     Slash,
     Star,
     Tilde,
-
-    Amp,
-    AmpAmp,
-    Pipe,
-    PipePipe,
-
-    Lt,
-    LtLt,
-    Gt,
-    GtGt,
-
-    Plus,
-    PlusPlus,
-    Minus,
-    MinusMinus,
-
-    LBrace,
-    RBrace,
-    LParen,
-    RParen,
-    LBrack,
-    RBrack,
 
     KwInt,
     KwVoid,
@@ -56,34 +58,36 @@ pub enum TokenKind {
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            TokenKind::Amp => write!(f, "'&'"),
+            TokenKind::AmpAmp => write!(f, "'&&'"),
+            TokenKind::Bang => write!(f, "'!'"),
+            TokenKind::BangEq => write!(f, "'!='"),
             TokenKind::Caret => write!(f, "'^'"),
+            TokenKind::Eq => write!(f, "'='"),
+            TokenKind::EqEq => write!(f, "'=='"),
+            TokenKind::Gt => write!(f, "'>'"),
+            TokenKind::GtEq => write!(f, "'>='"),
+            TokenKind::GtGt => write!(f, "'>>'"),
+            TokenKind::LBrace => write!(f, "'{{'"),
+            TokenKind::LBrack => write!(f, "'['"),
+            TokenKind::LParen => write!(f, "'('"),
+            TokenKind::Lt => write!(f, "'<'"),
+            TokenKind::LtEq => write!(f, "'<='"),
+            TokenKind::LtLt => write!(f, "'<<'"),
+            TokenKind::Minus => write!(f, "'-'"),
+            TokenKind::MinusMinus => write!(f, "'--'"),
             TokenKind::Percent => write!(f, "'%'"),
+            TokenKind::Pipe => write!(f, "'|'"),
+            TokenKind::PipePipe => write!(f, "'||'"),
+            TokenKind::Plus => write!(f, "'+'"),
+            TokenKind::PlusPlus => write!(f, "'++'"),
+            TokenKind::RBrace => write!(f, "'}}'"),
+            TokenKind::RBrack => write!(f, "']'"),
+            TokenKind::RParen => write!(f, "')'"),
             TokenKind::Semi => write!(f, "';'"),
             TokenKind::Slash => write!(f, "'/'"),
             TokenKind::Star => write!(f, "'*'"),
             TokenKind::Tilde => write!(f, "'~'"),
-
-            TokenKind::Amp => write!(f, "'&'"),
-            TokenKind::AmpAmp => write!(f, "'&&'"),
-            TokenKind::Pipe => write!(f, "'|'"),
-            TokenKind::PipePipe => write!(f, "'||'"),
-
-            TokenKind::Lt => write!(f, "'<'"),
-            TokenKind::LtLt => write!(f, "'<<'"),
-            TokenKind::Gt => write!(f, "'>'"),
-            TokenKind::GtGt => write!(f, "'>>'"),
-
-            TokenKind::Plus => write!(f, "'+'"),
-            TokenKind::PlusPlus => write!(f, "'++'"),
-            TokenKind::Minus => write!(f, "'-'"),
-            TokenKind::MinusMinus => write!(f, "'--'"),
-
-            TokenKind::LBrace => write!(f, "'{{'"),
-            TokenKind::RBrace => write!(f, "'}}'"),
-            TokenKind::LParen => write!(f, "'('"),
-            TokenKind::RParen => write!(f, "')'"),
-            TokenKind::LBrack => write!(f, "'['"),
-            TokenKind::RBrack => write!(f, "']'"),
 
             TokenKind::KwInt => write!(f, "'int'"),
             TokenKind::KwVoid => write!(f, "'void'"),
@@ -189,12 +193,24 @@ impl<'a> Lexer<'a> {
                 '~' => self.lex_char(begin, TokenKind::Tilde),
                 '^' => self.lex_char(begin, TokenKind::Caret),
                 '%' => self.lex_char(begin, TokenKind::Percent),
-                '<' => self.lex_char_double(begin, '<', TokenKind::LtLt, TokenKind::Lt),
-                '>' => self.lex_char_double(begin, '>', TokenKind::GtGt, TokenKind::Gt),
+                '=' => self.lex_char_double(begin, '=', TokenKind::EqEq, TokenKind::Eq),
                 '&' => self.lex_char_double(begin, '&', TokenKind::AmpAmp, TokenKind::Amp),
+                '!' => self.lex_char_double(begin, '=', TokenKind::BangEq, TokenKind::Bang),
                 '|' => self.lex_char_double(begin, '|', TokenKind::PipePipe, TokenKind::Pipe),
                 '+' => self.lex_char_double(begin, '+', TokenKind::PlusPlus, TokenKind::Plus),
                 '-' => self.lex_char_double(begin, '-', TokenKind::MinusMinus, TokenKind::Minus),
+                '<' => self.lex_char_double2(
+                    begin,
+                    ('<', TokenKind::LtLt),
+                    ('=', TokenKind::LtEq),
+                    TokenKind::Lt,
+                ),
+                '>' => self.lex_char_double2(
+                    begin,
+                    ('>', TokenKind::GtGt),
+                    ('=', TokenKind::GtEq),
+                    TokenKind::Gt,
+                ),
                 '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),
                 '{' => self.handle_nesting_open(begin, TokenKind::LBrace, TokenKind::RBrace),
                 '[' => self.handle_nesting_open(begin, TokenKind::LBrack, TokenKind::RBrack),
@@ -222,20 +238,44 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn lex_char_double(&mut self, begin: u32, ch: char, kind1: TokenKind, kind2: TokenKind) {
+    fn lex_char_double(&mut self, begin: u32, ch: char, kind: TokenKind, fallback: TokenKind) {
         match self.chars.peek() {
             Some((_, ch2)) if *ch2 == ch => {
                 self.chars.next();
                 self.res.tokens.push(Token {
-                    kind: kind1,
+                    kind,
                     span: self.file.span(begin..begin + 2).unwrap_or_default(),
                 });
             }
             _ => self.res.tokens.push(Token {
-                kind: kind2,
+                kind: fallback,
                 span: self.file.span(begin..begin + 1).unwrap_or_default(),
             }),
         }
+    }
+
+    fn lex_char_double2(
+        &mut self,
+        begin: u32,
+        alt1: (char, TokenKind),
+        alt2: (char, TokenKind),
+        fallback: TokenKind,
+    ) {
+        let (token, len) = match self.chars.peek() {
+            Some((_, c)) if *c == alt1.0 => {
+                self.chars.next();
+                (alt1.1, 2)
+            }
+            Some((_, c)) if *c == alt2.0 => {
+                self.chars.next();
+                (alt2.1, 2)
+            }
+            _ => (fallback, 1),
+        };
+        self.res.tokens.push(Token {
+            kind: token,
+            span: self.file.span(begin..begin + len).unwrap_or_default(),
+        });
     }
 
     fn lex_number(&mut self, begin: u32) {

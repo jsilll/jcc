@@ -156,6 +156,22 @@ pub enum BinaryOp {
     BitLsh,
     // The `>>` operator.
     BitRsh,
+    // The `||` operator.
+    LogicalOr,
+    // The `&&` operator.
+    LogicalAnd,
+    // The `==` operator.
+    Equal,
+    // The `!=` operator.
+    NotEqual,
+    // The `<` operator.
+    LessThan,
+    // The `<=` operator.
+    LessEqual,
+    // The `>` operator.
+    GreaterThan,
+    // The `>=` operator.
+    GreaterEqual,
 }
 
 impl From<BinaryOp> for tacky::BinaryOp {
@@ -171,6 +187,9 @@ impl From<BinaryOp> for tacky::BinaryOp {
             BinaryOp::BitXor => tacky::BinaryOp::Xor,
             BinaryOp::BitLsh => tacky::BinaryOp::Shl,
             BinaryOp::BitRsh => tacky::BinaryOp::Shr,
+            BinaryOp::LogicalOr => tacky::BinaryOp::Or,
+            BinaryOp::LogicalAnd => tacky::BinaryOp::And,
+            todo => todo!("{:?}", todo),
         }
     }
 }
@@ -237,55 +256,105 @@ struct Precedence {
 impl From<TokenKind> for Option<Precedence> {
     fn from(token: TokenKind) -> Self {
         match token {
-            TokenKind::Pipe => Some(Precedence {
-                op: BinaryOp::BitOr,
+            // Group: Left-to-right Associativity
+            TokenKind::PipePipe => Some(Precedence {
+                op: BinaryOp::LogicalOr,
                 plhs: 0,
                 prhs: 1,
             }),
-            TokenKind::Caret => Some(Precedence {
-                op: BinaryOp::BitXor,
+            // Group: Left-to-right Associativity
+            TokenKind::AmpAmp => Some(Precedence {
+                op: BinaryOp::LogicalAnd,
                 plhs: 1,
                 prhs: 2,
             }),
-            TokenKind::Amp => Some(Precedence {
-                op: BinaryOp::BitAnd,
+            // Group: Left-to-right Associativity
+            TokenKind::Pipe => Some(Precedence {
+                op: BinaryOp::BitOr,
                 plhs: 2,
                 prhs: 3,
             }),
-            TokenKind::LtLt => Some(Precedence {
-                op: BinaryOp::BitLsh,
+            // Group: Left-to-right Associativity
+            TokenKind::Caret => Some(Precedence {
+                op: BinaryOp::BitXor,
                 plhs: 3,
                 prhs: 4,
+            }),
+            // Group: Left-to-right Associativity
+            TokenKind::Amp => Some(Precedence {
+                op: BinaryOp::BitAnd,
+                plhs: 4,
+                prhs: 5,
+            }),
+            // Group: Left-to-right Associativity
+            TokenKind::EqEq => Some(Precedence {
+                op: BinaryOp::Equal,
+                plhs: 5,
+                prhs: 6,
+            }),
+            TokenKind::BangEq => Some(Precedence {
+                op: BinaryOp::NotEqual,
+                plhs: 5,
+                prhs: 6,
+            }),
+            // Group: Left-to-right Associativity
+            TokenKind::Lt => Some(Precedence {
+                op: BinaryOp::LessThan,
+                plhs: 6,
+                prhs: 7,
+            }),
+            TokenKind::Gt => Some(Precedence {
+                op: BinaryOp::GreaterThan,
+                plhs: 6,
+                prhs: 7,
+            }),
+            TokenKind::LtEq => Some(Precedence {
+                op: BinaryOp::LessEqual,
+                plhs: 6,
+                prhs: 7,
+            }),
+            TokenKind::GtEq => Some(Precedence {
+                op: BinaryOp::GreaterEqual,
+                plhs: 6,
+                prhs: 7,
+            }),
+            // Group: Left-to-right Associativity
+            TokenKind::LtLt => Some(Precedence {
+                op: BinaryOp::BitLsh,
+                plhs: 7,
+                prhs: 8,
             }),
             TokenKind::GtGt => Some(Precedence {
                 op: BinaryOp::BitRsh,
-                plhs: 3,
-                prhs: 4,
+                plhs: 7,
+                prhs: 8,
             }),
+            // Group: Left-to-right Associativity
             TokenKind::Plus => Some(Precedence {
                 op: BinaryOp::Add,
-                plhs: 4,
-                prhs: 5,
+                plhs: 8,
+                prhs: 9,
             }),
             TokenKind::Minus => Some(Precedence {
                 op: BinaryOp::Sub,
-                plhs: 4,
-                prhs: 5,
+                plhs: 8,
+                prhs: 9,
             }),
+            // Group: Left-to-right Associativity
             TokenKind::Star => Some(Precedence {
                 op: BinaryOp::Mul,
-                plhs: 5,
-                prhs: 6,
+                plhs: 9,
+                prhs: 10,
             }),
             TokenKind::Slash => Some(Precedence {
                 op: BinaryOp::Div,
-                plhs: 5,
-                prhs: 6,
+                plhs: 9,
+                prhs: 10,
             }),
             TokenKind::Percent => Some(Precedence {
                 op: BinaryOp::Rem,
-                plhs: 5,
-                prhs: 6,
+                plhs: 9,
+                prhs: 10,
             }),
             _ => None,
         }
@@ -397,6 +466,17 @@ impl<'a> Parser<'a> {
                 Some(self.res.ast.push_expr(
                     Expr::Unary {
                         op: UnaryOp::BitNot,
+                        expr,
+                    },
+                    token.span,
+                ))
+            }
+            TokenKind::Bang => {
+                self.iter.next();
+                let expr = self.parse_expr_prefix()?;
+                Some(self.res.ast.push_expr(
+                    Expr::Unary {
+                        op: UnaryOp::Neg,
                         expr,
                     },
                     token.span,

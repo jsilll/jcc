@@ -16,11 +16,22 @@ pub struct Token {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
-    Semi,
-    Tilde,
-    Star,
-    Slash,
+    Caret,
     Percent,
+    Semi,
+    Slash,
+    Star,
+    Tilde,
+
+    Amp,
+    AmpAmp,
+    Pipe,
+    PipePipe,
+
+    Lt,
+    LtLt,
+    Gt,
+    GtGt,
 
     Plus,
     PlusPlus,
@@ -45,11 +56,22 @@ pub enum TokenKind {
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenKind::Semi => write!(f, "';'"),
-            TokenKind::Tilde => write!(f, "'~'"),
-            TokenKind::Star => write!(f, "'*'"),
-            TokenKind::Slash => write!(f, "'/'"),
+            TokenKind::Caret => write!(f, "'^'"),
             TokenKind::Percent => write!(f, "'%'"),
+            TokenKind::Semi => write!(f, "';'"),
+            TokenKind::Slash => write!(f, "'/'"),
+            TokenKind::Star => write!(f, "'*'"),
+            TokenKind::Tilde => write!(f, "'~'"),
+
+            TokenKind::Amp => write!(f, "'&'"),
+            TokenKind::AmpAmp => write!(f, "'&&'"),
+            TokenKind::Pipe => write!(f, "'|'"),
+            TokenKind::PipePipe => write!(f, "'||'"),
+
+            TokenKind::Lt => write!(f, "'<'"),
+            TokenKind::LtLt => write!(f, "'<<'"),
+            TokenKind::Gt => write!(f, "'>'"),
+            TokenKind::GtGt => write!(f, "'>>'"),
 
             TokenKind::Plus => write!(f, "'+'"),
             TokenKind::PlusPlus => write!(f, "'++'"),
@@ -162,10 +184,15 @@ impl<'a> Lexer<'a> {
                 c if c.is_digit(10) => self.lex_number(begin),
                 c if c.is_ascii_alphabetic() => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
-                '~' => self.lex_char(begin, TokenKind::Tilde),
                 '*' => self.lex_char(begin, TokenKind::Star),
                 '/' => self.lex_char(begin, TokenKind::Slash),
+                '~' => self.lex_char(begin, TokenKind::Tilde),
+                '^' => self.lex_char(begin, TokenKind::Caret),
                 '%' => self.lex_char(begin, TokenKind::Percent),
+                '<' => self.lex_char_double(begin, '<', TokenKind::LtLt, TokenKind::Lt),
+                '>' => self.lex_char_double(begin, '>', TokenKind::GtGt, TokenKind::Gt),
+                '&' => self.lex_char_double(begin, '&', TokenKind::AmpAmp, TokenKind::Amp),
+                '|' => self.lex_char_double(begin, '|', TokenKind::PipePipe, TokenKind::Pipe),
                 '+' => self.lex_char_double(begin, '+', TokenKind::PlusPlus, TokenKind::Plus),
                 '-' => self.lex_char_double(begin, '-', TokenKind::MinusMinus, TokenKind::Minus),
                 '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),

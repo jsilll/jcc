@@ -60,22 +60,32 @@ pub enum Value {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    /// The unary logical not operator.
+    /// The not operator.
     Not,
-    /// The unary arithmetic negation operator.
+    /// The arithmetic negation operator.
     Neg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    /// The binary add operator.
+    /// The add operator.
     Add,
-    /// The binary sub operator.
+    /// The sub operator.
     Sub,
-    /// The binary mul operator.
+    /// The mul operator.
     Mul,
-    /// The binary div operator.
+    /// The div operator.
     Div,
-    /// The binary rem operator.
+    /// The rem operator.
     Rem,
+    /// The or operator.
+    Or,
+    /// The and operator.
+    And,
+    /// The xor operator.
+    Xor,
+    /// The shift left operator.
+    Shl,
+    /// The shift right operator.
+    Shr,
 }

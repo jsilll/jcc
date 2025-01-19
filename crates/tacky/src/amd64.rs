@@ -65,6 +65,8 @@ pub enum Operand {
 pub enum Reg {
     /// The RAX register.
     Rax,
+    /// The RCX register.
+    Rcx,
     /// The RDX register.
     Rdx,
     /// The R10 register.
@@ -75,9 +77,9 @@ pub enum Reg {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    /// The unary logical not operator.
+    /// The not operator.
     Not,
-    /// The unary arithmetic negation operator.
+    /// The arithmetic negation operator.
     Neg,
 }
 
@@ -92,12 +94,22 @@ impl From<crate::UnaryOp> for UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    /// The binary add operator.
+    /// The add operator.
     Add,
-    /// The binary sub operator.
+    /// The sub operator.
     Sub,
-    /// The binary sub operator.
+    /// The sub operator.
     Mul,
+    /// The or operator.
+    Or,
+    /// The and operator.
+    And,
+    /// The xor operator.
+    Xor,
+    /// The shift left operator.
+    Shl,
+    /// The shift right operator.
+    Shr,
 }
 
 impl TryFrom<crate::BinaryOp> for BinaryOp {
@@ -108,7 +120,12 @@ impl TryFrom<crate::BinaryOp> for BinaryOp {
             crate::BinaryOp::Add => Ok(Self::Add),
             crate::BinaryOp::Sub => Ok(Self::Sub),
             crate::BinaryOp::Mul => Ok(Self::Mul),
-            _ => Err(()),
+            crate::BinaryOp::Or => Ok(Self::Or),
+            crate::BinaryOp::And => Ok(Self::And),
+            crate::BinaryOp::Xor => Ok(Self::Xor),
+            crate::BinaryOp::Shl => Ok(Self::Shl),
+            crate::BinaryOp::Shr => Ok(Self::Shr),
+            crate::BinaryOp::Div | crate::BinaryOp::Rem => Err(()),
         }
     }
 }
@@ -192,10 +209,10 @@ impl FnDefBuilder {
                         self.fn_def.instrs.push(Instr::Idiv(rhs));
                         self.fn_def.instrs_span.push(*span);
                         self.fn_def.instrs.push(Instr::Mov {
-                            src: if matches!(op, crate::BinaryOp::Div) {
-                                Operand::Reg(Reg::Rax)
-                            } else {
-                                Operand::Reg(Reg::Rdx)
+                            src: match op {
+                                crate::BinaryOp::Div => Operand::Reg(Reg::Rax),
+                                crate::BinaryOp::Rem => Operand::Reg(Reg::Rdx),
+                                _ => unreachable!(),
                             },
                             dst,
                         });
@@ -257,7 +274,16 @@ impl AMD64Fixer {
             Instr::Idiv(oper) => {
                 self.fix_operand(oper);
                 if let Operand::Imm(_) = oper {
-                    // Fixup note: The `idiv` doesn't support immediate values, so we need to move it to a register.
+                    // NOTE
+                    //
+                    // The `idiv` doesn't support
+                    // immediate values, so we need to move it
+                    // to a register.
+                    //
+                    // idivl $3
+                    //
+                    // movl $3, %r10d
+                    // idivl %r10d
                     let tmp = *oper;
                     *oper = Operand::Reg(Reg::Rg10);
                     program.0.instrs.insert(
@@ -274,7 +300,17 @@ impl AMD64Fixer {
                 self.fix_operand(src);
                 self.fix_operand(dst);
                 if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
-                    // Fixup note: The `mov` instruction doesn't support moving from memory to memory, so we need to use a register as a temporary.
+                    // NOTE
+                    //
+                    // The `mov` instruction
+                    // doesn't support moving from memory
+                    // to memory, so we need to use a register
+                    // as a temporary.
+                    //
+                    // movl -4(%rbp), -8(%rbp)
+                    //
+                    // movl -4(%rbp), %r10d
+                    // movl %r10d, -8(%rbp)
                     let tmp = *dst;
                     *dst = Operand::Reg(Reg::Rg10);
                     program.0.instrs.insert(
@@ -291,37 +327,92 @@ impl AMD64Fixer {
             Instr::Binary { op, src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
-                if matches!(op, BinaryOp::Mul) && matches!(dst, Operand::Stack(_)) {
-                    // Fixup note: The `imul` can't use a memory address as the destination operand, so we need to use a register as a temporary.
-                    let tmp = *dst;
-                    *dst = Operand::Reg(Reg::Rg11);
-                    program.0.instrs.insert(
-                        *idx,
-                        Instr::Mov {
-                            src: tmp,
-                            dst: Operand::Reg(Reg::Rg11),
-                        },
-                    );
-                    *idx += 2;
-                    program.0.instrs.insert(
-                        *idx,
-                        Instr::Mov {
-                            src: Operand::Reg(Reg::Rg11),
-                            dst: tmp,
-                        },
-                    );
-                } else if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
-                    // Fixup note: The binary instructions don't support moving from memory to memory, so we need to use a register as a temporary.
-                    let tmp = *src;
-                    *src = Operand::Reg(Reg::Rg10);
-                    program.0.instrs.insert(
-                        *idx,
-                        Instr::Mov {
-                            src: tmp,
-                            dst: Operand::Reg(Reg::Rg10),
-                        },
-                    );
-                    *idx += 1;
+                match *op {
+                    BinaryOp::Mul => {
+                        if let Operand::Stack(_) = dst {
+                            // NOTE
+                            //
+                            // The `imul` can't use
+                            // a memory address as the destination
+                            // operand, so we need to use a register
+                            // as a temporary.
+                            //
+                            // imull $3, -4(%rbp)
+                            //
+                            // movl -4(%rbp), %r11d
+                            // imull $3, %r11d
+                            // movl %r11d, -4(%rbp)
+                            let tmp = *dst;
+                            *dst = Operand::Reg(Reg::Rg11);
+                            program.0.instrs.insert(
+                                *idx,
+                                Instr::Mov {
+                                    src: tmp,
+                                    dst: Operand::Reg(Reg::Rg11),
+                                },
+                            );
+                            *idx += 2;
+                            program.0.instrs.insert(
+                                *idx,
+                                Instr::Mov {
+                                    src: Operand::Reg(Reg::Rg11),
+                                    dst: tmp,
+                                },
+                            );
+                        }
+                    }
+                    BinaryOp::Shl | BinaryOp::Shr => {
+                        if !matches!(src, Operand::Imm(_)) && !matches!(src, Operand::Reg(Reg::Rcx))
+                        {
+                            // NOTE
+                            //
+                            // The shift instructions only supports
+                            // dynamic shift counts in the CL register, so
+                            // we need to move the shift count to CL.
+                            //
+                            // shl $1, %rax
+                            //
+                            // movl $1, %cl
+                            // shll %cl, %rax
+                            let tmp = *src;
+                            *src = Operand::Reg(Reg::Rcx);
+                            program.0.instrs.insert(
+                                *idx,
+                                Instr::Mov {
+                                    src: tmp,
+                                    dst: Operand::Reg(Reg::Rcx),
+                                },
+                            );
+                            *idx += 1;
+                        }
+                    }
+                    _ => {
+                        match (&src, &dst) {
+                            (Operand::Stack(_), Operand::Stack(_)) => {
+                                // NOTE
+                                //
+                                // Binary instructions don't support
+                                // moving from memory to memory, so we need to
+                                // use a register as a temporary.
+                                //
+                                // addl -4(%rbp), -8(%rbp)
+                                //
+                                // movl -4(%rbp), %r10d
+                                // addl %r10d, -8(%rbp)
+                                let tmp = *src;
+                                *src = Operand::Reg(Reg::Rg10);
+                                program.0.instrs.insert(
+                                    *idx,
+                                    Instr::Mov {
+                                        src: tmp,
+                                        dst: Operand::Reg(Reg::Rg10),
+                                    },
+                                );
+                                *idx += 1;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
         }
@@ -416,6 +507,12 @@ impl<'a> AMD64Emitter<'a> {
                     BinaryOp::Add => self.writeln(&format!("addl {src}, {dst}")),
                     BinaryOp::Sub => self.writeln(&format!("subl {src}, {dst}")),
                     BinaryOp::Mul => self.writeln(&format!("imull {src}, {dst}")),
+                    BinaryOp::Or => self.writeln(&format!("orl {src}, {dst}")),
+                    BinaryOp::And => self.writeln(&format!("andl {src}, {dst}")),
+                    BinaryOp::Xor => self.writeln(&format!("xorl {src}, {dst}")),
+                    // NOTE: Since we assume all values are `int`, we use arithmetic shift
+                    BinaryOp::Shl => self.writeln(&format!("sall {src}, {dst}")),
+                    BinaryOp::Shr => self.writeln(&format!("sarl {src}, {dst}")),
                 };
             }
         }
@@ -426,6 +523,7 @@ impl<'a> AMD64Emitter<'a> {
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%eax".to_string(),
+                Reg::Rcx => "%ecx".to_string(),
                 Reg::Rdx => "%edx".to_string(),
                 Reg::Rg10 => "%r10d".to_string(),
                 Reg::Rg11 => "%r11d".to_string(),

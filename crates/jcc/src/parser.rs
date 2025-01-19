@@ -146,6 +146,16 @@ pub enum BinaryOp {
     Div,
     // The `%` operator.
     Rem,
+    // The `|` operator.
+    BitOr,
+    // The `&` operator.
+    BitAnd,
+    // The `^` operator.
+    BitXor,
+    // The `<<` operator.
+    BitLsh,
+    // The `>>` operator.
+    BitRsh,
 }
 
 impl From<BinaryOp> for tacky::BinaryOp {
@@ -156,6 +166,11 @@ impl From<BinaryOp> for tacky::BinaryOp {
             BinaryOp::Mul => tacky::BinaryOp::Mul,
             BinaryOp::Div => tacky::BinaryOp::Div,
             BinaryOp::Rem => tacky::BinaryOp::Rem,
+            BinaryOp::BitOr => tacky::BinaryOp::Or,
+            BinaryOp::BitAnd => tacky::BinaryOp::And,
+            BinaryOp::BitXor => tacky::BinaryOp::Xor,
+            BinaryOp::BitLsh => tacky::BinaryOp::Shl,
+            BinaryOp::BitRsh => tacky::BinaryOp::Shr,
         }
     }
 }
@@ -222,30 +237,55 @@ struct Precedence {
 impl From<TokenKind> for Option<Precedence> {
     fn from(token: TokenKind) -> Self {
         match token {
-            TokenKind::Plus => Some(Precedence {
-                op: BinaryOp::Add,
+            TokenKind::Pipe => Some(Precedence {
+                op: BinaryOp::BitOr,
                 plhs: 0,
                 prhs: 1,
+            }),
+            TokenKind::Caret => Some(Precedence {
+                op: BinaryOp::BitXor,
+                plhs: 1,
+                prhs: 2,
+            }),
+            TokenKind::Amp => Some(Precedence {
+                op: BinaryOp::BitAnd,
+                plhs: 2,
+                prhs: 3,
+            }),
+            TokenKind::LtLt => Some(Precedence {
+                op: BinaryOp::BitLsh,
+                plhs: 3,
+                prhs: 4,
+            }),
+            TokenKind::GtGt => Some(Precedence {
+                op: BinaryOp::BitRsh,
+                plhs: 3,
+                prhs: 4,
+            }),
+            TokenKind::Plus => Some(Precedence {
+                op: BinaryOp::Add,
+                plhs: 4,
+                prhs: 5,
             }),
             TokenKind::Minus => Some(Precedence {
                 op: BinaryOp::Sub,
-                plhs: 0,
-                prhs: 1,
+                plhs: 4,
+                prhs: 5,
             }),
             TokenKind::Star => Some(Precedence {
                 op: BinaryOp::Mul,
-                plhs: 1,
-                prhs: 2,
+                plhs: 5,
+                prhs: 6,
             }),
             TokenKind::Slash => Some(Precedence {
                 op: BinaryOp::Div,
-                plhs: 1,
-                prhs: 2,
+                plhs: 5,
+                prhs: 6,
             }),
             TokenKind::Percent => Some(Precedence {
                 op: BinaryOp::Rem,
-                plhs: 1,
-                prhs: 2,
+                plhs: 5,
+                prhs: 6,
             }),
             _ => None,
         }

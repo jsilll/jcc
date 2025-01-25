@@ -121,6 +121,8 @@ pub enum Expr {
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
+    /// The `!` operator.
+    Not,
     /// The `~` operator.
     BitNot,
 }
@@ -129,7 +131,8 @@ impl From<UnaryOp> for tacky::UnaryOp {
     fn from(op: UnaryOp) -> Self {
         match op {
             UnaryOp::Neg => tacky::UnaryOp::Neg,
-            UnaryOp::BitNot => tacky::UnaryOp::Not,
+            UnaryOp::Not => tacky::UnaryOp::BitNot,
+            UnaryOp::BitNot => tacky::UnaryOp::BitNot,
         }
     }
 }
@@ -174,22 +177,28 @@ pub enum BinaryOp {
     GreaterEqual,
 }
 
-impl From<BinaryOp> for tacky::BinaryOp {
-    fn from(op: BinaryOp) -> tacky::BinaryOp {
+impl TryFrom<BinaryOp> for tacky::BinaryOp {
+    type Error = ();
+
+    fn try_from(op: BinaryOp) -> Result<tacky::BinaryOp, ()> {
         match op {
-            BinaryOp::Add => tacky::BinaryOp::Add,
-            BinaryOp::Sub => tacky::BinaryOp::Sub,
-            BinaryOp::Mul => tacky::BinaryOp::Mul,
-            BinaryOp::Div => tacky::BinaryOp::Div,
-            BinaryOp::Rem => tacky::BinaryOp::Rem,
-            BinaryOp::BitOr => tacky::BinaryOp::Or,
-            BinaryOp::BitAnd => tacky::BinaryOp::And,
-            BinaryOp::BitXor => tacky::BinaryOp::Xor,
-            BinaryOp::BitLsh => tacky::BinaryOp::Shl,
-            BinaryOp::BitRsh => tacky::BinaryOp::Shr,
-            BinaryOp::LogicalOr => tacky::BinaryOp::Or,
-            BinaryOp::LogicalAnd => tacky::BinaryOp::And,
-            todo => todo!("{:?}", todo),
+            BinaryOp::Add => Ok(tacky::BinaryOp::Add),
+            BinaryOp::Sub => Ok(tacky::BinaryOp::Sub),
+            BinaryOp::Mul => Ok(tacky::BinaryOp::Mul),
+            BinaryOp::Div => Ok(tacky::BinaryOp::Div),
+            BinaryOp::Rem => Ok(tacky::BinaryOp::Rem),
+            BinaryOp::BitOr => Ok(tacky::BinaryOp::BitOr),
+            BinaryOp::BitAnd => Ok(tacky::BinaryOp::BitAnd),
+            BinaryOp::BitXor => Ok(tacky::BinaryOp::BitXor),
+            BinaryOp::BitLsh => Ok(tacky::BinaryOp::BitShl),
+            BinaryOp::BitRsh => Ok(tacky::BinaryOp::BitShr),
+            BinaryOp::Equal => Ok(tacky::BinaryOp::Equal),
+            BinaryOp::NotEqual => Ok(tacky::BinaryOp::NotEqual),
+            BinaryOp::LessThan => Ok(tacky::BinaryOp::LessThan),
+            BinaryOp::LessEqual => Ok(tacky::BinaryOp::LessEqual),
+            BinaryOp::GreaterThan => Ok(tacky::BinaryOp::GreaterThan),
+            BinaryOp::GreaterEqual => Ok(tacky::BinaryOp::GreaterEqual),
+            _ => Err(()),
         }
     }
 }

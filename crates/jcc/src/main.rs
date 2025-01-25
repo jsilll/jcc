@@ -68,7 +68,7 @@ fn try_main() -> Result<()> {
     db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
-    // Lex the file
+    // Lex file
     let mut interner = StringInterner::default();
     let mut lexer_result = Lexer::new(&file, &mut interner).lex();
     if args.lex {
@@ -95,7 +95,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Parse the tokens
+    // Parse tokens
     let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
         source_file::diagnostic::report_batch(
@@ -112,7 +112,8 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // TODO: Check the AST
+    // TODO
+    // Check the AST
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 
@@ -129,13 +130,13 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Generate amd64
+    // Generate AMD64
     let mut amd64 = AMD64Builder::new(&tacky).build();
     if args.verbose {
         println!("{:#?}", amd64);
     }
 
-    // Replace Pseudoregisters
+    // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);
     if args.verbose {
         println!("{:#?}", amd64);
@@ -144,7 +145,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Emit asm
+    // Emit assembly
     let asm_path = args.path.with_extension("s");
     let asm = AMD64Emitter::new(&amd64).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;

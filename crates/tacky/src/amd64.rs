@@ -88,6 +88,7 @@ impl From<crate::UnaryOp> for UnaryOp {
         match op {
             crate::UnaryOp::Neg => Self::Neg,
             crate::UnaryOp::Not => Self::Not,
+            crate::UnaryOp::BitNot => Self::Not,
         }
     }
 }
@@ -120,12 +121,13 @@ impl TryFrom<crate::BinaryOp> for BinaryOp {
             crate::BinaryOp::Add => Ok(Self::Add),
             crate::BinaryOp::Sub => Ok(Self::Sub),
             crate::BinaryOp::Mul => Ok(Self::Mul),
-            crate::BinaryOp::Or => Ok(Self::Or),
-            crate::BinaryOp::And => Ok(Self::And),
-            crate::BinaryOp::Xor => Ok(Self::Xor),
-            crate::BinaryOp::Shl => Ok(Self::Shl),
-            crate::BinaryOp::Shr => Ok(Self::Shr),
+            crate::BinaryOp::BitOr => Ok(Self::Or),
+            crate::BinaryOp::BitAnd => Ok(Self::And),
+            crate::BinaryOp::BitXor => Ok(Self::Xor),
+            crate::BinaryOp::BitShl => Ok(Self::Shl),
+            crate::BinaryOp::BitShr => Ok(Self::Shr),
             crate::BinaryOp::Div | crate::BinaryOp::Rem => Err(()),
+            _ => todo!(),
         }
     }
 }
@@ -168,7 +170,11 @@ impl FnDefBuilder {
         self.fn_def.span = fn_def.span;
         self.fn_def.instrs.push(Instr::Alloca(0));
         self.fn_def.instrs_span.push(fn_def.span);
-        for (instr, span) in fn_def.instrs.iter().zip(fn_def.instrs_span.iter()) {
+        for (instr, span) in fn_def.blocks[0]
+            .instrs
+            .iter()
+            .zip(fn_def.blocks[0].spans.iter())
+        {
             self.build_from_instr(instr, span);
         }
         self.fn_def
@@ -228,6 +234,10 @@ impl FnDefBuilder {
                     }
                 }
             }
+            crate::Instr::Jump { .. } => todo!(),
+            crate::Instr::JumpIfZero { .. } => todo!(),
+            crate::Instr::JumpIfNotZero { .. } => todo!(),
+            crate::Instr::Copy { .. } => todo!(),
         }
     }
 

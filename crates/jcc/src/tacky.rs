@@ -1,7 +1,8 @@
 use crate::parser;
 
 use tacky::{
-    source_file::SourceSpan, BinaryOp, Block, BlockRef, FnDef, Instr, Program, UnaryOp, Value,
+    source_file::SourceSpan, string_interner::DefaultStringInterner, BinaryOp, Block, BlockRef,
+    FnDef, Instr, Program, UnaryOp, Value,
 };
 
 // ---------------------------------------------------------------------------
@@ -10,41 +11,44 @@ use tacky::{
 
 pub struct TackyBuilder<'a> {
     ast: &'a parser::Ast,
+    interner: &'a mut DefaultStringInterner,
 }
 
 impl<'a> TackyBuilder<'a> {
-    pub fn new(ast: &'a parser::Ast) -> Self {
-        Self { ast }
+    pub fn new(ast: &'a parser::Ast, interner: &'a mut DefaultStringInterner) -> Self {
+        Self { ast, interner }
     }
 
-    pub fn build(self) -> Program {
+    pub fn build(mut self) -> Program {
         Program(self.build_from_item(&self.ast.items()[0]))
     }
 
-    fn build_from_item(&self, item: &parser::Item) -> FnDef {
-        FnDefBuilder::new(self.ast).build(item)
+    fn build_from_item(&mut self, item: &parser::Item) -> FnDef {
+        TackyFnDefBuilder::new(self.ast, self.interner).build(item)
     }
 }
 
 // ---------------------------------------------------------------------------
-// FnDefBuilder
+// TackyFnDefBuilder
 // ---------------------------------------------------------------------------
 
-struct FnDefBuilder<'a> {
-    ast: &'a parser::Ast,
+struct TackyFnDefBuilder<'a> {
+    fn_def: FnDef,
     tmp_count: u32,
     block: BlockRef,
-    fn_def: FnDef,
+    ast: &'a parser::Ast,
+    interner: &'a mut DefaultStringInterner,
 }
 
-impl<'a> FnDefBuilder<'a> {
-    fn new(ast: &'a parser::Ast) -> Self {
+impl<'a> TackyFnDefBuilder<'a> {
+    fn new(ast: &'a parser::Ast, interner: &'a mut DefaultStringInterner) -> Self {
         let mut fn_def = FnDef::default();
-        let root = fn_def.push_default_block();
+        let block = fn_def.push_block(Block::default());
         Self {
             ast,
-            block: root,
+            block,
             fn_def,
+            interner,
             tmp_count: 0,
         }
     }
@@ -102,14 +106,18 @@ impl<'a> FnDefBuilder<'a> {
                     };
 
                     let dst = self.make_tmp();
-                    let skip_block = self.fn_def.push_block(Block::with_label("skip"));
-                    let cont_block = self.fn_def.push_block(Block::with_label("cont"));
+                    let skip_block = self.fn_def.push_block(Block::with_label(
+                        self.interner.get_or_intern_static("skip"),
+                    ));
+                    let cont_block = self.fn_def.push_block(Block::with_label(
+                        self.interner.get_or_intern_static("cont"),
+                    ));
                     self.fn_def.get_block_mut(skip_block).instrs.extend([
                         Instr::Copy {
                             src: skip_value,
                             dst,
                         },
-                        Instr::Jump { target: cont_block },
+                        Instr::Jump(cont_block),
                     ]);
                     self.fn_def
                         .get_block_mut(skip_block)
@@ -155,10 +163,7 @@ impl<'a> FnDefBuilder<'a> {
                         },
                         *self.ast.get_expr_span(expr),
                     );
-                    self.append_to_block(
-                        Instr::Jump { target: cont_block },
-                        *self.ast.get_expr_span(expr),
-                    );
+                    self.append_to_block(Instr::Jump(cont_block), *self.ast.get_expr_span(expr));
 
                     self.block = cont_block;
                     dst

@@ -1,4 +1,5 @@
 use source_file::SourceSpan;
+use string_interner::{DefaultStringInterner, DefaultSymbol};
 
 use std::collections::HashMap;
 
@@ -13,15 +14,70 @@ pub struct Program(pub FnDef);
 pub struct FnDef {
     pub id: u32,
     pub span: SourceSpan,
-    pub instrs: Vec<Instr>,
-    pub instrs_span: Vec<SourceSpan>,
+    blocks: Vec<Block>,
+}
+
+impl FnDef {
+    pub fn new(id: u32, span: SourceSpan) -> Self {
+        Self {
+            id,
+            span,
+            blocks: Vec::new(),
+        }
+    }
+
+    pub fn get_block(&self, block_ref: BlockRef) -> &Block {
+        &self.blocks[block_ref.0 as usize]
+    }
+
+    pub fn get_block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
+        &mut self.blocks[block_ref.0 as usize]
+    }
+
+    pub fn push_block(&mut self, block: Block) -> BlockRef {
+        self.blocks.push(block);
+        BlockRef((self.blocks.len() - 1) as u32)
+    }
 }
 
 impl std::fmt::Debug for FnDef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("FnDef")
             .field("id", &self.id)
-            .field("span", &self.span)
+            .field("blocks", &self.blocks)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BlockRef(u32);
+
+impl std::fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct Block {
+    pub instrs: Vec<Instr>,
+    pub spans: Vec<SourceSpan>,
+    pub label: Option<DefaultSymbol>,
+}
+
+impl Block {
+    pub fn with_label(label: DefaultSymbol) -> Self {
+        Block {
+            label: Some(label),
+            ..Default::default()
+        }
+    }
+}
+
+impl std::fmt::Debug for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Block")
+            .field("label", &self.label)
             .field("instrs", &self.instrs)
             .finish()
     }
@@ -37,8 +93,19 @@ pub enum Instr {
     Alloca(u32),
     /// An `idiv` instruction.
     Idiv(Operand),
+    /// A `jmp` instruction.
+    Jmp(BlockRef),
     /// A `mov` instruction.
     Mov { src: Operand, dst: Operand },
+    /// A `cmp` instruction.
+    Cmp { lhs: Operand, rhs: Operand },
+    /// A conditional set instruction.
+    SetCC { cond_code: CondCode, dst: Operand },
+    /// A conditional jump instruction.
+    JmpCC {
+        cond_code: CondCode,
+        target: BlockRef,
+    },
     /// A unary operation instruction.
     Unary { op: UnaryOp, src: Operand },
     /// A binary operation instruction.
@@ -83,12 +150,14 @@ pub enum UnaryOp {
     Neg,
 }
 
-impl From<crate::UnaryOp> for UnaryOp {
-    fn from(op: crate::UnaryOp) -> Self {
+impl TryFrom<crate::UnaryOp> for UnaryOp {
+    type Error = ();
+
+    fn try_from(op: crate::UnaryOp) -> Result<Self, Self::Error> {
         match op {
-            crate::UnaryOp::Neg => Self::Neg,
-            crate::UnaryOp::Not => Self::Not,
-            crate::UnaryOp::BitNot => Self::Not,
+            crate::UnaryOp::Neg => Ok(Self::Neg),
+            crate::UnaryOp::BitNot => Ok(Self::Not),
+            _ => Err(()),
         }
     }
 }
@@ -126,8 +195,39 @@ impl TryFrom<crate::BinaryOp> for BinaryOp {
             crate::BinaryOp::BitXor => Ok(Self::Xor),
             crate::BinaryOp::BitShl => Ok(Self::Shl),
             crate::BinaryOp::BitShr => Ok(Self::Shr),
-            crate::BinaryOp::Div | crate::BinaryOp::Rem => Err(()),
-            _ => todo!(),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CondCode {
+    /// The equal condition.
+    Equal,
+    /// The not equal condition.
+    NotEqual,
+    /// The less than condition.
+    LessThan,
+    /// The less than or equal condition.
+    LessEqual,
+    /// The greater than condition.
+    GreaterThan,
+    /// The greater than or equal condition.
+    GreaterEqual,
+}
+
+impl TryFrom<crate::BinaryOp> for CondCode {
+    type Error = ();
+
+    fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
+        match op {
+            crate::BinaryOp::Equal => Ok(Self::Equal),
+            crate::BinaryOp::NotEqual => Ok(Self::NotEqual),
+            crate::BinaryOp::LessThan => Ok(Self::LessThan),
+            crate::BinaryOp::LessEqual => Ok(Self::LessEqual),
+            crate::BinaryOp::GreaterThan => Ok(Self::GreaterThan),
+            crate::BinaryOp::GreaterEqual => Ok(Self::GreaterEqual),
+            _ => Err(()),
         }
     }
 }
@@ -146,38 +246,79 @@ impl<'a> AMD64Builder<'a> {
     }
 
     pub fn build(self) -> Program {
-        Program(FnDefBuilder::new().build(&self.tacky.0))
+        Program(AMD64FnDefBuilder::new().build(&self.tacky.0))
     }
 }
 
 // ---------------------------------------------------------------------------
-// FnDefBuilder
+// AMD64FnDefBuilder
 // ---------------------------------------------------------------------------
 
-struct FnDefBuilder {
+struct AMD64FnDefBuilder {
     fn_def: FnDef,
+    block: BlockRef,
+    block_map: HashMap<crate::BlockRef, BlockRef>,
 }
 
-impl FnDefBuilder {
+impl AMD64FnDefBuilder {
     fn new() -> Self {
+        let mut fn_def = FnDef::default();
+        let block = fn_def.push_block(Block::default());
         Self {
-            fn_def: Default::default(),
+            block,
+            fn_def,
+            block_map: HashMap::new(),
         }
     }
 
     fn build(mut self, fn_def: &crate::FnDef) -> FnDef {
         self.fn_def.id = fn_def.id;
         self.fn_def.span = fn_def.span;
-        self.fn_def.instrs.push(Instr::Alloca(0));
-        self.fn_def.instrs_span.push(fn_def.span);
-        for (instr, span) in fn_def.blocks[0]
-            .instrs
-            .iter()
-            .zip(fn_def.blocks[0].spans.iter())
-        {
-            self.build_from_instr(instr, span);
+        self.append_to_block(Instr::Alloca(0), fn_def.span);
+        if let Some(block) = fn_def.blocks_iter().next() {
+            self.block_map.insert(block, self.block);
+            fn_def
+                .get_block(block)
+                .instrs
+                .iter()
+                .zip(fn_def.get_block(block).spans.iter())
+                .for_each(|(instr, span)| {
+                    self.build_from_instr(instr, span);
+                });
         }
+        fn_def.blocks_iter().skip(1).for_each(|block| {
+            self.block = self.get_or_create_block(block);
+            fn_def
+                .get_block(block)
+                .instrs
+                .iter()
+                .zip(fn_def.get_block(block).spans.iter())
+                .for_each(|(instr, span)| {
+                    self.build_from_instr(instr, span);
+                });
+        });
+        self.block_map
+            .into_iter()
+            .for_each(|(tacky_block, block_ref)| {
+                let block = self.fn_def.get_block_mut(block_ref);
+                if block.label.is_none() {
+                    block.label = fn_def.get_block(tacky_block).label;
+                }
+            });
         self.fn_def
+    }
+
+    fn append_to_block(&mut self, instr: Instr, span: SourceSpan) {
+        let block = self.fn_def.get_block_mut(self.block);
+        block.instrs.push(instr);
+        block.spans.push(span);
+    }
+
+    fn get_or_create_block(&mut self, block: crate::BlockRef) -> BlockRef {
+        *self
+            .block_map
+            .entry(block)
+            .or_insert_with(|| self.fn_def.push_block(Block::default()))
     }
 
     fn build_from_instr(&mut self, instr: &crate::Instr, span: &SourceSpan) {
@@ -185,59 +326,151 @@ impl FnDefBuilder {
             crate::Instr::Return(value) => {
                 let src = Self::build_from_value(*value);
                 let dst = Operand::Reg(Reg::Rax);
-                self.fn_def.instrs.push(Instr::Mov { src, dst });
-                self.fn_def.instrs_span.push(*span);
-                self.fn_def.instrs.push(Instr::Ret);
-                self.fn_def.instrs_span.push(*span);
+                self.append_to_block(Instr::Mov { src, dst }, *span);
+                self.append_to_block(Instr::Ret, *span);
             }
-            crate::Instr::Unary { op, src, dst } => {
-                let op = UnaryOp::from(*op);
+            crate::Instr::Jump(target) => {
+                let target = self.get_or_create_block(*target);
+                self.append_to_block(Instr::Jmp(target), *span);
+            }
+            crate::Instr::Copy { src, dst } => {
                 let src = Self::build_from_value(*src);
                 let dst = Self::build_from_value(*dst);
-                self.fn_def.instrs.push(Instr::Mov { src, dst });
-                self.fn_def.instrs_span.push(*span);
-                self.fn_def.instrs.push(Instr::Unary { op, src: dst });
-                self.fn_def.instrs_span.push(*span);
+                self.append_to_block(Instr::Mov { src, dst }, *span);
             }
+            crate::Instr::JumpIfZero { cond, target } => {
+                let cond = Self::build_from_value(*cond);
+                let target = self.get_or_create_block(*target);
+                self.append_to_block(
+                    Instr::Cmp {
+                        lhs: Operand::Imm(0),
+                        rhs: cond,
+                    },
+                    *span,
+                );
+                self.append_to_block(
+                    Instr::JmpCC {
+                        cond_code: CondCode::Equal,
+                        target,
+                    },
+                    *span,
+                );
+            }
+            crate::Instr::JumpIfNotZero { cond, target } => {
+                let cond = Self::build_from_value(*cond);
+                let target = self.get_or_create_block(*target);
+                self.append_to_block(
+                    Instr::Cmp {
+                        lhs: Operand::Imm(0),
+                        rhs: cond,
+                    },
+                    *span,
+                );
+                self.append_to_block(
+                    Instr::JmpCC {
+                        cond_code: CondCode::NotEqual,
+                        target,
+                    },
+                    *span,
+                );
+            }
+            crate::Instr::Unary { op, src, dst } => match op {
+                crate::UnaryOp::Not => {
+                    let src = Self::build_from_value(*src);
+                    let dst = Self::build_from_value(*dst);
+                    self.append_to_block(
+                        Instr::Cmp {
+                            lhs: Operand::Imm(0),
+                            rhs: src,
+                        },
+                        *span,
+                    );
+                    self.append_to_block(
+                        Instr::Mov {
+                            src: Operand::Imm(0),
+                            dst,
+                        },
+                        *span,
+                    );
+                    self.append_to_block(
+                        Instr::SetCC {
+                            cond_code: CondCode::Equal,
+                            dst,
+                        },
+                        *span,
+                    );
+                }
+                _ => {
+                    let op = UnaryOp::try_from(*op).expect("unexpected unary operator");
+                    let src = Self::build_from_value(*src);
+                    let dst = Self::build_from_value(*dst);
+                    self.append_to_block(Instr::Mov { src, dst }, *span);
+                    self.append_to_block(Instr::Unary { op, src: dst }, *span);
+                }
+            },
             crate::Instr::Binary { op, lhs, rhs, dst } => {
                 let lhs = Self::build_from_value(*lhs);
                 let rhs = Self::build_from_value(*rhs);
                 let dst = Self::build_from_value(*dst);
                 match op {
-                    crate::BinaryOp::Div | crate::BinaryOp::Rem => {
-                        self.fn_def.instrs.push(Instr::Mov {
-                            src: lhs,
-                            dst: Operand::Reg(Reg::Rax),
-                        });
-                        self.fn_def.instrs_span.push(*span);
-                        self.fn_def.instrs.push(Instr::Cdq);
-                        self.fn_def.instrs_span.push(*span);
-                        self.fn_def.instrs.push(Instr::Idiv(rhs));
-                        self.fn_def.instrs_span.push(*span);
-                        self.fn_def.instrs.push(Instr::Mov {
-                            src: match op {
-                                crate::BinaryOp::Div => Operand::Reg(Reg::Rax),
-                                crate::BinaryOp::Rem => Operand::Reg(Reg::Rdx),
-                                _ => unreachable!(),
+                    crate::BinaryOp::Equal
+                    | crate::BinaryOp::NotEqual
+                    | crate::BinaryOp::LessThan
+                    | crate::BinaryOp::LessEqual
+                    | crate::BinaryOp::GreaterThan
+                    | crate::BinaryOp::GreaterEqual => {
+                        self.append_to_block(Instr::Cmp { lhs: rhs, rhs: lhs }, *span);
+                        self.append_to_block(
+                            Instr::Mov {
+                                src: Operand::Imm(0),
+                                dst,
                             },
-                            dst,
-                        });
-                        self.fn_def.instrs_span.push(*span);
+                            *span,
+                        );
+                        self.append_to_block(
+                            Instr::SetCC {
+                                cond_code: CondCode::try_from(*op)
+                                    .expect("unexpected binary operator"),
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::Div | crate::BinaryOp::Rem => {
+                        self.append_to_block(
+                            Instr::Mov {
+                                src: lhs,
+                                dst: Operand::Reg(Reg::Rax),
+                            },
+                            *span,
+                        );
+                        self.append_to_block(Instr::Cdq, *span);
+                        self.append_to_block(Instr::Idiv(rhs), *span);
+                        self.append_to_block(
+                            Instr::Mov {
+                                src: match op {
+                                    crate::BinaryOp::Div => Operand::Reg(Reg::Rax),
+                                    crate::BinaryOp::Rem => Operand::Reg(Reg::Rdx),
+                                    _ => unreachable!(),
+                                },
+                                dst,
+                            },
+                            *span,
+                        );
                     }
                     _ => {
-                        if let Ok(op) = BinaryOp::try_from(*op) {
-                            self.fn_def.instrs.push(Instr::Mov { src: lhs, dst });
-                            self.fn_def.instrs_span.push(*span);
-                            self.fn_def.instrs.push(Instr::Binary { op, src: rhs, dst });
-                            self.fn_def.instrs_span.push(*span);
-                        }
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::try_from(*op).expect("unexpected binary operator"),
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
                     }
                 }
             }
-            crate::Instr::Jump { .. } => todo!(),
-            crate::Instr::JumpIfZero { .. } => todo!(),
-            crate::Instr::JumpIfNotZero { .. } => todo!(),
-            crate::Instr::Copy { .. } => todo!(),
         }
     }
 
@@ -268,19 +501,22 @@ impl AMD64Fixer {
 
     pub fn fix(mut self, program: &mut Program) {
         let mut idx = 0;
-        while idx < program.0.instrs.len() {
-            self.fix_instr(program, &mut idx);
-            idx += 1;
-        }
-        if let Some(Instr::Alloca(size)) = program.0.instrs.first_mut() {
+        program.0.blocks.iter_mut().for_each(|block| {
+            while idx < block.instrs.len() {
+                self.fix_instr(block, &mut idx);
+                idx += 1;
+            }
+            idx = 0;
+        });
+        if let Some(Instr::Alloca(size)) = program.0.blocks[0].instrs.first_mut() {
             *size = self.offset;
         }
     }
 
-    fn fix_instr(&mut self, program: &mut Program, idx: &mut usize) {
-        let instr = &mut program.0.instrs[*idx];
+    fn fix_instr(&mut self, block: &mut Block, idx: &mut usize) {
+        let instr = &mut block.instrs[*idx];
         match instr {
-            Instr::Ret | Instr::Cdq | Instr::Alloca(_) => {}
+            Instr::Ret | Instr::Cdq | Instr::Jmp(_) | Instr::Alloca(_) | Instr::JmpCC { .. } => {}
             Instr::Idiv(oper) => {
                 self.fix_operand(oper);
                 if let Operand::Imm(_) = oper {
@@ -296,7 +532,7 @@ impl AMD64Fixer {
                     // idivl %r10d
                     let tmp = *oper;
                     *oper = Operand::Reg(Reg::Rg10);
-                    program.0.instrs.insert(
+                    block.instrs.insert(
                         *idx,
                         Instr::Mov {
                             src: tmp,
@@ -323,7 +559,7 @@ impl AMD64Fixer {
                     // movl %r10d, -8(%rbp)
                     let tmp = *dst;
                     *dst = Operand::Reg(Reg::Rg10);
-                    program.0.instrs.insert(
+                    block.instrs.insert(
                         *idx + 1,
                         Instr::Mov {
                             src: Operand::Reg(Reg::Rg10),
@@ -332,6 +568,57 @@ impl AMD64Fixer {
                     );
                     *idx += 1;
                 }
+            }
+            Instr::Cmp { lhs, rhs } => {
+                self.fix_operand(lhs);
+                self.fix_operand(rhs);
+                if matches!(rhs, Operand::Imm(_)) {
+                    // NOTE
+                    //
+                    // The `cmp` instruction doesn't support
+                    // an immediate value as the second operand,
+                    // so we need to move the immediate value
+                    // to a register.
+                    //
+                    // cmpl -4(%rbp), $3
+                    //
+                    // movl $3, %r11d
+                    // cmpl -4(%rbp), %r11d
+                    let tmp = *rhs;
+                    *rhs = Operand::Reg(Reg::Rg11);
+                    block.instrs.insert(
+                        *idx,
+                        Instr::Mov {
+                            src: tmp,
+                            dst: Operand::Reg(Reg::Rg11),
+                        },
+                    );
+                    *idx += 1;
+                } else if matches!(lhs, Operand::Stack(_)) && matches!(rhs, Operand::Stack(_)) {
+                    // NOTE
+                    //
+                    // The `cmp` instruction doesn't support
+                    // comparing memory to memory, so we need to
+                    // use a register as a temporary.
+                    //
+                    // cmpl -4(%rbp), -8(%rbp)
+                    //
+                    // movl -4(%rbp), %r10d
+                    // cmpl %r10d, -8(%rbp)
+                    let tmp = *lhs;
+                    *lhs = Operand::Reg(Reg::Rg10);
+                    block.instrs.insert(
+                        *idx,
+                        Instr::Mov {
+                            src: tmp,
+                            dst: Operand::Reg(Reg::Rg10),
+                        },
+                    );
+                    *idx += 1;
+                }
+            }
+            Instr::SetCC { dst, .. } => {
+                self.fix_operand(dst);
             }
             Instr::Unary { src, .. } => self.fix_operand(src),
             Instr::Binary { op, src, dst } => {
@@ -354,7 +641,7 @@ impl AMD64Fixer {
                             // movl %r11d, -4(%rbp)
                             let tmp = *dst;
                             *dst = Operand::Reg(Reg::Rg11);
-                            program.0.instrs.insert(
+                            block.instrs.insert(
                                 *idx,
                                 Instr::Mov {
                                     src: tmp,
@@ -362,7 +649,7 @@ impl AMD64Fixer {
                                 },
                             );
                             *idx += 2;
-                            program.0.instrs.insert(
+                            block.instrs.insert(
                                 *idx,
                                 Instr::Mov {
                                     src: Operand::Reg(Reg::Rg11),
@@ -386,7 +673,7 @@ impl AMD64Fixer {
                             // shll %cl, %rax
                             let tmp = *src;
                             *src = Operand::Reg(Reg::Rcx);
-                            program.0.instrs.insert(
+                            block.instrs.insert(
                                 *idx,
                                 Instr::Mov {
                                     src: tmp,
@@ -397,30 +684,27 @@ impl AMD64Fixer {
                         }
                     }
                     _ => {
-                        match (&src, &dst) {
-                            (Operand::Stack(_), Operand::Stack(_)) => {
-                                // NOTE
-                                //
-                                // Binary instructions don't support
-                                // moving from memory to memory, so we need to
-                                // use a register as a temporary.
-                                //
-                                // addl -4(%rbp), -8(%rbp)
-                                //
-                                // movl -4(%rbp), %r10d
-                                // addl %r10d, -8(%rbp)
-                                let tmp = *src;
-                                *src = Operand::Reg(Reg::Rg10);
-                                program.0.instrs.insert(
-                                    *idx,
-                                    Instr::Mov {
-                                        src: tmp,
-                                        dst: Operand::Reg(Reg::Rg10),
-                                    },
-                                );
-                                *idx += 1;
-                            }
-                            _ => {}
+                        if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
+                            // NOTE
+                            //
+                            // Binary instructions don't support
+                            // moving from memory to memory, so we need to
+                            // use a register as a temporary.
+                            //
+                            // addl -4(%rbp), -8(%rbp)
+                            //
+                            // movl -4(%rbp), %r10d
+                            // addl %r10d, -8(%rbp)
+                            let tmp = *src;
+                            *src = Operand::Reg(Reg::Rg10);
+                            block.instrs.insert(
+                                *idx,
+                                Instr::Mov {
+                                    src: tmp,
+                                    dst: Operand::Reg(Reg::Rg10),
+                                },
+                            );
+                            *idx += 1;
                         }
                     }
                 }
@@ -446,12 +730,14 @@ pub struct AMD64Emitter<'a> {
     output: String,
     indent_level: usize,
     program: &'a Program,
+    interner: &'a DefaultStringInterner,
 }
 
 impl<'a> AMD64Emitter<'a> {
-    pub fn new(program: &'a Program) -> Self {
+    pub fn new(program: &'a Program, interner: &'a DefaultStringInterner) -> Self {
         Self {
             program,
+            interner,
             indent_level: 0,
             output: String::with_capacity(1024),
         }
@@ -466,6 +752,7 @@ impl<'a> AMD64Emitter<'a> {
     fn emit_fn_def(&mut self, fn_def: &FnDef) {
         // TODO: use interner data for function names
         // TODO: If in macOS, use .globl _name instead of .globl name
+        // All user-defined labels are prefixed with `_` on macOS
         let name = "main";
         self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
         self.writeln(&format!("{name}:"));
@@ -473,11 +760,18 @@ impl<'a> AMD64Emitter<'a> {
             emitter.writeln("pushq %rbp");
             emitter.writeln("movq %rsp, %rbp");
         });
-        self.with_indent(|emitter| {
-            fn_def
-                .instrs
-                .iter()
-                .for_each(|instr| emitter.emit_instr(instr));
+        fn_def.blocks.iter().enumerate().for_each(|(idx, block)| {
+            if let Some(label) = block.label {
+                // NOTE: The local label prefix on Linux is `.L` and on macOS is `L`
+                let label = self.interner.resolve(label).expect("invalid label");
+                self.writeln(&format!(".L{label}{idx}:"));
+            }
+            self.with_indent(|emitter| {
+                block
+                    .instrs
+                    .iter()
+                    .for_each(|instr| emitter.emit_instr(instr));
+            });
         });
     }
 
@@ -495,24 +789,55 @@ impl<'a> AMD64Emitter<'a> {
                 }
             }
             Instr::Idiv(oper) => {
-                let oper = self.emit_operand(oper);
+                let oper = self.emit_operand_32(oper);
                 self.writeln(&format!("idivl {oper}"));
             }
+            Instr::Jmp(target) => {
+                let block = self.program.0.get_block(*target);
+                match block.label {
+                    Some(label) => {
+                        let label = self.interner.resolve(label).expect("invalid label");
+                        self.writeln(&format!("jmp .L{label}{target}"));
+                    }
+                    None => todo!("cannot emit jmp to block without label"),
+                }
+            }
             Instr::Mov { src, dst } => {
-                let src = self.emit_operand(src);
-                let dst = self.emit_operand(dst);
+                let src = self.emit_operand_32(src);
+                let dst = self.emit_operand_32(dst);
                 self.writeln(&format!("movl {src}, {dst}"));
             }
+            Instr::Cmp { lhs, rhs } => {
+                let lhs = self.emit_operand_32(lhs);
+                let rhs = self.emit_operand_32(rhs);
+                self.writeln(&format!("cmpl {lhs}, {rhs}"));
+            }
+            Instr::SetCC { cond_code, dst } => {
+                let dst = self.emit_operand_8(dst);
+                let cond_code = self.emit_cond_code(*cond_code);
+                self.writeln(&format!("set{cond_code} {dst}"));
+            }
+            Instr::JmpCC { cond_code, target } => {
+                let block = self.program.0.get_block(*target);
+                match block.label {
+                    Some(label) => {
+                        let label = self.interner.resolve(label).expect("invalid label");
+                        let cond_code = self.emit_cond_code(*cond_code);
+                        self.writeln(&format!("j{cond_code} .L{label}{target}"));
+                    }
+                    None => todo!("emit jmpcc to block without label"),
+                }
+            }
             Instr::Unary { op, src } => {
-                let src = self.emit_operand(src);
+                let src = self.emit_operand_32(src);
                 match op {
                     UnaryOp::Not => self.writeln(&format!("notl {src}")),
                     UnaryOp::Neg => self.writeln(&format!("negl {src}")),
                 };
             }
             Instr::Binary { op, src, dst } => {
-                let src = self.emit_operand(src);
-                let dst = self.emit_operand(dst);
+                let src = self.emit_operand_32(src);
+                let dst = self.emit_operand_32(dst);
                 match op {
                     BinaryOp::Add => self.writeln(&format!("addl {src}, {dst}")),
                     BinaryOp::Sub => self.writeln(&format!("subl {src}, {dst}")),
@@ -528,7 +853,22 @@ impl<'a> AMD64Emitter<'a> {
         }
     }
 
-    fn emit_operand(&mut self, oper: &Operand) -> String {
+    fn emit_operand_8(&mut self, oper: &Operand) -> String {
+        match oper {
+            Operand::Imm(value) => format!("${}", value),
+            Operand::Reg(reg) => match reg {
+                Reg::Rax => "%al".to_string(),
+                Reg::Rcx => "%cl".to_string(),
+                Reg::Rdx => "%dl".to_string(),
+                Reg::Rg10 => "%r10b".to_string(),
+                Reg::Rg11 => "%r11b".to_string(),
+            },
+            Operand::Stack(offset) => format!("-{}(%rbp)", offset),
+            Operand::Pseudo(id) => format!("pseudo({})", id),
+        }
+    }
+
+    fn emit_operand_32(&mut self, oper: &Operand) -> String {
         match oper {
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
@@ -540,6 +880,17 @@ impl<'a> AMD64Emitter<'a> {
             },
             Operand::Stack(offset) => format!("-{}(%rbp)", offset),
             Operand::Pseudo(id) => format!("pseudo({})", id),
+        }
+    }
+
+    fn emit_cond_code(&mut self, cond_code: CondCode) -> String {
+        match cond_code {
+            CondCode::Equal => "e".to_string(),
+            CondCode::NotEqual => "ne".to_string(),
+            CondCode::LessThan => "l".to_string(),
+            CondCode::LessEqual => "le".to_string(),
+            CondCode::GreaterThan => "g".to_string(),
+            CondCode::GreaterEqual => "ge".to_string(),
         }
     }
 

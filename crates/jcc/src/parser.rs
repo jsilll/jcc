@@ -1,7 +1,9 @@
 use crate::lexer::{Token, TokenKind};
 
-use string_interner::{DefaultSymbol, Symbol};
-use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
+use tacky::{
+    source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan},
+    string_interner::{DefaultSymbol, Symbol},
+};
 
 use std::{iter::Peekable, slice::Iter};
 
@@ -88,9 +90,9 @@ impl std::fmt::Debug for Ast {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
-    pub span: SourceSpan,
     pub name: DefaultSymbol,
     pub body: StmtRef,
+    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +133,7 @@ impl From<UnaryOp> for tacky::UnaryOp {
     fn from(op: UnaryOp) -> Self {
         match op {
             UnaryOp::Neg => tacky::UnaryOp::Neg,
-            UnaryOp::Not => tacky::UnaryOp::BitNot,
+            UnaryOp::Not => tacky::UnaryOp::Not,
             UnaryOp::BitNot => tacky::UnaryOp::BitNot,
         }
     }
@@ -180,7 +182,7 @@ pub enum BinaryOp {
 impl TryFrom<BinaryOp> for tacky::BinaryOp {
     type Error = ();
 
-    fn try_from(op: BinaryOp) -> Result<tacky::BinaryOp, ()> {
+    fn try_from(op: BinaryOp) -> Result<tacky::BinaryOp, Self::Error> {
         match op {
             BinaryOp::Add => Ok(tacky::BinaryOp::Add),
             BinaryOp::Sub => Ok(tacky::BinaryOp::Sub),
@@ -485,7 +487,7 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr_prefix()?;
                 Some(self.res.ast.push_expr(
                     Expr::Unary {
-                        op: UnaryOp::Neg,
+                        op: UnaryOp::Not,
                         expr,
                     },
                     token.span,
@@ -541,7 +543,8 @@ impl<'a> Parser<'a> {
             self.res.diagnostics.push(ParserDiagnostic {
                 span: token.span,
                 kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
-                    DefaultSymbol::try_from_usize(0).unwrap(),
+                    // TODO: This is a hack, fix it.
+                    DefaultSymbol::try_from_usize(0).expect("could not convert 0 to DefaultSymbol"),
                 )),
             });
             None

@@ -3,7 +3,9 @@ pub mod amd64;
 pub mod arm64;
 
 pub use source_file;
+use string_interner::DefaultSymbol;
 
+pub use string_interner;
 use source_file::SourceSpan;
 
 // TODO:
@@ -63,17 +65,20 @@ impl std::fmt::Debug for FnDef {
     }
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BlockRef(u32);
+
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
     pub instrs: Vec<Instr>,
     pub spans: Vec<SourceSpan>,
-    pub label : Option<String>,
+    pub label: Option<DefaultSymbol>,
 }
 
 impl Block {
-    pub fn with_label(label: impl Into<String>) -> Self {
+    pub fn with_label(label: DefaultSymbol) -> Self {
         Block {
-            label: Some(label.into()),
+            label: Some(label),
             ..Default::default()
         }
     }
@@ -88,15 +93,18 @@ impl std::fmt::Debug for Block {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct BlockRef(u32);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instr {
     /// A return instruction.
     Return(Value),
+    /// An unconditional jump instruction.
+    Jump(BlockRef),
     /// A copy instruction.
     Copy { src: Value, dst: Value },
+    /// A zero-conditional jump instruction.
+    JumpIfZero { cond: Value, target: BlockRef },
+    /// A non-zero-conditional jump instruction.
+    JumpIfNotZero { cond: Value, target: BlockRef },
     /// A unary operation instruction.
     Unary { op: UnaryOp, src: Value, dst: Value },
     /// A binary operation instruction.
@@ -106,12 +114,6 @@ pub enum Instr {
         rhs: Value,
         dst: Value,
     },
-    /// An unconditional jump instruction.
-    Jump { target: BlockRef },
-    /// A zero-conditional jump instruction.
-    JumpIfZero { cond: Value, target: BlockRef },
-    /// A non-zero-conditional jump instruction.
-    JumpIfNotZero { cond: Value, target: BlockRef },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

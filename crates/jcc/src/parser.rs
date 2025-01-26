@@ -1,7 +1,9 @@
 use crate::lexer::{Token, TokenKind};
 
-use string_interner::{DefaultSymbol, Symbol};
-use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
+use tacky::{
+    source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan},
+    string_interner::{DefaultSymbol, Symbol},
+};
 
 use std::{iter::Peekable, slice::Iter};
 

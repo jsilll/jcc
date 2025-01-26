@@ -1,6 +1,9 @@
 use peeking_take_while::PeekableExt;
-use string_interner::{DefaultStringInterner, DefaultSymbol};
-use tacky::source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan};
+
+use tacky::{
+    source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan},
+    string_interner::{DefaultStringInterner, DefaultSymbol},
+};
 
 use std::{iter::Peekable, str::CharIndices};
 

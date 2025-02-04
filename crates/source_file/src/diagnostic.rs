@@ -26,27 +26,6 @@ pub fn report_batch(
 }
 
 // ---------------------------------------------------------------------------
-// DiagnosticLevel
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DiagnosticLevel {
-    Error,
-    Warning,
-    Note,
-}
-
-impl Display for DiagnosticLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Error => write!(f, "error"),
-            Self::Warning => write!(f, "warning"),
-            Self::Note => write!(f, "note"),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Diagnostic
 // ---------------------------------------------------------------------------
 
@@ -73,16 +52,16 @@ impl Diagnostic {
         }
     }
 
+    pub fn note(span: SourceSpan, title: impl Into<String>, message: impl Into<String>) -> Self {
+        Diagnostic::new(span, title, message, DiagnosticLevel::Note)
+    }
+
     pub fn error(span: SourceSpan, title: impl Into<String>, message: impl Into<String>) -> Self {
         Diagnostic::new(span, title, message, DiagnosticLevel::Error)
     }
 
     pub fn warning(span: SourceSpan, title: impl Into<String>, message: impl Into<String>) -> Self {
         Diagnostic::new(span, title, message, DiagnosticLevel::Warning)
-    }
-
-    pub fn note(span: SourceSpan, title: impl Into<String>, message: impl Into<String>) -> Self {
-        Diagnostic::new(span, title, message, DiagnosticLevel::Note)
     }
 
     pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> Result<()> {
@@ -101,7 +80,7 @@ impl Diagnostic {
         self.report_internal(file, location, buffer)
     }
 
-    pub fn report_internal(
+    fn report_internal(
         &self,
         file: &SourceFile,
         location: SourceLocation,
@@ -201,5 +180,26 @@ impl Diagnostic {
         writeln!(buffer, " {}", self.message)?;
 
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DiagnosticLevel
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiagnosticLevel {
+    Note,
+    Error,
+    Warning,
+}
+
+impl Display for DiagnosticLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Note => write!(f, "note"),
+            Self::Error => write!(f, "error"),
+            Self::Warning => write!(f, "warning"),
+        }
     }
 }

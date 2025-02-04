@@ -23,26 +23,17 @@ pub struct Program(pub FnDef);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct FnDef {
-    pub id: u32,
-    pub span: SourceSpan,
     blocks: Vec<Block>,
+    pub span: SourceSpan,
 }
 
 impl FnDef {
-    pub fn new(id: u32, span: SourceSpan) -> Self {
-        Self {
-            id,
-            span,
-            blocks: Vec::new(),
-        }
+    pub fn get_block(&self, block: BlockRef) -> &Block {
+        &self.blocks[block.0 as usize]
     }
 
-    pub fn get_block(&self, block_ref: BlockRef) -> &Block {
-        &self.blocks[block_ref.0 as usize]
-    }
-
-    pub fn get_block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
-        &mut self.blocks[block_ref.0 as usize]
+    pub fn get_block_mut(&mut self, block: BlockRef) -> &mut Block {
+        &mut self.blocks[block.0 as usize]
     }
 
     pub fn push_block(&mut self, block: Block) -> BlockRef {
@@ -50,15 +41,14 @@ impl FnDef {
         BlockRef((self.blocks.len() - 1) as u32)
     }
 
-    pub fn blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
-        (0..self.blocks.len()).map(|i| BlockRef(i as u32))
+    pub fn blocks_iter(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
+        self.blocks.iter().enumerate().map(|(idx, block)| (BlockRef(idx as u32), block))
     }
 }
 
 impl std::fmt::Debug for FnDef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("FnDef")
-            .field("id", &self.id)
             .field("blocks", &self.blocks)
             .finish()
     }
@@ -80,6 +70,16 @@ impl Block {
             label: Some(label),
             ..Default::default()
         }
+    }
+
+    pub fn with_instrs(mut self, instrs: &[Instr], span: SourceSpan) -> Self {
+        self.instrs.extend_from_slice(instrs);
+        self.spans.resize(self.instrs.len(), span);
+        self
+    }
+
+    pub fn instrs_iter(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
+        self.instrs.iter().zip(self.spans.iter())
     }
 }
 

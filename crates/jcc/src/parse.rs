@@ -1,4 +1,4 @@
-use crate::lexer::{Token, TokenKind};
+use crate::lex::{Token, TokenKind};
 
 use tacky::{
     source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan},
@@ -21,10 +21,10 @@ pub struct Ast {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ExprRef(u32);
+pub struct StmtRef(u32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StmtRef(u32);
+pub struct ExprRef(u32);
 
 impl Ast {
     pub fn new() -> Self {
@@ -123,18 +123,18 @@ pub enum Expr {
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
-    /// The `!` operator.
-    Not,
     /// The `~` operator.
     BitNot,
+    /// The `!` operator.
+    LogicalNot,
 }
 
 impl From<UnaryOp> for tacky::UnaryOp {
     fn from(op: UnaryOp) -> Self {
         match op {
             UnaryOp::Neg => tacky::UnaryOp::Neg,
-            UnaryOp::Not => tacky::UnaryOp::Not,
             UnaryOp::BitNot => tacky::UnaryOp::BitNot,
+            UnaryOp::LogicalNot => tacky::UnaryOp::Not,
         }
     }
 }
@@ -221,9 +221,193 @@ pub struct ParserResult {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ParserDiagnostic {
-    pub kind: ParserDiagnosticKind,
     pub span: SourceSpan,
+    pub kind: ParserDiagnosticKind,
 }
+
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
+
+pub struct Parser<'a> {
+    result: ParserResult,
+    file: &'a SourceFile,
+    iter: Peekable<Iter<'a, Token>>,
+}
+
+impl<'a> Parser<'a> {
+    pub fn new(file: &'a SourceFile, iter: Iter<'a, Token>) -> Self {
+        Self {
+            file,
+            iter: iter.peekable(),
+            result: ParserResult::default(),
+        }
+    }
+
+    pub fn parse(mut self) -> ParserResult {
+        if let Some(item) = self.parse_item() {
+            self.result.ast.items.push(item);
+        }
+        if let Some(Token { span, .. }) = self.iter.next().cloned() {
+            if self.result.diagnostics.is_empty() {
+                self.result.diagnostics.push(ParserDiagnostic {
+                    kind: ParserDiagnosticKind::UnexpectedToken,
+                    span,
+                })
+            }
+        }
+        self.result
+    }
+
+    fn parse_item(&mut self) -> Option<Item> {
+        self.eat(TokenKind::KwInt)?;
+        let (span, name) = self.eat_identifier()?;
+        self.eat(TokenKind::LParen)?;
+        self.eat(TokenKind::KwVoid)?;
+        self.eat(TokenKind::RParen)?;
+        self.eat(TokenKind::LBrace)?;
+        let body = self.parse_stmt()?;
+        self.eat(TokenKind::RBrace)?;
+        Some(Item { span, name, body })
+    }
+
+    fn parse_stmt(&mut self) -> Option<StmtRef> {
+        let span = self.eat(TokenKind::KwReturn)?.span;
+        let expr = self.parse_expr(0)?;
+        self.eat(TokenKind::Semi)?;
+        Some(self.result.ast.push_stmt(Stmt::Return(expr), span))
+    }
+
+    fn parse_expr(&mut self, min_prec: u8) -> Option<ExprRef> {
+        let mut lhs = self.parse_expr_prefix()?;
+        while let Some(Token { kind, span }) = self.iter.peek() {
+            match Option::<Precedence>::from(*kind) {
+                Some(Precedence { op, plhs, prhs }) => {
+                    if plhs < min_prec {
+                        break;
+                    }
+                    self.iter.next();
+                    let rhs = self.parse_expr(prhs)?;
+                    lhs = self.result.ast.push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                }
+                None => break,
+            }
+        }
+        Some(lhs)
+    }
+
+    fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
+        let token = self.iter.peek().cloned()?;
+        match token.kind {
+            TokenKind::Number(value) => {
+                self.iter.next();
+                Some(self.result.ast.push_expr(Expr::Constant(value), token.span))
+            }
+            TokenKind::Identifier(name) => {
+                self.iter.next();
+                Some(self.result.ast.push_expr(Expr::Variable(name), token.span))
+            }
+            TokenKind::LParen => {
+                self.iter.next();
+                let expr = self.parse_expr(0)?;
+                self.eat(TokenKind::RParen)?;
+                Some(self.result.ast.push_expr(Expr::Grouped(expr), token.span))
+            }
+            TokenKind::Minus => {
+                self.iter.next();
+                let expr = self.parse_expr_prefix()?;
+                Some(self.result.ast.push_expr(
+                    Expr::Unary {
+                        op: UnaryOp::Neg,
+                        expr,
+                    },
+                    token.span,
+                ))
+            }
+            TokenKind::Tilde => {
+                self.iter.next();
+                let expr = self.parse_expr_prefix()?;
+                Some(self.result.ast.push_expr(
+                    Expr::Unary {
+                        op: UnaryOp::BitNot,
+                        expr,
+                    },
+                    token.span,
+                ))
+            }
+            TokenKind::Bang => {
+                self.iter.next();
+                let expr = self.parse_expr_prefix()?;
+                Some(self.result.ast.push_expr(
+                    Expr::Unary {
+                        op: UnaryOp::LogicalNot,
+                        expr,
+                    },
+                    token.span,
+                ))
+            }
+            _ => {
+                self.result.diagnostics.push(ParserDiagnostic {
+                    span: token.span,
+                    kind: ParserDiagnosticKind::UnexpectedToken,
+                });
+                None
+            }
+        }
+    }
+
+    fn eat(&mut self, kind: TokenKind) -> Option<&Token> {
+        let token = self.iter.peek().or_else(|| {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })?;
+        let matches = match (token.kind, kind) {
+            (TokenKind::Number(_), TokenKind::Number(_))
+            | (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
+            _ => token.kind == kind,
+        };
+        if matches {
+            self.iter.next()
+        } else {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: token.span,
+                kind: ParserDiagnosticKind::ExpectedToken(kind),
+            });
+            None
+        }
+    }
+
+    fn eat_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
+        let token = self.iter.peek().or_else(|| {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })?;
+        if let TokenKind::Identifier(s) = token.kind {
+            let span = token.span;
+            self.iter.next();
+            Some((span, s))
+        } else {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: token.span,
+                kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
+                    // TODO: This is a hack, fix it.
+                    DefaultSymbol::try_from_usize(0).expect("could not convert 0 to DefaultSymbol"),
+                )),
+            });
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ParserDiagnosticKind
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ParserDiagnosticKind {
@@ -368,186 +552,6 @@ impl From<TokenKind> for Option<Precedence> {
                 prhs: 10,
             }),
             _ => None,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Parser
-// ---------------------------------------------------------------------------
-
-pub struct Parser<'a> {
-    file: &'a SourceFile,
-    iter: Peekable<Iter<'a, Token>>,
-    res: ParserResult,
-}
-
-impl<'a> Parser<'a> {
-    pub fn new(file: &'a SourceFile, iter: Iter<'a, Token>) -> Self {
-        Self {
-            file,
-            iter: iter.peekable(),
-            res: ParserResult::default(),
-        }
-    }
-
-    pub fn parse(mut self) -> ParserResult {
-        if let Some(item) = self.parse_item() {
-            self.res.ast.items.push(item);
-        }
-        if let Some(Token { span, .. }) = self.iter.next().cloned() {
-            if self.res.diagnostics.is_empty() {
-                self.res.diagnostics.push(ParserDiagnostic {
-                    kind: ParserDiagnosticKind::UnexpectedToken,
-                    span,
-                })
-            }
-        }
-        self.res
-    }
-
-    fn parse_item(&mut self) -> Option<Item> {
-        self.eat(TokenKind::KwInt)?;
-        let (span, name) = self.eat_identifier()?;
-        self.eat(TokenKind::LParen)?;
-        self.eat(TokenKind::KwVoid)?;
-        self.eat(TokenKind::RParen)?;
-        self.eat(TokenKind::LBrace)?;
-        let body = self.parse_stmt()?;
-        self.eat(TokenKind::RBrace)?;
-        Some(Item { span, name, body })
-    }
-
-    fn parse_stmt(&mut self) -> Option<StmtRef> {
-        let span = self.eat(TokenKind::KwReturn)?.span;
-        let expr = self.parse_expr(0)?;
-        self.eat(TokenKind::Semi)?;
-        Some(self.res.ast.push_stmt(Stmt::Return(expr), span))
-    }
-
-    fn parse_expr(&mut self, min_prec: u8) -> Option<ExprRef> {
-        let mut lhs = self.parse_expr_prefix()?;
-        while let Some(Token { kind, span }) = self.iter.peek() {
-            match Option::<Precedence>::from(*kind) {
-                Some(Precedence { op, plhs, prhs }) => {
-                    if plhs < min_prec {
-                        break;
-                    }
-                    self.iter.next();
-                    let rhs = self.parse_expr(prhs)?;
-                    lhs = self.res.ast.push_expr(Expr::Binary { op, lhs, rhs }, *span);
-                }
-                None => break,
-            }
-        }
-        Some(lhs)
-    }
-
-    fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
-        let token = self.iter.peek().cloned()?;
-        match token.kind {
-            TokenKind::Number(value) => {
-                self.iter.next();
-                Some(self.res.ast.push_expr(Expr::Constant(value), token.span))
-            }
-            TokenKind::Identifier(name) => {
-                self.iter.next();
-                Some(self.res.ast.push_expr(Expr::Variable(name), token.span))
-            }
-            TokenKind::LParen => {
-                self.iter.next();
-                let expr = self.parse_expr(0)?;
-                self.eat(TokenKind::RParen)?;
-                Some(self.res.ast.push_expr(Expr::Grouped(expr), token.span))
-            }
-            TokenKind::Minus => {
-                self.iter.next();
-                let expr = self.parse_expr_prefix()?;
-                Some(self.res.ast.push_expr(
-                    Expr::Unary {
-                        op: UnaryOp::Neg,
-                        expr,
-                    },
-                    token.span,
-                ))
-            }
-            TokenKind::Tilde => {
-                self.iter.next();
-                let expr = self.parse_expr_prefix()?;
-                Some(self.res.ast.push_expr(
-                    Expr::Unary {
-                        op: UnaryOp::BitNot,
-                        expr,
-                    },
-                    token.span,
-                ))
-            }
-            TokenKind::Bang => {
-                self.iter.next();
-                let expr = self.parse_expr_prefix()?;
-                Some(self.res.ast.push_expr(
-                    Expr::Unary {
-                        op: UnaryOp::Not,
-                        expr,
-                    },
-                    token.span,
-                ))
-            }
-            _ => {
-                self.res.diagnostics.push(ParserDiagnostic {
-                    span: token.span,
-                    kind: ParserDiagnosticKind::UnexpectedToken,
-                });
-                None
-            }
-        }
-    }
-
-    fn eat(&mut self, kind: TokenKind) -> Option<&Token> {
-        let token = self.iter.peek().or_else(|| {
-            self.res.diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
-            None
-        })?;
-        let matches = match (token.kind, kind) {
-            (TokenKind::Number(_), TokenKind::Number(_))
-            | (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
-            _ => token.kind == kind,
-        };
-        if matches {
-            self.iter.next()
-        } else {
-            self.res.diagnostics.push(ParserDiagnostic {
-                span: token.span,
-                kind: ParserDiagnosticKind::ExpectedToken(kind),
-            });
-            None
-        }
-    }
-
-    fn eat_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
-        let token = self.iter.peek().or_else(|| {
-            self.res.diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
-            None
-        })?;
-        if let TokenKind::Identifier(s) = token.kind {
-            let span = token.span;
-            self.iter.next();
-            Some((span, s))
-        } else {
-            self.res.diagnostics.push(ParserDiagnostic {
-                span: token.span,
-                kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
-                    // TODO: This is a hack, fix it.
-                    DefaultSymbol::try_from_usize(0).expect("could not convert 0 to DefaultSymbol"),
-                )),
-            });
-            None
         }
     }
 }

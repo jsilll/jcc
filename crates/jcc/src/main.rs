@@ -1,6 +1,6 @@
 use jcc::{
-    lexer::{Lexer, LexerDiagnosticKind},
-    parser::Parser,
+    lex::{Lexer, LexerDiagnosticKind},
+    parse::Parser,
     tacky::TackyBuilder,
 };
 
@@ -8,8 +8,9 @@ use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
 
 use tacky::{
-    amd64::{AMD64Builder, AMD64Emitter, AMD64Fixer},
-    source_file::{self, SourceDb, SourceFile}, string_interner::StringInterner,
+    amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
+    source_file::{self, SourceDb, SourceFile},
+    string_interner::StringInterner,
 };
 
 use std::{path::PathBuf, process::Command};
@@ -111,8 +112,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // TODO
-    // Check the AST
+    // TODO: Check the AST
     // let checker = Checker::new(&file, &interner, &ast);
     // checker.check()?;
 

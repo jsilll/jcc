@@ -1,16 +1,16 @@
 use jcc::{
-    lexer::{Lexer, LexerDiagnosticKind},
-    parser::Parser,
+    lex::{Lexer, LexerDiagnosticKind},
+    parse::Parser,
     tacky::TackyBuilder,
 };
 
 use anyhow::{Context, Result};
 use clap::Parser as ClapParser;
-use string_interner::StringInterner;
 
 use tacky::{
-    amd64::{AMD64Builder, AMD64Emitter, AMD64Fixer},
+    amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
+    string_interner::StringInterner,
 };
 
 use std::{path::PathBuf, process::Command};
@@ -26,10 +26,10 @@ struct Args {
     /// Run the lexer and parser, but stop before tacky generation
     #[clap(long)]
     pub parse: bool,
-    /// Run the lexer, parser, tacky generation, but stop before assembly generation
+    /// Run the lexer, parser, tacky generation, but stop code generation
     #[clap(long)]
     pub tacky: bool,
-    /// Run the lexer, parser, tacky generation, assembly generation, but stop before code generation
+    /// Run the lexer, parser, tacky generation, code generation, but stop before assembly generation
     #[clap(long)]
     pub codegen: bool,
     /// Emit an assembly file but not an executable
@@ -68,7 +68,7 @@ fn try_main() -> Result<()> {
     db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
-    // Lex the file
+    // Lex file
     let mut interner = StringInterner::default();
     let mut lexer_result = Lexer::new(&file, &mut interner).lex();
     if args.lex {
@@ -95,7 +95,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Parse the tokens
+    // Parse tokens
     let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
         source_file::diagnostic::report_batch(
@@ -121,7 +121,7 @@ fn try_main() -> Result<()> {
         eprintln!("Error: codegen was given an empty parse tree");
         return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
     }
-    let tacky = TackyBuilder::new(&parser_result.ast).build();
+    let tacky = TackyBuilder::new(&parser_result.ast, &mut interner).build();
     if args.verbose {
         println!("{:#?}", tacky);
     }
@@ -129,13 +129,13 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Generate amd64
+    // Generate AMD64
     let mut amd64 = AMD64Builder::new(&tacky).build();
     if args.verbose {
         println!("{:#?}", amd64);
     }
 
-    // Replace Pseudoregisters
+    // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);
     if args.verbose {
         println!("{:#?}", amd64);
@@ -144,9 +144,9 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Emit asm
+    // Emit assembly
     let asm_path = args.path.with_extension("s");
-    let asm = AMD64Emitter::new(&amd64).emit();
+    let asm = AMD64Emitter::new(&amd64, &interner).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.assembly {
         return Ok(());

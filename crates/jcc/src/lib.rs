@@ -1,5 +1,5 @@
-pub mod lexer;
+pub mod lex;
 
-pub mod parser;
+pub mod parse;
 
 pub mod tacky;

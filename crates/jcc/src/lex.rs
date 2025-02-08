@@ -65,7 +65,7 @@ impl<'a> Lexer<'a> {
             match c {
                 c if c.is_whitespace() => continue,
                 c if c.is_digit(10) => self.lex_number(begin),
-                c if c.is_ascii_alphabetic() => self.lex_keyword_or_identifier(begin),
+                c if c.is_ascii_alphabetic() || c == '_' => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
                 '*' => self.lex_char(begin, TokenKind::Star),
                 '/' => self.lex_char(begin, TokenKind::Slash),
@@ -184,7 +184,7 @@ impl<'a> Lexer<'a> {
     fn lex_keyword_or_identifier(&mut self, begin: u32) {
         let end = self
             .chars
-            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric())
+            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
             .last()
             .map(|(end, _)| end as u32)
             .unwrap_or_else(|| begin)

@@ -1,7 +1,5 @@
 use jcc::{
-    lex::{Lexer, LexerDiagnosticKind},
-    parse::Parser,
-    tacky::TackyBuilder,
+    lex::{Lexer, LexerDiagnosticKind}, parse::Parser, sema::Analyzer, tacky::TackyBuilder
 };
 
 use anyhow::{Context, Result};
@@ -112,9 +110,9 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // TODO: Check the AST
-    // let checker = Checker::new(&file, &interner, &ast);
-    // checker.check()?;
+    // Analyze the AST
+    let analyzer = Analyzer::new(&parser_result.ast);
+    analyzer.analyze();
 
     // Generate Tacky
     if parser_result.ast.items().is_empty() {

@@ -181,7 +181,10 @@ pub enum Expr {
     /// A constant integer value.
     Constant(u32),
     /// A variable reference.
-    Var(DefaultSymbol),
+    Var {
+        name: DefaultSymbol,
+        decl: Option<DeclRef>,
+    },
     /// A grouped expression.
     Grouped(ExprRef),
     /// An unary expression.
@@ -427,7 +430,11 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Identifier(name) => {
                 self.iter.next();
-                Some(self.result.ast.push_expr(Expr::Var(name), token.span))
+                Some(
+                    self.result
+                        .ast
+                        .push_expr(Expr::Var { name, decl: None }, token.span),
+                )
             }
             TokenKind::LParen => {
                 self.iter.next();

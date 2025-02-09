@@ -91,7 +91,7 @@ impl<'a> TackyFnDefBuilder<'a> {
         let span = *self.ast.get_expr_span(expr);
         match self.ast.get_expr(expr) {
             parse::Expr::Constant(value) => Value::Constant(*value),
-            parse::Expr::Var(_) => todo!("handle named variables"),
+            parse::Expr::Var { .. } => todo!("handle named variables"),
             parse::Expr::Grouped(mut inner) => {
                 while let parse::Expr::Grouped(expr) = self.ast.get_expr(inner) {
                     inner = *expr

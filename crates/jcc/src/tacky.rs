@@ -19,12 +19,14 @@ impl<'a> TackyBuilder<'a> {
         Self { ast, interner }
     }
 
-    pub fn build(mut self) -> Program {
-        Program(self.build_from_item(&self.ast.items()[0]))
-    }
-
-    fn build_from_item(&mut self, item: &parse::Item) -> FnDef {
-        TackyFnDefBuilder::new(self.ast, self.interner).build(item)
+    pub fn build(self) -> Program {
+        let (item_ref, item) = self
+            .ast
+            .items_iter()
+            .next()
+            .expect("expected at least one item in the AST");
+        let fn_def = TackyFnDefBuilder::new(self.ast, self.interner).build(item_ref, item);
+        Program(fn_def)
     }
 }
 
@@ -53,9 +55,12 @@ impl<'a> TackyFnDefBuilder<'a> {
         }
     }
 
-    fn build(mut self, item: &parse::Item) -> FnDef {
-        self.fn_def.span = item.span;
-        self.build_from_stmt(item.body);
+    fn build(mut self, item_ref: parse::ItemRef, item: &parse::Item) -> FnDef {
+        self.fn_def.span = *self.ast.get_item_span(item_ref);
+        item.body.iter().for_each(|item| match item {
+            parse::BlockItem::Decl(_) => todo!("handle declarations"),
+            parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+        });
         self.fn_def
     }
 
@@ -73,6 +78,8 @@ impl<'a> TackyFnDefBuilder<'a> {
 
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.get_stmt(stmt) {
+            parse::Stmt::Empty => todo!("handle empty statements"),
+            parse::Stmt::Expr(_) => todo!("handle expressions"),
             parse::Stmt::Return(inner) => {
                 let value = self.build_from_expr(*inner);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
@@ -84,7 +91,7 @@ impl<'a> TackyFnDefBuilder<'a> {
         let span = *self.ast.get_expr_span(expr);
         match self.ast.get_expr(expr) {
             parse::Expr::Constant(value) => Value::Constant(*value),
-            parse::Expr::Variable(_) => todo!("handle named variables"),
+            parse::Expr::Var(_) => todo!("handle named variables"),
             parse::Expr::Grouped(mut inner) => {
                 while let parse::Expr::Grouped(expr) = self.ast.get_expr(inner) {
                     inner = *expr
@@ -144,7 +151,7 @@ impl<'a> TackyFnDefBuilder<'a> {
 
         let lhs = self.build_from_expr(lhs);
         self.append_to_block(
-            if skips_on { 
+            if skips_on {
                 Instr::JumpIfNotZero {
                     cond: lhs,
                     target: skip_block,

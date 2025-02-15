@@ -90,15 +90,24 @@ impl<'a> TackyFnDefBuilder<'a> {
 
     fn get_or_make_var(&mut self, decl: parse::DeclRef) -> Value {
         self.variables
-            .insert(decl, Value::Variable(self.tmp_count))
-            .unwrap_or_else(|| self.make_tmp())
+            .entry(decl)
+            .or_insert_with(|| {
+                let var = Value::Variable(self.tmp_count);
+                self.tmp_count += 1;
+                var
+            })
+            .clone()
     }
 
     fn get_or_make_some_var(&mut self, decl: Option<parse::DeclRef>) -> Value {
         self.variables
-            .get(&decl.expect("expected a resolved variable"))
-            .copied()
-            .unwrap_or_else(|| self.make_tmp())
+            .entry(decl.expect("expected a resolved variable"))
+            .or_insert_with(|| {
+                let var = Value::Variable(self.tmp_count);
+                self.tmp_count += 1;
+                var
+            })
+            .clone()
     }
 
     fn build_from_decl(&mut self, decl: parse::DeclRef) {
@@ -161,25 +170,23 @@ impl<'a> TackyFnDefBuilder<'a> {
             parse::Expr::Binary { op, lhs, rhs } => match op {
                 parse::BinaryOp::LogicalOr => self.build_short_circuit(true, *lhs, *rhs, span),
                 parse::BinaryOp::LogicalAnd => self.build_short_circuit(false, *lhs, *rhs, span),
-                _ => match op {
-                    parse::BinaryOp::Assign => {
-                        let lhs = self.build_from_expr_lvalue(*lhs);
-                        let rhs = self.build_from_expr_rvalue(*rhs);
-                        self.append_to_block(Instr::Copy { src: rhs, dst: lhs }, span);
-                        lhs
-                    }
-                    _ => {
-                        let op = BinaryOp::try_from(*op).expect("unexpected binary operator");
-                        let lhs = self.build_from_expr_rvalue(*lhs);
-                        let rhs = self.build_from_expr_rvalue(*rhs);
-                        let dst = self.make_tmp();
-                        self.append_to_block(
-                            Instr::Binary { op, lhs, rhs, dst },
-                            *self.ast.get_expr_span(expr),
-                        );
-                        dst
-                    }
-                },
+                parse::BinaryOp::Assign => {
+                    let lhs = self.build_from_expr_lvalue(*lhs);
+                    let rhs = self.build_from_expr_rvalue(*rhs);
+                    self.append_to_block(Instr::Copy { src: rhs, dst: lhs }, span);
+                    lhs
+                }
+                _ => {
+                    let op = BinaryOp::try_from(*op).expect("unexpected binary operator");
+                    let lhs = self.build_from_expr_rvalue(*lhs);
+                    let rhs = self.build_from_expr_rvalue(*rhs);
+                    let dst = self.make_tmp();
+                    self.append_to_block(
+                        Instr::Binary { op, lhs, rhs, dst },
+                        *self.ast.get_expr_span(expr),
+                    );
+                    dst
+                }
             },
         }
     }

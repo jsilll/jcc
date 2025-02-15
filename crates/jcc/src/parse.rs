@@ -1,7 +1,7 @@
 use crate::lex::{Token, TokenKind};
 
 use tacky::{
-    source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan},
+    source_file::{diag::Diagnostic, SourceFile, SourceSpan},
     string_interner::{DefaultSymbol, Symbol},
 };
 

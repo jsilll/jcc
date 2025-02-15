@@ -81,19 +81,11 @@ fn try_main() -> Result<()> {
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
-        source_file::diagnostic::report_batch(
-            &file,
-            &mut std::io::stderr(),
-            &lexer_result.diagnostics,
-        )?;
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
         return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
     }
     if args.verbose {
-        source_file::diagnostic::report_batch(
-            &file,
-            &mut std::io::stderr(),
-            &lexer_result.diagnostics,
-        )?;
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
     }
     if args.lex {
         return Ok(());
@@ -102,11 +94,7 @@ fn try_main() -> Result<()> {
     // Parse tokens
     let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        source_file::diagnostic::report_batch(
-            &file,
-            &mut std::io::stderr(),
-            &parser_result.diagnostics,
-        )?;
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));
     }
     if args.verbose {
@@ -125,7 +113,7 @@ fn try_main() -> Result<()> {
     let analyzer = Analyzer::new();
     let analyzer_result = analyzer.analyze(&mut ast);
     if !analyzer_result.diagnostics.is_empty() {
-        source_file::diagnostic::report_batch(
+        source_file::diag::report_batch(
             &file,
             &mut std::io::stderr(),
             &analyzer_result.diagnostics,

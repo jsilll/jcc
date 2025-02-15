@@ -1,7 +1,7 @@
 use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt};
 
 use tacky::{
-    source_file::{diagnostic::Diagnostic, SourceSpan},
+    source_file::{diag::Diagnostic, SourceSpan},
     string_interner::DefaultSymbol,
 };
 

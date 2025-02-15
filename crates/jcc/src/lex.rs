@@ -1,7 +1,7 @@
 use peeking_take_while::PeekableExt;
 
 use tacky::{
-    source_file::{diagnostic::Diagnostic, SourceFile, SourceSpan},
+    source_file::{diag::Diagnostic, SourceFile, SourceSpan},
     string_interner::{DefaultStringInterner, DefaultSymbol},
 };
 

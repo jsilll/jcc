@@ -1,4 +1,4 @@
-pub mod diagnostic;
+pub mod diag;
 
 use std::{
     io,

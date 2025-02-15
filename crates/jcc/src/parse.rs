@@ -160,7 +160,7 @@ pub enum Decl {
     /// A variable declaration.
     Var {
         name: DefaultSymbol,
-        value: Option<ExprRef>,
+        init: Option<ExprRef>,
     },
 }
 
@@ -386,7 +386,9 @@ impl<'a> Parser<'a> {
                     };
                     self.eat(TokenKind::Semi)?;
                     body.push(BlockItem::Decl(
-                        self.result.ast.push_decl(Decl::Var { name, value }, span),
+                        self.result
+                            .ast
+                            .push_decl(Decl::Var { name, init: value }, span),
                     ));
                 }
                 _ => {

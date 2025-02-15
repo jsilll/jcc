@@ -62,7 +62,7 @@ impl Analyzer {
 
     fn analyze_decl(&mut self, ast: &mut Ast, decl: DeclRef) {
         match ast.get_decl(decl).clone() {
-            Decl::Var { name, value } => {
+            Decl::Var { name, init: value } => {
                 if let Some(_) = self.symbols.insert(name, decl) {
                     self.result.diagnostics.push(AnalyzerDiagnostic {
                         span: *ast.get_decl_span(decl),

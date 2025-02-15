@@ -5,6 +5,8 @@ use tacky::{
     FnDef, Instr, Program, UnaryOp, Value,
 };
 
+use std::collections::HashMap;
+
 // ---------------------------------------------------------------------------
 // TackyBuilder
 // ---------------------------------------------------------------------------
@@ -40,6 +42,7 @@ struct TackyFnDefBuilder<'a> {
     block: BlockRef,
     ast: &'a parse::Ast,
     interner: &'a mut DefaultStringInterner,
+    variables: HashMap<parse::DeclRef, Value>,
 }
 
 impl<'a> TackyFnDefBuilder<'a> {
@@ -52,15 +55,24 @@ impl<'a> TackyFnDefBuilder<'a> {
             fn_def,
             interner,
             tmp_count: 0,
+            variables: HashMap::new(),
         }
     }
 
     fn build(mut self, item_ref: parse::ItemRef, item: &parse::Item) -> FnDef {
         self.fn_def.span = *self.ast.get_item_span(item_ref);
         item.body.iter().for_each(|item| match item {
-            parse::BlockItem::Decl(_) => todo!("handle declarations"),
+            parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
             parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
         });
+        match item.body.last() {
+            Some(parse::BlockItem::Stmt(stmt)) => {
+                if !matches!(self.ast.get_stmt(*stmt), parse::Stmt::Return(_)) {
+                    self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span);
+                }
+            }
+            _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
+        }
         self.fn_def
     }
 
@@ -76,31 +88,72 @@ impl<'a> TackyFnDefBuilder<'a> {
         root.spans.push(span);
     }
 
+    fn get_or_make_var(&mut self, decl: parse::DeclRef) -> Value {
+        self.variables
+            .insert(decl, Value::Variable(self.tmp_count))
+            .unwrap_or_else(|| self.make_tmp())
+    }
+
+    fn get_or_make_some_var(&mut self, decl: Option<parse::DeclRef>) -> Value {
+        self.variables
+            .get(&decl.expect("expected a resolved variable"))
+            .copied()
+            .unwrap_or_else(|| self.make_tmp())
+    }
+
+    fn build_from_decl(&mut self, decl: parse::DeclRef) {
+        let span = *self.ast.get_decl_span(decl);
+        match self.ast.get_decl(decl) {
+            parse::Decl::Var { init, .. } => {
+                if let Some(init) = init {
+                    let var = self.get_or_make_var(decl);
+                    let init = self.build_from_expr_rvalue(*init);
+                    self.append_to_block(
+                        Instr::Copy {
+                            src: init,
+                            dst: var,
+                        },
+                        span,
+                    );
+                }
+            }
+        }
+    }
+
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.get_stmt(stmt) {
-            parse::Stmt::Empty => todo!("handle empty statements"),
-            parse::Stmt::Expr(_) => todo!("handle expressions"),
+            parse::Stmt::Empty => {}
+            parse::Stmt::Expr(expr) => {
+                self.build_from_expr_rvalue(*expr);
+            }
             parse::Stmt::Return(inner) => {
-                let value = self.build_from_expr(*inner);
+                let value = self.build_from_expr_rvalue(*inner);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
             }
         }
     }
 
-    fn build_from_expr(&mut self, expr: parse::ExprRef) -> Value {
+    fn build_from_expr_lvalue(&mut self, expr: parse::ExprRef) -> Value {
+        match self.ast.get_expr(expr) {
+            parse::Expr::Var { decl, .. } => self.get_or_make_some_var(*decl),
+            _ => panic!("expected an lvalue expression"),
+        }
+    }
+
+    fn build_from_expr_rvalue(&mut self, expr: parse::ExprRef) -> Value {
         let span = *self.ast.get_expr_span(expr);
         match self.ast.get_expr(expr) {
             parse::Expr::Constant(value) => Value::Constant(*value),
-            parse::Expr::Var { .. } => todo!("handle named variables"),
+            parse::Expr::Var { decl, .. } => self.get_or_make_some_var(*decl),
             parse::Expr::Grouped(mut inner) => {
                 while let parse::Expr::Grouped(expr) = self.ast.get_expr(inner) {
                     inner = *expr
                 }
-                self.build_from_expr(inner)
+                self.build_from_expr_rvalue(inner)
             }
             parse::Expr::Unary { op, expr: inner } => {
                 let op = UnaryOp::from(*op);
-                let src = self.build_from_expr(*inner);
+                let src = self.build_from_expr_rvalue(*inner);
                 let dst = self.make_tmp();
                 self.append_to_block(Instr::Unary { op, src, dst }, span);
                 dst
@@ -108,17 +161,25 @@ impl<'a> TackyFnDefBuilder<'a> {
             parse::Expr::Binary { op, lhs, rhs } => match op {
                 parse::BinaryOp::LogicalOr => self.build_short_circuit(true, *lhs, *rhs, span),
                 parse::BinaryOp::LogicalAnd => self.build_short_circuit(false, *lhs, *rhs, span),
-                _ => {
-                    let op = BinaryOp::try_from(*op).expect("unexpected binary operator");
-                    let lhs = self.build_from_expr(*lhs);
-                    let rhs = self.build_from_expr(*rhs);
-                    let dst = self.make_tmp();
-                    self.append_to_block(
-                        Instr::Binary { op, lhs, rhs, dst },
-                        *self.ast.get_expr_span(expr),
-                    );
-                    dst
-                }
+                _ => match op {
+                    parse::BinaryOp::Assign => {
+                        let lhs = self.build_from_expr_lvalue(*lhs);
+                        let rhs = self.build_from_expr_rvalue(*rhs);
+                        self.append_to_block(Instr::Copy { src: rhs, dst: lhs }, span);
+                        lhs
+                    }
+                    _ => {
+                        let op = BinaryOp::try_from(*op).expect("unexpected binary operator");
+                        let lhs = self.build_from_expr_rvalue(*lhs);
+                        let rhs = self.build_from_expr_rvalue(*rhs);
+                        let dst = self.make_tmp();
+                        self.append_to_block(
+                            Instr::Binary { op, lhs, rhs, dst },
+                            *self.ast.get_expr_span(expr),
+                        );
+                        dst
+                    }
+                },
             },
         }
     }
@@ -149,7 +210,7 @@ impl<'a> TackyFnDefBuilder<'a> {
             ),
         );
 
-        let lhs = self.build_from_expr(lhs);
+        let lhs = self.build_from_expr_rvalue(lhs);
         self.append_to_block(
             if skips_on {
                 Instr::JumpIfNotZero {
@@ -165,7 +226,7 @@ impl<'a> TackyFnDefBuilder<'a> {
             span,
         );
 
-        let rhs = self.build_from_expr(rhs);
+        let rhs = self.build_from_expr_rvalue(rhs);
         self.append_to_block(
             if skips_on {
                 Instr::JumpIfNotZero {

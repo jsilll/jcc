@@ -22,7 +22,7 @@ impl<'a> TackyBuilder<'a> {
     pub fn build(self) -> Program {
         let (item_ref, item) = self
             .ast
-            .items_iter()
+            .items_iter_both()
             .next()
             .expect("expected at least one item in the AST");
         let fn_def = TackyFnDefBuilder::new(self.ast, self.interner).build(item_ref, item);

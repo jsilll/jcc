@@ -47,16 +47,16 @@ impl AMD64FnDefBuilder {
         self.fn_def.span = fn_def.span;
         self.append_to_block(Instr::Alloca(0), fn_def.span);
 
-        let mut iter = fn_def.blocks_iter();
+        let mut iter = fn_def.blocks_iter_both();
         if let Some((block_ref, block)) = iter.next() {
             self.block_map.insert(block_ref, self.block);
-            block.instrs_iter().for_each(|(instr, span)| {
+            block.instrs_iter_both().for_each(|(instr, span)| {
                 self.build_from_instr(instr, span);
             });
         }
         iter.for_each(|(block_ref, block)| {
             self.block = self.get_or_create_block(block_ref);
-            block.instrs_iter().for_each(|(instr, span)| {
+            block.instrs_iter_both().for_each(|(instr, span)| {
                 self.build_from_instr(instr, span);
             });
         });

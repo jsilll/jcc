@@ -1,5 +1,8 @@
 use jcc::{
-    lex::{Lexer, LexerDiagnosticKind}, parse::Parser, sema::Analyzer, tacky::TackyBuilder
+    lex::{Lexer, LexerDiagnosticKind},
+    parse::Parser,
+    sema::Analyzer,
+    tacky::TackyBuilder,
 };
 
 use anyhow::{Context, Result};
@@ -18,16 +21,19 @@ struct Args {
     /// Run the compiler in verbose mode
     #[clap(long)]
     pub verbose: bool,
-    /// Run the lexer, but stop before parsing
+    /// Run until the lexer and stop
     #[clap(long)]
     pub lex: bool,
-    /// Run the lexer and parser, but stop before tacky generation
+    /// Run until the parser and stop
     #[clap(long)]
     pub parse: bool,
-    /// Run the lexer, parser, tacky generation, but stop code generation
+    /// Run until the semantic analyzer and stop
+    #[clap(long)]
+    pub validate: bool,
+    /// Run until the tacky generator and stop
     #[clap(long)]
     pub tacky: bool,
-    /// Run the lexer, parser, tacky generation, code generation, but stop before assembly generation
+    /// Run until the codegen and stop
     #[clap(long)]
     pub codegen: bool,
     /// Emit an assembly file but not an executable
@@ -109,17 +115,32 @@ fn try_main() -> Result<()> {
     if args.parse {
         return Ok(());
     }
+    if parser_result.ast.items().is_empty() {
+        eprintln!("Error: no items found in the source file");
+        return Err(anyhow::anyhow!("\nexiting due to no items found"));
+    }
 
-    // Analyze the AST
-    let analyzer = Analyzer::new(&parser_result.ast);
-    analyzer.analyze();
+    // Analyze the AST (TODO: merge with parser for implementing context-sensitive parsing)
+    let mut ast = parser_result.ast;
+    let analyzer = Analyzer::new();
+    let analyzer_result = analyzer.analyze(&mut ast);
+    if !analyzer_result.diagnostics.is_empty() {
+        source_file::diagnostic::report_batch(
+            &file,
+            &mut std::io::stderr(),
+            &analyzer_result.diagnostics,
+        )?;
+        return Err(anyhow::anyhow!("\nexiting due to semantic analysis errors"));
+    }
+    if args.verbose {
+        println!("{:#?}", ast);
+    }
+    if args.validate {
+        return Ok(());
+    }
 
     // Generate Tacky
-    if parser_result.ast.items().is_empty() {
-        eprintln!("Error: codegen was given an empty parse tree");
-        return Err(anyhow::anyhow!("\nexiting due to codegen errors"));
-    }
-    let tacky = TackyBuilder::new(&parser_result.ast, &mut interner).build();
+    let tacky = TackyBuilder::new(&ast, &mut interner).build();
     if args.verbose {
         println!("{:#?}", tacky);
     }

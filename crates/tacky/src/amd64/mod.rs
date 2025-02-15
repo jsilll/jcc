@@ -1,11 +1,11 @@
-use source_file::SourceSpan;
-use string_interner::DefaultSymbol;
-
 pub mod build;
 
 pub mod fix;
 
 pub mod emit;
+
+use source_file::SourceSpan;
+use string_interner::DefaultSymbol;
 
 // ---------------------------------------------------------------------------
 // AMD64 IR

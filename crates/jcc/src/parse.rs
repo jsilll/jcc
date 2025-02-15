@@ -32,13 +32,6 @@ impl Ast {
         &self.items
     }
 
-    pub fn items_iter(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
-        self.items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| (ItemRef(i as u32), item))
-    }
-
     pub fn get_item(&self, item: ItemRef) -> &Item {
         &self.items[item.0 as usize]
     }
@@ -85,6 +78,17 @@ impl Ast {
 
     pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
         &self.exprs_span[expr.0 as usize]
+    }
+
+    pub fn items_iter_refs(&self) -> impl Iterator<Item = ItemRef> {
+        (0..self.items.len() as u32).map(ItemRef)
+    }
+
+    pub fn items_iter_both(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
+        self.items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (ItemRef(i as u32), item))
     }
 
     pub fn push_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
@@ -561,7 +565,7 @@ impl From<ParserDiagnostic> for Diagnostic {
             ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
                 diagnostic.span,
                 "unexpected token",
-                format!("expected token {token}"),
+                format!("expected {token} instead"),
             ),
         }
     }

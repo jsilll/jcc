@@ -41,8 +41,11 @@ impl FnDef {
         BlockRef((self.blocks.len() - 1) as u32)
     }
 
-    pub fn blocks_iter(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
-        self.blocks.iter().enumerate().map(|(idx, block)| (BlockRef(idx as u32), block))
+    pub fn blocks_iter_both(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
+        self.blocks
+            .iter()
+            .enumerate()
+            .map(|(idx, block)| (BlockRef(idx as u32), block))
     }
 }
 
@@ -78,7 +81,7 @@ impl Block {
         self
     }
 
-    pub fn instrs_iter(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
+    pub fn instrs_iter_both(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
         self.instrs.iter().zip(self.spans.iter())
     }
 }

@@ -160,13 +160,15 @@ impl<'a> TackyFnDefBuilder<'a> {
                 }
                 self.build_from_expr_rvalue(inner)
             }
-            parse::Expr::Unary { op, expr: inner } => {
-                let op = UnaryOp::from(*op);
-                let src = self.build_from_expr_rvalue(*inner);
-                let dst = self.make_tmp();
-                self.append_to_block(Instr::Unary { op, src, dst }, span);
-                dst
-            }
+            parse::Expr::Unary { op, expr: inner } => match op {
+                parse::UnaryOp::Neg => self.build_unary_op(UnaryOp::Neg, *inner, span),
+                parse::UnaryOp::BitNot => self.build_unary_op(UnaryOp::BitNot, *inner, span),
+                parse::UnaryOp::LogicalNot => self.build_unary_op(UnaryOp::Not, *inner, span),
+                parse::UnaryOp::PreInc => self.build_prefix_unary_op(UnaryOp::Neg, *inner, span),
+                parse::UnaryOp::PreDec => self.build_prefix_unary_op(UnaryOp::Neg, *inner, span),
+                parse::UnaryOp::PostInc => self.build_postfix_unary_op(UnaryOp::Neg, *inner, span),
+                parse::UnaryOp::PostDec => self.build_postfix_unary_op(UnaryOp::Neg, *inner, span),
+            },
             parse::Expr::Binary { op, lhs, rhs } => match op {
                 parse::BinaryOp::LogicalOr => self.build_short_circuit(true, *lhs, *rhs, span),
                 parse::BinaryOp::LogicalAnd => self.build_short_circuit(false, *lhs, *rhs, span),
@@ -234,6 +236,51 @@ impl<'a> TackyFnDefBuilder<'a> {
                 }
             },
         }
+    }
+
+    fn build_unary_op(&mut self, op: UnaryOp, expr: parse::ExprRef, span: SourceSpan) -> Value {
+        let dst = self.make_tmp();
+        let src = self.build_from_expr_rvalue(expr);
+        self.append_to_block(Instr::Unary { op, src, dst }, span);
+        dst
+    }
+
+    fn build_prefix_unary_op(
+        &mut self,
+        op: UnaryOp,
+        expr: parse::ExprRef,
+        span: SourceSpan,
+    ) -> Value {
+        let src = self.build_from_expr_lvalue(expr);
+        self.append_to_block(
+            Instr::Unary {
+                op,
+                src,
+                dst: src,
+            },
+            span,
+        );
+        src
+    }
+
+    fn build_postfix_unary_op(
+        &mut self,
+        op: UnaryOp,
+        expr: parse::ExprRef,
+        span: SourceSpan,
+    ) -> Value {
+        let dst = self.make_tmp();
+        let src = self.build_from_expr_lvalue(expr);
+        self.append_to_block(Instr::Copy { src, dst }, span);
+        self.append_to_block(
+            Instr::Unary {
+                op,
+                src,
+                dst: src,
+            },
+            span,
+        );
+        dst
     }
 
     fn build_binary_op(

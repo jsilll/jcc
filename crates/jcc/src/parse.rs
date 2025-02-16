@@ -209,16 +209,14 @@ pub enum UnaryOp {
     BitNot,
     /// The `!` operator.
     LogicalNot,
-}
-
-impl From<UnaryOp> for tacky::UnaryOp {
-    fn from(op: UnaryOp) -> Self {
-        match op {
-            UnaryOp::Neg => tacky::UnaryOp::Neg,
-            UnaryOp::BitNot => tacky::UnaryOp::BitNot,
-            UnaryOp::LogicalNot => tacky::UnaryOp::Not,
-        }
-    }
+    /// The prefix `++` operator.
+    PreInc,
+    /// The prefix `--` operator.
+    PreDec,
+    /// The postfix `++` operator.
+    PostInc,
+    /// The postfix `--` operator.
+    PostDec,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,22 +398,44 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self, min_prec: u8) -> Option<ExprRef> {
         let mut lhs = self.parse_expr_prefix()?;
         while let Some(Token { kind, span }) = self.iter.peek() {
-            match Option::<Precedence>::from(*kind) {
-                None => break,
-                Some(Precedence { op, prec, assoc }) => {
-                    if prec < min_prec {
-                        break;
-                    }
+            match kind {
+                TokenKind::PlusPlus => {
                     self.iter.next();
-                    let rhs = match assoc {
-                        Associativity::Right => self.parse_expr(prec)?,
-                        Associativity::Left => self.parse_expr(prec + 1)?,
-                    };
-                    lhs = self
-                        .result
-                        .ast
-                        .push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                    lhs = self.result.ast.push_expr(
+                        Expr::Unary {
+                            op: UnaryOp::PostInc,
+                            expr: lhs,
+                        },
+                        *span,
+                    );
                 }
+                TokenKind::MinusMinus => {
+                    self.iter.next();
+                    lhs = self.result.ast.push_expr(
+                        Expr::Unary {
+                            op: UnaryOp::PostDec,
+                            expr: lhs,
+                        },
+                        *span,
+                    );
+                }
+                _ => match Option::<Precedence>::from(*kind) {
+                    None => break,
+                    Some(Precedence { op, prec, assoc }) => {
+                        if prec < min_prec {
+                            break;
+                        }
+                        self.iter.next();
+                        let rhs = match assoc {
+                            Associativity::Right => self.parse_expr(prec)?,
+                            Associativity::Left => self.parse_expr(prec + 1)?,
+                        };
+                        lhs = self
+                            .result
+                            .ast
+                            .push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                    }
+                },
             }
         }
         Some(lhs)
@@ -470,6 +490,28 @@ impl<'a> Parser<'a> {
                 Some(self.result.ast.push_expr(
                     Expr::Unary {
                         op: UnaryOp::LogicalNot,
+                        expr,
+                    },
+                    token.span,
+                ))
+            }
+            TokenKind::PlusPlus => {
+                self.iter.next();
+                let expr = self.parse_expr_prefix()?;
+                Some(self.result.ast.push_expr(
+                    Expr::Unary {
+                        op: UnaryOp::PreInc,
+                        expr,
+                    },
+                    token.span,
+                ))
+            }
+            TokenKind::MinusMinus => {
+                self.iter.next();
+                let expr = self.parse_expr_prefix()?;
+                Some(self.result.ast.push_expr(
+                    Expr::Unary {
+                        op: UnaryOp::PreDec,
                         expr,
                     },
                     token.span,

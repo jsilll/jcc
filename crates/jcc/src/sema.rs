@@ -1,4 +1,4 @@
-use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt};
+use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, UnaryOp};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
@@ -94,18 +94,77 @@ impl Analyzer {
             Expr::Constant(_) => {}
             Expr::Var { .. } => unreachable!(),
             Expr::Grouped(expr) => self.analyze_expr(ast, expr),
-            Expr::Unary { expr, .. } => self.analyze_expr(ast, expr),
-            Expr::Binary { op, lhs, rhs } => {
-                if matches!(op, BinaryOp::Assign) && !matches!(ast.get_expr(lhs), Expr::Var { .. })
-                {
-                    self.result.diagnostics.push(AnalyzerDiagnostic {
-                        span: *ast.get_expr_span(lhs),
-                        kind: AnalyzerDiagnosticKind::InvalidLValue,
-                    });
+            Expr::Unary { op, expr } => match op {
+                UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
+                    if !matches!(ast.get_expr(expr), Expr::Var { .. }) {
+                        self.result.diagnostics.push(AnalyzerDiagnostic {
+                            span: *ast.get_expr_span(expr),
+                            kind: AnalyzerDiagnosticKind::InvalidLValue,
+                        });
+                    }
+                    self.analyze_expr(ast, expr);
                 }
-                self.analyze_expr(ast, lhs);
-                self.analyze_expr(ast, rhs);
-            }
+                _ => self.analyze_expr(ast, expr),
+            },
+            Expr::Binary { op, lhs, rhs } => match op {
+                BinaryOp::Assign
+                | BinaryOp::AddAssign
+                | BinaryOp::SubAssign
+                | BinaryOp::MulAssign
+                | BinaryOp::DivAssign
+                | BinaryOp::RemAssign
+                | BinaryOp::BitOrAssign
+                | BinaryOp::BitAndAssign
+                | BinaryOp::BitXorAssign
+                | BinaryOp::BitLshAssign
+                | BinaryOp::BitRshAssign => {
+                    if !matches!(ast.get_expr(lhs), Expr::Var { .. }) {
+                        self.result.diagnostics.push(AnalyzerDiagnostic {
+                            span: *ast.get_expr_span(lhs),
+                            kind: AnalyzerDiagnosticKind::InvalidLValue,
+                        });
+                    }
+                    self.analyze_expr(ast, lhs);
+                    self.analyze_expr(ast, rhs);
+                }
+                _ => {
+                    self.analyze_expr(ast, lhs);
+                    self.analyze_expr(ast, rhs);
+                }
+            },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AnalyzerDiagnosticKind
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum AnalyzerDiagnosticKind {
+    InvalidLValue,
+    UndefinedVariable,
+    RedeclaredVariable,
+}
+
+impl From<AnalyzerDiagnostic> for Diagnostic {
+    fn from(diagnostic: AnalyzerDiagnostic) -> Self {
+        match diagnostic.kind {
+            AnalyzerDiagnosticKind::InvalidLValue => Diagnostic::error(
+                diagnostic.span,
+                "invalid lvalue",
+                "this expression is not a valid lvalue",
+            ),
+            AnalyzerDiagnosticKind::UndefinedVariable => Diagnostic::error(
+                diagnostic.span,
+                "undefined variable",
+                "this variable is not declared",
+            ),
+            AnalyzerDiagnosticKind::RedeclaredVariable => Diagnostic::error(
+                diagnostic.span,
+                "redeclared variable",
+                "this variable is already declared",
+            ),
         }
     }
 }
@@ -184,39 +243,6 @@ where
         match self.scopes.last_mut() {
             None => self.global.remove(key),
             Some(scope) => scope.remove(key),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// AnalyzerDiagnosticKind
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub enum AnalyzerDiagnosticKind {
-    InvalidLValue,
-    UndefinedVariable,
-    RedeclaredVariable,
-}
-
-impl From<AnalyzerDiagnostic> for Diagnostic {
-    fn from(diagnostic: AnalyzerDiagnostic) -> Self {
-        match diagnostic.kind {
-            AnalyzerDiagnosticKind::InvalidLValue => Diagnostic::error(
-                diagnostic.span,
-                "invalid lvalue",
-                "this expression is not a valid lvalue",
-            ),
-            AnalyzerDiagnosticKind::UndefinedVariable => Diagnostic::error(
-                diagnostic.span,
-                "undefined variable",
-                "this variable is not declared",
-            ),
-            AnalyzerDiagnosticKind::RedeclaredVariable => Diagnostic::error(
-                diagnostic.span,
-                "redeclared variable",
-                "this variable is already declared",
-            ),
         }
     }
 }

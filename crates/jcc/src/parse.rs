@@ -223,70 +223,64 @@ impl From<UnaryOp> for tacky::UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    // The `+` operator.
-    Add,
-    // The `-` operator.
-    Sub,
-    // The `*` operator.
-    Mul,
-    // The `/` operator.
-    Div,
-    // The `%` operator.
-    Rem,
-    // The `|` operator.
-    BitOr,
-    // The `&` operator.
-    BitAnd,
-    // The `^` operator.
-    BitXor,
-    // The `<<` operator.
-    BitLsh,
-    // The `>>` operator.
-    BitRsh,
-    // The `||` operator.
+    /// The `||` operator.
     LogicalOr,
-    // The `&&` operator.
+    /// The `&&` operator.
     LogicalAnd,
-    // The `==` operator.
+    /// The `==` operator.
     Equal,
-    // The `!=` operator.
+    /// The `!=` operator.
     NotEqual,
-    // The `<` operator.
+    /// The `<` operator.
     LessThan,
-    // The `<=` operator.
+    /// The `<=` operator.
     LessEqual,
-    // The `>` operator.
+    /// The `>` operator.
     GreaterThan,
-    // The `>=` operator.
+    /// The `>=` operator.
     GreaterEqual,
-    // The `=` operator.
+    /// The `+` operator.
+    Add,
+    /// The `-` operator.
+    Sub,
+    /// The `*` operator.
+    Mul,
+    /// The `/` operator.
+    Div,
+    /// The `%` operator.
+    Rem,
+    /// The `|` operator.
+    BitOr,
+    /// The `&` operator.
+    BitAnd,
+    /// The `^` operator.
+    BitXor,
+    /// The `<<` operator.
+    BitLsh,
+    /// The `>>` operator.
+    BitRsh,
+    /// The `=` operator.
     Assign,
-}
-
-impl TryFrom<BinaryOp> for tacky::BinaryOp {
-    type Error = ();
-
-    fn try_from(op: BinaryOp) -> Result<tacky::BinaryOp, Self::Error> {
-        match op {
-            BinaryOp::Add => Ok(tacky::BinaryOp::Add),
-            BinaryOp::Sub => Ok(tacky::BinaryOp::Sub),
-            BinaryOp::Mul => Ok(tacky::BinaryOp::Mul),
-            BinaryOp::Div => Ok(tacky::BinaryOp::Div),
-            BinaryOp::Rem => Ok(tacky::BinaryOp::Rem),
-            BinaryOp::BitOr => Ok(tacky::BinaryOp::BitOr),
-            BinaryOp::BitAnd => Ok(tacky::BinaryOp::BitAnd),
-            BinaryOp::BitXor => Ok(tacky::BinaryOp::BitXor),
-            BinaryOp::BitLsh => Ok(tacky::BinaryOp::BitShl),
-            BinaryOp::BitRsh => Ok(tacky::BinaryOp::BitShr),
-            BinaryOp::Equal => Ok(tacky::BinaryOp::Equal),
-            BinaryOp::NotEqual => Ok(tacky::BinaryOp::NotEqual),
-            BinaryOp::LessThan => Ok(tacky::BinaryOp::LessThan),
-            BinaryOp::LessEqual => Ok(tacky::BinaryOp::LessEqual),
-            BinaryOp::GreaterThan => Ok(tacky::BinaryOp::GreaterThan),
-            BinaryOp::GreaterEqual => Ok(tacky::BinaryOp::GreaterEqual),
-            _ => Err(()),
-        }
-    }
+    /// The `+=` operator.
+    AddAssign,
+    /// The `-=` operator.
+    SubAssign,
+    /// The `*=` operator.
+    MulAssign,
+    /// The `/=` operator.
+    DivAssign,
+    /// The `%=` operator.
+    RemAssign,
+    /// The `|=` operator.
+    BitOrAssign,
+    /// The `&=` operator.
+    BitAndAssign,
+    /// The `^=` operator.
+    BitXorAssign,
+    /// The `<<=` operator.
+    BitLshAssign,
+    /// The `>>=` operator.
+    BitRshAssign,
 }
 
 // ---------------------------------------------------------------------------
@@ -599,6 +593,56 @@ impl From<TokenKind> for Option<Precedence> {
             // Group: Right-to-left Associativity
             TokenKind::Eq => Some(Precedence {
                 op: BinaryOp::Assign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::PlusEq => Some(Precedence {
+                op: BinaryOp::AddAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::MinusEq => Some(Precedence {
+                op: BinaryOp::SubAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::StarEq => Some(Precedence {
+                op: BinaryOp::MulAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::SlashEq => Some(Precedence {
+                op: BinaryOp::DivAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::PercentEq => Some(Precedence {
+                op: BinaryOp::RemAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::AmpEq => Some(Precedence {
+                op: BinaryOp::BitAndAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::PipeEq => Some(Precedence {
+                op: BinaryOp::BitOrAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::CaretEq => Some(Precedence {
+                op: BinaryOp::BitXorAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::LtLtEq => Some(Precedence {
+                op: BinaryOp::BitLshAssign,
+                prec: 0,
+                assoc: Associativity::Right,
+            }),
+            TokenKind::GtGtEq => Some(Precedence {
+                op: BinaryOp::BitRshAssign,
                 prec: 0,
                 assoc: Associativity::Right,
             }),

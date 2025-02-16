@@ -67,35 +67,65 @@ impl<'a> Lexer<'a> {
                 c if c.is_digit(10) => self.lex_number(begin),
                 c if c.is_ascii_alphabetic() || c == '_' => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
-                '*' => self.lex_char(begin, TokenKind::Star),
-                '/' => self.lex_char(begin, TokenKind::Slash),
                 '~' => self.lex_char(begin, TokenKind::Tilde),
-                '^' => self.lex_char(begin, TokenKind::Caret),
-                '%' => self.lex_char(begin, TokenKind::Percent),
                 '=' => self.lex_char_double(begin, '=', TokenKind::EqEq, TokenKind::Eq),
-                '&' => self.lex_char_double(begin, '&', TokenKind::AmpAmp, TokenKind::Amp),
                 '!' => self.lex_char_double(begin, '=', TokenKind::BangEq, TokenKind::Bang),
-                '|' => self.lex_char_double(begin, '|', TokenKind::PipePipe, TokenKind::Pipe),
-                '+' => self.lex_char_double(begin, '+', TokenKind::PlusPlus, TokenKind::Plus),
-                '-' => self.lex_char_double(begin, '-', TokenKind::MinusMinus, TokenKind::Minus),
+                '*' => self.lex_char_double(begin, '=', TokenKind::StarEq, TokenKind::Star),
+                '/' => self.lex_char_double(begin, '=', TokenKind::SlashEq, TokenKind::Slash),
+                '^' => self.lex_char_double(begin, '=', TokenKind::CaretEq, TokenKind::Caret),
+                '%' => self.lex_char_double(begin, '=', TokenKind::PercentEq, TokenKind::Percent),
                 '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),
                 '{' => self.handle_nesting_open(begin, TokenKind::LBrace, TokenKind::RBrace),
                 '[' => self.handle_nesting_open(begin, TokenKind::LBrack, TokenKind::RBrack),
                 ')' => self.handle_nesting_close(begin, TokenKind::LParen, TokenKind::RParen),
                 '}' => self.handle_nesting_close(begin, TokenKind::LBrace, TokenKind::RBrace),
                 ']' => self.handle_nesting_close(begin, TokenKind::LBrack, TokenKind::RBrack),
-                '<' => self.lex_char_double2(
+                '+' => self.lex_char_double2(
                     begin,
-                    ('<', TokenKind::LtLt),
-                    ('=', TokenKind::LtEq),
-                    TokenKind::Lt,
+                    ('+', TokenKind::PlusPlus),
+                    ('=', TokenKind::PlusEq),
+                    TokenKind::Plus,
                 ),
-                '>' => self.lex_char_double2(
+                '-' => self.lex_char_double2(
                     begin,
-                    ('>', TokenKind::GtGt),
-                    ('=', TokenKind::GtEq),
-                    TokenKind::Gt,
+                    ('-', TokenKind::MinusMinus),
+                    ('=', TokenKind::MinusEq),
+                    TokenKind::Minus,
                 ),
+                '&' => self.lex_char_double2(
+                    begin,
+                    ('&', TokenKind::AmpAmp),
+                    ('=', TokenKind::AmpEq),
+                    TokenKind::Amp,
+                ),
+                '|' => self.lex_char_double2(
+                    begin,
+                    ('|', TokenKind::PipePipe),
+                    ('=', TokenKind::PipeEq),
+                    TokenKind::Pipe,
+                ),
+                '<' => match self.chars.peek() {
+                    Some((_, '<')) => {
+                        self.chars.next();
+                        self.lex_char_double(begin, '=', TokenKind::LtLtEq, TokenKind::LtLt)
+                    }
+                    Some((_, '=')) => {
+                        self.chars.next();
+                        self.lex_char(begin, TokenKind::LtEq)
+                    }
+                    _ => self.lex_char(begin, TokenKind::Lt),
+                },
+                '>' => match self.chars.peek() {
+                    Some((_, '>')) => {
+                        self.chars.next();
+                        self.lex_char_double(begin, '=', TokenKind::GtGtEq, TokenKind::GtGt)
+                    }
+                    Some((_, '=')) => {
+                        self.chars.next();
+                        self.lex_char(begin, TokenKind::GtEq)
+                    }
+                    _ => self.lex_char(begin, TokenKind::Gt),
+                },
                 _ => self.result.diagnostics.push(LexerDiagnostic {
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
                     span: self.file.span(begin..begin + 1).unwrap_or_default(),
@@ -252,42 +282,97 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
+    /// The `&` token.
     Amp,
+    /// The `&&` token.
     AmpAmp,
+    /// The `&=` token.
+    AmpEq,
+    /// The `!` token.
     Bang,
+    /// The `!=` token.
     BangEq,
+    /// The `^` token.
     Caret,
+    /// The `^=` token.
+    CaretEq,
+    /// The `=` token.
     Eq,
+    /// The `==` token.
     EqEq,
+    /// The `>` token.
     Gt,
+    /// The `>=` token.
     GtEq,
+    /// The `>>` token.
     GtGt,
+    /// The `>>=` token.
+    GtGtEq,
+    /// The `{` token.
     LBrace,
+    /// The `[` token.
     LBrack,
+    /// The `(` token.
     LParen,
+    /// The `<` token.
     Lt,
+    /// The `<=` token.
     LtEq,
+    /// The `<<` token.
     LtLt,
+    /// The `<<=` token.
+    LtLtEq,
+    /// The `-` token.
     Minus,
+    /// The `-=` token.
+    MinusEq,
+    /// The `--` token.
     MinusMinus,
+    /// The `%` token.
     Percent,
+    /// The `%=` token.
+    PercentEq,
+    /// The `|` token.
     Pipe,
+    /// The `|=` token.
+    PipeEq,
+    /// The `||` token.
     PipePipe,
+    /// The `+` token.
     Plus,
+    /// The `+=` token.
+    PlusEq,
+    /// The `++` token.
     PlusPlus,
+    /// The `}` token.
     RBrace,
+    /// The `]` token.
     RBrack,
+    /// The `)` token.
     RParen,
+    /// The `;` token.
     Semi,
+    /// The `/` token.
     Slash,
+    /// The `/=` token.
+    SlashEq,
+    /// The `*` token.
     Star,
+    /// The `*=` token.
+    StarEq,
+    /// The `~` token.
     Tilde,
 
+    /// The `int` keyword.
     KwInt,
+    /// The `void` keyword.
     KwVoid,
+    /// The `return` keyword.
     KwReturn,
 
+    /// A number.
     Number(u32),
+    /// An identifier.
     Identifier(DefaultSymbol),
 }
 
@@ -296,33 +381,43 @@ impl std::fmt::Display for TokenKind {
         match self {
             TokenKind::Amp => write!(f, "'&'"),
             TokenKind::AmpAmp => write!(f, "'&&'"),
+            TokenKind::AmpEq => write!(f, "'&='"),
             TokenKind::Bang => write!(f, "'!'"),
             TokenKind::BangEq => write!(f, "'!='"),
             TokenKind::Caret => write!(f, "'^'"),
+            TokenKind::CaretEq => write!(f, "'^='"),
             TokenKind::Eq => write!(f, "'='"),
             TokenKind::EqEq => write!(f, "'=='"),
             TokenKind::Gt => write!(f, "'>'"),
             TokenKind::GtEq => write!(f, "'>='"),
             TokenKind::GtGt => write!(f, "'>>'"),
+            TokenKind::GtGtEq => write!(f, "'>>='"),
             TokenKind::LBrace => write!(f, "'{{'"),
             TokenKind::LBrack => write!(f, "'['"),
             TokenKind::LParen => write!(f, "'('"),
             TokenKind::Lt => write!(f, "'<'"),
             TokenKind::LtEq => write!(f, "'<='"),
             TokenKind::LtLt => write!(f, "'<<'"),
+            TokenKind::LtLtEq => write!(f, "'<<='"),
             TokenKind::Minus => write!(f, "'-'"),
+            TokenKind::MinusEq => write!(f, "'-='"),
             TokenKind::MinusMinus => write!(f, "'--'"),
             TokenKind::Percent => write!(f, "'%'"),
+            TokenKind::PercentEq => write!(f, "'%='"),
             TokenKind::Pipe => write!(f, "'|'"),
+            TokenKind::PipeEq => write!(f, "'|='"),
             TokenKind::PipePipe => write!(f, "'||'"),
             TokenKind::Plus => write!(f, "'+'"),
+            TokenKind::PlusEq => write!(f, "'+='"),
             TokenKind::PlusPlus => write!(f, "'++'"),
             TokenKind::RBrace => write!(f, "'}}'"),
             TokenKind::RBrack => write!(f, "']'"),
             TokenKind::RParen => write!(f, "')'"),
             TokenKind::Semi => write!(f, "';'"),
             TokenKind::Slash => write!(f, "'/'"),
+            TokenKind::SlashEq => write!(f, "'/='"),
             TokenKind::Star => write!(f, "'*'"),
+            TokenKind::StarEq => write!(f, "'*='"),
             TokenKind::Tilde => write!(f, "'~'"),
 
             TokenKind::KwInt => write!(f, "'int'"),

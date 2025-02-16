@@ -170,25 +170,105 @@ impl<'a> TackyFnDefBuilder<'a> {
             parse::Expr::Binary { op, lhs, rhs } => match op {
                 parse::BinaryOp::LogicalOr => self.build_short_circuit(true, *lhs, *rhs, span),
                 parse::BinaryOp::LogicalAnd => self.build_short_circuit(false, *lhs, *rhs, span),
+                parse::BinaryOp::Equal => self.build_binary_op(BinaryOp::Equal, *lhs, *rhs, span),
+                parse::BinaryOp::NotEqual => {
+                    self.build_binary_op(BinaryOp::NotEqual, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::LessThan => {
+                    self.build_binary_op(BinaryOp::LessThan, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::LessEqual => {
+                    self.build_binary_op(BinaryOp::LessEqual, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::GreaterThan => {
+                    self.build_binary_op(BinaryOp::GreaterThan, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::GreaterEqual => {
+                    self.build_binary_op(BinaryOp::GreaterEqual, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::Add => self.build_binary_op(BinaryOp::Add, *lhs, *rhs, span),
+                parse::BinaryOp::Sub => self.build_binary_op(BinaryOp::Sub, *lhs, *rhs, span),
+                parse::BinaryOp::Mul => self.build_binary_op(BinaryOp::Mul, *lhs, *rhs, span),
+                parse::BinaryOp::Div => self.build_binary_op(BinaryOp::Div, *lhs, *rhs, span),
+                parse::BinaryOp::Rem => self.build_binary_op(BinaryOp::Rem, *lhs, *rhs, span),
+                parse::BinaryOp::BitOr => self.build_binary_op(BinaryOp::BitOr, *lhs, *rhs, span),
+                parse::BinaryOp::BitAnd => self.build_binary_op(BinaryOp::BitAnd, *lhs, *rhs, span),
+                parse::BinaryOp::BitXor => self.build_binary_op(BinaryOp::BitXor, *lhs, *rhs, span),
+                parse::BinaryOp::BitLsh => self.build_binary_op(BinaryOp::BitShl, *lhs, *rhs, span),
+                parse::BinaryOp::BitRsh => self.build_binary_op(BinaryOp::BitShr, *lhs, *rhs, span),
                 parse::BinaryOp::Assign => {
                     let lhs = self.build_from_expr_lvalue(*lhs);
                     let rhs = self.build_from_expr_rvalue(*rhs);
                     self.append_to_block(Instr::Copy { src: rhs, dst: lhs }, span);
                     lhs
                 }
-                _ => {
-                    let op = BinaryOp::try_from(*op).expect("unexpected binary operator");
-                    let lhs = self.build_from_expr_rvalue(*lhs);
-                    let rhs = self.build_from_expr_rvalue(*rhs);
-                    let dst = self.make_tmp();
-                    self.append_to_block(
-                        Instr::Binary { op, lhs, rhs, dst },
-                        *self.ast.get_expr_span(expr),
-                    );
-                    dst
+                parse::BinaryOp::AddAssign => {
+                    self.build_binary_assign_op(BinaryOp::Add, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::SubAssign => {
+                    self.build_binary_assign_op(BinaryOp::Sub, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::MulAssign => {
+                    self.build_binary_assign_op(BinaryOp::Mul, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::DivAssign => {
+                    self.build_binary_assign_op(BinaryOp::Div, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::RemAssign => {
+                    self.build_binary_assign_op(BinaryOp::Rem, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::BitOrAssign => {
+                    self.build_binary_assign_op(BinaryOp::BitOr, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::BitAndAssign => {
+                    self.build_binary_assign_op(BinaryOp::BitAnd, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::BitXorAssign => {
+                    self.build_binary_assign_op(BinaryOp::BitXor, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::BitLshAssign => {
+                    self.build_binary_assign_op(BinaryOp::BitShl, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::BitRshAssign => {
+                    self.build_binary_assign_op(BinaryOp::BitShr, *lhs, *rhs, span)
                 }
             },
         }
+    }
+
+    fn build_binary_op(
+        &mut self,
+        op: BinaryOp,
+        lhs: parse::ExprRef,
+        rhs: parse::ExprRef,
+        span: SourceSpan,
+    ) -> Value {
+        let dst = self.make_tmp();
+        let lhs = self.build_from_expr_rvalue(lhs);
+        let rhs = self.build_from_expr_rvalue(rhs);
+        self.append_to_block(Instr::Binary { op, lhs, rhs, dst }, span);
+        dst
+    }
+
+    fn build_binary_assign_op(
+        &mut self,
+        op: BinaryOp,
+        lhs: parse::ExprRef,
+        rhs: parse::ExprRef,
+        span: SourceSpan,
+    ) -> Value {
+        let lhs = self.build_from_expr_lvalue(lhs);
+        let rhs = self.build_from_expr_rvalue(rhs);
+        self.append_to_block(
+            Instr::Binary {
+                op,
+                lhs,
+                rhs,
+                dst: lhs,
+            },
+            span,
+        );
+        lhs
     }
 
     fn build_short_circuit(

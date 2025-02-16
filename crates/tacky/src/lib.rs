@@ -138,6 +138,18 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
+    /// The equal operator.
+    Equal,
+    /// The not equal operator.
+    NotEqual,
+    /// The less than operator.
+    LessThan,
+    /// The less than or equal operator.
+    LessEqual,
+    /// The greater than operator.
+    GreaterThan,
+    /// The greater than or equal operator.
+    GreaterEqual,
     /// The add operator.
     Add,
     /// The sub operator.
@@ -158,16 +170,4 @@ pub enum BinaryOp {
     BitShl,
     /// The bit shift right operator.
     BitShr,
-    /// The equal operator.
-    Equal,
-    /// The not equal operator.
-    NotEqual,
-    /// The less than operator.
-    LessThan,
-    /// The less than or equal operator.
-    LessEqual,
-    /// The greater than operator.
-    GreaterThan,
-    /// The greater than or equal operator.
-    GreaterEqual,
 }

@@ -144,18 +144,10 @@ pub enum UnaryOp {
     Not,
     /// The `neg` operator.
     Neg,
-}
-
-impl TryFrom<crate::UnaryOp> for UnaryOp {
-    type Error = ();
-
-    fn try_from(op: crate::UnaryOp) -> Result<Self, Self::Error> {
-        match op {
-            crate::UnaryOp::Neg => Ok(Self::Neg),
-            crate::UnaryOp::BitNot => Ok(Self::Not),
-            _ => Err(()),
-        }
-    }
+    /// The `inc` operator.
+    Inc,
+    /// The `dec` operator.
+    Dec,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,24 +168,6 @@ pub enum BinaryOp {
     Shl,
     /// The `sar` operator.
     Shr,
-}
-
-impl TryFrom<crate::BinaryOp> for BinaryOp {
-    type Error = ();
-
-    fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
-        match op {
-            crate::BinaryOp::Add => Ok(Self::Add),
-            crate::BinaryOp::Sub => Ok(Self::Sub),
-            crate::BinaryOp::Mul => Ok(Self::Mul),
-            crate::BinaryOp::BitOr => Ok(Self::Or),
-            crate::BinaryOp::BitAnd => Ok(Self::And),
-            crate::BinaryOp::BitXor => Ok(Self::Xor),
-            crate::BinaryOp::BitShl => Ok(Self::Shl),
-            crate::BinaryOp::BitShr => Ok(Self::Shr),
-            _ => Err(()),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

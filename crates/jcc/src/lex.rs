@@ -166,18 +166,18 @@ impl<'a> Lexer<'a> {
     fn lex_char_double2(
         &mut self,
         begin: u32,
-        alt1: (char, TokenKind),
-        alt2: (char, TokenKind),
+        kind1: (char, TokenKind),
+        kind2: (char, TokenKind),
         fallback: TokenKind,
     ) {
         let (token, len) = match self.chars.peek() {
-            Some((_, c)) if *c == alt1.0 => {
+            Some((_, c)) if *c == kind1.0 => {
                 self.chars.next();
-                (alt1.1, 2)
+                (kind1.1, 2)
             }
-            Some((_, c)) if *c == alt2.0 => {
+            Some((_, c)) if *c == kind2.0 => {
                 self.chars.next();
-                (alt2.1, 2)
+                (kind2.1, 2)
             }
             _ => (fallback, 1),
         };

@@ -96,7 +96,7 @@ impl Analyzer {
             Expr::Grouped(expr) => self.analyze_expr(ast, expr),
             Expr::Unary { op, expr } => match op {
                 UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    if !matches!(ast.get_expr(expr), Expr::Var { .. }) {
+                    if !is_lvalue(ast, expr) {
                         self.result.diagnostics.push(AnalyzerDiagnostic {
                             span: *ast.get_expr_span(expr),
                             kind: AnalyzerDiagnosticKind::InvalidLValue,
@@ -118,7 +118,7 @@ impl Analyzer {
                 | BinaryOp::BitXorAssign
                 | BinaryOp::BitLshAssign
                 | BinaryOp::BitRshAssign => {
-                    if !matches!(ast.get_expr(lhs), Expr::Var { .. }) {
+                    if !is_lvalue(ast, lhs) {
                         self.result.diagnostics.push(AnalyzerDiagnostic {
                             span: *ast.get_expr_span(lhs),
                             kind: AnalyzerDiagnosticKind::InvalidLValue,
@@ -244,5 +244,17 @@ where
             None => self.global.remove(key),
             Some(scope) => scope.remove(key),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
+    match ast.get_expr(expr) {
+        Expr::Var { .. } => true,
+        Expr::Grouped(expr) => is_lvalue(ast, *expr),
+        Expr::Constant(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
     }
 }

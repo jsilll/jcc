@@ -131,20 +131,68 @@ impl AMD64FnDefBuilder {
                 );
             }
             crate::Instr::Unary { op, src, dst } => match op {
+                crate::UnaryOp::Neg => {
+                    let src = Self::build_from_value(*src);
+                    let dst = Self::build_from_value(*dst);
+                    self.append_to_block(Instr::Mov { src, dst }, *span);
+                    self.append_to_block(
+                        Instr::Unary {
+                            op: UnaryOp::Neg,
+                            src: dst,
+                        },
+                        *span,
+                    );
+                }
+                crate::UnaryOp::Inc => {
+                    let src = Self::build_from_value(*src);
+                    let dst = Self::build_from_value(*dst);
+                    self.append_to_block(Instr::Mov { src, dst }, *span);
+                    self.append_to_block(
+                        Instr::Unary {
+                            op: UnaryOp::Inc,
+                            src: dst,
+                        },
+                        *span,
+                    );
+                }
+                crate::UnaryOp::Dec => {
+                    let src = Self::build_from_value(*src);
+                    let dst = Self::build_from_value(*dst);
+                    self.append_to_block(Instr::Mov { src, dst }, *span);
+                    self.append_to_block(
+                        Instr::Unary {
+                            op: UnaryOp::Dec,
+                            src: dst,
+                        },
+                        *span,
+                    );
+                }
+                crate::UnaryOp::BitNot => {
+                    let src = Self::build_from_value(*src);
+                    let dst = Self::build_from_value(*dst);
+                    self.append_to_block(Instr::Mov { src, dst }, *span);
+                    self.append_to_block(
+                        Instr::Unary {
+                            op: UnaryOp::Not,
+                            src: dst,
+                        },
+                        *span,
+                    );
+                }
                 crate::UnaryOp::Not => {
                     let src = Self::build_from_value(*src);
                     let dst = Self::build_from_value(*dst);
                     self.append_to_block(
-                        Instr::Cmp {
-                            lhs: Operand::Imm(0),
-                            rhs: src,
+                        Instr::Mov {
+                            src: Operand::Imm(0),
+                            dst,
                         },
                         *span,
                     );
                     self.append_to_block(
-                        Instr::Mov {
-                            src: Operand::Imm(0),
-                            dst,
+                        Instr::Cmp {
+                            lhs: Operand::Imm(0),
+                            rhs: src,
                         },
                         *span,
                     );
@@ -155,13 +203,6 @@ impl AMD64FnDefBuilder {
                         },
                         *span,
                     );
-                }
-                _ => {
-                    let op = UnaryOp::try_from(*op).expect("unexpected unary operator");
-                    let src = Self::build_from_value(*src);
-                    let dst = Self::build_from_value(*dst);
-                    self.append_to_block(Instr::Mov { src, dst }, *span);
-                    self.append_to_block(Instr::Unary { op, src: dst }, *span);
                 }
             },
             crate::Instr::Binary { op, lhs, rhs, dst } => {
@@ -214,11 +255,89 @@ impl AMD64FnDefBuilder {
                             *span,
                         );
                     }
-                    _ => {
+
+                    crate::BinaryOp::Add => {
                         self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
                         self.append_to_block(
                             Instr::Binary {
-                                op: BinaryOp::try_from(*op).expect("unexpected binary operator"),
+                                op: BinaryOp::Add,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::Sub => { 
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::Sub,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::Mul => {
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::Mul,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::BitOr => {
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::Or,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::BitAnd => {
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::And,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::BitXor => {
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::Xor,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::BitShl => {
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::Shl,
+                                src: rhs,
+                                dst,
+                            },
+                            *span,
+                        );
+                    }
+                    crate::BinaryOp::BitShr => {
+                        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
+                        self.append_to_block(
+                            Instr::Binary {
+                                op: BinaryOp::Shr,
                                 src: rhs,
                                 dst,
                             },

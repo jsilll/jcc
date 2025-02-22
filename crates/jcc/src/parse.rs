@@ -398,44 +398,22 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self, min_prec: u8) -> Option<ExprRef> {
         let mut lhs = self.parse_expr_prefix()?;
         while let Some(Token { kind, span }) = self.iter.peek() {
-            match kind {
-                TokenKind::PlusPlus => {
-                    self.iter.next();
-                    lhs = self.result.ast.push_expr(
-                        Expr::Unary {
-                            op: UnaryOp::PostInc,
-                            expr: lhs,
-                        },
-                        *span,
-                    );
-                }
-                TokenKind::MinusMinus => {
-                    self.iter.next();
-                    lhs = self.result.ast.push_expr(
-                        Expr::Unary {
-                            op: UnaryOp::PostDec,
-                            expr: lhs,
-                        },
-                        *span,
-                    );
-                }
-                _ => match Option::<Precedence>::from(*kind) {
-                    None => break,
-                    Some(Precedence { op, prec, assoc }) => {
-                        if prec < min_prec {
-                            break;
-                        }
-                        self.iter.next();
-                        let rhs = match assoc {
-                            Associativity::Right => self.parse_expr(prec)?,
-                            Associativity::Left => self.parse_expr(prec + 1)?,
-                        };
-                        lhs = self
-                            .result
-                            .ast
-                            .push_expr(Expr::Binary { op, lhs, rhs }, *span);
+            match Option::<Precedence>::from(*kind) {
+                None => break,
+                Some(Precedence { op, prec, assoc }) => {
+                    if prec < min_prec {
+                        break;
                     }
-                },
+                    self.iter.next();
+                    let rhs = match assoc {
+                        Associativity::Right => self.parse_expr(prec)?,
+                        Associativity::Left => self.parse_expr(prec + 1)?,
+                    };
+                    lhs = self
+                        .result
+                        .ast
+                        .push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                }
             }
         }
         Some(lhs)
@@ -450,17 +428,18 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Identifier(name) => {
                 self.iter.next();
-                Some(
-                    self.result
-                        .ast
-                        .push_expr(Expr::Var { name, decl: None }, token.span),
-                )
+                let expr = self
+                    .result
+                    .ast
+                    .push_expr(Expr::Var { name, decl: None }, token.span);
+                Some(self.parse_expr_postfix(expr))
             }
             TokenKind::LParen => {
                 self.iter.next();
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
-                Some(self.result.ast.push_expr(Expr::Grouped(expr), token.span))
+                let expr = self.result.ast.push_expr(Expr::Grouped(expr), token.span);
+                Some(self.parse_expr_postfix(expr))
             }
             TokenKind::Minus => {
                 self.iter.next();
@@ -525,6 +504,35 @@ impl<'a> Parser<'a> {
                 None
             }
         }
+    }
+
+    fn parse_expr_postfix(&mut self, mut expr: ExprRef) -> ExprRef {
+        while let Some(Token { kind, span }) = self.iter.peek() {
+            match kind {
+                TokenKind::PlusPlus => {
+                    self.iter.next();
+                    expr = self.result.ast.push_expr(
+                        Expr::Unary {
+                            op: UnaryOp::PostInc,
+                            expr,
+                        },
+                        *span,
+                    );
+                }
+                TokenKind::MinusMinus => {
+                    self.iter.next();
+                    expr = self.result.ast.push_expr(
+                        Expr::Unary {
+                            op: UnaryOp::PostDec,
+                            expr,
+                        },
+                        *span,
+                    );
+                }
+                _ => break,
+            }
+        }
+        expr
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<&Token> {

@@ -118,6 +118,8 @@ impl<'a> AMD64Emitter<'a> {
                 match op {
                     UnaryOp::Not => self.writeln(&format!("notl {src}")),
                     UnaryOp::Neg => self.writeln(&format!("negl {src}")),
+                    UnaryOp::Inc => self.writeln(&format!("incl {src}")),
+                    UnaryOp::Dec => self.writeln(&format!("decl {src}")),
                 };
             }
             Instr::Binary { op, src, dst } => {

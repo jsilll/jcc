@@ -128,10 +128,14 @@ pub enum Value {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    /// The neg operator.
-    Neg,
     /// The not operator.
     Not,
+    /// The neg operator.
+    Neg,
+    /// The inc operator.
+    Inc,
+    /// The dec operator.
+    Dec,
     /// The bit not operator.
     BitNot,
 }

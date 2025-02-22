@@ -48,22 +48,6 @@ impl Ast {
         &self.exprs[expr.0 as usize]
     }
 
-    pub fn get_item_mut(&mut self, item: ItemRef) -> &mut Item {
-        &mut self.items[item.0 as usize]
-    }
-
-    pub fn get_decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
-        &mut self.decls[decl.0 as usize]
-    }
-
-    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
-        &mut self.stmts[stmt.0 as usize]
-    }
-
-    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
-        &mut self.exprs[expr.0 as usize]
-    }
-
     pub fn get_item_span(&self, item: ItemRef) -> &SourceSpan {
         &self.items_span[item.0 as usize]
     }
@@ -80,15 +64,20 @@ impl Ast {
         &self.exprs_span[expr.0 as usize]
     }
 
-    pub fn items_iter_refs(&self) -> impl Iterator<Item = ItemRef> {
-        (0..self.items.len() as u32).map(ItemRef)
+    pub fn get_item_mut(&mut self, item: ItemRef) -> &mut Item {
+        &mut self.items[item.0 as usize]
     }
 
-    pub fn items_iter_both(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
-        self.items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| (ItemRef(i as u32), item))
+    pub fn get_decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
+        &mut self.decls[decl.0 as usize]
+    }
+
+    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
+        &mut self.stmts[stmt.0 as usize]
+    }
+
+    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
+        &mut self.exprs[expr.0 as usize]
     }
 
     pub fn push_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
@@ -117,6 +106,17 @@ impl Ast {
         self.exprs.push(expr);
         self.exprs_span.push(span);
         r
+    }
+
+    pub fn items_iter_refs(&self) -> impl Iterator<Item = ItemRef> {
+        (0..self.items.len() as u32).map(ItemRef)
+    }
+
+    pub fn items_iter_both(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
+        self.items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (ItemRef(i as u32), item))
     }
 }
 

@@ -90,18 +90,13 @@ impl Analyzer {
             }
             return;
         }
-        match ast.get_expr_mut(expr).clone() {
+        match ast.get_expr(expr).clone() {
             Expr::Constant(_) => {}
             Expr::Var { .. } => unreachable!(),
             Expr::Grouped(expr) => self.analyze_expr(ast, expr),
             Expr::Unary { op, expr } => match op {
                 UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    if !is_lvalue(ast, expr) {
-                        self.result.diagnostics.push(AnalyzerDiagnostic {
-                            span: *ast.get_expr_span(expr),
-                            kind: AnalyzerDiagnosticKind::InvalidLValue,
-                        });
-                    }
+                    self.must_be_lvalue(ast, expr);
                     self.analyze_expr(ast, expr);
                 }
                 _ => self.analyze_expr(ast, expr),
@@ -118,12 +113,7 @@ impl Analyzer {
                 | BinaryOp::BitXorAssign
                 | BinaryOp::BitLshAssign
                 | BinaryOp::BitRshAssign => {
-                    if !is_lvalue(ast, lhs) {
-                        self.result.diagnostics.push(AnalyzerDiagnostic {
-                            span: *ast.get_expr_span(lhs),
-                            kind: AnalyzerDiagnosticKind::InvalidLValue,
-                        });
-                    }
+                    self.must_be_lvalue(ast, lhs);
                     self.analyze_expr(ast, lhs);
                     self.analyze_expr(ast, rhs);
                 }
@@ -132,6 +122,15 @@ impl Analyzer {
                     self.analyze_expr(ast, rhs);
                 }
             },
+        }
+    }
+
+    fn must_be_lvalue(&mut self, ast: &Ast, expr: ExprRef) {
+        if !is_lvalue(ast, expr) {
+            self.result.diagnostics.push(AnalyzerDiagnostic {
+                span: *ast.get_expr_span(expr),
+                kind: AnalyzerDiagnosticKind::InvalidLValue,
+            });
         }
     }
 }
@@ -248,7 +247,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Support functions
 // ---------------------------------------------------------------------------
 
 fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {

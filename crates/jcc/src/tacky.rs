@@ -66,11 +66,10 @@ impl<'a> TackyFnDefBuilder<'a> {
             parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
         });
         match item.body.last() {
-            Some(parse::BlockItem::Stmt(stmt)) => {
-                if !matches!(self.ast.get_stmt(*stmt), parse::Stmt::Return(_)) {
-                    self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span);
-                }
-            }
+            Some(parse::BlockItem::Stmt(stmt)) => match self.ast.get_stmt(*stmt) {
+                parse::Stmt::Return(_) => {}
+                _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
+            },
             _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
         }
         self.fn_def

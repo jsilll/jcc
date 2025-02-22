@@ -104,28 +104,20 @@ impl<'a> Lexer<'a> {
                     ('=', TokenKind::PipeEq),
                     TokenKind::Pipe,
                 ),
-                '<' => match self.chars.peek() {
-                    Some((_, '<')) => {
-                        self.chars.next();
-                        self.lex_char_double(begin, '=', TokenKind::LtLtEq, TokenKind::LtLt)
-                    }
-                    Some((_, '=')) => {
-                        self.chars.next();
-                        self.lex_char(begin, TokenKind::LtEq)
-                    }
-                    _ => self.lex_char(begin, TokenKind::Lt),
-                },
-                '>' => match self.chars.peek() {
-                    Some((_, '>')) => {
-                        self.chars.next();
-                        self.lex_char_double(begin, '=', TokenKind::GtGtEq, TokenKind::GtGt)
-                    }
-                    Some((_, '=')) => {
-                        self.chars.next();
-                        self.lex_char(begin, TokenKind::GtEq)
-                    }
-                    _ => self.lex_char(begin, TokenKind::Gt),
-                },
+                '<' => self.lex_char_triple(
+                    begin,
+                    ('=', TokenKind::LtEq),
+                    ('<', TokenKind::LtLt),
+                    ('=', TokenKind::LtLtEq),
+                    TokenKind::Lt,
+                ),
+                '>' => self.lex_char_triple(
+                    begin,
+                    ('=', TokenKind::GtEq),
+                    ('>', TokenKind::GtGt),
+                    ('=', TokenKind::GtGtEq),
+                    TokenKind::Gt,
+                ),
                 _ => self.result.diagnostics.push(LexerDiagnostic {
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
                     span: self.file.span(begin..begin + 1).unwrap_or_default(),
@@ -185,6 +177,27 @@ impl<'a> Lexer<'a> {
             kind: token,
             span: self.file.span(begin..begin + len).unwrap_or_default(),
         });
+    }
+
+    fn lex_char_triple(
+        &mut self,
+        begin: u32,
+        kind1: (char, TokenKind),
+        kind2: (char, TokenKind),
+        kind3: (char, TokenKind),
+        fallback: TokenKind,
+    ) {
+        match self.chars.peek() {
+            Some((_, c)) if *c == kind1.0 => {
+                self.chars.next();
+                self.lex_char(begin, kind1.1)
+            }
+            Some((_, c)) if *c == kind2.0 => {
+                self.chars.next();
+                self.lex_char_double(begin, kind3.0, kind3.1, kind2.1)
+            }
+            _ => self.lex_char(begin, fallback),
+        }
     }
 
     fn lex_number(&mut self, begin: u32) {

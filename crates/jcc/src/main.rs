@@ -108,9 +108,10 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to no items found"));
     }
 
-    // Analyze the AST (TODO: merge with parser for implementing context-sensitive parsing)
-    let mut ast = parser_result.ast;
+    // Analyze the AST
+    // TODO: merge with parser for implementing context-sensitive parsing
     let analyzer = Analyzer::new();
+    let mut ast = parser_result.ast;
     let analyzer_result = analyzer.analyze(&mut ast);
     if !analyzer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(

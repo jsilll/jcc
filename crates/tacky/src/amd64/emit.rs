@@ -30,8 +30,8 @@ impl<'a> AMD64Emitter<'a> {
     }
 
     fn emit_fn_def(&mut self, fn_def: &FnDef) {
-        // TODO: use interner data for function names
-        // TODO: If in macOS, use .globl _name instead of .globl name
+        // TODO: Use interner data for function names
+        // If in macOS, use .globl _name instead of .globl name
         // All user-defined labels are prefixed with `_` on macOS
         let name = "main";
         self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
@@ -42,7 +42,7 @@ impl<'a> AMD64Emitter<'a> {
         });
         fn_def.blocks.iter().enumerate().for_each(|(idx, block)| {
             if let Some(label) = block.label {
-                // NOTE: The local label prefix on Linux is `.L` and on macOS is `L`
+                // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
                 let label = self.interner.resolve(label).expect("invalid label");
                 self.writeln(&format!(".L{label}{idx}:"));
             }
@@ -118,6 +118,8 @@ impl<'a> AMD64Emitter<'a> {
                 match op {
                     UnaryOp::Not => self.writeln(&format!("notl {src}")),
                     UnaryOp::Neg => self.writeln(&format!("negl {src}")),
+                    UnaryOp::Inc => self.writeln(&format!("incl {src}")),
+                    UnaryOp::Dec => self.writeln(&format!("decl {src}")),
                 };
             }
             Instr::Binary { op, src, dst } => {
@@ -130,7 +132,7 @@ impl<'a> AMD64Emitter<'a> {
                     BinaryOp::Or => self.writeln(&format!("orl {src}, {dst}")),
                     BinaryOp::And => self.writeln(&format!("andl {src}, {dst}")),
                     BinaryOp::Xor => self.writeln(&format!("xorl {src}, {dst}")),
-                    // NOTE: Since we assume all values are `int`, we use arithmetic shift
+                    // WARN: Since we assume all values are `int`, we use arithmetic shift
                     BinaryOp::Shl => self.writeln(&format!("sall {src}, {dst}")),
                     BinaryOp::Shr => self.writeln(&format!("sarl {src}, {dst}")),
                 };

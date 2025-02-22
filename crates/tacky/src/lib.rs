@@ -41,8 +41,11 @@ impl FnDef {
         BlockRef((self.blocks.len() - 1) as u32)
     }
 
-    pub fn blocks_iter(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
-        self.blocks.iter().enumerate().map(|(idx, block)| (BlockRef(idx as u32), block))
+    pub fn blocks_iter_both(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
+        self.blocks
+            .iter()
+            .enumerate()
+            .map(|(idx, block)| (BlockRef(idx as u32), block))
     }
 }
 
@@ -78,7 +81,7 @@ impl Block {
         self
     }
 
-    pub fn instrs_iter(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
+    pub fn instrs_iter_both(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
         self.instrs.iter().zip(self.spans.iter())
     }
 }
@@ -125,16 +128,32 @@ pub enum Value {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
-    /// The neg operator.
-    Neg,
     /// The not operator.
     Not,
+    /// The neg operator.
+    Neg,
+    /// The inc operator.
+    Inc,
+    /// The dec operator.
+    Dec,
     /// The bit not operator.
     BitNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
+    /// The equal operator.
+    Equal,
+    /// The not equal operator.
+    NotEqual,
+    /// The less than operator.
+    LessThan,
+    /// The less than or equal operator.
+    LessEqual,
+    /// The greater than operator.
+    GreaterThan,
+    /// The greater than or equal operator.
+    GreaterEqual,
     /// The add operator.
     Add,
     /// The sub operator.
@@ -155,16 +174,4 @@ pub enum BinaryOp {
     BitShl,
     /// The bit shift right operator.
     BitShr,
-    /// The equal operator.
-    Equal,
-    /// The not equal operator.
-    NotEqual,
-    /// The less than operator.
-    LessThan,
-    /// The less than or equal operator.
-    LessEqual,
-    /// The greater than operator.
-    GreaterThan,
-    /// The greater than or equal operator.
-    GreaterEqual,
 }

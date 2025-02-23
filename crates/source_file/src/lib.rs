@@ -31,7 +31,7 @@ impl<'a> Default for SourceLocation<'a> {
 // SourceSpan
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SourceSpan {
     start: u32,
     end: u32,

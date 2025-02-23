@@ -5,7 +5,7 @@ use tacky::{
     string_interner::{DefaultSymbol, Symbol},
 };
 
-use std::{iter::Peekable, slice::Iter};
+use std::{collections::HashMap, iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Ast
@@ -21,6 +21,7 @@ pub struct Ast {
     decls_span: Vec<SourceSpan>,
     stmts_span: Vec<SourceSpan>,
     exprs_span: Vec<SourceSpan>,
+    stmts_labels: HashMap<StmtRef, Label>,
 }
 
 impl Ast {
@@ -165,6 +166,12 @@ pub enum Decl {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct Label {
+    pub span: SourceSpan,
+    pub name: DefaultSymbol,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StmtRef(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,6 +182,8 @@ pub enum Stmt {
     Expr(ExprRef),
     /// A return statement.
     Return(ExprRef),
+    /// A goto statement.
+    Goto(DefaultSymbol),
     /// An if statement.
     If {
         cond: ExprRef,
@@ -401,6 +410,12 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.push_stmt(Stmt::Return(expr), *span))
             }
+            TokenKind::KwGoto => {
+                self.iter.next();
+                let (_, name) = self.eat_identifier()?;
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.push_stmt(Stmt::Goto(name), *span))
+            }
             TokenKind::KwIf => {
                 self.iter.next();
                 self.eat(TokenKind::LParen)?;
@@ -426,6 +441,29 @@ impl<'a> Parser<'a> {
                     *span,
                 ))
             }
+            TokenKind::Identifier(name) => match self.iter.clone().skip(1).next() {
+                Some(Token {
+                    kind: TokenKind::Colon,
+                    ..
+                }) => {
+                    self.iter.next();
+                    self.iter.next();
+                    let stmt = self.parse_stmt()?;
+                    self.result.ast.stmts_labels.insert(
+                        stmt,
+                        Label {
+                            span: *span,
+                            name: *name,
+                        },
+                    );
+                    Some(stmt)
+                }
+                _ => {
+                    let expr = self.parse_expr(0)?;
+                    self.eat(TokenKind::Semi)?;
+                    Some(self.result.ast.push_stmt(Stmt::Expr(expr), *span))
+                }
+            },
             _ => {
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
@@ -525,8 +563,12 @@ impl<'a> Parser<'a> {
     fn parse_expr_postfix(&mut self, mut expr: ExprRef) -> ExprRef {
         while let Some(Token { kind, span }) = self.iter.peek() {
             match kind {
-                TokenKind::PlusPlus => self.parse_postfix_operator(&mut expr, UnaryOp::PostInc, span),
-                TokenKind::MinusMinus => self.parse_postfix_operator(&mut expr, UnaryOp::PostDec, span),
+                TokenKind::PlusPlus => {
+                    self.parse_postfix_operator(&mut expr, UnaryOp::PostInc, span)
+                }
+                TokenKind::MinusMinus => {
+                    self.parse_postfix_operator(&mut expr, UnaryOp::PostDec, span)
+                }
                 _ => break,
             }
         }

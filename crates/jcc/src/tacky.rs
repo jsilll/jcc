@@ -132,6 +132,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                 let value = self.build_from_expr(*inner);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
             }
+            parse::Stmt::Goto(_) => todo!("handle goto statements"),
             parse::Stmt::If { cond, then, otherwise: None } => {
                 let cont_block = self.fn_def.push_block(Block::with_label(
                     self.interner.get_or_intern_static("cont"),

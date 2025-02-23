@@ -77,6 +77,7 @@ impl Analyzer {
             Stmt::Empty => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
+            Stmt::Goto(_) => todo!("handle goto statements"),
             Stmt::If { cond, then, otherwise } => {
                 self.analyze_expr(ast, cond);
                 self.analyze_stmt(ast, then);

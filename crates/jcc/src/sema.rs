@@ -53,6 +53,7 @@ impl Analyzer {
                     Stmt::Empty => {}
                     Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
                     Stmt::Return(expr) => self.analyze_expr(ast, *expr),
+                    Stmt::If { .. } => todo!("handle if statements"),
                 },
             });
             self.symbols.pop_scope();
@@ -122,6 +123,7 @@ impl Analyzer {
                     self.analyze_expr(ast, rhs);
                 }
             },
+            Expr::Ternary { .. } => todo!("handle ternary expressions"),
         }
     }
 
@@ -255,5 +257,6 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
         Expr::Var { .. } => true,
         Expr::Grouped(expr) => is_lvalue(ast, *expr),
         Expr::Constant(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
+        Expr::Ternary { .. } => todo!("handle ternary expressions"),
     }
 }

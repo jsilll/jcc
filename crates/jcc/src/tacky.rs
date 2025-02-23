@@ -132,6 +132,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                 let value = self.build_from_expr(*inner);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
             }
+            parse::Stmt::If { .. } => todo!("hadle if statements"),
         }
     }
 
@@ -221,6 +222,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                     self.build_binary_assign_op(BinaryOp::BitShr, *lhs, *rhs, span)
                 }
             },
+            parse::Expr::Ternary { .. } => todo!("handle ternary expressions"),
         }
     }
 

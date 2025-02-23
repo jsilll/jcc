@@ -290,6 +290,7 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "int" => TokenKind::KwInt,
     "else" => TokenKind::KwElse,
     "void" => TokenKind::KwVoid,
+    "goto" => TokenKind::KwGoto,
     "return" => TokenKind::KwReturn,
 };
 
@@ -392,6 +393,8 @@ pub enum TokenKind {
     KwElse,
     /// The `void` keyword.
     KwVoid,
+    /// The `goto` keyword.
+    KwGoto,
     /// The `return` keyword.
     KwReturn,
 
@@ -451,6 +454,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::KwInt => write!(f, "'int'"),
             TokenKind::KwElse => write!(f, "'else'"),
             TokenKind::KwVoid => write!(f, "'void'"),
+            TokenKind::KwGoto => write!(f, "'goto'"),
             TokenKind::KwReturn => write!(f, "'return'"),
 
             TokenKind::Number(_) => write!(f, "a number"),

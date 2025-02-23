@@ -1,4 +1,4 @@
-use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, UnaryOp};
+use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef, UnaryOp};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
@@ -49,12 +49,7 @@ impl Analyzer {
             let body = ast.get_item(item).body.clone();
             body.iter().for_each(|block_item| match block_item {
                 BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
-                BlockItem::Stmt(stmt) => match ast.get_stmt(*stmt) {
-                    Stmt::Empty => {}
-                    Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
-                    Stmt::Return(expr) => self.analyze_expr(ast, *expr),
-                    Stmt::If { .. } => todo!("handle if statements"),
-                },
+                BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
             });
             self.symbols.pop_scope();
         });
@@ -62,16 +57,31 @@ impl Analyzer {
     }
 
     fn analyze_decl(&mut self, ast: &mut Ast, decl: DeclRef) {
-        match ast.get_decl(decl).clone() {
+        match ast.get_decl(decl) {
             Decl::Var { name, init: value } => {
-                if let Some(_) = self.symbols.insert(name, decl) {
+                if let Some(_) = self.symbols.insert(*name, decl) {
                     self.result.diagnostics.push(AnalyzerDiagnostic {
                         span: *ast.get_decl_span(decl),
                         kind: AnalyzerDiagnosticKind::RedeclaredVariable,
                     });
                 }
                 if let Some(expr) = value {
-                    self.analyze_expr(ast, expr);
+                    self.analyze_expr(ast, *expr);
+                }
+            }
+        }
+    }
+    
+    fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
+        match ast.get_stmt(stmt).clone() {
+            Stmt::Empty => {}
+            Stmt::Expr(expr) => self.analyze_expr(ast, expr),
+            Stmt::Return(expr) => self.analyze_expr(ast, expr),
+            Stmt::If { cond, then, otherwise } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_stmt(ast, then);
+                if let Some(otherwise) = otherwise {
+                    self.analyze_stmt(ast, otherwise);
                 }
             }
         }
@@ -123,7 +133,11 @@ impl Analyzer {
                     self.analyze_expr(ast, rhs);
                 }
             },
-            Expr::Ternary { .. } => todo!("handle ternary expressions"),
+            Expr::Ternary { cond, then, otherwise } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_expr(ast, then);
+                self.analyze_expr(ast, otherwise);
+            }
         }
     }
 

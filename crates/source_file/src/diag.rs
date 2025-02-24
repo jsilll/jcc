@@ -1,9 +1,6 @@
 use crate::{SourceFile, SourceLocation, SourceSpan};
 
-use std::{
-    fmt::Display,
-    io::{Result, Write},
-};
+use std::{fmt::Display, io::Write};
 
 // ---------------------------------------------------------------------------
 // Support Functions
@@ -17,7 +14,7 @@ pub fn report_batch(
     file: &SourceFile,
     buffer: &mut impl Write,
     diagnostics: &[impl Into<Diagnostic> + Clone],
-) -> Result<()> {
+) -> std::io::Result<()> {
     let mut hint = 0;
     diagnostics
         .iter()
@@ -64,7 +61,7 @@ impl Diagnostic {
         Diagnostic::new(span, title, message, DiagnosticLevel::Warning)
     }
 
-    pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> Result<()> {
+    pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> std::io::Result<()> {
         let location = file.locate(self.span).unwrap_or_default();
         self.report_internal(file, location, buffer)
     }
@@ -74,7 +71,7 @@ impl Diagnostic {
         file: &SourceFile,
         hint: &mut usize,
         buffer: &mut impl Write,
-    ) -> Result<()> {
+    ) -> std::io::Result<()> {
         let location = file.locate_hint(self.span, *hint).unwrap_or_default();
         *hint = location.line as usize - 1;
         self.report_internal(file, location, buffer)
@@ -85,7 +82,7 @@ impl Diagnostic {
         file: &SourceFile,
         location: SourceLocation,
         buffer: &mut impl Write,
-    ) -> Result<()> {
+    ) -> std::io::Result<()> {
         fn count_digits(n: u32) -> u32 {
             n.checked_ilog10().unwrap_or(0) + 1
         }

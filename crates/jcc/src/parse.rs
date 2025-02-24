@@ -5,7 +5,7 @@ use tacky::{
     string_interner::{DefaultSymbol, Symbol},
 };
 
-use std::{collections::HashMap, iter::Peekable, slice::Iter};
+use std::{iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Ast
@@ -21,7 +21,6 @@ pub struct Ast {
     decls_span: Vec<SourceSpan>,
     stmts_span: Vec<SourceSpan>,
     exprs_span: Vec<SourceSpan>,
-    stmts_labels: HashMap<StmtRef, Label>,
 }
 
 impl Ast {
@@ -166,12 +165,6 @@ pub enum Decl {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Label {
-    pub span: SourceSpan,
-    pub name: DefaultSymbol,
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StmtRef(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +177,8 @@ pub enum Stmt {
     Return(ExprRef),
     /// A goto statement.
     Goto(DefaultSymbol),
+    /// A label statement.
+    Label { label: DefaultSymbol, stmt: StmtRef },
     /// An if statement.
     If {
         cond: ExprRef,
@@ -343,11 +338,11 @@ impl<'a> Parser<'a> {
 
     pub fn parse(mut self) -> ParserResult {
         self.parse_item();
-        if let Some(Token { span, .. }) = self.iter.next().cloned() {
+        if let Some(Token { span, .. }) = self.iter.next() {
             if self.result.diagnostics.is_empty() {
                 self.result.diagnostics.push(ParserDiagnostic {
+                    span: *span,
                     kind: ParserDiagnosticKind::UnexpectedToken,
-                    span,
                 })
             }
         }
@@ -449,14 +444,11 @@ impl<'a> Parser<'a> {
                     self.iter.next();
                     self.iter.next();
                     let stmt = self.parse_stmt()?;
-                    self.result.ast.stmts_labels.insert(
-                        stmt,
-                        Label {
-                            span: *span,
-                            name: *name,
-                        },
-                    );
-                    Some(stmt)
+                    Some(
+                        self.result
+                            .ast
+                            .push_stmt(Stmt::Label { label: *name, stmt }, *span),
+                    )
                 }
                 _ => {
                     let expr = self.parse_expr(0)?;

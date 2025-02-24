@@ -21,7 +21,7 @@ pub struct Ast {
     decls_span: Vec<SourceSpan>,
     stmts_span: Vec<SourceSpan>,
     exprs_span: Vec<SourceSpan>,
-    stmts_labels: HashMap<StmtRef, Label>,
+    pub stmts_labels: HashMap<StmtRef, Label>,
 }
 
 impl Ast {

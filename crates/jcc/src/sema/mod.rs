@@ -1,11 +1,15 @@
-use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef, UnaryOp};
+mod symtab;
+
+use symtab::SymbolTable;
+
+use crate::parse::{
+    Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef, UnaryOp,
+};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
     string_interner::DefaultSymbol,
 };
-
-use std::{collections::HashMap, hash::Hash};
 
 // ---------------------------------------------------------------------------
 // AnalyzerError
@@ -25,6 +29,16 @@ pub struct AnalyzerDiagnostic {
 pub struct AnalyzerResult {
     pub diagnostics: Vec<AnalyzerDiagnostic>,
 }
+
+// let mut labels = HashSet::new();
+// ast.stmts_labels.iter().for_each(|(_, label)| {
+//     if !labels.insert(label.name) {
+//         self.result.diagnostics.push(AnalyzerDiagnostic {
+//             span: label.span,
+//             kind: AnalyzerDiagnosticKind::RedeclaredLabel,
+//         });
+//     }
+// });
 
 // ---------------------------------------------------------------------------
 // Analyzer
@@ -71,14 +85,18 @@ impl Analyzer {
             }
         }
     }
-    
+
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt).clone() {
             Stmt::Empty => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
             Stmt::Goto(_) => todo!("handle goto statements"),
-            Stmt::If { cond, then, otherwise } => {
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+            } => {
                 self.analyze_expr(ast, cond);
                 self.analyze_stmt(ast, then);
                 if let Some(otherwise) = otherwise {
@@ -134,7 +152,11 @@ impl Analyzer {
                     self.analyze_expr(ast, rhs);
                 }
             },
-            Expr::Ternary { cond, then, otherwise } => {
+            Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+            } => {
                 self.analyze_expr(ast, cond);
                 self.analyze_expr(ast, then);
                 self.analyze_expr(ast, otherwise);
@@ -161,6 +183,7 @@ pub enum AnalyzerDiagnosticKind {
     InvalidLValue,
     UndefinedVariable,
     RedeclaredVariable,
+    RedeclaredLabel,
 }
 
 impl From<AnalyzerDiagnostic> for Diagnostic {
@@ -181,84 +204,11 @@ impl From<AnalyzerDiagnostic> for Diagnostic {
                 "redeclared variable",
                 "this variable is already declared",
             ),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Symbol Table
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub struct SymbolTable<S, V> {
-    global: HashMap<S, V>,
-    scopes: Vec<HashMap<S, V>>,
-}
-
-impl<S, V> SymbolTable<S, V> {
-    pub fn new() -> SymbolTable<S, V> {
-        SymbolTable {
-            scopes: Vec::new(),
-            global: HashMap::new(),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.scopes.clear();
-        self.global.clear();
-    }
-
-    pub fn clear_scope(&mut self) {
-        match self.scopes.last_mut() {
-            None => self.global.clear(),
-            Some(scope) => scope.clear(),
-        }
-    }
-
-    pub fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    pub fn pop_scope(&mut self) -> Option<HashMap<S, V>> {
-        self.scopes.pop()
-    }
-}
-
-impl<S, V> SymbolTable<S, V>
-where
-    S: Eq + Hash,
-{
-    pub fn get(&self, key: &S) -> Option<&V> {
-        for scope in self.scopes.iter().rev() {
-            match scope.get(key) {
-                None => continue,
-                Some(value) => return Some(value),
-            }
-        }
-        self.global.get(key)
-    }
-
-    pub fn get_mut(&mut self, key: &S) -> Option<&mut V> {
-        for scope in self.scopes.iter_mut().rev() {
-            match scope.get_mut(key) {
-                None => continue,
-                Some(value) => return Some(value),
-            }
-        }
-        self.global.get_mut(key)
-    }
-
-    pub fn insert(&mut self, key: S, value: V) -> Option<V> {
-        match self.scopes.last_mut() {
-            None => self.global.insert(key, value),
-            Some(scope) => scope.insert(key, value),
-        }
-    }
-
-    pub fn remove(&mut self, key: &S) -> Option<V> {
-        match self.scopes.last_mut() {
-            None => self.global.remove(key),
-            Some(scope) => scope.remove(key),
+            AnalyzerDiagnosticKind::RedeclaredLabel => Diagnostic::error(
+                diagnostic.span,
+                "redeclared label",
+                "this label is already declared",
+            ),
         }
     }
 }

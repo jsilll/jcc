@@ -1,4 +1,6 @@
-use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef, UnaryOp};
+use crate::parse::{
+    Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef, UnaryOp,
+};
 
 use tacky::source_file::{diag::Diagnostic, SourceSpan};
 
@@ -61,6 +63,12 @@ impl TyperPass {
             Stmt::Empty | Stmt::Goto(_) | Stmt::Label { .. } => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
+            Stmt::Compound(items) => {
+                items.iter().for_each(|block_item| match block_item {
+                    BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                });
+            }
             Stmt::If {
                 cond,
                 then,

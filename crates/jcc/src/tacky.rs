@@ -152,6 +152,12 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.block = block;
                 self.build_from_stmt(*inner);
             }
+            parse::Stmt::Compound(items) => {
+                items.iter().for_each(|item| match item {
+                    parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
+                    parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+                });
+            }
             parse::Stmt::If {
                 cond,
                 then,

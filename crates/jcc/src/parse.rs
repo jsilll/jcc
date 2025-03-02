@@ -177,6 +177,8 @@ pub enum Stmt {
     Return(ExprRef),
     /// A goto statement.
     Goto(DefaultSymbol),
+    /// A compound statement.
+    Compound(Vec<BlockItem>),
     /// A label statement.
     Label { label: DefaultSymbol, stmt: StmtRef },
     /// An if statement.
@@ -410,6 +412,12 @@ impl<'a> Parser<'a> {
                 let (_, name) = self.eat_identifier()?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.push_stmt(Stmt::Goto(name), *span))
+            }
+            TokenKind::LBrace => {
+                self.iter.next();
+                let body = self.parse_body()?;
+                self.eat(TokenKind::RBrace)?;
+                Some(self.result.ast.push_stmt(Stmt::Compound(body), *span))
             }
             TokenKind::KwIf => {
                 self.iter.next();

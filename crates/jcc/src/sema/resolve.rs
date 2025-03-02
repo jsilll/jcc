@@ -78,6 +78,14 @@ impl ResolverPass {
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
+            Stmt::Compound(items) => {
+                self.symbols.push_scope();
+                items.iter().for_each(|block_item| match block_item {
+                    BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                });
+                self.symbols.pop_scope();
+            }
             Stmt::If {
                 cond,
                 then,

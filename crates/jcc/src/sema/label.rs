@@ -80,6 +80,12 @@ impl LabelerPass {
                 }
                 self.analyze_stmt(ast, *inner);
             }
+            Stmt::Compound(items) => {
+                items.iter().for_each(|item| match item {
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                    _ => {}
+                });
+            }
             Stmt::If {
                 then, otherwise, ..
             } => {

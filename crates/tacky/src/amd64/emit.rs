@@ -79,7 +79,9 @@ impl<'a> AMD64Emitter<'a> {
                         let label = self.interner.resolve(label).expect("invalid label");
                         self.writeln(&format!("jmp .L{label}{target}"));
                     }
-                    None => todo!("cannot emit jmp to block without label"),
+                    None => {
+                        self.writeln(&format!("jmp .L{target}"));
+                    }
                 }
             }
             Instr::Mov { src, dst } => {
@@ -110,7 +112,10 @@ impl<'a> AMD64Emitter<'a> {
                         let cond_code = self.emit_cond_code(*cond_code);
                         self.writeln(&format!("j{cond_code} .L{label}{target}"));
                     }
-                    None => todo!("emit jmpcc to block without label"),
+                    None => {
+                        let cond_code = self.emit_cond_code(*cond_code);
+                        self.writeln(&format!("j{cond_code} .L{target}"));
+                    }
                 }
             }
             Instr::Unary { op, src } => {

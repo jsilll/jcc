@@ -1,8 +1,9 @@
 use crate::parse;
 
 use tacky::{
-    source_file::SourceSpan, string_interner::DefaultStringInterner, BinaryOp, Block, BlockRef,
-    FnDef, Instr, Program, UnaryOp, Value,
+    source_file::SourceSpan,
+    string_interner::{DefaultStringInterner, DefaultSymbol},
+    BinaryOp, Block, BlockRef, FnDef, Instr, Program, UnaryOp, Value,
 };
 
 use std::collections::HashMap;
@@ -43,6 +44,7 @@ struct TackyFnDefBuilder<'a> {
     ast: &'a parse::Ast,
     interner: &'a mut DefaultStringInterner,
     variables: HashMap<parse::DeclRef, Value>,
+    labeled_blocks: HashMap<DefaultSymbol, BlockRef>,
 }
 
 impl<'a> TackyFnDefBuilder<'a> {
@@ -56,6 +58,7 @@ impl<'a> TackyFnDefBuilder<'a> {
             interner,
             tmp_count: 0,
             variables: HashMap::new(),
+            labeled_blocks: HashMap::new(),
         }
     }
 
@@ -109,6 +112,13 @@ impl<'a> TackyFnDefBuilder<'a> {
             .clone()
     }
 
+    fn get_or_make_block(&mut self, label: DefaultSymbol) -> BlockRef {
+        self.labeled_blocks
+            .entry(label)
+            .or_insert_with(|| self.fn_def.push_block(Block::with_label(label)))
+            .clone()
+    }
+
     fn build_from_decl(&mut self, decl: parse::DeclRef) {
         let span = *self.ast.get_decl_span(decl);
         match self.ast.get_decl(decl) {
@@ -131,6 +141,63 @@ impl<'a> TackyFnDefBuilder<'a> {
             parse::Stmt::Return(inner) => {
                 let value = self.build_from_expr(*inner);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
+            }
+            parse::Stmt::Goto(label) => {
+                let block = self.get_or_make_block(*label);
+                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+            }
+            parse::Stmt::Label { label, stmt: inner } => {
+                let block = self.get_or_make_block(*label);
+                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.block = block;
+                self.build_from_stmt(*inner);
+            }
+            parse::Stmt::If {
+                cond,
+                then,
+                otherwise: None,
+            } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfZero {
+                        cond,
+                        target: cont_block,
+                    },
+                    *self.ast.get_stmt_span(stmt),
+                );
+                self.build_from_stmt(*then);
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.block = cont_block;
+            }
+            parse::Stmt::If {
+                cond,
+                then,
+                otherwise: Some(otherwise),
+            } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let else_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("else"),
+                ));
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfZero {
+                        cond,
+                        target: else_block,
+                    },
+                    *self.ast.get_stmt_span(stmt),
+                );
+                self.build_from_stmt(*then);
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.block = else_block;
+                self.build_from_stmt(*otherwise);
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.block = cont_block;
             }
         }
     }
@@ -221,6 +288,45 @@ impl<'a> TackyFnDefBuilder<'a> {
                     self.build_binary_assign_op(BinaryOp::BitShr, *lhs, *rhs, span)
                 }
             },
+            parse::Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+            } => {
+                let dst = self.make_tmp();
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let otherwise_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("otherwise"),
+                ));
+
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfZero {
+                        cond,
+                        target: otherwise_block,
+                    },
+                    span,
+                );
+                let then = self.build_from_expr(*then);
+                self.append_to_block(Instr::Copy { src: then, dst }, span);
+                self.append_to_block(Instr::Jump(cont_block), span);
+
+                self.block = otherwise_block;
+                let otherwise = self.build_from_expr(*otherwise);
+                self.append_to_block(
+                    Instr::Copy {
+                        src: otherwise,
+                        dst,
+                    },
+                    span,
+                );
+                self.append_to_block(Instr::Jump(cont_block), span);
+
+                self.block = cont_block;
+                dst
+            }
         }
     }
 
@@ -300,21 +406,12 @@ impl<'a> TackyFnDefBuilder<'a> {
         let dst = self.make_tmp();
         let (skip_value, other_value) = if skips_on { (1, 0) } else { (0, 1) };
 
+        let skip_block = self.fn_def.push_block(Block::with_label(
+            self.interner.get_or_intern_static("skip"),
+        ));
         let cont_block = self.fn_def.push_block(Block::with_label(
             self.interner.get_or_intern_static("cont"),
         ));
-        let skip_block = self.fn_def.push_block(
-            Block::with_label(self.interner.get_or_intern_static("skip")).with_instrs(
-                &[
-                    Instr::Copy {
-                        src: Value::Constant(skip_value),
-                        dst,
-                    },
-                    Instr::Jump(cont_block),
-                ],
-                span,
-            ),
-        );
 
         let lhs = self.build_from_expr(lhs);
         self.append_to_block(
@@ -351,6 +448,16 @@ impl<'a> TackyFnDefBuilder<'a> {
         self.append_to_block(
             Instr::Copy {
                 src: Value::Constant(other_value),
+                dst,
+            },
+            span,
+        );
+        self.append_to_block(Instr::Jump(cont_block), span);
+
+        self.block = skip_block;
+        self.append_to_block(
+            Instr::Copy {
+                src: Value::Constant(skip_value),
                 dst,
             },
             span,

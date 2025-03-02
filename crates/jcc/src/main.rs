@@ -1,7 +1,11 @@
 use jcc::{
     lex::{Lexer, LexerDiagnosticKind},
     parse::Parser,
-    sema::Analyzer,
+    sema::{
+        label::LabelerPass,
+        resolve::ResolverPass,
+        ty::TyperPass,
+    },
     tacky::TackyBuilder,
 };
 
@@ -109,17 +113,21 @@ fn try_main() -> Result<()> {
     }
 
     // Analyze the AST
-    // TODO: merge with parser for implementing context-sensitive parsing
-    let analyzer = Analyzer::new();
     let mut ast = parser_result.ast;
-    let analyzer_result = analyzer.analyze(&mut ast);
-    if !analyzer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(
-            &file,
-            &mut std::io::stderr(),
-            &analyzer_result.diagnostics,
-        )?;
-        return Err(anyhow::anyhow!("\nexiting due to semantic analysis errors"));
+    let labeler_result = LabelerPass::new().analyze(&ast);
+    if !labeler_result.diagnostics.is_empty() {
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &labeler_result.diagnostics)?;
+        return Err(anyhow::anyhow!("\nexiting due to labeler errors"));
+    }
+    let resolver_result = ResolverPass::new().analyze(&mut ast);
+    if !resolver_result.diagnostics.is_empty() {
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
+        return Err(anyhow::anyhow!("\nexiting due to resolver errors"));
+    }
+    let typer_result = TyperPass::new().analyze(&ast);
+    if !typer_result.diagnostics.is_empty() {
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
+        return Err(anyhow::anyhow!("\nexiting due to typer errors"));
     }
     if args.verbose {
         println!("{:#?}", ast);

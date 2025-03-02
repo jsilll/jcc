@@ -1,4 +1,4 @@
-use crate::parse::{Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, UnaryOp};
+use crate::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
@@ -8,52 +8,48 @@ use tacky::{
 use std::{collections::HashMap, hash::Hash};
 
 // ---------------------------------------------------------------------------
-// AnalyzerError
+// ResolverDiagnostic
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct AnalyzerDiagnostic {
+pub struct ResolverDiagnostic {
     pub span: SourceSpan,
-    pub kind: AnalyzerDiagnosticKind,
+    pub kind: ResolverDiagnosticKind,
 }
 
 // ---------------------------------------------------------------------------
-// AnalyzerResult
+// ResolverResult
 // ---------------------------------------------------------------------------
 
 #[derive(Default, Clone, PartialEq, Eq)]
-pub struct AnalyzerResult {
-    pub diagnostics: Vec<AnalyzerDiagnostic>,
+pub struct ResolverResult {
+    pub diagnostics: Vec<ResolverDiagnostic>,
 }
 
 // ---------------------------------------------------------------------------
-// Analyzer
+// ResolverPass
 // ---------------------------------------------------------------------------
 
-pub struct Analyzer {
-    result: AnalyzerResult,
+pub struct ResolverPass {
+    result: ResolverResult,
     symbols: SymbolTable<DefaultSymbol, DeclRef>,
 }
 
-impl Analyzer {
+impl ResolverPass {
     pub fn new() -> Self {
         Self {
             symbols: SymbolTable::new(),
-            result: AnalyzerResult::default(),
+            result: ResolverResult::default(),
         }
     }
 
-    pub fn analyze(mut self, ast: &mut Ast) -> AnalyzerResult {
+    pub fn analyze(mut self, ast: &mut Ast) -> ResolverResult {
         ast.items_iter_refs().for_each(|item| {
             self.symbols.push_scope();
             let body = ast.get_item(item).body.clone();
             body.iter().for_each(|block_item| match block_item {
                 BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
-                BlockItem::Stmt(stmt) => match ast.get_stmt(*stmt) {
-                    Stmt::Empty => {}
-                    Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
-                    Stmt::Return(expr) => self.analyze_expr(ast, *expr),
-                },
+                BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
             });
             self.symbols.pop_scope();
         });
@@ -61,16 +57,36 @@ impl Analyzer {
     }
 
     fn analyze_decl(&mut self, ast: &mut Ast, decl: DeclRef) {
-        match ast.get_decl(decl).clone() {
-            Decl::Var { name, init: value } => {
-                if let Some(_) = self.symbols.insert(name, decl) {
-                    self.result.diagnostics.push(AnalyzerDiagnostic {
+        match ast.get_decl(decl) {
+            Decl::Var { name, init } => {
+                if let Some(_) = self.symbols.insert(*name, decl) {
+                    self.result.diagnostics.push(ResolverDiagnostic {
                         span: *ast.get_decl_span(decl),
-                        kind: AnalyzerDiagnosticKind::RedeclaredVariable,
+                        kind: ResolverDiagnosticKind::RedeclaredVariable,
                     });
                 }
-                if let Some(expr) = value {
-                    self.analyze_expr(ast, expr);
+                if let Some(expr) = init {
+                    self.analyze_expr(ast, *expr);
+                }
+            }
+        }
+    }
+
+    fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
+        match ast.get_stmt(stmt).clone() {
+            Stmt::Empty | Stmt::Goto(_) => {}
+            Stmt::Expr(expr) => self.analyze_expr(ast, expr),
+            Stmt::Return(expr) => self.analyze_expr(ast, expr),
+            Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+            } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_stmt(ast, then);
+                if let Some(otherwise) = otherwise {
+                    self.analyze_stmt(ast, otherwise);
                 }
             }
         }
@@ -83,9 +99,9 @@ impl Analyzer {
                 Some(decl_ref) => {
                     *decl = Some(*decl_ref);
                 }
-                None => self.result.diagnostics.push(AnalyzerDiagnostic {
+                None => self.result.diagnostics.push(ResolverDiagnostic {
                     span,
-                    kind: AnalyzerDiagnosticKind::UndefinedVariable,
+                    kind: ResolverDiagnosticKind::UndefinedVariable,
                 }),
             }
             return;
@@ -94,72 +110,43 @@ impl Analyzer {
             Expr::Constant(_) => {}
             Expr::Var { .. } => unreachable!(),
             Expr::Grouped(expr) => self.analyze_expr(ast, expr),
-            Expr::Unary { op, expr } => match op {
-                UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    self.must_be_lvalue(ast, expr);
-                    self.analyze_expr(ast, expr);
-                }
-                _ => self.analyze_expr(ast, expr),
-            },
-            Expr::Binary { op, lhs, rhs } => match op {
-                BinaryOp::Assign
-                | BinaryOp::AddAssign
-                | BinaryOp::SubAssign
-                | BinaryOp::MulAssign
-                | BinaryOp::DivAssign
-                | BinaryOp::RemAssign
-                | BinaryOp::BitOrAssign
-                | BinaryOp::BitAndAssign
-                | BinaryOp::BitXorAssign
-                | BinaryOp::BitLshAssign
-                | BinaryOp::BitRshAssign => {
-                    self.must_be_lvalue(ast, lhs);
-                    self.analyze_expr(ast, lhs);
-                    self.analyze_expr(ast, rhs);
-                }
-                _ => {
-                    self.analyze_expr(ast, lhs);
-                    self.analyze_expr(ast, rhs);
-                }
-            },
-        }
-    }
-
-    fn must_be_lvalue(&mut self, ast: &Ast, expr: ExprRef) {
-        if !is_lvalue(ast, expr) {
-            self.result.diagnostics.push(AnalyzerDiagnostic {
-                span: *ast.get_expr_span(expr),
-                kind: AnalyzerDiagnosticKind::InvalidLValue,
-            });
+            Expr::Unary { expr, .. } => self.analyze_expr(ast, expr),
+            Expr::Binary { lhs, rhs, .. } => {
+                self.analyze_expr(ast, lhs);
+                self.analyze_expr(ast, rhs);
+            }
+            Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+            } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_expr(ast, then);
+                self.analyze_expr(ast, otherwise);
+            }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// AnalyzerDiagnosticKind
+// ResolverDiagnosticKind
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum AnalyzerDiagnosticKind {
-    InvalidLValue,
+pub enum ResolverDiagnosticKind {
     UndefinedVariable,
     RedeclaredVariable,
 }
 
-impl From<AnalyzerDiagnostic> for Diagnostic {
-    fn from(diagnostic: AnalyzerDiagnostic) -> Self {
+impl From<ResolverDiagnostic> for Diagnostic {
+    fn from(diagnostic: ResolverDiagnostic) -> Self {
         match diagnostic.kind {
-            AnalyzerDiagnosticKind::InvalidLValue => Diagnostic::error(
-                diagnostic.span,
-                "invalid lvalue",
-                "this expression is not a valid lvalue",
-            ),
-            AnalyzerDiagnosticKind::UndefinedVariable => Diagnostic::error(
+            ResolverDiagnosticKind::UndefinedVariable => Diagnostic::error(
                 diagnostic.span,
                 "undefined variable",
                 "this variable is not declared",
             ),
-            AnalyzerDiagnosticKind::RedeclaredVariable => Diagnostic::error(
+            ResolverDiagnosticKind::RedeclaredVariable => Diagnostic::error(
                 diagnostic.span,
                 "redeclared variable",
                 "this variable is already declared",
@@ -179,6 +166,7 @@ pub struct SymbolTable<S, V> {
 }
 
 impl<S, V> SymbolTable<S, V> {
+    #[allow(dead_code)]
     pub fn new() -> SymbolTable<S, V> {
         SymbolTable {
             scopes: Vec::new(),
@@ -186,11 +174,13 @@ impl<S, V> SymbolTable<S, V> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.scopes.clear();
         self.global.clear();
     }
 
+    #[allow(dead_code)]
     pub fn clear_scope(&mut self) {
         match self.scopes.last_mut() {
             None => self.global.clear(),
@@ -198,10 +188,12 @@ impl<S, V> SymbolTable<S, V> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
 
+    #[allow(dead_code)]
     pub fn pop_scope(&mut self) -> Option<HashMap<S, V>> {
         self.scopes.pop()
     }
@@ -211,6 +203,7 @@ impl<S, V> SymbolTable<S, V>
 where
     S: Eq + Hash,
 {
+    #[allow(dead_code)]
     pub fn get(&self, key: &S) -> Option<&V> {
         for scope in self.scopes.iter().rev() {
             match scope.get(key) {
@@ -221,6 +214,7 @@ where
         self.global.get(key)
     }
 
+    #[allow(dead_code)]
     pub fn get_mut(&mut self, key: &S) -> Option<&mut V> {
         for scope in self.scopes.iter_mut().rev() {
             match scope.get_mut(key) {
@@ -231,6 +225,7 @@ where
         self.global.get_mut(key)
     }
 
+    #[allow(dead_code)]
     pub fn insert(&mut self, key: S, value: V) -> Option<V> {
         match self.scopes.last_mut() {
             None => self.global.insert(key, value),
@@ -238,22 +233,11 @@ where
         }
     }
 
+    #[allow(dead_code)]
     pub fn remove(&mut self, key: &S) -> Option<V> {
         match self.scopes.last_mut() {
             None => self.global.remove(key),
             Some(scope) => scope.remove(key),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Support functions
-// ---------------------------------------------------------------------------
-
-fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.get_expr(expr) {
-        Expr::Var { .. } => true,
-        Expr::Grouped(expr) => is_lvalue(ast, *expr),
-        Expr::Constant(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
     }
 }

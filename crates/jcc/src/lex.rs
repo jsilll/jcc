@@ -67,7 +67,9 @@ impl<'a> Lexer<'a> {
                 c if c.is_digit(10) => self.lex_number(begin),
                 c if c.is_ascii_alphabetic() || c == '_' => self.lex_keyword_or_identifier(begin),
                 ';' => self.lex_char(begin, TokenKind::Semi),
+                ':' => self.lex_char(begin, TokenKind::Colon),
                 '~' => self.lex_char(begin, TokenKind::Tilde),
+                '?' => self.lex_char(begin, TokenKind::Question),
                 '=' => self.lex_char_double(begin, '=', TokenKind::EqEq, TokenKind::Eq),
                 '!' => self.lex_char_double(begin, '=', TokenKind::BangEq, TokenKind::Bang),
                 '*' => self.lex_char_double(begin, '=', TokenKind::StarEq, TokenKind::Star),
@@ -284,8 +286,11 @@ impl<'a> Lexer<'a> {
 // ---------------------------------------------------------------------------
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
+    "if" => TokenKind::KwIf,
     "int" => TokenKind::KwInt,
+    "else" => TokenKind::KwElse,
     "void" => TokenKind::KwVoid,
+    "goto" => TokenKind::KwGoto,
     "return" => TokenKind::KwReturn,
 };
 
@@ -301,6 +306,8 @@ pub enum TokenKind {
     AmpAmp,
     /// The `&=` token.
     AmpEq,
+    /// The `:` token.
+    Colon,
     /// The `!` token.
     Bang,
     /// The `!=` token.
@@ -357,6 +364,8 @@ pub enum TokenKind {
     PlusEq,
     /// The `++` token.
     PlusPlus,
+    /// The `?` token.
+    Question,
     /// The `}` token.
     RBrace,
     /// The `]` token.
@@ -376,10 +385,16 @@ pub enum TokenKind {
     /// The `~` token.
     Tilde,
 
+    /// The `if` keyword.
+    KwIf,
     /// The `int` keyword.
     KwInt,
+    /// The `else` keyword.
+    KwElse,
     /// The `void` keyword.
     KwVoid,
+    /// The `goto` keyword.
+    KwGoto,
     /// The `return` keyword.
     KwReturn,
 
@@ -395,6 +410,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Amp => write!(f, "'&'"),
             TokenKind::AmpAmp => write!(f, "'&&'"),
             TokenKind::AmpEq => write!(f, "'&='"),
+            TokenKind::Colon => write!(f, "':'"),
             TokenKind::Bang => write!(f, "'!'"),
             TokenKind::BangEq => write!(f, "'!='"),
             TokenKind::Caret => write!(f, "'^'"),
@@ -423,6 +439,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Plus => write!(f, "'+'"),
             TokenKind::PlusEq => write!(f, "'+='"),
             TokenKind::PlusPlus => write!(f, "'++'"),
+            TokenKind::Question => write!(f, "'?'"),
             TokenKind::RBrace => write!(f, "'}}'"),
             TokenKind::RBrack => write!(f, "']'"),
             TokenKind::RParen => write!(f, "')'"),
@@ -433,8 +450,11 @@ impl std::fmt::Display for TokenKind {
             TokenKind::StarEq => write!(f, "'*='"),
             TokenKind::Tilde => write!(f, "'~'"),
 
+            TokenKind::KwIf => write!(f, "'if'"),
             TokenKind::KwInt => write!(f, "'int'"),
+            TokenKind::KwElse => write!(f, "'else'"),
             TokenKind::KwVoid => write!(f, "'void'"),
+            TokenKind::KwGoto => write!(f, "'goto'"),
             TokenKind::KwReturn => write!(f, "'return'"),
 
             TokenKind::Number(_) => write!(f, "a number"),

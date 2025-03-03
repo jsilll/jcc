@@ -75,6 +75,8 @@ impl ResolverPass {
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt).clone() {
             Stmt::Empty | Stmt::Goto(_) => {}
+            Stmt::Break(_) => todo!("handle break statements"),
+            Stmt::Continue(_) => todo!("handle continue statements"),
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
@@ -97,6 +99,9 @@ impl ResolverPass {
                     self.analyze_stmt(ast, otherwise);
                 }
             }
+            Stmt::While { .. } => todo!("handle while statements"),
+            Stmt::DoWhile { .. } => todo!("handle do-while statements"),
+            Stmt::For { .. } => todo!("handle for statements"),
         }
     }
 

@@ -61,6 +61,8 @@ impl TyperPass {
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt) {
             Stmt::Empty | Stmt::Goto(_) | Stmt::Label { .. } => {}
+            Stmt::Break(_) => todo!("handle break statements"),
+            Stmt::Continue(_) => todo!("handle continue statements"),
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
             Stmt::Compound(items) => {
@@ -80,6 +82,9 @@ impl TyperPass {
                     self.analyze_stmt(ast, *otherwise);
                 }
             }
+            Stmt::While { .. } => todo!("handle while statements"),
+            Stmt::DoWhile { .. } => todo!("handle do-while statements"),
+            Stmt::For { .. } => todo!("handle for statements"),
         }
     }
 

@@ -135,6 +135,8 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.get_stmt(stmt) {
             parse::Stmt::Empty => {}
+            parse::Stmt::Break(_) => todo!("handle break statements"),
+            parse::Stmt::Continue(_) => todo!("handle continue statements"),
             parse::Stmt::Expr(expr) => {
                 self.build_from_expr(*expr);
             }
@@ -205,6 +207,9 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
                 self.block = cont_block;
             }
+            parse::Stmt::While { .. } => todo!("handle while statements"),
+            parse::Stmt::DoWhile { .. } => todo!("handle do-while statements"),
+            parse::Stmt::For { .. } => todo!("handle for statements"),
         }
     }
 

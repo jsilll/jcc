@@ -64,11 +64,14 @@ impl<'a> TackyFnDefBuilder<'a> {
 
     fn build(mut self, item_ref: parse::ItemRef, item: &parse::Item) -> FnDef {
         self.fn_def.span = *self.ast.get_item_span(item_ref);
-        item.body.iter().for_each(|item| match item {
-            parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
-            parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
-        });
-        match item.body.last() {
+        self.ast
+            .get_block_items(item.body)
+            .iter()
+            .for_each(|item| match item {
+                parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
+                parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+            });
+        match self.ast.get_block_items(item.body).last() {
             Some(parse::BlockItem::Stmt(stmt)) => match self.ast.get_stmt(*stmt) {
                 parse::Stmt::Return(_) => {}
                 _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
@@ -135,6 +138,8 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.get_stmt(stmt) {
             parse::Stmt::Empty => {}
+            parse::Stmt::Break(_) => todo!("handle break statements"),
+            parse::Stmt::Continue(_) => todo!("handle continue statements"),
             parse::Stmt::Expr(expr) => {
                 self.build_from_expr(*expr);
             }
@@ -153,10 +158,13 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.build_from_stmt(*inner);
             }
             parse::Stmt::Compound(items) => {
-                items.iter().for_each(|item| match item {
-                    parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
-                    parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
-                });
+                self.ast
+                    .get_block_items(*items)
+                    .iter()
+                    .for_each(|item| match item {
+                        parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
+                        parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+                    });
             }
             parse::Stmt::If {
                 cond,
@@ -205,6 +213,9 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
                 self.block = cont_block;
             }
+            parse::Stmt::While { .. } => todo!("handle while statements"),
+            parse::Stmt::DoWhile { .. } => todo!("handle do-while statements"),
+            parse::Stmt::For { .. } => todo!("handle for statements"),
         }
     }
 

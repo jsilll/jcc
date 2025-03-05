@@ -8,6 +8,15 @@ use tacky::{
 use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
+// LabelerResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct LabelerResult {
+    pub diagnostics: Vec<LabelerDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
 // LabelerDiagnostic
 // ---------------------------------------------------------------------------
 
@@ -15,15 +24,6 @@ use std::collections::{HashMap, HashSet};
 pub struct LabelerDiagnostic {
     pub span: SourceSpan,
     pub kind: LabelerDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
-// LabelerResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct LabelerResult {
-    pub diagnostics: Vec<LabelerDiagnostic>,
 }
 
 // ---------------------------------------------------------------------------
@@ -47,23 +47,29 @@ impl LabelerPass {
 
     pub fn analyze(mut self, ast: &Ast) -> LabelerResult {
         ast.items().iter().for_each(|item| {
-            item.body.iter().for_each(|block_item| match block_item {
-                BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
-                _ => {}
-            });
+            ast.get_block_items(item.body)
+                .iter()
+                .for_each(|block_item| match block_item {
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                    _ => {}
+                });
         });
+
         self.unresolved.values().for_each(|span| {
             self.result.diagnostics.push(LabelerDiagnostic {
                 span: *span,
                 kind: LabelerDiagnosticKind::UndefinedLabel,
             });
         });
+
         self.result
     }
 
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt) {
             Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
+            Stmt::Break(_) => todo!("handle break statements"),
+            Stmt::Continue(_) => todo!("handle continue statements"),
             Stmt::Goto(label) => {
                 if !self.defined.contains(&label) {
                     self.unresolved.insert(*label, *ast.get_stmt_span(stmt));
@@ -81,10 +87,12 @@ impl LabelerPass {
                 self.analyze_stmt(ast, *inner);
             }
             Stmt::Compound(items) => {
-                items.iter().for_each(|item| match item {
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
-                    _ => {}
-                });
+                ast.get_block_items(*items)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                        _ => {}
+                    });
             }
             Stmt::If {
                 then, otherwise, ..
@@ -94,6 +102,9 @@ impl LabelerPass {
                     self.analyze_stmt(ast, *otherwise);
                 }
             }
+            Stmt::While { .. } => todo!("handle while statements"),
+            Stmt::DoWhile { .. } => todo!("handle do-while statements"),
+            Stmt::For { .. } => todo!("handle for statements"),
         }
     }
 }

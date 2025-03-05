@@ -8,13 +8,13 @@ use tacky::{
 use std::{iter::Peekable, str::CharIndices};
 
 // ---------------------------------------------------------------------------
-// Token
+// LexerResult
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub span: SourceSpan,
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct LexerResult {
+    pub tokens: Vec<Token>,
+    pub diagnostics: Vec<LexerDiagnostic>,
 }
 
 // ---------------------------------------------------------------------------
@@ -28,13 +28,13 @@ pub struct LexerDiagnostic {
 }
 
 // ---------------------------------------------------------------------------
-// LexerResult
+// Token
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct LexerResult {
-    pub tokens: Vec<Token>,
-    pub diagnostics: Vec<LexerDiagnostic>,
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: SourceSpan,
 }
 
 // ---------------------------------------------------------------------------

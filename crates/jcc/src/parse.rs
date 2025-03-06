@@ -47,7 +47,7 @@ impl std::fmt::Debug for Ast {
             .field("decls", &&self.decls[1..])
             .field("stmts", &&self.stmts[1..])
             .field("exprs", &&self.exprs[1..])
-            .field("items_span", &self.block_items)
+            .field("block_items", &self.block_items)
             .finish()
     }
 }
@@ -180,8 +180,14 @@ impl Ast {
     }
 
     #[inline]
-    pub fn push_block_item(&mut self, block_item: BlockItem) {
-        self.block_items.push(block_item);
+    pub fn push_block_items(
+        &mut self,
+        block_items: impl IntoIterator<Item = BlockItem>,
+    ) -> BlockItemSlice {
+        let begin = self.block_items.len() as u32;
+        self.block_items.extend(block_items);
+        let end = self.block_items.len() as u32;
+        BlockItemSlice { begin, end }
     }
 
     #[inline]
@@ -421,16 +427,6 @@ pub struct BlockItemSlice {
     end: u32,
 }
 
-impl BlockItemSlice {
-    #[inline]
-    pub fn new(begin: usize, len: usize) -> Self {
-        Self {
-            begin: begin as u32,
-            end: (begin + len) as u32,
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // ParserResult
 // ---------------------------------------------------------------------------
@@ -459,6 +455,7 @@ pub struct Parser<'a> {
     result: ParserResult,
     file: &'a SourceFile,
     iter: Peekable<Iter<'a, Token>>,
+    block_item_stack: Vec<BlockItem>,
 }
 
 impl<'a> Parser<'a> {
@@ -467,11 +464,13 @@ impl<'a> Parser<'a> {
             file,
             iter: iter.peekable(),
             result: ParserResult::default(),
+            block_item_stack: Vec::with_capacity(16),
         }
     }
 
     pub fn parse(mut self) -> ParserResult {
         self.parse_item();
+        assert!(self.block_item_stack.is_empty());
         if let Some(Token { span, .. }) = self.iter.next() {
             if self.result.diagnostics.is_empty() {
                 self.result.diagnostics.push(ParserDiagnostic {
@@ -496,22 +495,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_body(&mut self) -> Option<BlockItemSlice> {
-        // TODO: Improve performance by sharing the vector across calls.
-        let mut block = Vec::new(); 
+        let rbp = self.block_item_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
                 TokenKind::KwInt => {
-                    block.push(BlockItem::Decl(self.parse_decl()?));
+                    let decl = self.parse_decl()?;
+                    self.block_item_stack.push(BlockItem::Decl(decl));
                 }
                 _ => {
-                    block.push(BlockItem::Stmt(self.parse_stmt()?));
+                    let stmt = self.parse_stmt()?;
+                    self.block_item_stack.push(BlockItem::Stmt(stmt));
                 }
             }
         }
-        let slice = BlockItemSlice::new(self.result.ast.block_items.len(), block.len());
-        self.result.ast.block_items.extend(block);
-        Some(slice)
+        Some(
+            self.result
+                .ast
+                .push_block_items(self.block_item_stack.drain(rbp..)),
+        )
     }
 
     fn parse_decl(&mut self) -> Option<DeclRef> {

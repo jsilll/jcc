@@ -1,4 +1,4 @@
-use crate::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef};
+use crate::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
@@ -76,9 +76,7 @@ impl ResolverPass {
 
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt).clone() {
-            Stmt::Empty | Stmt::Goto(_) => {}
-            Stmt::Break(_) => todo!("handle break statements"),
-            Stmt::Continue(_) => todo!("handle continue statements"),
+            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
@@ -104,9 +102,36 @@ impl ResolverPass {
                     self.analyze_stmt(ast, otherwise);
                 }
             }
-            Stmt::While { .. } => todo!("handle while statements"),
-            Stmt::DoWhile { .. } => todo!("handle do-while statements"),
-            Stmt::For { .. } => todo!("handle for statements"),
+            Stmt::While { cond, body } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_stmt(ast, body);
+            }
+            Stmt::DoWhile { body, cond } => {
+                self.analyze_stmt(ast, body);
+                self.analyze_expr(ast, cond);
+            }
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                self.symbols.push_scope();
+                if let Some(init) = init {
+                    match init {
+                        ForInit::Decl(decl) => self.analyze_decl(ast, decl),
+                        ForInit::Expr(expr) => self.analyze_expr(ast, expr),
+                    }
+                }
+                if let Some(cond) = cond {
+                    self.analyze_expr(ast, cond);
+                }
+                if let Some(step) = step {
+                    self.analyze_expr(ast, step);
+                }
+                self.analyze_stmt(ast, body);
+                self.symbols.pop_scope();
+            }
         }
     }
 

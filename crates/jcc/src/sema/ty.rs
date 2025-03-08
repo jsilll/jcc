@@ -1,5 +1,5 @@
 use crate::parse::{
-    Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef, UnaryOp,
+    Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
 };
 
 use tacky::source_file::{diag::Diagnostic, SourceSpan};
@@ -62,9 +62,11 @@ impl TyperPass {
 
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt) {
-            Stmt::Empty | Stmt::Goto(_) | Stmt::Label { .. } => {}
-            Stmt::Break(_) => todo!("handle break statements"),
-            Stmt::Continue(_) => todo!("handle continue statements"),
+            Stmt::Empty
+            | Stmt::Goto(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::Label { .. } => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
             Stmt::Compound(items) => {
@@ -86,9 +88,34 @@ impl TyperPass {
                     self.analyze_stmt(ast, *otherwise);
                 }
             }
-            Stmt::While { .. } => todo!("handle while statements"),
-            Stmt::DoWhile { .. } => todo!("handle do-while statements"),
-            Stmt::For { .. } => todo!("handle for statements"),
+            Stmt::While { cond, body } => {
+                self.analyze_expr(ast, *cond);
+                self.analyze_stmt(ast, *body);
+            }
+            Stmt::DoWhile { body, cond } => {
+                self.analyze_stmt(ast, *body);
+                self.analyze_expr(ast, *cond);
+            }
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if let Some(init) = init {
+                    match init {
+                        ForInit::Decl(decl) => self.analyze_decl(ast, *decl),
+                        ForInit::Expr(expr) => self.analyze_expr(ast, *expr),
+                    }
+                }
+                if let Some(cond) = cond {
+                    self.analyze_expr(ast, *cond);
+                }
+                if let Some(step) = step {
+                    self.analyze_expr(ast, *step);
+                }
+                self.analyze_stmt(ast, *body);
+            }
         }
     }
 
@@ -98,7 +125,7 @@ impl TyperPass {
             Expr::Grouped(expr) => self.analyze_expr(ast, *expr),
             Expr::Unary { op, expr } => match op {
                 UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    self.must_be_lvalue(ast, *expr);
+                    self.assert_is_lvalue(ast, *expr);
                     self.analyze_expr(ast, *expr);
                 }
                 _ => self.analyze_expr(ast, *expr),
@@ -115,7 +142,7 @@ impl TyperPass {
                 | BinaryOp::BitXorAssign
                 | BinaryOp::BitLshAssign
                 | BinaryOp::BitRshAssign => {
-                    self.must_be_lvalue(ast, *lhs);
+                    self.assert_is_lvalue(ast, *lhs);
                     self.analyze_expr(ast, *lhs);
                     self.analyze_expr(ast, *rhs);
                 }
@@ -136,7 +163,7 @@ impl TyperPass {
         }
     }
 
-    fn must_be_lvalue(&mut self, ast: &Ast, expr: ExprRef) {
+    fn assert_is_lvalue(&mut self, ast: &Ast, expr: ExprRef) {
         if !is_lvalue(ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
                 span: *ast.get_expr_span(expr),

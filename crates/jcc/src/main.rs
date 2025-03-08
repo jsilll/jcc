@@ -1,7 +1,7 @@
 use jcc::{
     lex::{Lexer, LexerDiagnosticKind},
     parse::Parser,
-    sema::{label::LabelerPass, resolve::ResolverPass, ty::TyperPass},
+    sema::{label::LabelerPass, loops::LooperPass, resolve::ResolverPass, ty::TyperPass},
     tacky::TackyBuilder,
 };
 
@@ -119,6 +119,11 @@ fn try_main() -> Result<()> {
             &labeler_result.diagnostics,
         )?;
         return Err(anyhow::anyhow!("\nexiting due to labeler errors"));
+    }
+    let looper_result = LooperPass::new().analyze(&mut ast);
+    if !looper_result.diagnostics.is_empty() {
+        source_file::diag::report_batch(&file, &mut std::io::stderr(), &looper_result.diagnostics)?;
+        return Err(anyhow::anyhow!("\nexiting due to looper errors"));
     }
     let resolver_result = ResolverPass::new().analyze(&mut ast);
     if !resolver_result.diagnostics.is_empty() {

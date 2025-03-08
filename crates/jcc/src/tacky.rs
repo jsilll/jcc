@@ -93,6 +93,13 @@ impl<'a> TackyFnDefBuilder<'a> {
         root.spans.push(span);
     }
 
+    fn get_or_make_block(&mut self, label: DefaultSymbol) -> BlockRef {
+        self.labeled_blocks
+            .entry(label)
+            .or_insert_with(|| self.fn_def.push_block(Block::with_label(label)))
+            .clone()
+    }
+
     fn get_or_make_var(&mut self, decl: parse::DeclRef) -> Value {
         self.variables
             .entry(decl)
@@ -112,13 +119,6 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.tmp_count += 1;
                 var
             })
-            .clone()
-    }
-
-    fn get_or_make_block(&mut self, label: DefaultSymbol) -> BlockRef {
-        self.labeled_blocks
-            .entry(label)
-            .or_insert_with(|| self.fn_def.push_block(Block::with_label(label)))
             .clone()
     }
 

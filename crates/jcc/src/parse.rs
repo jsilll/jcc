@@ -278,7 +278,7 @@ pub enum Stmt {
     DoWhile { body: StmtRef, cond: ExprRef },
     /// A for statement.
     For {
-        init: ForInit,
+        init: Option<ForInit>,
         cond: Option<ExprRef>,
         step: Option<ExprRef>,
         body: StmtRef,
@@ -410,7 +410,7 @@ pub enum ForInit {
     /// A declaration.
     Decl(DeclRef),
     /// An expression.
-    Expr(Option<ExprRef>),
+    Expr(ExprRef),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -495,7 +495,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_body(&mut self) -> Option<BlockItemSlice> {
-        let rbp = self.block_item_stack.len();
+        let base = self.block_item_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
@@ -512,7 +512,7 @@ impl<'a> Parser<'a> {
         Some(
             self.result
                 .ast
-                .push_block_items(self.block_item_stack.drain(rbp..)),
+                .push_block_items(self.block_item_stack.drain(base..)),
         )
     }
 
@@ -623,9 +623,9 @@ impl<'a> Parser<'a> {
                     ..
                 }) = self.iter.peek()
                 {
-                    ForInit::Decl(self.parse_decl()?)
+                    Some(ForInit::Decl(self.parse_decl()?))
                 } else {
-                    ForInit::Expr(self.parse_optional_expr(TokenKind::Semi))
+                    self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr)
                 };
                 let cond = self.parse_optional_expr(TokenKind::Semi);
                 let step = self.parse_optional_expr(TokenKind::RParen);

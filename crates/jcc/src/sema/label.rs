@@ -67,9 +67,7 @@ impl LabelerPass {
 
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt) {
-            Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
-            Stmt::Break(_) => todo!("handle break statements"),
-            Stmt::Continue(_) => todo!("handle continue statements"),
+            Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Goto(label) => {
                 if !self.defined.contains(&label) {
                     self.unresolved.insert(*label, *ast.get_stmt_span(stmt));
@@ -90,8 +88,8 @@ impl LabelerPass {
                 ast.get_block_items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
+                        BlockItem::Decl(_) => {}
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
-                        _ => {}
                     });
             }
             Stmt::If {
@@ -102,9 +100,15 @@ impl LabelerPass {
                     self.analyze_stmt(ast, *otherwise);
                 }
             }
-            Stmt::While { .. } => todo!("handle while statements"),
-            Stmt::DoWhile { .. } => todo!("handle do-while statements"),
-            Stmt::For { .. } => todo!("handle for statements"),
+            Stmt::While { body, .. } => {
+                self.analyze_stmt(ast, *body);
+            }
+            Stmt::DoWhile { body, .. } => {
+                self.analyze_stmt(ast, *body);
+            }
+            Stmt::For { body, .. } => {
+                self.analyze_stmt(ast, *body);
+            }
         }
     }
 }

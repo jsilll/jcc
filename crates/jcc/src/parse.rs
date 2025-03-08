@@ -256,6 +256,8 @@ pub enum Stmt {
     Expr(ExprRef),
     /// A return statement.
     Return(ExprRef),
+    /// A default statement.
+    Default(StmtRef),
     /// A goto statement.
     Goto(DefaultSymbol),
     /// A break statement.
@@ -264,6 +266,10 @@ pub enum Stmt {
     Continue(Option<StmtRef>),
     /// A compound statement.
     Compound(BlockItemSlice),
+    /// A case statement.
+    Case { expr: ExprRef, stmt: StmtRef },
+    /// A switch statement.
+    Switch { cond: ExprRef, body: StmtRef },
     /// A label statement.
     Label { label: DefaultSymbol, stmt: StmtRef },
     /// An if statement.
@@ -546,6 +552,12 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.push_stmt(Stmt::Return(expr), *span))
             }
+            TokenKind::KwDefault => {
+                self.iter.next();
+                self.eat(TokenKind::Colon)?;
+                let stmt = self.parse_stmt()?;
+                Some(self.result.ast.push_stmt(Stmt::Default(stmt), *span))
+            }
             TokenKind::KwGoto => {
                 self.iter.next();
                 let (_, name) = self.eat_identifier()?;
@@ -567,6 +579,25 @@ impl<'a> Parser<'a> {
                 let body = self.parse_body()?;
                 self.eat(TokenKind::RBrace)?;
                 Some(self.result.ast.push_stmt(Stmt::Compound(body), *span))
+            }
+            TokenKind::KwCase => {
+                self.iter.next();
+                let expr = self.parse_expr(0)?;
+                self.eat(TokenKind::Colon)?;
+                let stmt = self.parse_stmt()?;
+                Some(self.result.ast.push_stmt(Stmt::Case { expr, stmt }, *span))
+            }
+            TokenKind::KwSwitch => {
+                self.iter.next();
+                self.eat(TokenKind::LParen)?;
+                let cond = self.parse_expr(0)?;
+                self.eat(TokenKind::RParen)?;
+                let body = self.parse_stmt()?;
+                Some(
+                    self.result
+                        .ast
+                        .push_stmt(Stmt::Switch { cond, body }, *span),
+                )
             }
             TokenKind::KwIf => {
                 self.iter.next();

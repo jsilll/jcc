@@ -70,6 +70,7 @@ impl LooperPass {
         match ast.get_stmt(stmt).clone() {
             Stmt::Break(_) | Stmt::Continue(_) => unreachable!(),
             Stmt::Empty | Stmt::Goto(_) | Stmt::Expr(_) | Stmt::Return(_) => {}
+            Stmt::Default(_) => unimplemented!(),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
             Stmt::Compound(stmt) => {
                 ast.get_block_items(stmt)
@@ -80,6 +81,8 @@ impl LooperPass {
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
                     });
             }
+            Stmt::Case { .. } => unimplemented!(),
+            Stmt::Switch { .. } => unimplemented!(),
             Stmt::If {
                 then, otherwise, ..
             } => {

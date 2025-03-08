@@ -68,6 +68,7 @@ impl LabelerPass {
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt) {
             Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Default(_) => unimplemented!(),
             Stmt::Goto(label) => {
                 if !self.defined.contains(&label) {
                     self.unresolved.insert(*label, *ast.get_stmt_span(stmt));
@@ -92,6 +93,8 @@ impl LabelerPass {
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
                     });
             }
+            Stmt::Case { .. } => unimplemented!(),
+            Stmt::Switch { .. } => unimplemented!(),
             Stmt::If {
                 then, otherwise, ..
             } => {

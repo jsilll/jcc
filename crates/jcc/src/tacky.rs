@@ -163,10 +163,13 @@ impl<'a> TackyFnDefBuilder<'a> {
                 let value = self.build_from_expr(*inner);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
             }
+            parse::Stmt::Default(_) => unimplemented!(),
             parse::Stmt::Goto(label) => {
                 let block = self.get_or_make_block(*label);
                 self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
             }
+            parse::Stmt::Case { .. } => unimplemented!(),
+            parse::Stmt::Switch { .. } => unimplemented!(),
             parse::Stmt::Label { label, stmt: inner } => {
                 let block = self.get_or_make_block(*label);
                 self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));

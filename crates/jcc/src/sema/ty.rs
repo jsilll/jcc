@@ -69,6 +69,7 @@ impl TyperPass {
             | Stmt::Label { .. } => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
+            Stmt::Default(_) => unimplemented!(),
             Stmt::Compound(items) => {
                 ast.get_block_items(*items)
                     .iter()
@@ -77,6 +78,8 @@ impl TyperPass {
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
                     });
             }
+            Stmt::Case { .. } => unimplemented!(),
+            Stmt::Switch { .. } => unimplemented!(),
             Stmt::If {
                 cond,
                 then,

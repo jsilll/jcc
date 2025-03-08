@@ -89,17 +89,17 @@ impl LooperPass {
                 }
             }
             Stmt::While { body, .. } => {
-                self.loops.push(body);
+                self.loops.push(stmt);
                 self.analyze_stmt(ast, body);
                 self.loops.pop();
             }
             Stmt::DoWhile { body, .. } => {
-                self.loops.push(body);
+                self.loops.push(stmt);
                 self.analyze_stmt(ast, body);
                 self.loops.pop();
             }
             Stmt::For { body, .. } => {
-                self.loops.push(body);
+                self.loops.push(stmt);
                 self.analyze_stmt(ast, body);
                 self.loops.pop();
             }

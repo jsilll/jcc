@@ -287,7 +287,9 @@ impl<'a> Lexer<'a> {
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "break" => TokenKind::KwBreak,
+    "case" => TokenKind::KwCase,
     "continue" => TokenKind::KwContinue,
+    "default" => TokenKind::KwDefault,
     "do" => TokenKind::KwDo,
     "else" => TokenKind::KwElse,
     "for" => TokenKind::KwFor,
@@ -295,6 +297,7 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
     "if" => TokenKind::KwIf,
     "int" => TokenKind::KwInt,
     "return" => TokenKind::KwReturn,
+    "switch" => TokenKind::KwSwitch,
     "void" => TokenKind::KwVoid,
     "while" => TokenKind::KwWhile,
 };
@@ -392,8 +395,12 @@ pub enum TokenKind {
 
     /// The `break` keyword.
     KwBreak,
+    /// The `case keyword.
+    KwCase,
     /// The `continue` keyword.
     KwContinue,
+    /// The `default` keyword.
+    KwDefault,
     /// The `do` keyword.
     KwDo,
     /// The `else` keyword.
@@ -408,6 +415,8 @@ pub enum TokenKind {
     KwInt,
     /// The `return` keyword.
     KwReturn,
+    /// The `switch` keyword.
+    KwSwitch,
     /// The `void` keyword.
     KwVoid,
     /// The `while` keyword.
@@ -466,7 +475,9 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Tilde => write!(f, "'~'"),
 
             TokenKind::KwBreak => write!(f, "'break'"),
+            TokenKind::KwCase => write!(f, "'case'"),
             TokenKind::KwContinue => write!(f, "'continue'"),
+            TokenKind::KwDefault => write!(f, "'default'"),
             TokenKind::KwDo => write!(f, "'do'"),
             TokenKind::KwElse => write!(f, "'else'"),
             TokenKind::KwFor => write!(f, "'for'"),
@@ -474,6 +485,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::KwIf => write!(f, "'if'"),
             TokenKind::KwInt => write!(f, "'int'"),
             TokenKind::KwReturn => write!(f, "'return'"),
+            TokenKind::KwSwitch => write!(f, "'switch'"),
             TokenKind::KwVoid => write!(f, "'void'"),
             TokenKind::KwWhile => write!(f, "'while'"),
 

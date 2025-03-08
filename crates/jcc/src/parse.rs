@@ -294,7 +294,7 @@ pub enum Stmt {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ExprRef(NonZero<u32>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {
     /// A constant integer value.
     Constant(u32),
@@ -327,7 +327,7 @@ impl Default for Expr {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
@@ -345,7 +345,7 @@ pub enum UnaryOp {
     PostDec,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BinaryOp {
     /// The `||` operator.
     LogicalOr,

@@ -79,7 +79,7 @@ impl ResolverPass {
             Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
-            Stmt::Default(_) => unimplemented!(),
+            Stmt::Default(stmt) => self.analyze_stmt(ast, stmt),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
             Stmt::Compound(items) => {
                 self.symbols.push_scope();
@@ -92,8 +92,14 @@ impl ResolverPass {
                     });
                 self.symbols.pop_scope();
             }
-            Stmt::Case { .. } => unimplemented!(),
-            Stmt::Switch { .. } => unimplemented!(),
+            Stmt::Case { expr, stmt } => {
+                self.analyze_expr(ast, expr);
+                self.analyze_stmt(ast, stmt);
+            }
+            Stmt::Switch { cond, body } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_stmt(ast, body);
+            }
             Stmt::If {
                 cond,
                 then,

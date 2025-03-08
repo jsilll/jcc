@@ -1,8 +1,12 @@
+use std::collections::HashSet;
+
+use tacky::source_file::{diag::Diagnostic, SourceSpan};
+
 use crate::parse::{
     Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
 };
 
-use tacky::source_file::{diag::Diagnostic, SourceSpan};
+use super::SemaCtx;
 
 // ---------------------------------------------------------------------------
 // TyperResult
@@ -27,13 +31,15 @@ pub struct TyperDiagnostic {
 // TyperPass
 // ---------------------------------------------------------------------------
 
-pub struct TyperPass {
+pub struct TyperPass<'ctx> {
     result: TyperResult,
+    ctx: &'ctx mut SemaCtx,
 }
 
-impl TyperPass {
-    pub fn new() -> Self {
+impl<'ctx> TyperPass<'ctx> {
+    pub fn new(ctx: &'ctx mut SemaCtx) -> Self {
         Self {
+            ctx,
             result: TyperResult::default(),
         }
     }
@@ -62,14 +68,11 @@ impl TyperPass {
 
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt) {
-            Stmt::Empty
-            | Stmt::Goto(_)
-            | Stmt::Break(_)
-            | Stmt::Continue(_)
-            | Stmt::Label { .. } => {}
+            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
-            Stmt::Default(_) => unimplemented!(),
+            Stmt::Default(stmt) => self.analyze_stmt(ast, *stmt),
+            Stmt::Label { stmt, .. } => self.analyze_stmt(ast, *stmt),
             Stmt::Compound(items) => {
                 ast.get_block_items(*items)
                     .iter()
@@ -78,8 +81,34 @@ impl TyperPass {
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
                     });
             }
-            Stmt::Case { .. } => unimplemented!(),
-            Stmt::Switch { .. } => unimplemented!(),
+            Stmt::Case { expr, stmt } => {
+                self.analyze_expr(ast, *expr);
+                self.analyze_stmt(ast, *stmt);
+            }
+            Stmt::Switch { cond, body } => {
+                if let Some(switch) = self.ctx.switches.get(&stmt) {
+                    let mut values = HashSet::new();
+                    switch
+                        .cases
+                        .clone()
+                        .iter()
+                        .for_each(|stmt| match ast.get_stmt(*stmt) {
+                            Stmt::Case { expr, .. } => {
+                                if self.assert_is_constant(ast, *expr)
+                                    && !values.insert(*ast.get_expr(*expr))
+                                {
+                                    self.result.diagnostics.push(TyperDiagnostic {
+                                        span: *ast.get_expr_span(*expr),
+                                        kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                    });
+                                }
+                            }
+                            _ => panic!("unexpected statement in switch case"),
+                        });
+                }
+                self.analyze_expr(ast, *cond);
+                self.analyze_stmt(ast, *body);
+            }
             Stmt::If {
                 cond,
                 then,
@@ -166,13 +195,26 @@ impl TyperPass {
         }
     }
 
-    fn assert_is_lvalue(&mut self, ast: &Ast, expr: ExprRef) {
+    fn assert_is_lvalue(&mut self, ast: &Ast, expr: ExprRef) -> bool {
         if !is_lvalue(ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
                 span: *ast.get_expr_span(expr),
                 kind: TyperDiagnosticKind::InvalidLValue,
             });
+            return false;
         }
+        return true;
+    }
+
+    fn assert_is_constant(&mut self, ast: &Ast, expr: ExprRef) -> bool {
+        if !is_constant(ast, expr) {
+            self.result.diagnostics.push(TyperDiagnostic {
+                span: *ast.get_expr_span(expr),
+                kind: TyperDiagnosticKind::NotConstant,
+            });
+            return false;
+        }
+        return true;
     }
 }
 
@@ -189,22 +231,42 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
     }
 }
 
+fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
+    match ast.get_expr(expr) {
+        Expr::Constant(_) => true,
+        Expr::Grouped(expr) => is_constant(ast, *expr),
+        Expr::Var { .. } | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TyperDiagnosticKind
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum TyperDiagnosticKind {
+    NotConstant,
     InvalidLValue,
+    DuplicateSwitchCase,
 }
 
 impl From<TyperDiagnostic> for Diagnostic {
     fn from(diagnostic: TyperDiagnostic) -> Self {
         match diagnostic.kind {
+            TyperDiagnosticKind::NotConstant => Diagnostic::error(
+                diagnostic.span,
+                "not a constant",
+                "this expression is not a constant",
+            ),
             TyperDiagnosticKind::InvalidLValue => Diagnostic::error(
                 diagnostic.span,
                 "invalid lvalue",
                 "this expression is not a valid lvalue",
+            ),
+            TyperDiagnosticKind::DuplicateSwitchCase => Diagnostic::error(
+                diagnostic.span,
+                "duplicate switch case",
+                "this case value is already defined",
             ),
         }
     }

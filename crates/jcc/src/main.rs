@@ -1,7 +1,7 @@
 use jcc::{
     lex::{Lexer, LexerDiagnosticKind},
     parse::Parser,
-    sema::{label::LabelerPass, loops::LooperPass, resolve::ResolverPass, ty::TyperPass},
+    sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
     tacky::TackyBuilder,
 };
 
@@ -111,19 +111,15 @@ fn try_main() -> Result<()> {
     let mut ast = parser_result.ast;
 
     // Analyze the AST
-    let labeler_result = LabelerPass::new().analyze(&ast);
-    if !labeler_result.diagnostics.is_empty() {
+    let mut ctx = SemaCtx::default();
+    let control_result = ControlPass::new(&mut ctx).analyze(&mut ast);
+    if !control_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
             &mut std::io::stderr(),
-            &labeler_result.diagnostics,
+            &control_result.diagnostics,
         )?;
-        return Err(anyhow::anyhow!("\nexiting due to labeler errors"));
-    }
-    let looper_result = LooperPass::new().analyze(&mut ast);
-    if !looper_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &looper_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to looper errors"));
+        return Err(anyhow::anyhow!("\nexiting due to control errors"));
     }
     let resolver_result = ResolverPass::new().analyze(&mut ast);
     if !resolver_result.diagnostics.is_empty() {
@@ -134,7 +130,7 @@ fn try_main() -> Result<()> {
         )?;
         return Err(anyhow::anyhow!("\nexiting due to resolver errors"));
     }
-    let typer_result = TyperPass::new().analyze(&ast);
+    let typer_result = TyperPass::new(&mut ctx).analyze(&ast);
     if !typer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("\nexiting due to typer errors"));

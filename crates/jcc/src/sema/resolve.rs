@@ -1,4 +1,4 @@
-use crate::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, Stmt, StmtRef};
+use crate::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
@@ -8,6 +8,15 @@ use tacky::{
 use std::{collections::HashMap, hash::Hash};
 
 // ---------------------------------------------------------------------------
+// ResolverResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct ResolverResult {
+    pub diagnostics: Vec<ResolverDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
 // ResolverDiagnostic
 // ---------------------------------------------------------------------------
 
@@ -15,15 +24,6 @@ use std::{collections::HashMap, hash::Hash};
 pub struct ResolverDiagnostic {
     pub span: SourceSpan,
     pub kind: ResolverDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
-// ResolverResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct ResolverResult {
-    pub diagnostics: Vec<ResolverDiagnostic>,
 }
 
 // ---------------------------------------------------------------------------
@@ -46,11 +46,13 @@ impl ResolverPass {
     pub fn analyze(mut self, ast: &mut Ast) -> ResolverResult {
         ast.items_iter_refs().for_each(|item| {
             self.symbols.push_scope();
-            let body = ast.get_item(item).body.clone();
-            body.iter().for_each(|block_item| match block_item {
-                BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
-                BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
-            });
+            ast.get_block_items(ast.get_item(item).body)
+                .to_owned()
+                .into_iter()
+                .for_each(|block_item| match block_item {
+                    BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+                });
             self.symbols.pop_scope();
         });
         self.result
@@ -74,17 +76,29 @@ impl ResolverPass {
 
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
         match ast.get_stmt(stmt).clone() {
-            Stmt::Empty | Stmt::Goto(_) => {}
+            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
+            Stmt::Default(stmt) => self.analyze_stmt(ast, stmt),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
             Stmt::Compound(items) => {
                 self.symbols.push_scope();
-                items.iter().for_each(|block_item| match block_item {
-                    BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
-                });
+                ast.get_block_items(items)
+                    .to_owned()
+                    .into_iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
+                        BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+                    });
                 self.symbols.pop_scope();
+            }
+            Stmt::Case { expr, stmt } => {
+                self.analyze_expr(ast, expr);
+                self.analyze_stmt(ast, stmt);
+            }
+            Stmt::Switch { cond, body } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_stmt(ast, body);
             }
             Stmt::If {
                 cond,
@@ -97,18 +111,47 @@ impl ResolverPass {
                     self.analyze_stmt(ast, otherwise);
                 }
             }
+            Stmt::While { cond, body } => {
+                self.analyze_expr(ast, cond);
+                self.analyze_stmt(ast, body);
+            }
+            Stmt::DoWhile { body, cond } => {
+                self.analyze_stmt(ast, body);
+                self.analyze_expr(ast, cond);
+            }
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                self.symbols.push_scope();
+                if let Some(init) = init {
+                    match init {
+                        ForInit::Decl(decl) => self.analyze_decl(ast, decl),
+                        ForInit::Expr(expr) => self.analyze_expr(ast, expr),
+                    }
+                }
+                if let Some(cond) = cond {
+                    self.analyze_expr(ast, cond);
+                }
+                if let Some(step) = step {
+                    self.analyze_expr(ast, step);
+                }
+                self.analyze_stmt(ast, body);
+                self.symbols.pop_scope();
+            }
         }
     }
 
     fn analyze_expr(&mut self, ast: &mut Ast, expr: ExprRef) {
-        let span = *ast.get_expr_span(expr);
         if let Expr::Var { name, decl } = ast.get_expr_mut(expr) {
             match self.symbols.get(name) {
                 Some(decl_ref) => {
                     *decl = Some(*decl_ref);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span,
+                    span: *ast.get_expr_span(expr),
                     kind: ResolverDiagnosticKind::UndefinedVariable,
                 }),
             }

@@ -8,13 +8,13 @@ use tacky::{
 use std::{iter::Peekable, str::CharIndices};
 
 // ---------------------------------------------------------------------------
-// Token
+// LexerResult
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub span: SourceSpan,
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct LexerResult {
+    pub tokens: Vec<Token>,
+    pub diagnostics: Vec<LexerDiagnostic>,
 }
 
 // ---------------------------------------------------------------------------
@@ -28,13 +28,13 @@ pub struct LexerDiagnostic {
 }
 
 // ---------------------------------------------------------------------------
-// LexerResult
+// Token
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct LexerResult {
-    pub tokens: Vec<Token>,
-    pub diagnostics: Vec<LexerDiagnostic>,
+#[derive(Clone, PartialEq, Eq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: SourceSpan,
 }
 
 // ---------------------------------------------------------------------------
@@ -286,12 +286,20 @@ impl<'a> Lexer<'a> {
 // ---------------------------------------------------------------------------
 
 static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
+    "break" => TokenKind::KwBreak,
+    "case" => TokenKind::KwCase,
+    "continue" => TokenKind::KwContinue,
+    "default" => TokenKind::KwDefault,
+    "do" => TokenKind::KwDo,
+    "else" => TokenKind::KwElse,
+    "for" => TokenKind::KwFor,
+    "goto" => TokenKind::KwGoto,
     "if" => TokenKind::KwIf,
     "int" => TokenKind::KwInt,
-    "else" => TokenKind::KwElse,
-    "void" => TokenKind::KwVoid,
-    "goto" => TokenKind::KwGoto,
     "return" => TokenKind::KwReturn,
+    "switch" => TokenKind::KwSwitch,
+    "void" => TokenKind::KwVoid,
+    "while" => TokenKind::KwWhile,
 };
 
 // ---------------------------------------------------------------------------
@@ -385,18 +393,34 @@ pub enum TokenKind {
     /// The `~` token.
     Tilde,
 
+    /// The `break` keyword.
+    KwBreak,
+    /// The `case keyword.
+    KwCase,
+    /// The `continue` keyword.
+    KwContinue,
+    /// The `default` keyword.
+    KwDefault,
+    /// The `do` keyword.
+    KwDo,
+    /// The `else` keyword.
+    KwElse,
+    /// The `for` keyword.
+    KwFor,
+    /// The `goto` keyword.
+    KwGoto,
     /// The `if` keyword.
     KwIf,
     /// The `int` keyword.
     KwInt,
-    /// The `else` keyword.
-    KwElse,
-    /// The `void` keyword.
-    KwVoid,
-    /// The `goto` keyword.
-    KwGoto,
     /// The `return` keyword.
     KwReturn,
+    /// The `switch` keyword.
+    KwSwitch,
+    /// The `void` keyword.
+    KwVoid,
+    /// The `while` keyword.
+    KwWhile,
 
     /// A number.
     Number(u32),
@@ -450,12 +474,20 @@ impl std::fmt::Display for TokenKind {
             TokenKind::StarEq => write!(f, "'*='"),
             TokenKind::Tilde => write!(f, "'~'"),
 
+            TokenKind::KwBreak => write!(f, "'break'"),
+            TokenKind::KwCase => write!(f, "'case'"),
+            TokenKind::KwContinue => write!(f, "'continue'"),
+            TokenKind::KwDefault => write!(f, "'default'"),
+            TokenKind::KwDo => write!(f, "'do'"),
+            TokenKind::KwElse => write!(f, "'else'"),
+            TokenKind::KwFor => write!(f, "'for'"),
+            TokenKind::KwGoto => write!(f, "'goto'"),
             TokenKind::KwIf => write!(f, "'if'"),
             TokenKind::KwInt => write!(f, "'int'"),
-            TokenKind::KwElse => write!(f, "'else'"),
-            TokenKind::KwVoid => write!(f, "'void'"),
-            TokenKind::KwGoto => write!(f, "'goto'"),
             TokenKind::KwReturn => write!(f, "'return'"),
+            TokenKind::KwSwitch => write!(f, "'switch'"),
+            TokenKind::KwVoid => write!(f, "'void'"),
+            TokenKind::KwWhile => write!(f, "'while'"),
 
             TokenKind::Number(_) => write!(f, "a number"),
             TokenKind::Identifier(_) => write!(f, "an identifier"),

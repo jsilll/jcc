@@ -1,11 +1,7 @@
 use jcc::{
     lex::{Lexer, LexerDiagnosticKind},
     parse::Parser,
-    sema::{
-        label::LabelerPass,
-        resolve::ResolverPass,
-        ty::TyperPass,
-    },
+    sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
     tacky::TackyBuilder,
 };
 
@@ -112,19 +108,29 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("\nexiting due to no items found"));
     }
 
-    // Analyze the AST
     let mut ast = parser_result.ast;
-    let labeler_result = LabelerPass::new().analyze(&ast);
-    if !labeler_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &labeler_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to labeler errors"));
+
+    // Analyze the AST
+    let mut ctx = SemaCtx::default();
+    let control_result = ControlPass::new(&mut ctx).analyze(&mut ast);
+    if !control_result.diagnostics.is_empty() {
+        source_file::diag::report_batch(
+            &file,
+            &mut std::io::stderr(),
+            &control_result.diagnostics,
+        )?;
+        return Err(anyhow::anyhow!("\nexiting due to control errors"));
     }
     let resolver_result = ResolverPass::new().analyze(&mut ast);
     if !resolver_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
+        source_file::diag::report_batch(
+            &file,
+            &mut std::io::stderr(),
+            &resolver_result.diagnostics,
+        )?;
         return Err(anyhow::anyhow!("\nexiting due to resolver errors"));
     }
-    let typer_result = TyperPass::new().analyze(&ast);
+    let typer_result = TyperPass::new(&mut ctx).analyze(&ast);
     if !typer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("\nexiting due to typer errors"));
@@ -137,7 +143,7 @@ fn try_main() -> Result<()> {
     }
 
     // Generate Tacky
-    let tacky = TackyBuilder::new(&ast, &mut interner).build();
+    let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
     if args.verbose {
         println!("{:#?}", tacky);
     }

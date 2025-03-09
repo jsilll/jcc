@@ -1,4 +1,7 @@
-use crate::parse;
+use crate::{
+    parse::{self, Ast},
+    sema::SemaCtx,
+};
 
 use tacky::{
     source_file::SourceSpan,
@@ -13,22 +16,21 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 
 pub struct TackyBuilder<'a> {
-    ast: &'a parse::Ast,
+    ctx: &'a SemaCtx,
     interner: &'a mut DefaultStringInterner,
 }
 
 impl<'a> TackyBuilder<'a> {
-    pub fn new(ast: &'a parse::Ast, interner: &'a mut DefaultStringInterner) -> Self {
-        Self { ast, interner }
+    pub fn new(ctx: &'a SemaCtx, interner: &'a mut DefaultStringInterner) -> Self {
+        Self { ctx, interner }
     }
 
-    pub fn build(self) -> Program {
-        let (item_ref, item) = self
-            .ast
+    pub fn build(self, ast: &Ast) -> Program {
+        let (item_ref, item) = ast
             .items_iter_both()
             .next()
             .expect("expected at least one item in the AST");
-        let fn_def = TackyFnDefBuilder::new(self.ast, self.interner).build(item_ref, item);
+        let fn_def = TackyFnDefBuilder::new(ast, self.ctx, self.interner).build(item_ref, item);
         Program(fn_def)
     }
 }
@@ -38,37 +40,48 @@ impl<'a> TackyBuilder<'a> {
 // ---------------------------------------------------------------------------
 
 struct TackyFnDefBuilder<'a> {
+    ast: &'a Ast,
+    ctx: &'a SemaCtx,
+    interner: &'a mut DefaultStringInterner,
     fn_def: FnDef,
     tmp_count: u32,
     block: BlockRef,
-    ast: &'a parse::Ast,
-    interner: &'a mut DefaultStringInterner,
     variables: HashMap<parse::DeclRef, Value>,
+    case_blocks: HashMap<parse::StmtRef, BlockRef>,
+    break_blocks: HashMap<parse::StmtRef, BlockRef>,
     labeled_blocks: HashMap<DefaultSymbol, BlockRef>,
+    continue_blocks: HashMap<parse::StmtRef, BlockRef>,
 }
 
 impl<'a> TackyFnDefBuilder<'a> {
-    fn new(ast: &'a parse::Ast, interner: &'a mut DefaultStringInterner) -> Self {
+    fn new(ast: &'a parse::Ast, ctx: &'a SemaCtx, interner: &'a mut DefaultStringInterner) -> Self {
         let mut fn_def = FnDef::default();
         let block = fn_def.push_block(Block::default());
         Self {
             ast,
+            ctx,
             block,
             fn_def,
             interner,
             tmp_count: 0,
             variables: HashMap::new(),
+            case_blocks: HashMap::new(),
+            break_blocks: HashMap::new(),
             labeled_blocks: HashMap::new(),
+            continue_blocks: HashMap::new(),
         }
     }
 
     fn build(mut self, item_ref: parse::ItemRef, item: &parse::Item) -> FnDef {
         self.fn_def.span = *self.ast.get_item_span(item_ref);
-        item.body.iter().for_each(|item| match item {
-            parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
-            parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
-        });
-        match item.body.last() {
+        self.ast
+            .get_block_items(item.body)
+            .iter()
+            .for_each(|item| match item {
+                parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
+                parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+            });
+        match self.ast.get_block_items(item.body).last() {
             Some(parse::BlockItem::Stmt(stmt)) => match self.ast.get_stmt(*stmt) {
                 parse::Stmt::Return(_) => {}
                 _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
@@ -88,6 +101,13 @@ impl<'a> TackyFnDefBuilder<'a> {
         let root = self.fn_def.get_block_mut(self.block);
         root.instrs.push(instr);
         root.spans.push(span);
+    }
+
+    fn get_or_make_block(&mut self, label: DefaultSymbol) -> BlockRef {
+        self.labeled_blocks
+            .entry(label)
+            .or_insert_with(|| self.fn_def.push_block(Block::with_label(label)))
+            .clone()
     }
 
     fn get_or_make_var(&mut self, decl: parse::DeclRef) -> Value {
@@ -112,13 +132,6 @@ impl<'a> TackyFnDefBuilder<'a> {
             .clone()
     }
 
-    fn get_or_make_block(&mut self, label: DefaultSymbol) -> BlockRef {
-        self.labeled_blocks
-            .entry(label)
-            .or_insert_with(|| self.fn_def.push_block(Block::with_label(label)))
-            .clone()
-    }
-
     fn build_from_decl(&mut self, decl: parse::DeclRef) {
         let span = *self.ast.get_decl_span(decl);
         match self.ast.get_decl(decl) {
@@ -135,11 +148,25 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.get_stmt(stmt) {
             parse::Stmt::Empty => {}
+            parse::Stmt::Break(inner) => {
+                let block = self
+                    .break_blocks
+                    .get(&inner.expect("expected a break block"))
+                    .expect("expected a break block");
+                self.append_to_block(Instr::Jump(*block), *self.ast.get_stmt_span(stmt));
+            }
+            parse::Stmt::Continue(inner) => {
+                let block = self
+                    .continue_blocks
+                    .get(&inner.expect("expected a continue block"))
+                    .expect("expected a continue block");
+                self.append_to_block(Instr::Jump(*block), *self.ast.get_stmt_span(stmt));
+            }
             parse::Stmt::Expr(expr) => {
                 self.build_from_expr(*expr);
             }
-            parse::Stmt::Return(inner) => {
-                let value = self.build_from_expr(*inner);
+            parse::Stmt::Return(expr) => {
+                let value = self.build_from_expr(*expr);
                 self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
             }
             parse::Stmt::Goto(label) => {
@@ -152,11 +179,34 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.block = block;
                 self.build_from_stmt(*inner);
             }
+            parse::Stmt::Default(inner) => {
+                let block = self
+                    .case_blocks
+                    .get(&stmt)
+                    .expect("expected a case block")
+                    .clone();
+                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.block = block;
+                self.build_from_stmt(*inner);
+            }
+            parse::Stmt::Case { stmt: inner, .. } => {
+                let block = self
+                    .case_blocks
+                    .get(&stmt)
+                    .expect("expected a case block")
+                    .clone();
+                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.block = block;
+                self.build_from_stmt(*inner);
+            }
             parse::Stmt::Compound(items) => {
-                items.iter().for_each(|item| match item {
-                    parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
-                    parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
-                });
+                self.ast
+                    .get_block_items(*items)
+                    .iter()
+                    .for_each(|item| match item {
+                        parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
+                        parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+                    });
             }
             parse::Stmt::If {
                 cond,
@@ -203,6 +253,299 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.block = else_block;
                 self.build_from_stmt(*otherwise);
                 self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.block = cont_block;
+            }
+            parse::Stmt::While { cond, body } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let loop_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("loop"),
+                ));
+                let cond_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cond"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, cond_block);
+
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cond_block;
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfZero {
+                        cond,
+                        target: cont_block,
+                    },
+                    *self.ast.get_stmt_span(stmt),
+                );
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = loop_block;
+                self.build_from_stmt(*body);
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cont_block;
+            }
+            parse::Stmt::DoWhile { body, cond } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let loop_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("loop"),
+                ));
+                let cond_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cond"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, cond_block);
+
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = loop_block;
+                self.build_from_stmt(*body);
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cond_block;
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfNotZero {
+                        cond,
+                        target: loop_block,
+                    },
+                    *self.ast.get_stmt_span(stmt),
+                );
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cont_block;
+            }
+            parse::Stmt::For {
+                init,
+                cond: None,
+                step: None,
+                body,
+            } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let loop_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("loop"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, loop_block);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
+                        parse::ForInit::Expr(expr) => {
+                            self.build_from_expr(*expr);
+                        }
+                    }
+                }
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = loop_block;
+                self.build_from_stmt(*body);
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cont_block;
+            }
+            parse::Stmt::For {
+                init,
+                cond: Some(cond),
+                step: None,
+                body,
+            } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let loop_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("loop"),
+                ));
+                let cond_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cond"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, cond_block);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
+                        parse::ForInit::Expr(expr) => {
+                            self.build_from_expr(*expr);
+                        }
+                    }
+                }
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cond_block;
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfZero {
+                        cond,
+                        target: cont_block,
+                    },
+                    *self.ast.get_stmt_span(stmt),
+                );
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = loop_block;
+                self.build_from_stmt(*body);
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cont_block;
+            }
+            parse::Stmt::For {
+                init,
+                cond: None,
+                step: Some(step),
+                body,
+            } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let loop_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("loop"),
+                ));
+                let step_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("step"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, step_block);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
+                        parse::ForInit::Expr(expr) => {
+                            self.build_from_expr(*expr);
+                        }
+                    }
+                }
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = loop_block;
+                self.build_from_stmt(*body);
+                self.append_to_block(Instr::Jump(step_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = step_block;
+                self.build_from_expr(*step);
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cont_block;
+            }
+            parse::Stmt::For {
+                init,
+                cond: Some(cond),
+                step: Some(step),
+                body,
+            } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+                let loop_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("loop"),
+                ));
+                let cond_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cond"),
+                ));
+                let step_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("step"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, step_block);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
+                        parse::ForInit::Expr(expr) => {
+                            self.build_from_expr(*expr);
+                        }
+                    }
+                }
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cond_block;
+                let cond = self.build_from_expr(*cond);
+                self.append_to_block(
+                    Instr::JumpIfZero {
+                        cond,
+                        target: cont_block,
+                    },
+                    *self.ast.get_stmt_span(stmt),
+                );
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = loop_block;
+                self.build_from_stmt(*body);
+                self.append_to_block(Instr::Jump(step_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = step_block;
+                self.build_from_expr(*step);
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+
+                self.block = cont_block;
+            }
+            parse::Stmt::Switch { cond, body } => {
+                let cont_block = self.fn_def.push_block(Block::with_label(
+                    self.interner.get_or_intern_static("cont"),
+                ));
+
+                self.break_blocks.insert(stmt, cont_block);
+
+                let lhs = self.build_from_expr(*cond);
+                if let Some(switch) = self.ctx.switches.get(&stmt) {
+                    switch.cases.iter().for_each(|stmt| {
+                        if let parse::Stmt::Case { expr, .. } = self.ast.get_stmt(*stmt) {
+                            let target = self.fn_def.push_block(Block::with_label(
+                                self.interner.get_or_intern_static("case"),
+                            ));
+                            self.case_blocks.insert(*stmt, target);
+                            let dst = self.make_tmp();
+                            let rhs = self.build_from_expr(*expr);
+                            self.append_to_block(
+                                Instr::Binary {
+                                    op: BinaryOp::Equal,
+                                    lhs,
+                                    rhs,
+                                    dst,
+                                },
+                                *self.ast.get_stmt_span(*stmt),
+                            );
+                            self.append_to_block(
+                                Instr::JumpIfNotZero { cond: dst, target },
+                                *self.ast.get_stmt_span(*stmt),
+                            );
+                        }
+                    });
+                    match switch.default {
+                        None => {
+                            self.append_to_block(
+                                Instr::Jump(cont_block),
+                                *self.ast.get_stmt_span(stmt),
+                            );
+                        }
+                        Some(stmt) => {
+                            let target = self.fn_def.push_block(Block::with_label(
+                                self.interner.get_or_intern_static("default"),
+                            ));
+                            self.case_blocks.insert(stmt, target);
+                            self.append_to_block(
+                                Instr::Jump(target),
+                                *self.ast.get_stmt_span(stmt),
+                            );
+                        }
+                    }
+                    self.build_from_stmt(*body);
+                }
+
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+
                 self.block = cont_block;
             }
         }

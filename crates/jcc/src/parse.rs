@@ -5,13 +5,13 @@ use tacky::{
     string_interner::{DefaultSymbol, Symbol},
 };
 
-use std::{iter::Peekable, slice::Iter};
+use std::{iter::Peekable, num::NonZero, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Ast
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Ast {
     items: Vec<Item>,
     decls: Vec<Decl>,
@@ -21,113 +21,183 @@ pub struct Ast {
     decls_span: Vec<SourceSpan>,
     stmts_span: Vec<SourceSpan>,
     exprs_span: Vec<SourceSpan>,
+    block_items: Vec<BlockItem>,
 }
 
-impl Ast {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn items(&self) -> &[Item] {
-        &self.items
-    }
-
-    pub fn get_item(&self, item: ItemRef) -> &Item {
-        &self.items[item.0 as usize]
-    }
-
-    pub fn get_decl(&self, decl: DeclRef) -> &Decl {
-        &self.decls[decl.0 as usize]
-    }
-
-    pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
-        &self.stmts[stmt.0 as usize]
-    }
-
-    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
-        &self.exprs[expr.0 as usize]
-    }
-
-    pub fn get_item_span(&self, item: ItemRef) -> &SourceSpan {
-        &self.items_span[item.0 as usize]
-    }
-
-    pub fn get_decl_span(&self, decl: DeclRef) -> &SourceSpan {
-        &self.decls_span[decl.0 as usize]
-    }
-
-    pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
-        &self.stmts_span[stmt.0 as usize]
-    }
-
-    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
-        &self.exprs_span[expr.0 as usize]
-    }
-
-    pub fn get_item_mut(&mut self, item: ItemRef) -> &mut Item {
-        &mut self.items[item.0 as usize]
-    }
-
-    pub fn get_decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
-        &mut self.decls[decl.0 as usize]
-    }
-
-    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
-        &mut self.stmts[stmt.0 as usize]
-    }
-
-    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
-        &mut self.exprs[expr.0 as usize]
-    }
-
-    pub fn push_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
-        let r = ItemRef(self.items.len() as u32);
-        self.items.push(item);
-        self.items_span.push(span);
-        r
-    }
-
-    pub fn push_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
-        let r = DeclRef(self.decls.len() as u32);
-        self.decls.push(decl);
-        self.decls_span.push(span);
-        r
-    }
-
-    pub fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
-        let r = StmtRef(self.stmts.len() as u32);
-        self.stmts.push(stmt);
-        self.stmts_span.push(span);
-        r
-    }
-
-    pub fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
-        let r = ExprRef(self.exprs.len() as u32);
-        self.exprs.push(expr);
-        self.exprs_span.push(span);
-        r
-    }
-
-    pub fn items_iter_refs(&self) -> impl Iterator<Item = ItemRef> {
-        (0..self.items.len() as u32).map(ItemRef)
-    }
-
-    pub fn items_iter_both(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
-        self.items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| (ItemRef(i as u32), item))
+impl Default for Ast {
+    fn default() -> Self {
+        Ast {
+            items: vec![Default::default()],
+            decls: vec![Default::default()],
+            stmts: vec![Default::default()],
+            exprs: vec![Default::default()],
+            items_span: vec![Default::default()],
+            decls_span: vec![Default::default()],
+            stmts_span: vec![Default::default()],
+            exprs_span: vec![Default::default()],
+            block_items: Default::default(),
+        }
     }
 }
 
 impl std::fmt::Debug for Ast {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ast")
-            .field("items", &self.items)
-            .field("decls", &self.decls)
-            .field("stmts", &self.stmts)
-            .field("exprs", &self.exprs)
+            .field("items", &&self.items[1..])
+            .field("decls", &&self.decls[1..])
+            .field("stmts", &&self.stmts[1..])
+            .field("exprs", &&self.exprs[1..])
+            .field("block_items", &self.block_items)
             .finish()
+    }
+}
+
+impl Ast {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[inline]
+    pub fn items(&self) -> &[Item] {
+        &self.items[1..]
+    }
+
+    #[inline]
+    pub fn get_item(&self, item: ItemRef) -> &Item {
+        &self.items[item.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_decl(&self, decl: DeclRef) -> &Decl {
+        &self.decls[decl.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
+        &self.stmts[stmt.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
+        &self.exprs[expr.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_item_span(&self, item: ItemRef) -> &SourceSpan {
+        &self.items_span[item.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_decl_span(&self, decl: DeclRef) -> &SourceSpan {
+        &self.decls_span[decl.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
+        &self.stmts_span[stmt.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
+        &self.exprs_span[expr.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_block_items(&self, slice: BlockItemSlice) -> &[BlockItem] {
+        &self.block_items[slice.begin as usize..slice.end as usize]
+    }
+
+    #[inline]
+    pub fn get_item_mut(&mut self, item: ItemRef) -> &mut Item {
+        &mut self.items[item.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
+        &mut self.decls[decl.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
+        &mut self.stmts[stmt.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
+        &mut self.exprs[expr.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_item_span_mut(&mut self, item: ItemRef) -> &mut SourceSpan {
+        &mut self.items_span[item.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_decl_span_mut(&mut self, decl: DeclRef) -> &mut SourceSpan {
+        &mut self.decls_span[decl.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_stmt_span_mut(&mut self, stmt: StmtRef) -> &mut SourceSpan {
+        &mut self.stmts_span[stmt.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn get_expr_span_mut(&mut self, expr: ExprRef) -> &mut SourceSpan {
+        &mut self.exprs_span[expr.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn push_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
+        let r = ItemRef(NonZero::new(self.items.len() as u32).unwrap());
+        self.items.push(item);
+        self.items_span.push(span);
+        r
+    }
+
+    #[inline]
+    pub fn push_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
+        let r = DeclRef(NonZero::new(self.decls.len() as u32).unwrap());
+        self.decls.push(decl);
+        self.decls_span.push(span);
+        r
+    }
+
+    #[inline]
+    pub fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
+        let r = StmtRef(NonZero::new(self.stmts.len() as u32).unwrap());
+        self.stmts.push(stmt);
+        self.stmts_span.push(span);
+        r
+    }
+
+    #[inline]
+    pub fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
+        let r = ExprRef(NonZero::new(self.exprs.len() as u32).unwrap());
+        self.exprs.push(expr);
+        self.exprs_span.push(span);
+        r
+    }
+
+    #[inline]
+    pub fn push_block_items(
+        &mut self,
+        block_items: impl IntoIterator<Item = BlockItem>,
+    ) -> BlockItemSlice {
+        let begin = self.block_items.len() as u32;
+        self.block_items.extend(block_items);
+        let end = self.block_items.len() as u32;
+        BlockItemSlice { begin, end }
+    }
+
+    #[inline]
+    pub fn items_iter_refs(&self) -> impl Iterator<Item = ItemRef> {
+        (1..self.items.len()).map(|i| ItemRef(NonZero::new(i as u32).unwrap()))
+    }
+
+    #[inline]
+    pub fn items_iter_both(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
+        self.items_iter_refs().zip(self.items().iter())
     }
 }
 
@@ -136,24 +206,25 @@ impl std::fmt::Debug for Ast {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ItemRef(u32);
+pub struct ItemRef(NonZero<u32>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub name: DefaultSymbol,
-    pub body: Vec<BlockItem>,
+    pub body: BlockItemSlice,
+}
+
+impl Default for Item {
+    fn default() -> Self {
+        Self {
+            body: Default::default(),
+            name: DefaultSymbol::try_from_usize(0).unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum BlockItem {
-    /// A declaration.
-    Decl(DeclRef),
-    /// A statement.
-    Stmt(StmtRef),
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct DeclRef(u32);
+pub struct DeclRef(NonZero<u32>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decl {
@@ -164,21 +235,41 @@ pub enum Decl {
     },
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StmtRef(u32);
+impl Default for Decl {
+    fn default() -> Self {
+        Self::Var {
+            init: None,
+            name: DefaultSymbol::try_from_usize(0).unwrap(),
+        }
+    }
+}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StmtRef(NonZero<u32>);
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
     /// An empty statement.
+    #[default]
     Empty,
     /// An expression statement.
     Expr(ExprRef),
     /// A return statement.
     Return(ExprRef),
+    /// A default statement.
+    Default(StmtRef),
     /// A goto statement.
     Goto(DefaultSymbol),
+    /// A break statement.
+    Break(Option<StmtRef>),
+    /// A continue statement.
+    Continue(Option<StmtRef>),
     /// A compound statement.
-    Compound(Vec<BlockItem>),
+    Compound(BlockItemSlice),
+    /// A case statement.
+    Case { expr: ExprRef, stmt: StmtRef },
+    /// A switch statement.
+    Switch { cond: ExprRef, body: StmtRef },
     /// A label statement.
     Label { label: DefaultSymbol, stmt: StmtRef },
     /// An if statement.
@@ -187,12 +278,23 @@ pub enum Stmt {
         then: StmtRef,
         otherwise: Option<StmtRef>,
     },
+    /// A while statement.
+    While { cond: ExprRef, body: StmtRef },
+    /// A do-while statement.
+    DoWhile { body: StmtRef, cond: ExprRef },
+    /// A for statement.
+    For {
+        init: Option<ForInit>,
+        cond: Option<ExprRef>,
+        step: Option<ExprRef>,
+        body: StmtRef,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ExprRef(u32);
+pub struct ExprRef(NonZero<u32>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {
     /// A constant integer value.
     Constant(u32),
@@ -219,7 +321,13 @@ pub enum Expr {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl Default for Expr {
+    fn default() -> Self {
+        Self::Constant(0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
@@ -237,7 +345,7 @@ pub enum UnaryOp {
     PostDec,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BinaryOp {
     /// The `||` operator.
     LogicalOr,
@@ -300,6 +408,32 @@ pub enum BinaryOp {
 }
 
 // ---------------------------------------------------------------------------
+// Support structures
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ForInit {
+    /// A declaration.
+    Decl(DeclRef),
+    /// An expression.
+    Expr(ExprRef),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum BlockItem {
+    /// A declaration.
+    Decl(DeclRef),
+    /// A statement.
+    Stmt(StmtRef),
+}
+
+#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct BlockItemSlice {
+    begin: u32,
+    end: u32,
+}
+
+// ---------------------------------------------------------------------------
 // ParserResult
 // ---------------------------------------------------------------------------
 
@@ -327,6 +461,7 @@ pub struct Parser<'a> {
     result: ParserResult,
     file: &'a SourceFile,
     iter: Peekable<Iter<'a, Token>>,
+    block_item_stack: Vec<BlockItem>,
 }
 
 impl<'a> Parser<'a> {
@@ -335,11 +470,13 @@ impl<'a> Parser<'a> {
             file,
             iter: iter.peekable(),
             result: ParserResult::default(),
+            block_item_stack: Vec::with_capacity(16),
         }
     }
 
     pub fn parse(mut self) -> ParserResult {
         self.parse_item();
+        assert!(self.block_item_stack.is_empty());
         if let Some(Token { span, .. }) = self.iter.next() {
             if self.result.diagnostics.is_empty() {
                 self.result.diagnostics.push(ParserDiagnostic {
@@ -363,35 +500,43 @@ impl<'a> Parser<'a> {
         Some(self.result.ast.push_item(Item { name, body }, span))
     }
 
-    fn parse_body(&mut self) -> Option<Vec<BlockItem>> {
-        let mut body = Vec::new();
+    fn parse_body(&mut self) -> Option<BlockItemSlice> {
+        let base = self.block_item_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
                 TokenKind::KwInt => {
-                    self.iter.next();
-                    let (span, name) = self.eat_identifier()?;
-                    let value = match self.iter.peek() {
-                        Some(Token {
-                            kind: TokenKind::Eq,
-                            ..
-                        }) => {
-                            self.iter.next();
-                            Some(self.parse_expr(0)?)
-                        }
-                        _ => None,
-                    };
-                    self.eat(TokenKind::Semi)?;
-                    body.push(BlockItem::Decl(
-                        self.result
-                            .ast
-                            .push_decl(Decl::Var { name, init: value }, span),
-                    ));
+                    let decl = self.parse_decl()?;
+                    self.block_item_stack.push(BlockItem::Decl(decl));
                 }
-                _ => body.push(BlockItem::Stmt(self.parse_stmt()?)),
+                _ => {
+                    let stmt = self.parse_stmt()?;
+                    self.block_item_stack.push(BlockItem::Stmt(stmt));
+                }
             }
         }
-        Some(body)
+        Some(
+            self.result
+                .ast
+                .push_block_items(self.block_item_stack.drain(base..)),
+        )
+    }
+
+    fn parse_decl(&mut self) -> Option<DeclRef> {
+        self.eat(TokenKind::KwInt)?;
+        let (span, name) = self.eat_identifier()?;
+        let init = match self.iter.peek() {
+            Some(Token {
+                kind: TokenKind::Eq,
+                ..
+            }) => {
+                self.iter.next();
+                Some(self.parse_expr(0)?)
+            }
+            _ => None,
+        };
+        self.eat(TokenKind::Semi)?;
+        Some(self.result.ast.push_decl(Decl::Var { name, init }, span))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -407,17 +552,52 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.push_stmt(Stmt::Return(expr), *span))
             }
+            TokenKind::KwDefault => {
+                self.iter.next();
+                self.eat(TokenKind::Colon)?;
+                let stmt = self.parse_stmt()?;
+                Some(self.result.ast.push_stmt(Stmt::Default(stmt), *span))
+            }
             TokenKind::KwGoto => {
                 self.iter.next();
                 let (_, name) = self.eat_identifier()?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.push_stmt(Stmt::Goto(name), *span))
             }
+            TokenKind::KwBreak => {
+                self.iter.next();
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.push_stmt(Stmt::Break(None), *span))
+            }
+            TokenKind::KwContinue => {
+                self.iter.next();
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.push_stmt(Stmt::Continue(None), *span))
+            }
             TokenKind::LBrace => {
                 self.iter.next();
                 let body = self.parse_body()?;
                 self.eat(TokenKind::RBrace)?;
                 Some(self.result.ast.push_stmt(Stmt::Compound(body), *span))
+            }
+            TokenKind::KwCase => {
+                self.iter.next();
+                let expr = self.parse_expr(0)?;
+                self.eat(TokenKind::Colon)?;
+                let stmt = self.parse_stmt()?;
+                Some(self.result.ast.push_stmt(Stmt::Case { expr, stmt }, *span))
+            }
+            TokenKind::KwSwitch => {
+                self.iter.next();
+                self.eat(TokenKind::LParen)?;
+                let cond = self.parse_expr(0)?;
+                self.eat(TokenKind::RParen)?;
+                let body = self.parse_stmt()?;
+                Some(
+                    self.result
+                        .ast
+                        .push_stmt(Stmt::Switch { cond, body }, *span),
+                )
             }
             TokenKind::KwIf => {
                 self.iter.next();
@@ -440,6 +620,53 @@ impl<'a> Parser<'a> {
                         cond,
                         then,
                         otherwise,
+                    },
+                    *span,
+                ))
+            }
+            TokenKind::KwWhile => {
+                self.iter.next();
+                self.eat(TokenKind::LParen)?;
+                let cond = self.parse_expr(0)?;
+                self.eat(TokenKind::RParen)?;
+                let body = self.parse_stmt()?;
+                Some(self.result.ast.push_stmt(Stmt::While { cond, body }, *span))
+            }
+            TokenKind::KwDo => {
+                self.iter.next();
+                let body = self.parse_stmt()?;
+                self.eat(TokenKind::KwWhile)?;
+                self.eat(TokenKind::LParen)?;
+                let cond = self.parse_expr(0)?;
+                self.eat(TokenKind::RParen)?;
+                self.eat(TokenKind::Semi)?;
+                Some(
+                    self.result
+                        .ast
+                        .push_stmt(Stmt::DoWhile { body, cond }, *span),
+                )
+            }
+            TokenKind::KwFor => {
+                self.iter.next();
+                self.eat(TokenKind::LParen)?;
+                let init = if let Some(Token {
+                    kind: TokenKind::KwInt,
+                    ..
+                }) = self.iter.peek()
+                {
+                    Some(ForInit::Decl(self.parse_decl()?))
+                } else {
+                    self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr)
+                };
+                let cond = self.parse_optional_expr(TokenKind::Semi);
+                let step = self.parse_optional_expr(TokenKind::RParen);
+                let body = self.parse_stmt()?;
+                Some(self.result.ast.push_stmt(
+                    Stmt::For {
+                        init,
+                        cond,
+                        step,
+                        body,
                     },
                     *span,
                 ))
@@ -468,6 +695,20 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.push_stmt(Stmt::Expr(expr), *span))
+            }
+        }
+    }
+
+    fn parse_optional_expr(&mut self, delim: TokenKind) -> Option<ExprRef> {
+        match self.iter.peek() {
+            Some(Token { kind, .. }) if *kind == delim => {
+                self.iter.next();
+                None
+            }
+            _ => {
+                let expr = self.parse_expr(0)?;
+                self.eat(delim)?;
+                Some(expr)
             }
         }
     }

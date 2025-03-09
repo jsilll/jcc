@@ -322,6 +322,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ssa"
+version = "0.1.0"
+
+[[package]]
 name = "string-interner"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

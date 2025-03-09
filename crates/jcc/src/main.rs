@@ -143,7 +143,7 @@ fn try_main() -> Result<()> {
     }
 
     // Generate Tacky
-    let tacky = TackyBuilder::new(&ast, &mut interner).build();
+    let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
     if args.verbose {
         println!("{:#?}", tacky);
     }

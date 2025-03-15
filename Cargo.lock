@@ -324,6 +324,9 @@ dependencies = [
 [[package]]
 name = "ssa"
 version = "0.1.0"
+dependencies = [
+ "source_file",
+]
 
 [[package]]
 name = "string-interner"

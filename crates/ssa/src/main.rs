@@ -1,12 +1,14 @@
-use ssa::{insertion::InsertionSet, Inst, InstKind, OpCode, Program, Type};
+use ssa::{insertion::InsertionSet, Inst, InstKind, InstRef, OpCode, Program, Type};
+
+use std::collections::HashSet;
 
 pub fn optimize_constant_add(p: &mut Program) {
     let mut iset = InsertionSet::new();
     for b in p.get_blocks_iter() {
         for i in &p.get_block(b).insts.clone() {
             let inst = p.get_inst(*i);
-            if let InstKind::Generic {
-                opcode: OpCode::Add,
+            if let InstKind::Pure {
+                op: OpCode::Add,
                 args,
             } = &inst.kind
             {
@@ -36,6 +38,53 @@ pub fn optimize_constant_add(p: &mut Program) {
         }
         iset.execute(p, b);
     }
+}
+
+pub fn eliminate_dead_code(p: &mut Program) {
+    // First, mark all live instructions
+    let live_insts = mark_live_instructions(p);
+
+    // Then, remove all dead instructions
+    for b in p.get_blocks_iter() {
+        let block = p.get_block_mut(b);
+        block.insts.retain(|inst_id| live_insts.contains(inst_id));
+    }
+
+    // After mark the arena slots as empty and add them to the free list
+}
+
+fn mark_live_instructions(p: &Program) -> HashSet<InstRef> {
+    let mut worklist = Vec::new();
+    let mut live_insts = HashSet::new();
+
+    // Initially mark all instructions with side effects as live
+    for b in p.get_blocks_iter() {
+        let block = p.get_block(b);
+        for inst_id in &block.insts {
+            let inst = p.get_inst(*inst_id);
+            if !inst.get_effects(p).is_empty() {
+                live_insts.insert(*inst_id);
+                worklist.push(*inst_id);
+            }
+        }
+    }
+
+    // Propagate liveness backward
+    while let Some(inst_id) = worklist.pop() {
+        let inst = p.get_inst(inst_id);
+
+        // Mark all operands as live
+        if let Some(args) = inst.get_args() {
+            for arg in args {
+                if !live_insts.contains(&arg) {
+                    live_insts.insert(arg);
+                    worklist.push(arg);
+                }
+            }
+        }
+    }
+
+    live_insts
 }
 
 pub fn main() {
@@ -89,7 +138,7 @@ pub fn main() {
     let x2 = p.add_inst(Inst::add_i32(arg1, two));
     let u2 = p.add_inst(Inst::upsilon(phi, x2));
     let b = p.get_block_mut(else_block);
-    b.insts.extend([one, x1, u2]);
+    b.insts.extend([two, x2, u2]);
 
     // Create return block instructions
     let c1 = p.add_inst(Inst::const_i32(3));
@@ -103,7 +152,10 @@ pub fn main() {
     println!("{}", p);
 
     optimize_constant_add(&mut p);
-    // TODO: dead code removal
+
+    println!("{}", p);
+
+    eliminate_dead_code(&mut p);
 
     println!("{}", p);
 }

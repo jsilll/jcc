@@ -8,7 +8,53 @@ use effects::{AbstractHeap, FastEffects};
 
 use source_file::SourceSpan;
 
-use std::{collections::HashMap, fmt, num::NonZeroU32};
+use std::{
+    collections::HashMap,
+    fmt,
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    num::NonZeroU32,
+};
+
+// ---------------------------------------------------------------------------
+// EntityRef<T>
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
+
+impl<T> EntityRef<T> {
+    pub fn new(idx: usize) -> Self {
+        Self(
+            NonZeroU32::new(idx as u32).expect("expected a positive index"),
+            PhantomData,
+        )
+    }
+}
+
+impl<T> Copy for EntityRef<T> {}
+impl<T> Clone for EntityRef<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, PhantomData)
+    }
+}
+
+impl<T> Eq for EntityRef<T> {}
+impl<T> PartialEq for EntityRef<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> Hash for EntityRef<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Type
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -21,10 +67,38 @@ pub enum Type {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpCode {
+    /// The identity operator.
+    Identity,
+
+    /// The not operator.
+    Not,
+    /// The neg operator.
+    Neg,
+    /// The inc operator.
+    Inc,
+    /// The dec operator.
+    Dec,
+    /// The bit not operator.
+    BitNot,
+
     Add,
+    /// The sub operator.
     Sub,
+    /// The mul operator.
     Mul,
+    /// The div operator.
     Div,
+    /// The rem operator.
+    Rem,
+
+    /// The bit or operator.
+    BitOr,
+    /// The bit and operator.
+    BitAnd,
+    /// The bit shift left operator.
+    BitShl,
+    /// The bit shift right operator.
+    BitShr,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
@@ -32,24 +106,62 @@ pub enum InstKind {
     #[default]
     Nop,
     Phi,
-    Jump,
-    Branch,
     GetArg,
     Const(i64),
     Ret(InstRef),
-    Identity(InstRef),
+    Jump(BlockRef),
     Upsilon {
         phi: InstRef,
-        value: InstRef,
+        val: InstRef,
     },
-    Generic {
-        opcode: OpCode,
+    Branch {
+        cond: InstRef,
+        then: BlockRef,
+        other: BlockRef,
+    },
+    Pure {
+        op: OpCode,
         args: Vec<InstRef>,
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InstRef(NonZeroU32);
+impl fmt::Display for InstKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstKind::Ret(i) => write!(f, "Ret({})", i),
+            InstKind::Jump(b) => write!(f, "Jump({})", b),
+            InstKind::Upsilon { phi, val } => {
+                write!(f, "Upsilon {{ phi: {}, value: {} }}", phi, val)
+            }
+            InstKind::Branch { cond, then, other } => {
+                write!(
+                    f,
+                    "Branch {{ cond: {}, then: {}, other: {} }}",
+                    cond, then, other
+                )
+            }
+            InstKind::Pure { op, args } => {
+                write!(f, "{:?}(", op)?;
+                let mut args_iter = args.iter();
+                if let Some(first_arg) = args_iter.next() {
+                    write!(f, "{}", first_arg)?;
+                    for arg in args_iter {
+                        write!(f, ", {}", arg)?;
+                    }
+                }
+                write!(f, ")")
+            }
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
+
+pub type InstRef = EntityRef<Inst>;
+impl fmt::Display for InstRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}", self.0.get())
+    }
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Inst {
@@ -75,10 +187,10 @@ impl Inst {
         }
     }
 
-    pub fn upsilon(phi: InstRef, value: InstRef) -> Self {
+    pub fn upsilon(phi: InstRef, val: InstRef) -> Self {
         Self {
             ty: Type::Void,
-            kind: InstKind::Upsilon { phi, value },
+            kind: InstKind::Upsilon { phi, val },
         }
     }
 
@@ -99,8 +211,8 @@ impl Inst {
     pub fn add_i32(lhs: InstRef, rhs: InstRef) -> Self {
         Self {
             ty: Type::Int32,
-            kind: InstKind::Generic {
-                opcode: OpCode::Add,
+            kind: InstKind::Pure {
+                op: OpCode::Add,
                 args: vec![lhs, rhs],
             },
         }
@@ -110,6 +222,15 @@ impl Inst {
         match self.kind {
             InstKind::Const(v) => v == value,
             _ => false,
+        }
+    }
+
+    pub fn get_args(&self) -> Option<Vec<InstRef>> {
+        match &self.kind {
+            InstKind::Ret(val) => Some(vec![*val]),
+            InstKind::Pure { args, .. } => Some(args.clone()),
+            InstKind::Upsilon { phi, val } => Some(vec![*phi, *val]),
+            _ => None,
         }
     }
 
@@ -123,7 +244,7 @@ impl Inst {
             InstKind::Upsilon { .. } => effects.writes.add(program.heaps.ssa_state),
 
             // Control flow instruction write to the control heap
-            InstKind::Jump | InstKind::Ret(_) | InstKind::Branch => {
+            InstKind::Jump(_) | InstKind::Ret(_) | InstKind::Branch { .. } => {
                 effects.writes.add(program.heaps.control)
             }
 
@@ -132,13 +253,26 @@ impl Inst {
         effects
     }
 
-    pub fn into_identity(&mut self, value: InstRef) {
-        self.kind = InstKind::Identity(value)
+    pub fn into_identity(&mut self, val: InstRef) {
+        match &mut self.kind {
+            InstKind::Pure { op, args } => {
+                *op = OpCode::Identity;
+                args.clear();
+                args.push(val);
+            }
+            _ => {
+                self.kind = InstKind::Pure { op: OpCode::Identity, args: vec![val] }
+            }
+        }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BlockRef(NonZeroU32);
+pub type BlockRef = EntityRef<Block>;
+impl fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "b{}", self.0.get())
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct Block {
@@ -148,8 +282,12 @@ pub struct Block {
     pub succ: Vec<BlockRef>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FuncRef(NonZeroU32);
+pub type FuncRef = EntityRef<Func>;
+impl fmt::Display for FuncRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f{}", self.0.get())
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct Func {
@@ -201,13 +339,11 @@ impl Program {
     }
 
     pub fn get_blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
-        (1..self.blocks.len())
-            .map(|i| BlockRef(NonZeroU32::new(i as u32).expect("expected a positive index")))
+        (1..self.blocks.len()).map(|i| BlockRef::new(i))
     }
 
     pub fn get_funcs_iter(&self) -> impl Iterator<Item = FuncRef> {
-        (1..self.funcs.len())
-            .map(|i| FuncRef(NonZeroU32::new(i as u32).expect("expected a positive index")))
+        (1..self.funcs.len()).map(|i| FuncRef::new(i))
     }
 
     pub fn get_inst(&self, inst: InstRef) -> &Inst {
@@ -243,24 +379,21 @@ impl Program {
     }
 
     pub fn add_inst(&mut self, inst: Inst) -> InstRef {
-        let idx =
-            InstRef(NonZeroU32::new(self.insts.len() as u32).expect("expected a positive index"));
+        let idx = InstRef::new(self.insts.len());
         self.insts.push(inst);
         self.insts_span.push(Default::default());
         idx
     }
 
     pub fn add_block(&mut self, name: &str) -> BlockRef {
-        let idx =
-            BlockRef(NonZeroU32::new(self.blocks.len() as u32).expect("expected a positive index"));
+        let idx = BlockRef::new(self.blocks.len());
         self.blocks.push(Default::default());
         self.blocks_name.push(name.to_owned());
         idx
     }
 
     pub fn add_func(&mut self, name: &str) -> FuncRef {
-        let idx =
-            FuncRef(NonZeroU32::new(self.funcs.len() as u32).expect("expected a positive index"));
+        let idx = FuncRef::new(self.funcs.len());
         self.funcs.push(Default::default());
         self.funcs_name.push(name.to_owned());
         idx
@@ -270,11 +403,9 @@ impl Program {
         // TODO: build a function that builds a map for all phis??
         let mut res = Vec::new();
         for (idx, inst) in self.insts.iter().enumerate().skip(1) {
-            if let InstKind::Upsilon { phi: p, .. } = inst.kind {
-                if p == phi {
-                    res.push(InstRef(
-                        NonZeroU32::new(idx as u32).expect("expeted a positive index"),
-                    ))
+            if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
+                if *p == phi {
+                    res.push(InstRef::new(idx))
                 }
             }
         }
@@ -285,9 +416,10 @@ impl Program {
         let mut res = HashMap::new();
 
         for (idx, block) in self.blocks.iter().enumerate() {
-            let idx = BlockRef(NonZeroU32::new(idx as u32).expect("expected a positive index"));
             for succ in &block.succ {
-                res.entry(*succ).or_insert(Vec::new()).push(idx);
+                res.entry(*succ)
+                    .or_insert(Vec::new())
+                    .push(BlockRef::new(idx));
             }
         }
 
@@ -304,61 +436,15 @@ impl Program {
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            writeln!(f, "define {}", name)?;
+            writeln!(f, "define @{}", name)?;
             for block in &func.blocks {
                 writeln!(f, "{}:", self.get_block_name(*block))?;
-                for (idx, inst) in self.get_block(*block).insts.iter().enumerate() {
-                    let inst = self.get_inst(*inst);
-                    writeln!(f, "  {:?} %{} = {:?}", inst.ty, idx, inst.kind)?;
+                for i in self.get_block(*block).insts.iter() {
+                    let inst = self.get_inst(*i);
+                    writeln!(f, "  {:?} %{} = {}", inst.ty, i.0.get(), inst.kind)?;
                 }
             }
         }
         Ok(())
-        // for &block_idx in &program.functions[func_idx].blocks {
-        //     let block = &program.blocks[block_idx.0];
-        //     println!("{}:", block.name);
-
-        //     for &inst_idx in &block.insts {
-        //         let inst = &program.insts[inst_idx.0];
-        //         let base = inst.get_base();
-
-        //         print!("  {:?} {} = {:?}", base.inst_type, base.name, base.opcode);
-
-        //         if !base.args.is_empty() {
-        //             print!("(");
-        //             for (i, &arg) in base.args.iter().enumerate() {
-        //                 if i > 0 {
-        //                     print!(", ");
-        //                 }
-        //                 print!("{}", program.insts[arg.0].get_base().name);
-        //             }
-        //             print!(")");
-        //         }
-
-        //         // Special handling for Upsilon to show phi target
-        //         if let InstData::Upsilon(upsilon) = inst {
-        //             print!(" → ^{}", program.insts[upsilon.phi.0].get_base().name);
-        //         }
-
-        //         // Special handling for Const to show value
-        //         if let InstData::Const(const_inst) = inst {
-        //             print!(" [{}]", const_inst.value);
-        //         }
-
-        //         println!();
-        //     }
-
-        //     if !block.successors.is_empty() {
-        //         print!("  successors: ");
-        //         for (i, &succ) in block.successors.iter().enumerate() {
-        //             if i > 0 {
-        //                 print!(", ");
-        //             }
-        //             print!("{}", program.blocks[succ.0].name);
-        //         }
-        //         println!();
-        //     }
-        //     println!();
-        // }
     }
 }

@@ -3,6 +3,7 @@ pub struct AbstractHeap {
     pre: u32,
     post: u32,
 }
+
 impl AbstractHeap {
     pub fn new(pre: u32, post: u32) -> Self {
         assert!(pre <= post);
@@ -28,6 +29,10 @@ impl HalfFastEffects {
         self.heaps.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.heaps.is_empty()
+    }
+
     pub fn add(&mut self, range: AbstractHeap) {
         self.heaps.push(range);
     }
@@ -51,8 +56,12 @@ impl FastEffects {
         }
     }
 
-    pub fn interferes_with(&self, other: &FastEffects) -> bool {
-        // TODO: Improve this
+    pub fn is_empty(&self) -> bool {
+       self.reads.is_empty() && self.writes.is_empty() 
+    }
+
+    pub fn interferes_with(&self, other: &Self) -> bool {
+        // TODO: Improve performance
 
         // Read-write interference
         for read in &self.reads.heaps {

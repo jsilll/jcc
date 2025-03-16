@@ -2,6 +2,8 @@ pub mod effects;
 
 pub mod insertion;
 
+pub mod opt;
+
 pub use source_file;
 
 use effects::{AbstractHeap, FastEffects};
@@ -65,11 +67,12 @@ pub enum Type {
     IntPtr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OpCode {
-    /// The identity operator.
-    Identity,
+// ---------------------------------------------------------------------------
+// Inst
+// ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnaryOp {
     /// The not operator.
     Not,
     /// The neg operator.
@@ -80,7 +83,11 @@ pub enum OpCode {
     Dec,
     /// The bit not operator.
     BitNot,
+}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinaryOp {
+    /// The add operaotr.
     Add,
     /// The sub operator.
     Sub,
@@ -90,7 +97,6 @@ pub enum OpCode {
     Div,
     /// The rem operator.
     Rem,
-
     /// The bit or operator.
     BitOr,
     /// The bit and operator.
@@ -110,58 +116,28 @@ pub enum InstKind {
     Const(i64),
     Ret(InstRef),
     Jump(BlockRef),
+    Identity(InstRef),
     Upsilon {
+        val: InstRef,
         phi: InstRef,
+    },
+    Unary {
+        op: UnaryOp,
         val: InstRef,
     },
+    Binary {
+        op: BinaryOp,
+        lhs: InstRef,
+        rhs: InstRef,
+    },
     Branch {
-        cond: InstRef,
+        val: InstRef,
         then: BlockRef,
         other: BlockRef,
     },
-    Pure {
-        op: OpCode,
-        args: Vec<InstRef>,
-    },
-}
-
-impl fmt::Display for InstKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InstKind::Ret(i) => write!(f, "Ret({})", i),
-            InstKind::Jump(b) => write!(f, "Jump({})", b),
-            InstKind::Upsilon { phi, val } => {
-                write!(f, "Upsilon {{ phi: {}, value: {} }}", phi, val)
-            }
-            InstKind::Branch { cond, then, other } => {
-                write!(
-                    f,
-                    "Branch {{ cond: {}, then: {}, other: {} }}",
-                    cond, then, other
-                )
-            }
-            InstKind::Pure { op, args } => {
-                write!(f, "{:?}(", op)?;
-                let mut args_iter = args.iter();
-                if let Some(first_arg) = args_iter.next() {
-                    write!(f, "{}", first_arg)?;
-                    for arg in args_iter {
-                        write!(f, ", {}", arg)?;
-                    }
-                }
-                write!(f, ")")
-            }
-            _ => write!(f, "{:?}", self),
-        }
-    }
 }
 
 pub type InstRef = EntityRef<Inst>;
-impl fmt::Display for InstRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "%{}", self.0.get())
-    }
-}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Inst {
@@ -173,17 +149,31 @@ pub struct Inst {
 }
 
 impl Inst {
-    pub fn ret(v: InstRef) -> Self {
-        Self {
-            ty: Type::Void,
-            kind: InstKind::Ret(v),
-        }
-    }
-
     pub fn phi(ty: Type) -> Self {
         Self {
             ty,
             kind: InstKind::Phi,
+        }
+    }
+
+    pub fn ret(val: InstRef) -> Self {
+        Self {
+            ty: Type::Void,
+            kind: InstKind::Ret(val),
+        }
+    }
+
+    pub fn const_i32(val: i64) -> Self {
+        Self {
+            ty: Type::Int32,
+            kind: InstKind::Const(val),
+        }
+    }
+
+    pub fn const_i64(val: i64) -> Self {
+        Self {
+            ty: Type::Int64,
+            kind: InstKind::Const(val),
         }
     }
 
@@ -194,106 +184,134 @@ impl Inst {
         }
     }
 
-    pub fn const_i64(value: i64) -> Self {
-        Self {
-            ty: Type::Int64,
-            kind: InstKind::Const(value),
-        }
-    }
-
-    pub fn const_i32(value: i64) -> Self {
-        Self {
-            ty: Type::Int32,
-            kind: InstKind::Const(value),
-        }
-    }
-
     pub fn add_i32(lhs: InstRef, rhs: InstRef) -> Self {
         Self {
             ty: Type::Int32,
-            kind: InstKind::Pure {
-                op: OpCode::Add,
-                args: vec![lhs, rhs],
+            kind: InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Add,
             },
         }
     }
 
-    pub fn is_const(&self, value: i64) -> bool {
+    pub fn is_const(&self, val: i64) -> bool {
         match self.kind {
-            InstKind::Const(v) => v == value,
+            InstKind::Const(v) => v == val,
             _ => false,
         }
     }
 
     pub fn get_args(&self) -> Option<Vec<InstRef>> {
         match &self.kind {
-            InstKind::Ret(val) => Some(vec![*val]),
-            InstKind::Pure { args, .. } => Some(args.clone()),
             InstKind::Upsilon { phi, val } => Some(vec![*phi, *val]),
-            _ => None,
+
+            InstKind::Binary { lhs, rhs, .. } => Some(vec![*lhs, *rhs]),
+
+            InstKind::Ret(val) | InstKind::Identity(val) | InstKind::Unary { val, .. } => {
+                Some(vec![*val])
+            }
+
+            InstKind::Nop
+            | InstKind::Phi
+            | InstKind::GetArg
+            | InstKind::Const(_)
+            | InstKind::Jump(_)
+            | InstKind::Branch { .. } => None,
         }
     }
 
     pub fn get_effects(&self, program: &Program) -> FastEffects {
         let mut effects = FastEffects::new();
         match self.kind {
-            // Phi reads from the SSA state
             InstKind::Phi => effects.reads.add(program.heaps.ssa_state),
 
-            // Upsilon writes to the SSA state
             InstKind::Upsilon { .. } => effects.writes.add(program.heaps.ssa_state),
 
-            // Control flow instruction write to the control heap
             InstKind::Jump(_) | InstKind::Ret(_) | InstKind::Branch { .. } => {
                 effects.writes.add(program.heaps.control)
             }
 
-            _ => {}
+            InstKind::Nop
+            | InstKind::GetArg
+            | InstKind::Const(_)
+            | InstKind::Identity(_)
+            | InstKind::Unary { .. }
+            | InstKind::Binary { .. } => {}
         }
         effects
     }
 
     pub fn into_identity(&mut self, val: InstRef) {
+        self.kind = InstKind::Identity(val)
+    }
+
+    pub fn replace_args(&mut self, map: &HashMap<InstRef, InstRef>) {
         match &mut self.kind {
-            InstKind::Pure { op, args } => {
-                *op = OpCode::Identity;
-                args.clear();
-                args.push(val);
+            InstKind::Upsilon { phi, val } => {
+                if let Some(v) = map.get(phi) {
+                    *phi = *v;
+                }
+                if let Some(v) = map.get(val) {
+                    *val = *v;
+                }
             }
-            _ => {
-                self.kind = InstKind::Pure { op: OpCode::Identity, args: vec![val] }
+
+            InstKind::Binary { lhs, rhs, .. } => {
+                if let Some(v) = map.get(lhs) {
+                    *lhs = *v;
+                }
+                if let Some(v) = map.get(rhs) {
+                    *rhs = *v;
+                }
             }
+
+            InstKind::Ret(val)
+            | InstKind::Identity(val)
+            | InstKind::Unary { val, .. }
+            | InstKind::Branch { val, .. } => {
+                if let Some(v) = map.get(val) {
+                    *val = *v;
+                }
+            }
+
+            InstKind::Nop
+            | InstKind::Phi
+            | InstKind::GetArg
+            | InstKind::Const(_)
+            | InstKind::Jump(_) => {}
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Block
+// ---------------------------------------------------------------------------
+
 pub type BlockRef = EntityRef<Block>;
-impl fmt::Display for BlockRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "b{}", self.0.get())
-    }
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct Block {
-    // TODO: name of block
+    // TODO: further split this?
     // TODO: index in function
     pub insts: Vec<InstRef>,
     pub succ: Vec<BlockRef>,
 }
 
+// ---------------------------------------------------------------------------
+// Func
+// ---------------------------------------------------------------------------
+
 pub type FuncRef = EntityRef<Func>;
-impl fmt::Display for FuncRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "f{}", self.0.get())
-    }
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct Func {
-    // TODO: name of function
     pub blocks: Vec<BlockRef>,
 }
+
+// ---------------------------------------------------------------------------
+// Program
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct BaseHeaps {
@@ -317,71 +335,79 @@ impl BaseHeaps {
 #[derive(Debug, Clone)]
 pub struct Program {
     heaps: BaseHeaps,
+
     funcs: Vec<Func>,
-    insts: Vec<Inst>,
-    blocks: Vec<Block>,
     funcs_name: Vec<String>,
+    // funcs_free: Vec<FuncRef>, TODO
+    blocks: Vec<Block>,
     blocks_name: Vec<String>,
+    // blocks_free: Vec<BlockRef>, TODO
+    insts: Vec<Inst>,
     insts_span: Vec<SourceSpan>,
+    // insts_free: Vec<InstRef>, TODO
 }
 
 impl Program {
     pub fn new() -> Self {
         Self {
             heaps: BaseHeaps::new(),
+
             funcs: vec![Default::default()],
-            insts: vec![Default::default()],
-            blocks: vec![Default::default()],
-            insts_span: vec![Default::default()],
             funcs_name: vec![Default::default()],
+            // funcs_free: Vec::new(), TODO
+            blocks: vec![Default::default()],
             blocks_name: vec![Default::default()],
+            // blocks_free: Vec::new(), TODO
+            insts: vec![Default::default()],
+            insts_span: vec![Default::default()],
+            // insts_free: Vec::new(), TODO
         }
-    }
-
-    pub fn get_blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
-        (1..self.blocks.len()).map(|i| BlockRef::new(i))
-    }
-
-    pub fn get_funcs_iter(&self) -> impl Iterator<Item = FuncRef> {
-        (1..self.funcs.len()).map(|i| FuncRef::new(i))
-    }
-
-    pub fn get_inst(&self, inst: InstRef) -> &Inst {
-        &self.insts[inst.0.get() as usize]
-    }
-
-    pub fn get_block(&self, block: BlockRef) -> &Block {
-        &self.blocks[block.0.get() as usize]
     }
 
     pub fn get_func(&self, func: FuncRef) -> &Func {
         &self.funcs[func.0.get() as usize]
     }
 
-    pub fn get_inst_mut(&mut self, inst: InstRef) -> &mut Inst {
-        &mut self.insts[inst.0.get() as usize]
+    pub fn get_block(&self, block: BlockRef) -> &Block {
+        &self.blocks[block.0.get() as usize]
     }
 
-    pub fn get_block_mut(&mut self, block: BlockRef) -> &mut Block {
-        &mut self.blocks[block.0.get() as usize]
+    pub fn get_inst(&self, inst: InstRef) -> &Inst {
+        &self.insts[inst.0.get() as usize]
     }
 
     pub fn get_func_mut(&mut self, func: FuncRef) -> &mut Func {
         &mut self.funcs[func.0.get() as usize]
     }
 
-    pub fn get_block_name(&self, block: BlockRef) -> &str {
-        &self.blocks_name[block.0.get() as usize]
+    pub fn get_block_mut(&mut self, block: BlockRef) -> &mut Block {
+        &mut self.blocks[block.0.get() as usize]
+    }
+
+    pub fn get_inst_mut(&mut self, inst: InstRef) -> &mut Inst {
+        &mut self.insts[inst.0.get() as usize]
     }
 
     pub fn get_func_name(&self, func: FuncRef) -> &str {
         &self.funcs_name[func.0.get() as usize]
     }
 
-    pub fn add_inst(&mut self, inst: Inst) -> InstRef {
-        let idx = InstRef::new(self.insts.len());
-        self.insts.push(inst);
-        self.insts_span.push(Default::default());
+    pub fn get_block_name(&self, block: BlockRef) -> &str {
+        &self.blocks_name[block.0.get() as usize]
+    }
+
+    pub fn get_funcs_iter(&self) -> impl Iterator<Item = FuncRef> {
+        (1..self.funcs.len()).map(|i| FuncRef::new(i))
+    }
+
+    pub fn get_blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
+        (1..self.blocks.len()).map(|i| BlockRef::new(i))
+    }
+
+    pub fn add_func(&mut self, name: &str) -> FuncRef {
+        let idx = FuncRef::new(self.funcs.len());
+        self.funcs.push(Default::default());
+        self.funcs_name.push(name.to_owned());
         idx
     }
 
@@ -392,15 +418,22 @@ impl Program {
         idx
     }
 
-    pub fn add_func(&mut self, name: &str) -> FuncRef {
-        let idx = FuncRef::new(self.funcs.len());
-        self.funcs.push(Default::default());
-        self.funcs_name.push(name.to_owned());
+    pub fn add_inst(&mut self, inst: Inst) -> InstRef {
+        let idx = InstRef::new(self.insts.len());
+        self.insts.push(inst);
+        self.insts_span.push(Default::default());
+        idx
+    }
+
+    pub fn add_inst_with_span(&mut self, inst: Inst, span: SourceSpan) -> InstRef {
+        let idx = InstRef::new(self.insts.len());
+        self.insts.push(inst);
+        self.insts_span.push(span);
         idx
     }
 
     pub fn get_phi_args(&self, phi: InstRef) -> Vec<InstRef> {
-        // TODO: build a function that builds a map for all phis??
+        // TODO: build a function that builds this for all phis??
         let mut res = Vec::new();
         for (idx, inst) in self.insts.iter().enumerate().skip(1) {
             if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
@@ -413,6 +446,7 @@ impl Program {
     }
 
     pub fn get_predecessors(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
+        // TODO: should this be here??
         let mut res = HashMap::new();
 
         for (idx, block) in self.blocks.iter().enumerate() {
@@ -433,6 +467,66 @@ impl Program {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+
+impl fmt::Display for FuncRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "f{}", self.0.get())
+    }
+}
+
+impl fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "b{}", self.0.get())
+    }
+}
+
+impl fmt::Display for InstRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}", self.0.get())
+    }
+}
+
+impl fmt::Display for InstKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstKind::Ret(i) => write!(f, "Ret({})", i),
+
+            InstKind::Jump(b) => write!(f, "Jump({})", b),
+
+            InstKind::Identity(i) => write!(f, "Identity({})", i),
+
+            InstKind::Upsilon { val, phi } => {
+                write!(f, "Upsilon {{ val: {}, phi: {} }}", val, phi)
+            }
+
+            InstKind::Unary { op, val } => {
+                write!(f, "{:?}({})", op, val)
+            }
+
+            InstKind::Binary { op, lhs, rhs } => {
+                write!(f, "{:?}({}, {})", op, lhs, rhs)
+            }
+
+            InstKind::Branch {
+                val: cond,
+                then,
+                other,
+            } => {
+                write!(
+                    f,
+                    "Branch {{ cond: {}, then: {}, other: {} }}",
+                    cond, then, other
+                )
+            }
+
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
+
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
@@ -441,7 +535,7 @@ impl fmt::Display for Program {
                 writeln!(f, "{}:", self.get_block_name(*block))?;
                 for i in self.get_block(*block).insts.iter() {
                     let inst = self.get_inst(*i);
-                    writeln!(f, "  {:?} %{} = {}", inst.ty, i.0.get(), inst.kind)?;
+                    writeln!(f, "  {:?} {} = {}", inst.ty, i, inst.kind)?;
                 }
             }
         }

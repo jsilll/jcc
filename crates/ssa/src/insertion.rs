@@ -1,4 +1,4 @@
-use crate::{BlockRef, InstKind, InstRef, Program};
+use crate::{BlockRef, InstRef, Program};
 
 #[derive(Debug, Default)]
 pub struct InsertionSet {
@@ -16,34 +16,36 @@ impl InsertionSet {
         self.insertions.push((idx as u32, inst));
     }
 
-    pub fn execute(&mut self, program: &mut Program, block: BlockRef) {
+    pub fn execute(&mut self, p: &mut Program, b: BlockRef) {
         if self.insertions.is_empty() {
             return;
         }
 
-        self.insertions.sort_by_key(|(idx, _)| *idx);
+        if !self.insertions.is_sorted_by_key(|(idx, _)| *idx) {
+            self.insertions.sort_by_key(|(idx, _)| *idx);
+        }
 
-        let b = program.get_block(block);
-        let mut insts = Vec::with_capacity(b.insts.len() + self.insertions.len());
+        let block = p.get_block(b);
+        let mut insts = Vec::with_capacity(block.insts.len() + self.insertions.len());
 
         let mut curr = 0;
-        for (idx, inst) in b.insts.iter().enumerate() {
-            while curr < self.insertions.len() && self.insertions[curr].0 <= idx as u32 {
-                insts.push(self.insertions[curr].1);
-                curr += 1;
-            }
-            if !matches!(program.get_inst(*inst).kind, InstKind::Nop) {
-                insts.push(*inst);
-            }
+        for (idx, inst) in block.insts.iter().enumerate() {
+            self.insertions[curr..]
+                .iter()
+                .take_while(|(i, _)| *i <= idx as u32)
+                .for_each(|(_, inst)| {
+                    insts.push(*inst);
+                    curr += 1;
+                });
+            insts.push(*inst);
         }
 
-        while curr < self.insertions.len() {
-            insts.push(self.insertions[curr].1);
-            curr += 1;
-        }
+        self.insertions[curr..].iter().for_each(|(_, inst)| {
+            insts.push(*inst);
+        });
 
         self.insertions.clear();
 
-        program.get_block_mut(block).insts = insts;
+        p.get_block_mut(b).insts = insts;
     }
 }

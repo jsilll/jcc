@@ -4,9 +4,9 @@ pub mod control;
 
 pub mod resolve;
 
-use std::collections::HashMap;
-
 use crate::parse::StmtRef;
+
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // SemaCtx

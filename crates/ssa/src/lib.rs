@@ -2,57 +2,21 @@ pub mod effects;
 
 pub mod insertion;
 
-pub mod opt;
+pub mod optimize;
 
 pub use source_file;
 
 use effects::{AbstractHeap, FastEffects};
 
 use source_file::SourceSpan;
+use string_interner::{DefaultStringInterner, DefaultSymbol};
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt,
-    hash::{Hash, Hasher},
     marker::PhantomData,
     num::NonZeroU32,
 };
-
-// ---------------------------------------------------------------------------
-// EntityRef<T>
-// ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
-
-impl<T> EntityRef<T> {
-    pub fn new(idx: usize) -> Self {
-        Self(
-            NonZeroU32::new(idx as u32).expect("expected a positive index"),
-            PhantomData,
-        )
-    }
-}
-
-impl<T> Copy for EntityRef<T> {}
-impl<T> Clone for EntityRef<T> {
-    fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
-    }
-}
-
-impl<T> Eq for EntityRef<T> {}
-impl<T> PartialEq for EntityRef<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<T> Hash for EntityRef<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Type
@@ -70,6 +34,176 @@ pub enum Type {
 // ---------------------------------------------------------------------------
 // Inst
 // ---------------------------------------------------------------------------
+
+pub type InstRef = EntityRef<Inst>;
+
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct InstIdx(pub(crate) u32);
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct Inst {
+    pub ty: Type,
+    pub kind: InstKind,
+    pub(crate) idx: InstIdx,
+    // TODO: pub block: BlockRef,
+}
+
+impl Inst {
+    pub fn new(ty: Type, kind: InstKind) -> Self {
+        Self {
+            ty,
+            kind,
+            idx: InstIdx::default(),
+        }
+    }
+
+    pub fn phi(ty: Type) -> Self {
+        Self::new(ty, InstKind::Phi)
+    }
+
+    pub fn get_arg(ty: Type) -> Self {
+        Self::new(ty, InstKind::GetArg)
+    }
+
+    pub fn ret(val: InstRef) -> Self {
+        Self::new(Type::Void, InstKind::Ret(val))
+    }
+
+    pub fn const_i32(val: i64) -> Self {
+        Self::new(Type::Int32, InstKind::Const(val))
+    }
+
+    pub fn const_i64(val: i64) -> Self {
+        Self::new(Type::Int64, InstKind::Const(val))
+    }
+
+    pub fn upsilon(phi: InstRef, val: InstRef) -> Self {
+        Self::new(Type::Void, InstKind::Upsilon { phi, val })
+    }
+
+    pub fn add_i32(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Add,
+            },
+        )
+    }
+
+    pub fn add_i64(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int64,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Add,
+            },
+        )
+    }
+
+    pub fn is_const(&self, val: i64) -> bool {
+        match self.kind {
+            InstKind::Const(v) => v == val,
+            _ => false,
+        }
+    }
+
+    pub fn has_side_effects(&self) -> bool {
+        match self.kind {
+            InstKind::Ret(_) | InstKind::Jump(_) | InstKind::Branch { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_args(&self, args: &mut Vec<InstRef>) {
+        match &self.kind {
+            InstKind::Upsilon { phi, val } => args.extend([*phi, *val]),
+            InstKind::Binary { lhs, rhs, .. } => args.extend([*lhs, *rhs]),
+            InstKind::Ret(val)
+            | InstKind::Identity(val)
+            | InstKind::Unary { val, .. }
+            | InstKind::Branch { val, .. } => args.push(*val),
+            _ => {}
+        }
+    }
+
+    pub fn get_effects(&self, prog: &Program, effects: &mut FastEffects) {
+        match self.kind {
+            InstKind::Phi => effects.reads.push(prog.heaps.ssa_state),
+            InstKind::Upsilon { .. } => effects.writes.push(prog.heaps.ssa_state),
+            InstKind::Jump(_) | InstKind::Ret(_) | InstKind::Branch { .. } => {
+                effects.writes.push(prog.heaps.control)
+            }
+            _ => {}
+        }
+    }
+
+    pub fn replace_args(&mut self, map: &HashMap<InstRef, InstRef>) {
+        match &mut self.kind {
+            InstKind::Ret(val)
+            | InstKind::Identity(val)
+            | InstKind::Unary { val, .. }
+            | InstKind::Branch { val, .. } => {
+                if let Some(v) = map.get(val) {
+                    *val = *v;
+                }
+            }
+            InstKind::Upsilon { phi, val } => {
+                if let Some(v) = map.get(phi) {
+                    *phi = *v;
+                }
+                if let Some(v) = map.get(val) {
+                    *val = *v;
+                }
+            }
+            InstKind::Binary { lhs, rhs, .. } => {
+                if let Some(v) = map.get(lhs) {
+                    *lhs = *v;
+                }
+                if let Some(v) = map.get(rhs) {
+                    *rhs = *v;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn into_identity(&mut self, val: InstRef) {
+        self.kind = InstKind::Identity(val)
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub enum InstKind {
+    #[default]
+    Nop,
+    Phi,
+    GetArg,
+    Const(i64),
+    Ret(InstRef),
+    Jump(BlockRef),
+    Identity(InstRef),
+    Upsilon {
+        val: InstRef,
+        phi: InstRef,
+    },
+    Unary {
+        op: UnaryOp,
+        val: InstRef,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: InstRef,
+        rhs: InstRef,
+    },
+    Branch {
+        val: InstRef,
+        then: BlockRef,
+        other: BlockRef,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
@@ -107,195 +241,20 @@ pub enum BinaryOp {
     BitShr,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
-pub enum InstKind {
-    #[default]
-    Nop,
-    Phi,
-    GetArg,
-    Const(i64),
-    Ret(InstRef),
-    Jump(BlockRef),
-    Identity(InstRef),
-    Upsilon {
-        val: InstRef,
-        phi: InstRef,
-    },
-    Unary {
-        op: UnaryOp,
-        val: InstRef,
-    },
-    Binary {
-        op: BinaryOp,
-        lhs: InstRef,
-        rhs: InstRef,
-    },
-    Branch {
-        val: InstRef,
-        then: BlockRef,
-        other: BlockRef,
-    },
-}
-
-pub type InstRef = EntityRef<Inst>;
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
-pub struct Inst {
-    // TODO: index in block
-    // TODO: index of block
-    // TODO: resulting variable name
-    pub ty: Type,
-    pub kind: InstKind,
-}
-
-impl Inst {
-    pub fn phi(ty: Type) -> Self {
-        Self {
-            ty,
-            kind: InstKind::Phi,
-        }
-    }
-
-    pub fn ret(val: InstRef) -> Self {
-        Self {
-            ty: Type::Void,
-            kind: InstKind::Ret(val),
-        }
-    }
-
-    pub fn const_i32(val: i64) -> Self {
-        Self {
-            ty: Type::Int32,
-            kind: InstKind::Const(val),
-        }
-    }
-
-    pub fn const_i64(val: i64) -> Self {
-        Self {
-            ty: Type::Int64,
-            kind: InstKind::Const(val),
-        }
-    }
-
-    pub fn upsilon(phi: InstRef, val: InstRef) -> Self {
-        Self {
-            ty: Type::Void,
-            kind: InstKind::Upsilon { phi, val },
-        }
-    }
-
-    pub fn add_i32(lhs: InstRef, rhs: InstRef) -> Self {
-        Self {
-            ty: Type::Int32,
-            kind: InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Add,
-            },
-        }
-    }
-
-    pub fn is_const(&self, val: i64) -> bool {
-        match self.kind {
-            InstKind::Const(v) => v == val,
-            _ => false,
-        }
-    }
-
-    pub fn get_args(&self) -> Option<Vec<InstRef>> {
-        match &self.kind {
-            InstKind::Upsilon { phi, val } => Some(vec![*phi, *val]),
-
-            InstKind::Binary { lhs, rhs, .. } => Some(vec![*lhs, *rhs]),
-
-            InstKind::Ret(val) | InstKind::Identity(val) | InstKind::Unary { val, .. } => {
-                Some(vec![*val])
-            }
-
-            InstKind::Nop
-            | InstKind::Phi
-            | InstKind::GetArg
-            | InstKind::Const(_)
-            | InstKind::Jump(_)
-            | InstKind::Branch { .. } => None,
-        }
-    }
-
-    pub fn get_effects(&self, program: &Program) -> FastEffects {
-        let mut effects = FastEffects::new();
-        match self.kind {
-            InstKind::Phi => effects.reads.add(program.heaps.ssa_state),
-
-            InstKind::Upsilon { .. } => effects.writes.add(program.heaps.ssa_state),
-
-            InstKind::Jump(_) | InstKind::Ret(_) | InstKind::Branch { .. } => {
-                effects.writes.add(program.heaps.control)
-            }
-
-            InstKind::Nop
-            | InstKind::GetArg
-            | InstKind::Const(_)
-            | InstKind::Identity(_)
-            | InstKind::Unary { .. }
-            | InstKind::Binary { .. } => {}
-        }
-        effects
-    }
-
-    pub fn into_identity(&mut self, val: InstRef) {
-        self.kind = InstKind::Identity(val)
-    }
-
-    pub fn replace_args(&mut self, map: &HashMap<InstRef, InstRef>) {
-        match &mut self.kind {
-            InstKind::Upsilon { phi, val } => {
-                if let Some(v) = map.get(phi) {
-                    *phi = *v;
-                }
-                if let Some(v) = map.get(val) {
-                    *val = *v;
-                }
-            }
-
-            InstKind::Binary { lhs, rhs, .. } => {
-                if let Some(v) = map.get(lhs) {
-                    *lhs = *v;
-                }
-                if let Some(v) = map.get(rhs) {
-                    *rhs = *v;
-                }
-            }
-
-            InstKind::Ret(val)
-            | InstKind::Identity(val)
-            | InstKind::Unary { val, .. }
-            | InstKind::Branch { val, .. } => {
-                if let Some(v) = map.get(val) {
-                    *val = *v;
-                }
-            }
-
-            InstKind::Nop
-            | InstKind::Phi
-            | InstKind::GetArg
-            | InstKind::Const(_)
-            | InstKind::Jump(_) => {}
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Block
 // ---------------------------------------------------------------------------
 
 pub type BlockRef = EntityRef<Block>;
 
+// #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+// pub struct BlockIdx(u32);
+
 #[derive(Debug, Default, Clone)]
 pub struct Block {
-    // TODO: further split this?
-    // TODO: index in function
+    // TODO: pub index: BlockIdx,
     pub insts: Vec<InstRef>,
-    pub succ: Vec<BlockRef>,
+    pub succs: Vec<BlockRef>,
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +269,7 @@ pub struct Func {
 }
 
 // ---------------------------------------------------------------------------
-// Program
+// BaseHeaps
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -321,8 +280,8 @@ pub struct BaseHeaps {
     pub ssa_state: AbstractHeap,
 }
 
-impl BaseHeaps {
-    pub fn new() -> Self {
+impl Default for BaseHeaps {
+    fn default() -> Self {
         Self {
             world: AbstractHeap::new(1, 8),
             memory: AbstractHeap::new(2, 3),
@@ -332,132 +291,184 @@ impl BaseHeaps {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Program {
-    heaps: BaseHeaps,
-
-    funcs: Vec<Func>,
-    funcs_name: Vec<String>,
-    // funcs_free: Vec<FuncRef>, TODO
-    blocks: Vec<Block>,
-    blocks_name: Vec<String>,
-    // blocks_free: Vec<BlockRef>, TODO
-    insts: Vec<Inst>,
-    insts_span: Vec<SourceSpan>,
-    // insts_free: Vec<InstRef>, TODO
+impl BaseHeaps {
+    pub fn new() -> Self {
+        Default::default()
+    }
 }
 
-impl Program {
-    pub fn new() -> Self {
-        Self {
-            heaps: BaseHeaps::new(),
+// ---------------------------------------------------------------------------
+// Program
+// ---------------------------------------------------------------------------
 
-            funcs: vec![Default::default()],
-            funcs_name: vec![Default::default()],
-            // funcs_free: Vec::new(), TODO
-            blocks: vec![Default::default()],
-            blocks_name: vec![Default::default()],
-            // blocks_free: Vec::new(), TODO
+pub struct Program<'a> {
+    heaps: BaseHeaps,
+    interner: &'a mut DefaultStringInterner,
+    insts: Vec<Inst>,
+    insts_span: Vec<SourceSpan>,
+    insts_free: HashSet<InstRef>,
+    blocks: Vec<Block>,
+    blocks_span: Vec<SourceSpan>,
+    blocks_name: Vec<DefaultSymbol>,
+    blocks_free: HashSet<BlockRef>,
+    funcs: Vec<Func>,
+    funcs_span: Vec<SourceSpan>,
+    funcs_name: Vec<DefaultSymbol>,
+    funcs_free: HashSet<FuncRef>,
+}
+
+impl<'a> Program<'a> {
+    pub fn new(interner: &'a mut DefaultStringInterner) -> Self {
+        let question_mark_symbol = interner.get_or_intern_static("?");
+        Self {
+            interner,
+            heaps: BaseHeaps::new(),
+            insts_free: HashSet::new(),
+            funcs_free: HashSet::new(),
+            blocks_free: HashSet::new(),
             insts: vec![Default::default()],
+            funcs: vec![Default::default()],
+            blocks: vec![Default::default()],
             insts_span: vec![Default::default()],
-            // insts_free: Vec::new(), TODO
+            funcs_span: vec![Default::default()],
+            blocks_span: vec![Default::default()],
+            funcs_name: vec![question_mark_symbol],
+            blocks_name: vec![question_mark_symbol],
         }
     }
 
-    pub fn get_func(&self, func: FuncRef) -> &Func {
-        &self.funcs[func.0.get() as usize]
-    }
-
-    pub fn get_block(&self, block: BlockRef) -> &Block {
-        &self.blocks[block.0.get() as usize]
-    }
-
-    pub fn get_inst(&self, inst: InstRef) -> &Inst {
+    pub fn inst(&self, inst: InstRef) -> &Inst {
         &self.insts[inst.0.get() as usize]
     }
 
-    pub fn get_func_mut(&mut self, func: FuncRef) -> &mut Func {
-        &mut self.funcs[func.0.get() as usize]
+    pub fn block(&self, block: BlockRef) -> &Block {
+        &self.blocks[block.0.get() as usize]
     }
 
-    pub fn get_block_mut(&mut self, block: BlockRef) -> &mut Block {
-        &mut self.blocks[block.0.get() as usize]
+    pub fn func(&self, func: FuncRef) -> &Func {
+        &self.funcs[func.0.get() as usize]
     }
 
-    pub fn get_inst_mut(&mut self, inst: InstRef) -> &mut Inst {
-        &mut self.insts[inst.0.get() as usize]
-    }
-
-    pub fn get_func_name(&self, func: FuncRef) -> &str {
-        &self.funcs_name[func.0.get() as usize]
-    }
-
-    pub fn get_block_name(&self, block: BlockRef) -> &str {
+    pub fn block_name(&self, block: BlockRef) -> &DefaultSymbol {
         &self.blocks_name[block.0.get() as usize]
     }
 
-    pub fn get_funcs_iter(&self) -> impl Iterator<Item = FuncRef> {
-        (1..self.funcs.len()).map(|i| FuncRef::new(i))
+    pub fn func_name(&self, func: FuncRef) -> &DefaultSymbol {
+        &self.funcs_name[func.0.get() as usize]
     }
 
-    pub fn get_blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
-        (1..self.blocks.len()).map(|i| BlockRef::new(i))
+    pub fn block_span(&self, block: BlockRef) -> &SourceSpan {
+        &self.blocks_span[block.0.get() as usize]
     }
 
-    pub fn add_func(&mut self, name: &str) -> FuncRef {
-        let idx = FuncRef::new(self.funcs.len());
-        self.funcs.push(Default::default());
-        self.funcs_name.push(name.to_owned());
-        idx
+    pub fn func_span(&self, func: FuncRef) -> &SourceSpan {
+        &self.funcs_span[func.0.get() as usize]
     }
 
-    pub fn add_block(&mut self, name: &str) -> BlockRef {
-        let idx = BlockRef::new(self.blocks.len());
-        self.blocks.push(Default::default());
-        self.blocks_name.push(name.to_owned());
-        idx
+    pub fn inst_mut(&mut self, inst: InstRef) -> &mut Inst {
+        &mut self.insts[inst.0.get() as usize]
     }
 
-    pub fn add_inst(&mut self, inst: Inst) -> InstRef {
+    pub fn block_mut(&mut self, block: BlockRef) -> &mut Block {
+        &mut self.blocks[block.0.get() as usize]
+    }
+
+    pub fn func_mut(&mut self, func: FuncRef) -> &mut Func {
+        &mut self.funcs[func.0.get() as usize]
+    }
+
+    pub fn push_inst(&mut self, inst: Inst) -> InstRef {
         let idx = InstRef::new(self.insts.len());
         self.insts.push(inst);
         self.insts_span.push(Default::default());
         idx
     }
 
-    pub fn add_inst_with_span(&mut self, inst: Inst, span: SourceSpan) -> InstRef {
-        let idx = InstRef::new(self.insts.len());
-        self.insts.push(inst);
-        self.insts_span.push(span);
+    pub fn push_block(&mut self, name: &str) -> BlockRef {
+        let idx = BlockRef::new(self.blocks.len());
+        self.blocks.push(Default::default());
+        self.blocks_span.push(Default::default());
+        self.blocks_name.push(self.interner.get_or_intern(name));
         idx
     }
 
-    pub fn get_phi_args(&self, phi: InstRef) -> Vec<InstRef> {
+    pub fn push_func(&mut self, name: &str) -> FuncRef {
+        let idx = FuncRef::new(self.funcs.len());
+        self.funcs.push(Default::default());
+        self.funcs_span.push(Default::default());
+        self.funcs_name.push(self.interner.get_or_intern(name));
+        idx
+    }
+
+    pub fn remove_inst(&mut self, inst: InstRef) {
+        self.insts_free.insert(inst);
+    }
+
+    pub fn remove_block(&mut self, block: BlockRef) {
+        self.blocks_free.insert(block);
+    }
+
+    pub fn remove_func(&mut self, func: FuncRef) {
+        self.funcs_free.insert(func);
+    }
+
+    pub fn push_inst_with_span(&mut self, inst: Inst, span: SourceSpan) -> InstRef {
+        let r = InstRef::new(self.insts.len());
+        self.insts.push(inst);
+        self.insts_span.push(span);
+        r
+    }
+
+    pub fn push_block_with_span(&mut self, name: &str, span: SourceSpan) -> BlockRef {
+        let r = BlockRef::new(self.blocks.len());
+        self.blocks.push(Default::default());
+        self.blocks_span.push(span);
+        self.blocks_name.push(self.interner.get_or_intern(name));
+        r
+    }
+
+    pub fn push_func_with_span(&mut self, name: &str, span: SourceSpan) -> FuncRef {
+        let r = FuncRef::new(self.funcs.len());
+        self.funcs.push(Default::default());
+        self.funcs_span.push(span);
+        self.funcs_name.push(self.interner.get_or_intern(name));
+        r
+    }
+
+    pub fn inst_iter(&self) -> impl Iterator<Item = InstRef> {
+        // TODO: Skip deleted insts
+        unsafe { (1..self.insts.len()).map(|i| InstRef::new_unchecked(i)) }
+    }
+
+    pub fn block_iter(&self) -> impl Iterator<Item = BlockRef> {
+        // TODO: Skip deleted blocks
+        unsafe { (1..self.blocks.len()).map(|i| BlockRef::new_unchecked(i)) }
+    }
+
+    pub fn func_iter(&self) -> impl Iterator<Item = FuncRef> {
+        // TODO: Skip deleted funcs
+        unsafe { (1..self.funcs.len()).map(|i| FuncRef::new_unchecked(i)) }
+    }
+
+    pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
         // TODO: build a function that builds this for all phis??
-        let mut res = Vec::new();
         for (idx, inst) in self.insts.iter().enumerate().skip(1) {
             if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
                 if *p == phi {
-                    res.push(InstRef::new(idx))
+                    args.push(InstRef::new(idx))
                 }
             }
         }
-        res
     }
 
-    pub fn get_predecessors(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
-        // TODO: should this be here??
-        let mut res = HashMap::new();
-
+    pub fn get_predecessors(&self, pred: &mut HashMap<BlockRef, Vec<BlockRef>>) {
         for (idx, block) in self.blocks.iter().enumerate() {
-            for succ in &block.succ {
-                res.entry(*succ)
+            for succ in &block.succs {
+                pred.entry(*succ)
                     .or_insert(Vec::new())
                     .push(BlockRef::new(idx));
             }
         }
-
-        res
     }
 
     pub fn validate(&self) -> bool {
@@ -471,9 +482,9 @@ impl Program {
 // Display
 // ---------------------------------------------------------------------------
 
-impl fmt::Display for FuncRef {
+impl fmt::Display for InstRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "f{}", self.0.get())
+        write!(f, "%{}", self.0.get())
     }
 }
 
@@ -483,9 +494,9 @@ impl fmt::Display for BlockRef {
     }
 }
 
-impl fmt::Display for InstRef {
+impl fmt::Display for FuncRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "%{}", self.0.get())
+        write!(f, "f{}", self.0.get())
     }
 }
 
@@ -493,23 +504,17 @@ impl fmt::Display for InstKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InstKind::Ret(i) => write!(f, "Ret({})", i),
-
             InstKind::Jump(b) => write!(f, "Jump({})", b),
-
             InstKind::Identity(i) => write!(f, "Identity({})", i),
-
             InstKind::Upsilon { val, phi } => {
                 write!(f, "Upsilon {{ val: {}, phi: {} }}", val, phi)
             }
-
             InstKind::Unary { op, val } => {
                 write!(f, "{:?}({})", op, val)
             }
-
             InstKind::Binary { op, lhs, rhs } => {
                 write!(f, "{:?}({}, {})", op, lhs, rhs)
             }
-
             InstKind::Branch {
                 val: cond,
                 then,
@@ -521,24 +526,80 @@ impl fmt::Display for InstKind {
                     cond, then, other
                 )
             }
-
             _ => write!(f, "{:?}", self),
         }
     }
 }
 
-impl fmt::Display for Program {
+impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            writeln!(f, "define @{}", name)?;
+            writeln!(
+                f,
+                "define @{}",
+                self.interner.resolve(*name).unwrap_or("?")
+            )?;
             for block in &func.blocks {
-                writeln!(f, "{}:", self.get_block_name(*block))?;
-                for i in self.get_block(*block).insts.iter() {
-                    let inst = self.get_inst(*i);
+                let name = *self.block_name(*block);
+                writeln!(f, "{}:", self.interner.resolve(name).unwrap_or("?"))?;
+                for i in &self.block(*block).insts {
+                    let inst = self.inst(*i);
                     writeln!(f, "  {:?} {} = {}", inst.ty, i, inst.kind)?;
+                }
+                if !self.block(*block).succs.is_empty() {
+                    writeln!(
+                        f,
+                        " successors: {}",
+                        self.block(*block)
+                            .succs
+                            .iter()
+                            .map(|b| self.interner.resolve(*self.block_name(*b)).unwrap_or("?"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
                 }
             }
         }
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EntityRef<T>
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
+
+impl<T> EntityRef<T> {
+    pub fn new(idx: usize) -> Self {
+        Self(
+            NonZeroU32::new(idx as u32).expect("expected a positive index"),
+            PhantomData,
+        )
+    }
+
+    unsafe fn new_unchecked(idx: usize) -> Self {
+        Self(NonZeroU32::new_unchecked(idx as u32), PhantomData)
+    }
+}
+
+impl<T> Copy for EntityRef<T> {}
+impl<T> Clone for EntityRef<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, PhantomData)
+    }
+}
+
+impl<T> Eq for EntityRef<T> {}
+impl<T> PartialEq for EntityRef<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> std::hash::Hash for EntityRef<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }

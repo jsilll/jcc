@@ -1,9 +1,9 @@
-use peeking_take_while::PeekableExt;
-
 use tacky::{
     source_file::{diag::Diagnostic, SourceFile, SourceSpan},
     string_interner::{DefaultStringInterner, DefaultSymbol},
 };
+
+use peeking_take_while::PeekableExt;
 
 use std::{iter::Peekable, str::CharIndices};
 
@@ -127,9 +127,9 @@ impl<'a> Lexer<'a> {
             }
         }
         if !self.nesting.is_empty() {
-            self.nesting.clone().into_iter().for_each(|kind| {
-                self.insert_unbalanced_token(kind, None);
-            });
+            for i in 0..self.nesting.len() {
+                self.insert_unbalanced_token(self.nesting[i], None);
+            }
         }
         self.result
     }

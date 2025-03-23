@@ -1,8 +1,18 @@
-use crate::{BlockRef, InstRef, Program};
+use crate::{BlockRef, Inst, InstIdx, InstKind, Program, Type};
+
+use source_file::SourceSpan;
+
+#[derive(Debug)]
+struct Insertion {
+    pub ty: Type,
+    pub idx: InstIdx,
+    pub kind: InstKind,
+    pub span: SourceSpan,
+}
 
 #[derive(Debug, Default)]
 pub struct InsertionSet {
-    insertions: Vec<(u32, InstRef)>,
+    insertions: Vec<Insertion>,
 }
 
 impl InsertionSet {
@@ -12,8 +22,22 @@ impl InsertionSet {
         }
     }
 
-    pub fn push(&mut self, idx: usize, inst: InstRef) {
-        self.insertions.push((idx as u32, inst));
+    pub fn insert_before(&mut self, inst: &Inst, ty: Type, kind: InstKind) {
+        self.insertions.push(Insertion {
+            ty,
+            kind,
+            idx: inst.idx,
+            span: Default::default(),
+        })
+    }
+
+    pub fn insert_before_with_span(&mut self, inst: &Inst, ty: Type, kind: InstKind, span: SourceSpan) {
+        self.insertions.push(Insertion {
+            ty,
+            kind,
+            span,
+            idx: inst.idx,
+        })
     }
 
     pub fn execute(&mut self, p: &mut Program, b: BlockRef) {
@@ -21,31 +45,31 @@ impl InsertionSet {
             return;
         }
 
-        if !self.insertions.is_sorted_by_key(|(idx, _)| *idx) {
-            self.insertions.sort_by_key(|(idx, _)| *idx);
+        if !self.insertions.is_sorted_by_key(|i| i.idx) {
+            self.insertions.sort_by_key(|i| i.idx);
         }
 
-        let block = p.get_block(b);
-        let mut insts = Vec::with_capacity(block.insts.len() + self.insertions.len());
+        let mut insts = Vec::with_capacity(p.block(b).insts.len() + self.insertions.len());
 
         let mut curr = 0;
-        for (idx, inst) in block.insts.iter().enumerate() {
+        for idx in 0..p.block(b).insts.len() {
             self.insertions[curr..]
                 .iter()
-                .take_while(|(i, _)| *i <= idx as u32)
-                .for_each(|(_, inst)| {
-                    insts.push(*inst);
+                .take_while(|i| i.idx.0 <= idx as u32)
+                .for_each(|i| {
+                    insts.push(p.push_inst_with_span(Inst::new(i.ty, i.kind.clone()), i.span));
                     curr += 1;
                 });
-            insts.push(*inst);
+            insts.push(p.block(b).insts[idx]);
         }
 
-        self.insertions[curr..].iter().for_each(|(_, inst)| {
-            insts.push(*inst);
+        self.insertions[curr..].iter().for_each(|i| {
+            insts.push(p.push_inst_with_span(Inst::new(i.ty, i.kind.clone()), i.span));
         });
+
+        p.block_mut(b).insts = insts;
 
         self.insertions.clear();
 
-        p.get_block_mut(b).insts = insts;
     }
 }

@@ -5,7 +5,7 @@ use tacky::{
     string_interner::DefaultSymbol,
 };
 
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // ResolverResult
@@ -44,9 +44,9 @@ impl ResolverPass {
     }
 
     pub fn analyze(mut self, ast: &mut Ast) -> ResolverResult {
-        ast.items_iter_refs().for_each(|item| {
+        ast.item_iter().for_each(|item| {
             self.symbols.push_scope();
-            ast.get_block_items(ast.get_item(item).body)
+            ast.block_items(ast.item(item).body)
                 .to_owned()
                 .into_iter()
                 .for_each(|block_item| match block_item {
@@ -59,11 +59,11 @@ impl ResolverPass {
     }
 
     fn analyze_decl(&mut self, ast: &mut Ast, decl: DeclRef) {
-        match ast.get_decl(decl) {
+        match ast.decl(decl) {
             Decl::Var { name, init } => {
                 if let Some(_) = self.symbols.insert(*name, decl) {
                     self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *ast.get_decl_span(decl),
+                        span: *ast.decl_span(decl),
                         kind: ResolverDiagnosticKind::RedeclaredVariable,
                     });
                 }
@@ -75,7 +75,7 @@ impl ResolverPass {
     }
 
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
-        match ast.get_stmt(stmt).clone() {
+        match ast.stmt(stmt).clone() {
             Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
@@ -83,7 +83,7 @@ impl ResolverPass {
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
             Stmt::Compound(items) => {
                 self.symbols.push_scope();
-                ast.get_block_items(items)
+                ast.block_items(items)
                     .to_owned()
                     .into_iter()
                     .for_each(|block_item| match block_item {
@@ -145,19 +145,19 @@ impl ResolverPass {
     }
 
     fn analyze_expr(&mut self, ast: &mut Ast, expr: ExprRef) {
-        if let Expr::Var { name, decl } = ast.get_expr_mut(expr) {
+        if let Expr::Var { name, decl } = ast.expr_mut(expr) {
             match self.symbols.get(name) {
                 Some(decl_ref) => {
                     *decl = Some(*decl_ref);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *ast.get_expr_span(expr),
+                    span: *ast.expr_span(expr),
                     kind: ResolverDiagnosticKind::UndefinedVariable,
                 }),
             }
             return;
         }
-        match ast.get_expr(expr).clone() {
+        match ast.expr(expr).clone() {
             Expr::Constant(_) => {}
             Expr::Var { .. } => unreachable!(),
             Expr::Grouped(expr) => self.analyze_expr(ast, expr),
@@ -252,7 +252,7 @@ impl<S, V> SymbolTable<S, V> {
 
 impl<S, V> SymbolTable<S, V>
 where
-    S: Eq + Hash,
+    S: Eq + std::hash::Hash,
 {
     #[allow(dead_code)]
     pub fn get(&self, key: &S) -> Option<&V> {

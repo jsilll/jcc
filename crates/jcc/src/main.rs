@@ -5,14 +5,14 @@ use jcc::{
     tacky::TackyBuilder,
 };
 
-use anyhow::{Context, Result};
-use clap::Parser as ClapParser;
-
 use tacky::{
     amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
     string_interner::StringInterner,
 };
+
+use anyhow::{Context, Result};
+use clap::Parser as ClapParser;
 
 use std::{path::PathBuf, process::Command};
 
@@ -92,7 +92,7 @@ fn try_main() -> Result<()> {
     }
 
     // Parse tokens
-    let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
+    let parser_result = Parser::new(&file, lexer_result.tokens.iter(), &mut interner).parse();
     if !parser_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("\nexiting due to parser errors"));

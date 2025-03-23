@@ -1,13 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use crate::{
+    parse::{Ast, BlockItem, Stmt, StmtRef},
+    sema::SemaCtx,
+};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
     string_interner::DefaultSymbol,
 };
 
-use crate::parse::{Ast, BlockItem, Stmt, StmtRef};
-
-use super::SemaCtx;
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // ControlResult
@@ -52,8 +53,8 @@ impl<'ctx> ControlPass<'ctx> {
     }
 
     pub fn analyze(mut self, ast: &mut Ast) -> ControlResult {
-        ast.items_iter_refs().for_each(|item| {
-            ast.get_block_items(ast.get_item(item).body)
+        ast.item_iter().for_each(|item| {
+            ast.block_items(ast.item(item).body)
                 .to_owned()
                 .into_iter()
                 .for_each(|block_item| match block_item {
@@ -73,13 +74,13 @@ impl<'ctx> ControlPass<'ctx> {
     }
 
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
-        match ast.get_stmt_mut(stmt) {
+        match ast.stmt_mut(stmt) {
             Stmt::Break(inner) => {
                 match self.stmts.last() {
                     Some(TrackedStmt::Loop(loop_stmt)) => *inner = Some(*loop_stmt),
                     Some(TrackedStmt::Switch(switch_stmt)) => *inner = Some(*switch_stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
                     }),
                 }
@@ -92,7 +93,7 @@ impl<'ctx> ControlPass<'ctx> {
                 }) {
                     Some(loop_stmt) => *inner = Some(loop_stmt),
                     None => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
@@ -100,7 +101,7 @@ impl<'ctx> ControlPass<'ctx> {
             }
             _ => {}
         }
-        match ast.get_stmt(stmt).clone() {
+        match ast.stmt(stmt).clone() {
             Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
             Stmt::Break(_) | Stmt::Continue(_) => unreachable!(),
             Stmt::Default(inner) => {
@@ -113,13 +114,13 @@ impl<'ctx> ControlPass<'ctx> {
                         match switch.default {
                             None => switch.default = Some(stmt),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {
-                                span: *ast.get_stmt_span(stmt),
+                                span: *ast.stmt_span(stmt),
                                 kind: ControlDiagnosticKind::DuplicateDefault,
                             }),
                         }
                     }
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
@@ -138,7 +139,7 @@ impl<'ctx> ControlPass<'ctx> {
                         .cases
                         .push(stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
@@ -149,13 +150,13 @@ impl<'ctx> ControlPass<'ctx> {
                     self.unresolved_labels
                         .entry(label)
                         .or_insert_with(Vec::new)
-                        .push(*ast.get_stmt_span(stmt));
+                        .push(*ast.stmt_span(stmt));
                 }
             }
             Stmt::Label { label, stmt: inner } => {
                 if !self.defined_labels.insert(label) {
                     self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::RedeclaredLabel,
                     });
                 }
@@ -163,7 +164,7 @@ impl<'ctx> ControlPass<'ctx> {
                 self.analyze_stmt(ast, inner);
             }
             Stmt::Compound(stmt) => {
-                ast.get_block_items(stmt)
+                ast.block_items(stmt)
                     .to_owned()
                     .into_iter()
                     .for_each(|block_item| match block_item {

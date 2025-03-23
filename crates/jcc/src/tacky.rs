@@ -27,7 +27,7 @@ impl<'a> TackyBuilder<'a> {
 
     pub fn build(self, ast: &Ast) -> Program {
         let (item_ref, item) = ast
-            .items_iter_both()
+            .item_iter2()
             .next()
             .expect("expected at least one item in the AST");
         let fn_def = TackyFnDefBuilder::new(ast, self.ctx, self.interner).build(item_ref, item);
@@ -73,16 +73,16 @@ impl<'a> TackyFnDefBuilder<'a> {
     }
 
     fn build(mut self, item_ref: parse::ItemRef, item: &parse::Item) -> FnDef {
-        self.fn_def.span = *self.ast.get_item_span(item_ref);
+        self.fn_def.span = *self.ast.item_span(item_ref);
         self.ast
-            .get_block_items(item.body)
+            .block_items(item.body)
             .iter()
             .for_each(|item| match item {
                 parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
                 parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
             });
-        match self.ast.get_block_items(item.body).last() {
-            Some(parse::BlockItem::Stmt(stmt)) => match self.ast.get_stmt(*stmt) {
+        match self.ast.block_items(item.body).last() {
+            Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
                 parse::Stmt::Return(_) => {}
                 _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
             },
@@ -133,8 +133,8 @@ impl<'a> TackyFnDefBuilder<'a> {
     }
 
     fn build_from_decl(&mut self, decl: parse::DeclRef) {
-        let span = *self.ast.get_decl_span(decl);
-        match self.ast.get_decl(decl) {
+        let span = *self.ast.decl_span(decl);
+        match self.ast.decl(decl) {
             parse::Decl::Var { init, .. } => {
                 if let Some(init) = init {
                     let dst = self.get_or_make_var(decl);
@@ -146,36 +146,36 @@ impl<'a> TackyFnDefBuilder<'a> {
     }
 
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
-        match self.ast.get_stmt(stmt) {
+        match self.ast.stmt(stmt) {
             parse::Stmt::Empty => {}
             parse::Stmt::Break(inner) => {
                 let block = self
                     .break_blocks
                     .get(&inner.expect("expected a break block"))
                     .expect("expected a break block");
-                self.append_to_block(Instr::Jump(*block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(*block), *self.ast.stmt_span(stmt));
             }
             parse::Stmt::Continue(inner) => {
                 let block = self
                     .continue_blocks
                     .get(&inner.expect("expected a continue block"))
                     .expect("expected a continue block");
-                self.append_to_block(Instr::Jump(*block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(*block), *self.ast.stmt_span(stmt));
             }
             parse::Stmt::Expr(expr) => {
                 self.build_from_expr(*expr);
             }
             parse::Stmt::Return(expr) => {
                 let value = self.build_from_expr(*expr);
-                self.append_to_block(Instr::Return(value), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Return(value), *self.ast.stmt_span(stmt));
             }
             parse::Stmt::Goto(label) => {
                 let block = self.get_or_make_block(*label);
-                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(block), *self.ast.stmt_span(stmt));
             }
             parse::Stmt::Label { label, stmt: inner } => {
                 let block = self.get_or_make_block(*label);
-                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(block), *self.ast.stmt_span(stmt));
                 self.block = block;
                 self.build_from_stmt(*inner);
             }
@@ -185,7 +185,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                     .get(&stmt)
                     .expect("expected a case block")
                     .clone();
-                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(block), *self.ast.stmt_span(stmt));
                 self.block = block;
                 self.build_from_stmt(*inner);
             }
@@ -195,13 +195,13 @@ impl<'a> TackyFnDefBuilder<'a> {
                     .get(&stmt)
                     .expect("expected a case block")
                     .clone();
-                self.append_to_block(Instr::Jump(block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(block), *self.ast.stmt_span(stmt));
                 self.block = block;
                 self.build_from_stmt(*inner);
             }
             parse::Stmt::Compound(items) => {
                 self.ast
-                    .get_block_items(*items)
+                    .block_items(*items)
                     .iter()
                     .for_each(|item| match item {
                         parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
@@ -223,10 +223,10 @@ impl<'a> TackyFnDefBuilder<'a> {
                         cond,
                         target: cont_block,
                     },
-                    *self.ast.get_stmt_span(stmt),
+                    *self.ast.stmt_span(stmt),
                 );
                 self.build_from_stmt(*then);
-                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.stmt_span(stmt));
                 self.block = cont_block;
             }
             parse::Stmt::If {
@@ -246,13 +246,13 @@ impl<'a> TackyFnDefBuilder<'a> {
                         cond,
                         target: else_block,
                     },
-                    *self.ast.get_stmt_span(stmt),
+                    *self.ast.stmt_span(stmt),
                 );
                 self.build_from_stmt(*then);
-                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.stmt_span(stmt));
                 self.block = else_block;
                 self.build_from_stmt(*otherwise);
-                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.stmt_span(stmt));
                 self.block = cont_block;
             }
             parse::Stmt::While { cond, body } => {
@@ -269,7 +269,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.break_blocks.insert(stmt, cont_block);
                 self.continue_blocks.insert(stmt, cond_block);
 
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cond_block;
                 let cond = self.build_from_expr(*cond);
@@ -278,13 +278,13 @@ impl<'a> TackyFnDefBuilder<'a> {
                         cond,
                         target: cont_block,
                     },
-                    *self.ast.get_stmt_span(stmt),
+                    *self.ast.stmt_span(stmt),
                 );
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = loop_block;
                 self.build_from_stmt(*body);
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -302,11 +302,11 @@ impl<'a> TackyFnDefBuilder<'a> {
                 self.break_blocks.insert(stmt, cont_block);
                 self.continue_blocks.insert(stmt, cond_block);
 
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = loop_block;
                 self.build_from_stmt(*body);
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cond_block;
                 let cond = self.build_from_expr(*cond);
@@ -315,9 +315,9 @@ impl<'a> TackyFnDefBuilder<'a> {
                         cond,
                         target: loop_block,
                     },
-                    *self.ast.get_stmt_span(stmt),
+                    *self.ast.stmt_span(stmt),
                 );
-                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -345,11 +345,11 @@ impl<'a> TackyFnDefBuilder<'a> {
                         }
                     }
                 }
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = loop_block;
                 self.build_from_stmt(*body);
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -380,7 +380,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                         }
                     }
                 }
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cond_block;
                 let cond = self.build_from_expr(*cond);
@@ -389,13 +389,13 @@ impl<'a> TackyFnDefBuilder<'a> {
                         cond,
                         target: cont_block,
                     },
-                    *self.ast.get_stmt_span(stmt),
+                    *self.ast.stmt_span(stmt),
                 );
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = loop_block;
                 self.build_from_stmt(*body);
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -426,15 +426,15 @@ impl<'a> TackyFnDefBuilder<'a> {
                         }
                     }
                 }
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = loop_block;
                 self.build_from_stmt(*body);
-                self.append_to_block(Instr::Jump(step_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(step_block), *self.ast.stmt_span(stmt));
 
                 self.block = step_block;
                 self.build_from_expr(*step);
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -468,7 +468,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                         }
                     }
                 }
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cond_block;
                 let cond = self.build_from_expr(*cond);
@@ -477,17 +477,17 @@ impl<'a> TackyFnDefBuilder<'a> {
                         cond,
                         target: cont_block,
                     },
-                    *self.ast.get_stmt_span(stmt),
+                    *self.ast.stmt_span(stmt),
                 );
-                self.append_to_block(Instr::Jump(loop_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(loop_block), *self.ast.stmt_span(stmt));
 
                 self.block = loop_block;
                 self.build_from_stmt(*body);
-                self.append_to_block(Instr::Jump(step_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(step_block), *self.ast.stmt_span(stmt));
 
                 self.block = step_block;
                 self.build_from_expr(*step);
-                self.append_to_block(Instr::Jump(cond_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cond_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -501,7 +501,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                 let lhs = self.build_from_expr(*cond);
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
                     switch.cases.iter().for_each(|stmt| {
-                        if let parse::Stmt::Case { expr, .. } = self.ast.get_stmt(*stmt) {
+                        if let parse::Stmt::Case { expr, .. } = self.ast.stmt(*stmt) {
                             let target = self.fn_def.push_block(Block::with_label(
                                 self.interner.get_or_intern_static("case"),
                             ));
@@ -515,11 +515,11 @@ impl<'a> TackyFnDefBuilder<'a> {
                                     rhs,
                                     dst,
                                 },
-                                *self.ast.get_stmt_span(*stmt),
+                                *self.ast.stmt_span(*stmt),
                             );
                             self.append_to_block(
                                 Instr::JumpIfNotZero { cond: dst, target },
-                                *self.ast.get_stmt_span(*stmt),
+                                *self.ast.stmt_span(*stmt),
                             );
                         }
                     });
@@ -527,7 +527,7 @@ impl<'a> TackyFnDefBuilder<'a> {
                         None => {
                             self.append_to_block(
                                 Instr::Jump(cont_block),
-                                *self.ast.get_stmt_span(stmt),
+                                *self.ast.stmt_span(stmt),
                             );
                         }
                         Some(stmt) => {
@@ -537,14 +537,14 @@ impl<'a> TackyFnDefBuilder<'a> {
                             self.case_blocks.insert(stmt, target);
                             self.append_to_block(
                                 Instr::Jump(target),
-                                *self.ast.get_stmt_span(stmt),
+                                *self.ast.stmt_span(stmt),
                             );
                         }
                     }
                     self.build_from_stmt(*body);
                 }
 
-                self.append_to_block(Instr::Jump(cont_block), *self.ast.get_stmt_span(stmt));
+                self.append_to_block(Instr::Jump(cont_block), *self.ast.stmt_span(stmt));
 
                 self.block = cont_block;
             }
@@ -552,12 +552,12 @@ impl<'a> TackyFnDefBuilder<'a> {
     }
 
     fn build_from_expr(&mut self, expr: parse::ExprRef) -> Value {
-        let span = *self.ast.get_expr_span(expr);
-        match self.ast.get_expr(expr) {
+        let span = *self.ast.expr_span(expr);
+        match self.ast.expr(expr) {
             parse::Expr::Constant(value) => Value::Constant(*value),
             parse::Expr::Var { decl, .. } => self.get_or_make_some_var(*decl),
             parse::Expr::Grouped(mut expr) => {
-                while let parse::Expr::Grouped(inner) = self.ast.get_expr(expr) {
+                while let parse::Expr::Grouped(inner) = self.ast.expr(expr) {
                     expr = *inner
                 }
                 self.build_from_expr(expr)

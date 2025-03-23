@@ -2,10 +2,10 @@ use crate::lex::{Token, TokenKind};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceFile, SourceSpan},
-    string_interner::{DefaultSymbol, Symbol},
+    string_interner::{DefaultStringInterner, DefaultSymbol, Symbol},
 };
 
-use std::{iter::Peekable, num::NonZero, slice::Iter};
+use std::{iter::Peekable, marker::PhantomData, num::NonZeroU32, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Ast
@@ -63,93 +63,73 @@ impl Ast {
     }
 
     #[inline]
-    pub fn get_item(&self, item: ItemRef) -> &Item {
+    pub fn item(&self, item: ItemRef) -> &Item {
         &self.items[item.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_decl(&self, decl: DeclRef) -> &Decl {
+    pub fn decl(&self, decl: DeclRef) -> &Decl {
         &self.decls[decl.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_stmt(&self, stmt: StmtRef) -> &Stmt {
+    pub fn stmt(&self, stmt: StmtRef) -> &Stmt {
         &self.stmts[stmt.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_expr(&self, expr: ExprRef) -> &Expr {
+    pub fn expr(&self, expr: ExprRef) -> &Expr {
         &self.exprs[expr.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_item_span(&self, item: ItemRef) -> &SourceSpan {
+    pub fn item_span(&self, item: ItemRef) -> &SourceSpan {
         &self.items_span[item.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_decl_span(&self, decl: DeclRef) -> &SourceSpan {
+    pub fn decl_span(&self, decl: DeclRef) -> &SourceSpan {
         &self.decls_span[decl.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
+    pub fn stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
         &self.stmts_span[stmt.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_expr_span(&self, expr: ExprRef) -> &SourceSpan {
+    pub fn expr_span(&self, expr: ExprRef) -> &SourceSpan {
         &self.exprs_span[expr.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_block_items(&self, slice: BlockItemSlice) -> &[BlockItem] {
-        &self.block_items[slice.begin as usize..slice.end as usize]
-    }
-
-    #[inline]
-    pub fn get_item_mut(&mut self, item: ItemRef) -> &mut Item {
+    pub fn item_mut(&mut self, item: ItemRef) -> &mut Item {
         &mut self.items[item.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
+    pub fn decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
         &mut self.decls[decl.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
+    pub fn stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
         &mut self.stmts[stmt.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
+    pub fn expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
         &mut self.exprs[expr.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_item_span_mut(&mut self, item: ItemRef) -> &mut SourceSpan {
-        &mut self.items_span[item.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn get_decl_span_mut(&mut self, decl: DeclRef) -> &mut SourceSpan {
-        &mut self.decls_span[decl.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn get_stmt_span_mut(&mut self, stmt: StmtRef) -> &mut SourceSpan {
-        &mut self.stmts_span[stmt.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn get_expr_span_mut(&mut self, expr: ExprRef) -> &mut SourceSpan {
-        &mut self.exprs_span[expr.0.get() as usize]
+    pub fn block_items(&self, slice: BlockItemSlice) -> &[BlockItem] {
+        &self.block_items[slice.begin as usize..slice.end as usize]
     }
 
     #[inline]
     pub fn push_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
-        let r = ItemRef(NonZero::new(self.items.len() as u32).unwrap());
+        let r = ItemRef::new(self.items.len());
         self.items.push(item);
         self.items_span.push(span);
         r
@@ -157,7 +137,7 @@ impl Ast {
 
     #[inline]
     pub fn push_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
-        let r = DeclRef(NonZero::new(self.decls.len() as u32).unwrap());
+        let r = DeclRef::new(self.decls.len());
         self.decls.push(decl);
         self.decls_span.push(span);
         r
@@ -165,7 +145,7 @@ impl Ast {
 
     #[inline]
     pub fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
-        let r = StmtRef(NonZero::new(self.stmts.len() as u32).unwrap());
+        let r = StmtRef::new(self.stmts.len());
         self.stmts.push(stmt);
         self.stmts_span.push(span);
         r
@@ -173,7 +153,7 @@ impl Ast {
 
     #[inline]
     pub fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
-        let r = ExprRef(NonZero::new(self.exprs.len() as u32).unwrap());
+        let r = ExprRef::new(self.exprs.len());
         self.exprs.push(expr);
         self.exprs_span.push(span);
         r
@@ -182,22 +162,22 @@ impl Ast {
     #[inline]
     pub fn push_block_items(
         &mut self,
-        block_items: impl IntoIterator<Item = BlockItem>,
+        items: impl IntoIterator<Item = BlockItem>,
     ) -> BlockItemSlice {
         let begin = self.block_items.len() as u32;
-        self.block_items.extend(block_items);
+        self.block_items.extend(items);
         let end = self.block_items.len() as u32;
         BlockItemSlice { begin, end }
     }
 
     #[inline]
-    pub fn items_iter_refs(&self) -> impl Iterator<Item = ItemRef> {
-        (1..self.items.len()).map(|i| ItemRef(NonZero::new(i as u32).unwrap()))
+    pub fn item_iter(&self) -> impl Iterator<Item = ItemRef> {
+        unsafe { (1..self.items.len()).map(|i| ItemRef::new_unchecked(i)) }
     }
 
     #[inline]
-    pub fn items_iter_both(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
-        self.items_iter_refs().zip(self.items().iter())
+    pub fn item_iter2(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
+        self.item_iter().zip(self.items().iter())
     }
 }
 
@@ -205,8 +185,7 @@ impl Ast {
 // Ast Nodes
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ItemRef(NonZero<u32>);
+pub type ItemRef = EntityRef<Item>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
@@ -223,8 +202,7 @@ impl Default for Item {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct DeclRef(NonZero<u32>);
+pub type DeclRef = EntityRef<Decl>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decl {
@@ -244,8 +222,7 @@ impl Default for Decl {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StmtRef(NonZero<u32>);
+pub type StmtRef = EntityRef<Stmt>;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
@@ -291,8 +268,7 @@ pub enum Stmt {
     },
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ExprRef(NonZero<u32>);
+pub type ExprRef = EntityRef<Expr>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {
@@ -458,16 +434,22 @@ pub struct ParserDiagnostic {
 // ---------------------------------------------------------------------------
 
 pub struct Parser<'a> {
-    result: ParserResult,
     file: &'a SourceFile,
     iter: Peekable<Iter<'a, Token>>,
+    interner: &'a mut DefaultStringInterner,
+    result: ParserResult,
     block_item_stack: Vec<BlockItem>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(file: &'a SourceFile, iter: Iter<'a, Token>) -> Self {
+    pub fn new(
+        file: &'a SourceFile,
+        iter: Iter<'a, Token>,
+        interner: &'a mut DefaultStringInterner,
+    ) -> Self {
         Self {
             file,
+            interner,
             iter: iter.peekable(),
             result: ParserResult::default(),
             block_item_stack: Vec::with_capacity(16),
@@ -864,8 +846,7 @@ impl<'a> Parser<'a> {
             self.result.diagnostics.push(ParserDiagnostic {
                 span: token.span,
                 kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
-                    // TODO: This is a hack, fix it.
-                    DefaultSymbol::try_from_usize(0).expect("could not convert 0 to DefaultSymbol"),
+                    self.interner.get_or_intern_static("?"),
                 )),
             });
             None
@@ -1103,5 +1084,45 @@ impl From<TokenKind> for Option<Precedence> {
             }),
             _ => None,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EntityRef<T>
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
+
+impl<T> EntityRef<T> {
+    pub fn new(idx: usize) -> Self {
+        Self(
+            NonZeroU32::new(idx as u32).expect("expected a positive index"),
+            PhantomData,
+        )
+    }
+
+    unsafe fn new_unchecked(idx: usize) -> Self {
+        Self(NonZeroU32::new_unchecked(idx as u32), PhantomData)
+    }
+}
+
+impl<T> Copy for EntityRef<T> {}
+impl<T> Clone for EntityRef<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, PhantomData)
+    }
+}
+
+impl<T> Eq for EntityRef<T> {}
+impl<T> PartialEq for EntityRef<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> std::hash::Hash for EntityRef<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }

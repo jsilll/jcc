@@ -1,12 +1,13 @@
-use std::collections::HashSet;
+use crate::{
+    parse::{
+        Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
+    },
+    sema::SemaCtx,
+};
 
 use tacky::source_file::{diag::Diagnostic, SourceSpan};
 
-use crate::parse::{
-    Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
-};
-
-use super::SemaCtx;
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // TyperResult
@@ -46,7 +47,7 @@ impl<'ctx> TyperPass<'ctx> {
 
     pub fn analyze(mut self, ast: &Ast) -> TyperResult {
         ast.items().iter().for_each(|item| {
-            ast.get_block_items(item.body)
+            ast.block_items(item.body)
                 .iter()
                 .for_each(|block_item| match block_item {
                     BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
@@ -57,7 +58,7 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn analyze_decl(&mut self, ast: &Ast, decl: DeclRef) {
-        match ast.get_decl(decl) {
+        match ast.decl(decl) {
             Decl::Var { init, .. } => {
                 if let Some(init) = init {
                     self.analyze_expr(ast, *init);
@@ -67,14 +68,14 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
-        match ast.get_stmt(stmt) {
+        match ast.stmt(stmt) {
             Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
             Stmt::Default(stmt) => self.analyze_stmt(ast, *stmt),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, *stmt),
             Stmt::Compound(items) => {
-                ast.get_block_items(*items)
+                ast.block_items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
@@ -92,13 +93,13 @@ impl<'ctx> TyperPass<'ctx> {
                         .cases
                         .clone()
                         .iter()
-                        .for_each(|stmt| match ast.get_stmt(*stmt) {
+                        .for_each(|stmt| match ast.stmt(*stmt) {
                             Stmt::Case { expr, .. } => {
                                 if self.assert_is_constant(ast, *expr)
-                                    && !values.insert(*ast.get_expr(*expr))
+                                    && !values.insert(*ast.expr(*expr))
                                 {
                                     self.result.diagnostics.push(TyperDiagnostic {
-                                        span: *ast.get_expr_span(*expr),
+                                        span: *ast.expr_span(*expr),
                                         kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                     });
                                 }
@@ -152,7 +153,7 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn analyze_expr(&mut self, ast: &Ast, expr: ExprRef) {
-        match ast.get_expr(expr) {
+        match ast.expr(expr) {
             Expr::Var { .. } | Expr::Constant(_) => {}
             Expr::Grouped(expr) => self.analyze_expr(ast, *expr),
             Expr::Unary { op, expr } => match op {
@@ -198,7 +199,7 @@ impl<'ctx> TyperPass<'ctx> {
     fn assert_is_lvalue(&mut self, ast: &Ast, expr: ExprRef) -> bool {
         if !is_lvalue(ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
-                span: *ast.get_expr_span(expr),
+                span: *ast.expr_span(expr),
                 kind: TyperDiagnosticKind::InvalidLValue,
             });
             return false;
@@ -209,7 +210,7 @@ impl<'ctx> TyperPass<'ctx> {
     fn assert_is_constant(&mut self, ast: &Ast, expr: ExprRef) -> bool {
         if !is_constant(ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
-                span: *ast.get_expr_span(expr),
+                span: *ast.expr_span(expr),
                 kind: TyperDiagnosticKind::NotConstant,
             });
             return false;
@@ -223,7 +224,7 @@ impl<'ctx> TyperPass<'ctx> {
 // ---------------------------------------------------------------------------
 
 fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.get_expr(expr) {
+    match ast.expr(expr) {
         Expr::Var { .. } => true,
         Expr::Grouped(expr) => is_lvalue(ast, *expr),
         Expr::Constant(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
@@ -232,7 +233,7 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
 }
 
 fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.get_expr(expr) {
+    match ast.expr(expr) {
         Expr::Constant(_) => true,
         Expr::Grouped(expr) => is_constant(ast, *expr),
         Expr::Var { .. } | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => false,

@@ -31,8 +31,6 @@ impl<'a> Default for SourceLocation<'a> {
 // SourceSpan
 // ---------------------------------------------------------------------------
 
-// TODO: Move to NonZeroU32
-
 #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SourceSpan {
     start: u32,

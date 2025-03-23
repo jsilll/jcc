@@ -226,6 +226,7 @@ impl AMD64FnDefBuilder {
                     | crate::BinaryOp::LessEqual
                     | crate::BinaryOp::GreaterThan
                     | crate::BinaryOp::GreaterEqual => {
+                        // TODO: extract this to a function and remove the expect
                         self.append_to_block(Instr::Cmp { lhs: rhs, rhs: lhs }, *span);
                         self.append_to_block(
                             Instr::Mov {

@@ -276,8 +276,8 @@ impl AMD64FnDefBuilder {
 
     fn build_from_value(value: &crate::Value) -> Operand {
         match value {
+            crate::Value::Const(c) => Operand::Imm(*c),
             crate::Value::Variable(id) => Operand::Pseudo(*id),
-            crate::Value::Constant(value) => Operand::Imm(*value),
         }
     }
 }

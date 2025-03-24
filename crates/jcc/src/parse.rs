@@ -128,7 +128,7 @@ impl Ast {
     }
 
     #[inline]
-    pub fn push_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
+    pub fn new_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
         let r = ItemRef::new(self.items.len());
         self.items.push(item);
         self.items_span.push(span);
@@ -136,7 +136,7 @@ impl Ast {
     }
 
     #[inline]
-    pub fn push_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
+    pub fn new_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
         let r = DeclRef::new(self.decls.len());
         self.decls.push(decl);
         self.decls_span.push(span);
@@ -144,7 +144,7 @@ impl Ast {
     }
 
     #[inline]
-    pub fn push_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
+    pub fn new_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
         let r = StmtRef::new(self.stmts.len());
         self.stmts.push(stmt);
         self.stmts_span.push(span);
@@ -152,7 +152,7 @@ impl Ast {
     }
 
     #[inline]
-    pub fn push_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
+    pub fn new_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
         let r = ExprRef::new(self.exprs.len());
         self.exprs.push(expr);
         self.exprs_span.push(span);
@@ -160,7 +160,7 @@ impl Ast {
     }
 
     #[inline]
-    pub fn push_block_items(
+    pub fn new_block_items(
         &mut self,
         items: impl IntoIterator<Item = BlockItem>,
     ) -> BlockItemSlice {
@@ -171,13 +171,13 @@ impl Ast {
     }
 
     #[inline]
-    pub fn item_iter(&self) -> impl Iterator<Item = ItemRef> {
+    pub fn items_iter(&self) -> impl Iterator<Item = ItemRef> {
         unsafe { (1..self.items.len()).map(|i| ItemRef::new_unchecked(i)) }
     }
 
     #[inline]
-    pub fn item_iter2(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
-        self.item_iter().zip(self.items().iter())
+    pub fn items_iter2(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
+        self.items_iter().zip(self.items().iter())
     }
 }
 
@@ -273,7 +273,7 @@ pub type ExprRef = EntityRef<Expr>;
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {
     /// A constant integer value.
-    Constant(u32),
+    Const(i64),
     /// A variable reference.
     Var {
         name: DefaultSymbol,
@@ -299,7 +299,7 @@ pub enum Expr {
 
 impl Default for Expr {
     fn default() -> Self {
-        Self::Constant(0)
+        Self::Const(0)
     }
 }
 
@@ -479,7 +479,7 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::LBrace)?;
         let body = self.parse_body()?;
         self.eat(TokenKind::RBrace)?;
-        Some(self.result.ast.push_item(Item { name, body }, span))
+        Some(self.result.ast.new_item(Item { name, body }, span))
     }
 
     fn parse_body(&mut self) -> Option<BlockItemSlice> {
@@ -500,7 +500,7 @@ impl<'a> Parser<'a> {
         Some(
             self.result
                 .ast
-                .push_block_items(self.block_item_stack.drain(base..)),
+                .new_block_items(self.block_item_stack.drain(base..)),
         )
     }
 
@@ -518,7 +518,7 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         self.eat(TokenKind::Semi)?;
-        Some(self.result.ast.push_decl(Decl::Var { name, init }, span))
+        Some(self.result.ast.new_decl(Decl::Var { name, init }, span))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -526,48 +526,48 @@ impl<'a> Parser<'a> {
         match kind {
             TokenKind::Semi => {
                 self.iter.next();
-                Some(self.result.ast.push_stmt(Stmt::Empty, *span))
+                Some(self.result.ast.new_stmt(Stmt::Empty, *span))
             }
             TokenKind::KwReturn => {
                 self.iter.next();
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.push_stmt(Stmt::Return(expr), *span))
+                Some(self.result.ast.new_stmt(Stmt::Return(expr), *span))
             }
             TokenKind::KwDefault => {
                 self.iter.next();
                 self.eat(TokenKind::Colon)?;
                 let stmt = self.parse_stmt()?;
-                Some(self.result.ast.push_stmt(Stmt::Default(stmt), *span))
+                Some(self.result.ast.new_stmt(Stmt::Default(stmt), *span))
             }
             TokenKind::KwGoto => {
                 self.iter.next();
                 let (_, name) = self.eat_identifier()?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.push_stmt(Stmt::Goto(name), *span))
+                Some(self.result.ast.new_stmt(Stmt::Goto(name), *span))
             }
             TokenKind::KwBreak => {
                 self.iter.next();
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.push_stmt(Stmt::Break(None), *span))
+                Some(self.result.ast.new_stmt(Stmt::Break(None), *span))
             }
             TokenKind::KwContinue => {
                 self.iter.next();
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.push_stmt(Stmt::Continue(None), *span))
+                Some(self.result.ast.new_stmt(Stmt::Continue(None), *span))
             }
             TokenKind::LBrace => {
                 self.iter.next();
                 let body = self.parse_body()?;
                 self.eat(TokenKind::RBrace)?;
-                Some(self.result.ast.push_stmt(Stmt::Compound(body), *span))
+                Some(self.result.ast.new_stmt(Stmt::Compound(body), *span))
             }
             TokenKind::KwCase => {
                 self.iter.next();
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Colon)?;
                 let stmt = self.parse_stmt()?;
-                Some(self.result.ast.push_stmt(Stmt::Case { expr, stmt }, *span))
+                Some(self.result.ast.new_stmt(Stmt::Case { expr, stmt }, *span))
             }
             TokenKind::KwSwitch => {
                 self.iter.next();
@@ -575,11 +575,7 @@ impl<'a> Parser<'a> {
                 let cond = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 let body = self.parse_stmt()?;
-                Some(
-                    self.result
-                        .ast
-                        .push_stmt(Stmt::Switch { cond, body }, *span),
-                )
+                Some(self.result.ast.new_stmt(Stmt::Switch { cond, body }, *span))
             }
             TokenKind::KwIf => {
                 self.iter.next();
@@ -597,7 +593,7 @@ impl<'a> Parser<'a> {
                     }
                     _ => None,
                 };
-                Some(self.result.ast.push_stmt(
+                Some(self.result.ast.new_stmt(
                     Stmt::If {
                         cond,
                         then,
@@ -612,7 +608,7 @@ impl<'a> Parser<'a> {
                 let cond = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 let body = self.parse_stmt()?;
-                Some(self.result.ast.push_stmt(Stmt::While { cond, body }, *span))
+                Some(self.result.ast.new_stmt(Stmt::While { cond, body }, *span))
             }
             TokenKind::KwDo => {
                 self.iter.next();
@@ -625,7 +621,7 @@ impl<'a> Parser<'a> {
                 Some(
                     self.result
                         .ast
-                        .push_stmt(Stmt::DoWhile { body, cond }, *span),
+                        .new_stmt(Stmt::DoWhile { body, cond }, *span),
                 )
             }
             TokenKind::KwFor => {
@@ -643,7 +639,7 @@ impl<'a> Parser<'a> {
                 let cond = self.parse_optional_expr(TokenKind::Semi);
                 let step = self.parse_optional_expr(TokenKind::RParen);
                 let body = self.parse_stmt()?;
-                Some(self.result.ast.push_stmt(
+                Some(self.result.ast.new_stmt(
                     Stmt::For {
                         init,
                         cond,
@@ -664,19 +660,19 @@ impl<'a> Parser<'a> {
                     Some(
                         self.result
                             .ast
-                            .push_stmt(Stmt::Label { label: *name, stmt }, *span),
+                            .new_stmt(Stmt::Label { label: *name, stmt }, *span),
                     )
                 }
                 _ => {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::Semi)?;
-                    Some(self.result.ast.push_stmt(Stmt::Expr(expr), *span))
+                    Some(self.result.ast.new_stmt(Stmt::Expr(expr), *span))
                 }
             },
             _ => {
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.push_stmt(Stmt::Expr(expr), *span))
+                Some(self.result.ast.new_stmt(Stmt::Expr(expr), *span))
             }
         }
     }
@@ -714,7 +710,7 @@ impl<'a> Parser<'a> {
                             let then = self.parse_expr(0)?;
                             self.eat(TokenKind::Colon)?;
                             let otherwise = self.parse_expr(prec)?;
-                            lhs = self.result.ast.push_expr(
+                            lhs = self.result.ast.new_expr(
                                 Expr::Ternary {
                                     cond: lhs,
                                     then,
@@ -728,7 +724,7 @@ impl<'a> Parser<'a> {
                             lhs = self
                                 .result
                                 .ast
-                                .push_expr(Expr::Binary { op, lhs, rhs }, *span);
+                                .new_expr(Expr::Binary { op, lhs, rhs }, *span);
                         }
                     }
                 }
@@ -740,13 +736,13 @@ impl<'a> Parser<'a> {
     fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
         let Token { kind, span } = self.iter.peek()?;
         match kind {
-            TokenKind::Number(value) => {
+            TokenKind::Number(n) => {
                 self.iter.next();
-                Some(self.result.ast.push_expr(Expr::Constant(*value), *span))
+                Some(self.result.ast.new_expr(Expr::Const(*n), *span))
             }
             TokenKind::Identifier(name) => {
                 self.iter.next();
-                let expr = self.result.ast.push_expr(
+                let expr = self.result.ast.new_expr(
                     Expr::Var {
                         name: *name,
                         decl: None,
@@ -759,7 +755,7 @@ impl<'a> Parser<'a> {
                 self.iter.next();
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
-                let expr = self.result.ast.push_expr(Expr::Grouped(expr), *span);
+                let expr = self.result.ast.new_expr(Expr::Grouped(expr), *span);
                 Some(self.parse_expr_postfix(expr))
             }
             TokenKind::Minus => self.parse_prefix_operator(UnaryOp::Neg, span),
@@ -780,7 +776,7 @@ impl<'a> Parser<'a> {
     fn parse_prefix_operator(&mut self, op: UnaryOp, span: &SourceSpan) -> Option<ExprRef> {
         self.iter.next();
         let expr = self.parse_expr_prefix()?;
-        Some(self.result.ast.push_expr(Expr::Unary { op, expr }, *span))
+        Some(self.result.ast.new_expr(Expr::Unary { op, expr }, *span))
     }
 
     fn parse_expr_postfix(&mut self, mut expr: ExprRef) -> ExprRef {
@@ -803,7 +799,7 @@ impl<'a> Parser<'a> {
         *expr = self
             .result
             .ast
-            .push_expr(Expr::Unary { op, expr: *expr }, *span);
+            .new_expr(Expr::Unary { op, expr: *expr }, *span);
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<&Token> {

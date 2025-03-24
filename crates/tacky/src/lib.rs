@@ -121,7 +121,7 @@ pub enum Instr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
     /// A constant value.
-    Constant(u32),
+    Const(i64),
     /// A variable reference.
     Variable(u32),
 }

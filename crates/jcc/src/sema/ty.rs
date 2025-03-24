@@ -154,7 +154,7 @@ impl<'ctx> TyperPass<'ctx> {
 
     fn analyze_expr(&mut self, ast: &Ast, expr: ExprRef) {
         match ast.expr(expr) {
-            Expr::Var { .. } | Expr::Constant(_) => {}
+            Expr::Var { .. } | Expr::Const(_) => {}
             Expr::Grouped(expr) => self.analyze_expr(ast, *expr),
             Expr::Unary { op, expr } => match op {
                 UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
@@ -227,14 +227,14 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
     match ast.expr(expr) {
         Expr::Var { .. } => true,
         Expr::Grouped(expr) => is_lvalue(ast, *expr),
-        Expr::Constant(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
+        Expr::Const(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
         Expr::Ternary { .. } => false,
     }
 }
 
 fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
     match ast.expr(expr) {
-        Expr::Constant(_) => true,
+        Expr::Const(_) => true,
         Expr::Grouped(expr) => is_constant(ast, *expr),
         Expr::Var { .. } | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => false,
     }

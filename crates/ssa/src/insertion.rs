@@ -57,14 +57,14 @@ impl InsertionSet {
                 .iter()
                 .take_while(|i| i.idx.0 <= idx as u32)
                 .for_each(|i| {
-                    insts.push(p.push_inst_with_span(Inst::new(i.ty, i.kind.clone()), i.span));
+                    insts.push(p.new_inst_with_span(Inst::new(i.ty, i.kind.clone()), i.span));
                     curr += 1;
                 });
             insts.push(p.block(b).insts[idx]);
         }
 
         self.insertions[curr..].iter().for_each(|i| {
-            insts.push(p.push_inst_with_span(Inst::new(i.ty, i.kind.clone()), i.span));
+            insts.push(p.new_inst_with_span(Inst::new(i.ty, i.kind.clone()), i.span));
         });
 
         p.block_mut(b).insts = insts;

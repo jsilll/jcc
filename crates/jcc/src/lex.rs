@@ -423,7 +423,7 @@ pub enum TokenKind {
     KwWhile,
 
     /// A number.
-    Number(u32),
+    Number(i64),
     /// An identifier.
     Identifier(DefaultSymbol),
 }

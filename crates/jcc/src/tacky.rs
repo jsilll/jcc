@@ -27,7 +27,7 @@ impl<'a> TackyBuilder<'a> {
 
     pub fn build(self, ast: &Ast) -> Program {
         let (item_ref, item) = ast
-            .item_iter2()
+            .items_iter2()
             .next()
             .expect("expected at least one item in the AST");
         let fn_def = TackyFnDefBuilder::new(ast, self.ctx, self.interner).build(item_ref, item);
@@ -84,9 +84,9 @@ impl<'a> TackyFnDefBuilder<'a> {
         match self.ast.block_items(item.body).last() {
             Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
                 parse::Stmt::Return(_) => {}
-                _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
+                _ => self.append_to_block(Instr::Return(Value::Const(0)), self.fn_def.span),
             },
-            _ => self.append_to_block(Instr::Return(Value::Constant(0)), self.fn_def.span),
+            _ => self.append_to_block(Instr::Return(Value::Const(0)), self.fn_def.span),
         }
         self.fn_def
     }
@@ -554,7 +554,7 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_expr(&mut self, expr: parse::ExprRef) -> Value {
         let span = *self.ast.expr_span(expr);
         match self.ast.expr(expr) {
-            parse::Expr::Constant(value) => Value::Constant(*value),
+            parse::Expr::Const(c) => Value::Const(*c),
             parse::Expr::Var { decl, .. } => self.get_or_make_some_var(*decl),
             parse::Expr::Grouped(mut expr) => {
                 while let parse::Expr::Grouped(inner) = self.ast.expr(expr) {
@@ -796,7 +796,7 @@ impl<'a> TackyFnDefBuilder<'a> {
 
         self.append_to_block(
             Instr::Copy {
-                src: Value::Constant(other_value),
+                src: Value::Const(other_value),
                 dst,
             },
             span,
@@ -806,7 +806,7 @@ impl<'a> TackyFnDefBuilder<'a> {
         self.block = skip_block;
         self.append_to_block(
             Instr::Copy {
-                src: Value::Constant(skip_value),
+                src: Value::Const(skip_value),
                 dst,
             },
             span,

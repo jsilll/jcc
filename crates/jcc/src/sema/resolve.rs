@@ -44,7 +44,7 @@ impl ResolverPass {
     }
 
     pub fn analyze(mut self, ast: &mut Ast) -> ResolverResult {
-        ast.item_iter().for_each(|item| {
+        ast.items_iter().for_each(|item| {
             self.symbols.push_scope();
             ast.block_items(ast.item(item).body)
                 .to_owned()
@@ -158,7 +158,7 @@ impl ResolverPass {
             return;
         }
         match ast.expr(expr).clone() {
-            Expr::Constant(_) => {}
+            Expr::Const(_) => {}
             Expr::Var { .. } => unreachable!(),
             Expr::Grouped(expr) => self.analyze_expr(ast, expr),
             Expr::Unary { expr, .. } => self.analyze_expr(ast, expr),

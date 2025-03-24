@@ -2,6 +2,7 @@ use jcc::{
     lex::{Lexer, LexerDiagnosticKind},
     parse::Parser,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
+    ssa::SSABuilder,
     tacky::TackyBuilder,
 };
 
@@ -30,6 +31,9 @@ struct Args {
     /// Run until the semantic analyzer and stop
     #[clap(long)]
     pub validate: bool,
+    /// Run until the SSA generator and stop
+    #[clap(long)]
+    pub ssa: bool,
     /// Run until the tacky generator and stop
     #[clap(long)]
     pub tacky: bool,
@@ -139,6 +143,13 @@ fn try_main() -> Result<()> {
         println!("{:#?}", ast);
     }
     if args.validate {
+        return Ok(());
+    }
+
+    // Generate SSA
+    if args.ssa {
+        let ssa = SSABuilder::new(&ast, &ctx, &mut interner).build();
+        println!("{}", ssa);
         return Ok(());
     }
 

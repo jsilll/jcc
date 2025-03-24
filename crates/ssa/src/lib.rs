@@ -2,9 +2,9 @@ pub mod effects;
 
 pub mod insertion;
 
-pub mod optimize;
-
 pub use source_file;
+
+pub use string_interner;
 
 use effects::{AbstractHeap, FastEffects};
 
@@ -180,11 +180,20 @@ pub enum InstKind {
     #[default]
     Nop,
     Phi,
+    Alloca,
     GetArg,
     Const(i64),
     Ret(InstRef),
     Jump(BlockRef),
     Identity(InstRef),
+    Load {
+        ty: Type,
+        ptr: InstRef,
+    },
+    Store {
+        val: InstRef,
+        ptr: InstRef,
+    },
     Upsilon {
         val: InstRef,
         phi: InstRef,
@@ -377,14 +386,26 @@ impl<'a> Program<'a> {
         &mut self.funcs[func.0.get() as usize]
     }
 
-    pub fn push_inst(&mut self, inst: Inst) -> InstRef {
+    pub fn delete_inst(&mut self, inst: InstRef) {
+        self.insts_free.insert(inst);
+    }
+
+    pub fn delete_block(&mut self, block: BlockRef) {
+        self.blocks_free.insert(block);
+    }
+
+    pub fn delete_func(&mut self, func: FuncRef) {
+        self.funcs_free.insert(func);
+    }
+
+    pub fn new_inst(&mut self, inst: Inst) -> InstRef {
         let idx = InstRef::new(self.insts.len());
         self.insts.push(inst);
         self.insts_span.push(Default::default());
         idx
     }
 
-    pub fn push_block(&mut self, name: &str) -> BlockRef {
+    pub fn new_block(&mut self, name: &str) -> BlockRef {
         let idx = BlockRef::new(self.blocks.len());
         self.blocks.push(Default::default());
         self.blocks_span.push(Default::default());
@@ -392,7 +413,7 @@ impl<'a> Program<'a> {
         idx
     }
 
-    pub fn push_func(&mut self, name: &str) -> FuncRef {
+    pub fn new_func(&mut self, name: &str) -> FuncRef {
         let idx = FuncRef::new(self.funcs.len());
         self.funcs.push(Default::default());
         self.funcs_span.push(Default::default());
@@ -400,26 +421,30 @@ impl<'a> Program<'a> {
         idx
     }
 
-    pub fn remove_inst(&mut self, inst: InstRef) {
-        self.insts_free.insert(inst);
+    pub fn new_block_interned(&mut self, name: DefaultSymbol) -> BlockRef {
+        let idx = BlockRef::new(self.blocks.len());
+        self.blocks.push(Default::default());
+        self.blocks_span.push(Default::default());
+        self.blocks_name.push(name);
+        idx
     }
 
-    pub fn remove_block(&mut self, block: BlockRef) {
-        self.blocks_free.insert(block);
+    pub fn new_func_interned(&mut self, name: DefaultSymbol) -> FuncRef {
+        let idx = FuncRef::new(self.funcs.len());
+        self.funcs.push(Default::default());
+        self.funcs_span.push(Default::default());
+        self.funcs_name.push(name);
+        idx
     }
 
-    pub fn remove_func(&mut self, func: FuncRef) {
-        self.funcs_free.insert(func);
-    }
-
-    pub fn push_inst_with_span(&mut self, inst: Inst, span: SourceSpan) -> InstRef {
+    pub fn new_inst_with_span(&mut self, inst: Inst, span: SourceSpan) -> InstRef {
         let r = InstRef::new(self.insts.len());
         self.insts.push(inst);
         self.insts_span.push(span);
         r
     }
 
-    pub fn push_block_with_span(&mut self, name: &str, span: SourceSpan) -> BlockRef {
+    pub fn new_block_with_span(&mut self, name: &str, span: SourceSpan) -> BlockRef {
         let r = BlockRef::new(self.blocks.len());
         self.blocks.push(Default::default());
         self.blocks_span.push(span);
@@ -427,7 +452,7 @@ impl<'a> Program<'a> {
         r
     }
 
-    pub fn push_func_with_span(&mut self, name: &str, span: SourceSpan) -> FuncRef {
+    pub fn new_func_with_span(&mut self, name: &str, span: SourceSpan) -> FuncRef {
         let r = FuncRef::new(self.funcs.len());
         self.funcs.push(Default::default());
         self.funcs_span.push(span);
@@ -435,17 +460,41 @@ impl<'a> Program<'a> {
         r
     }
 
-    pub fn inst_iter(&self) -> impl Iterator<Item = InstRef> {
+    pub fn new_block_with_span_interned(
+        &mut self,
+        name: DefaultSymbol,
+        span: SourceSpan,
+    ) -> BlockRef {
+        let r = BlockRef::new(self.blocks.len());
+        self.blocks.push(Default::default());
+        self.blocks_span.push(span);
+        self.blocks_name.push(name);
+        r
+    }
+
+    pub fn new_func_with_span_interned(
+        &mut self,
+        name: DefaultSymbol,
+        span: SourceSpan,
+    ) -> FuncRef {
+        let r = FuncRef::new(self.funcs.len());
+        self.funcs.push(Default::default());
+        self.funcs_span.push(span);
+        self.funcs_name.push(name);
+        r
+    }
+
+    pub fn insts(&self) -> impl Iterator<Item = InstRef> {
         // TODO: Skip deleted insts
         unsafe { (1..self.insts.len()).map(|i| InstRef::new_unchecked(i)) }
     }
 
-    pub fn block_iter(&self) -> impl Iterator<Item = BlockRef> {
+    pub fn blocks(&self) -> impl Iterator<Item = BlockRef> {
         // TODO: Skip deleted blocks
         unsafe { (1..self.blocks.len()).map(|i| BlockRef::new_unchecked(i)) }
     }
 
-    pub fn func_iter(&self) -> impl Iterator<Item = FuncRef> {
+    pub fn funcs(&self) -> impl Iterator<Item = FuncRef> {
         // TODO: Skip deleted funcs
         unsafe { (1..self.funcs.len()).map(|i| FuncRef::new_unchecked(i)) }
     }
@@ -506,6 +555,8 @@ impl fmt::Display for InstKind {
             InstKind::Ret(i) => write!(f, "Ret({})", i),
             InstKind::Jump(b) => write!(f, "Jump({})", b),
             InstKind::Identity(i) => write!(f, "Identity({})", i),
+            InstKind::Load { ty, ptr } => write!(f, "Load {{ ty: {:?}, ptr: {} }}", ty, ptr),
+            InstKind::Store { val, ptr } => write!(f, "Store {{ val: {}, ptr: {} }}", val, ptr),
             InstKind::Upsilon { val, phi } => {
                 write!(f, "Upsilon {{ val: {}, phi: {} }}", val, phi)
             }
@@ -534,11 +585,7 @@ impl fmt::Display for InstKind {
 impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            writeln!(
-                f,
-                "define @{}",
-                self.interner.resolve(*name).unwrap_or("?")
-            )?;
+            writeln!(f, "define @{}", self.interner.resolve(*name).unwrap_or("?"))?;
             for block in &func.blocks {
                 let name = *self.block_name(*block);
                 writeln!(f, "{}:", self.interner.resolve(name).unwrap_or("?"))?;

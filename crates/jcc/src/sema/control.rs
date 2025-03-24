@@ -53,7 +53,7 @@ impl<'ctx> ControlPass<'ctx> {
     }
 
     pub fn analyze(mut self, ast: &mut Ast) -> ControlResult {
-        ast.item_iter().for_each(|item| {
+        ast.items_iter().for_each(|item| {
             ast.block_items(ast.item(item).body)
                 .to_owned()
                 .into_iter()

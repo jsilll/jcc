@@ -115,7 +115,7 @@ pub enum Instr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
     /// An immediate value.
-    Imm(u32),
+    Imm(i64),
     /// A register.
     Reg(Reg),
     /// A stack operand.

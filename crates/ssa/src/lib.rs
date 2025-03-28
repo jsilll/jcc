@@ -178,35 +178,37 @@ impl Inst {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum InstKind {
     #[default]
+    /// A no-op instruction.
     Nop,
+    /// A phi instruction.
     Phi,
+    /// A stack allocation instruction.
     Alloca,
+    /// A get argument instruction.
     GetArg,
+    /// A constant instruction.
     Const(i64),
+    /// A return instruction.
     Ret(InstRef),
+    /// A jump instruction.
     Jump(BlockRef),
+    /// A load instruction.
+    Load(InstRef),
+    /// An identity instruction.
     Identity(InstRef),
-    Load {
-        ty: Type,
-        ptr: InstRef,
-    },
-    Store {
-        val: InstRef,
-        ptr: InstRef,
-    },
-    Upsilon {
-        val: InstRef,
-        phi: InstRef,
-    },
-    Unary {
-        op: UnaryOp,
-        val: InstRef,
-    },
+    /// A store instruction.
+    Store { ptr: InstRef, val: InstRef },
+    /// An upsilon instruction.
+    Upsilon { val: InstRef, phi: InstRef },
+    /// A unary instruction.
+    Unary { op: UnaryOp, val: InstRef },
+    /// A binary instruction.
     Binary {
         op: BinaryOp,
         lhs: InstRef,
         rhs: InstRef,
     },
+    /// A branch instruction.
     Branch {
         val: InstRef,
         then: BlockRef,
@@ -520,9 +522,62 @@ impl<'a> Program<'a> {
         }
     }
 
-    pub fn validate(&self) -> bool {
+    pub fn verify(&self) -> bool {
         // TODO: Check SSA dominance rule: each use must be dominated by its definition
-        // This would require implementing dominance calculation first
+        // This requires implementing dominance calculation first
+        //
+        // For now, iterate over all the instructions and check their types:
+        for inst in &self.insts {
+            match inst.kind {
+                InstKind::Ret(_) => {
+                    if inst.ty != Type::Void {
+                        return false;
+                    }
+                }
+                InstKind::Jump(_) => {
+                    if inst.ty != Type::Void {
+                        return false;
+                    }
+                }
+                InstKind::Load(_) => {
+                    if inst.ty != Type::Int32 {
+                        return false;
+                    }
+                }
+                InstKind::Identity(val) => {
+                    if inst.ty != self.inst(val).ty {
+                        return false;
+                    }
+                }
+                InstKind::Store { .. } => {
+                    if inst.ty != Type::Void {
+                        return false;
+                    }
+                }
+                InstKind::Upsilon { .. } => {
+                    if inst.ty != Type::Void {
+                        return false;
+                    }
+                }
+                InstKind::Unary { .. } => {
+                    if inst.ty != Type::Int32 {
+                        return false;
+                    }
+                }
+                InstKind::Binary { .. } => {
+                    if inst.ty != Type::Int32 {
+                        return false;
+                    }
+                }
+                InstKind::Branch { .. } => {
+                    if inst.ty != Type::Void {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+
         true
     }
 }
@@ -554,9 +609,9 @@ impl fmt::Display for InstKind {
         match self {
             InstKind::Ret(i) => write!(f, "Ret({})", i),
             InstKind::Jump(b) => write!(f, "Jump({})", b),
+            InstKind::Load(ptr) => write!(f, "Load({})", ptr),
             InstKind::Identity(i) => write!(f, "Identity({})", i),
-            InstKind::Load { ty, ptr } => write!(f, "Load {{ ty: {:?}, ptr: {} }}", ty, ptr),
-            InstKind::Store { val, ptr } => write!(f, "Store {{ val: {}, ptr: {} }}", val, ptr),
+            InstKind::Store { val, ptr } => write!(f, "Store {{ ptr: {}, val: {} }}", ptr, val),
             InstKind::Upsilon { val, phi } => {
                 write!(f, "Upsilon {{ val: {}, phi: {} }}", val, phi)
             }
@@ -585,18 +640,18 @@ impl fmt::Display for InstKind {
 impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            writeln!(f, "define @{}", self.interner.resolve(*name).unwrap_or("?"))?;
+            write!(f, "define @{}", self.interner.resolve(*name).unwrap_or("?"))?;
             for block in &func.blocks {
                 let name = *self.block_name(*block);
-                writeln!(f, "{}:", self.interner.resolve(name).unwrap_or("?"))?;
+                write!(f, "\n{}:", self.interner.resolve(name).unwrap_or("?"))?;
                 for i in &self.block(*block).insts {
                     let inst = self.inst(*i);
-                    writeln!(f, "  {:?} {} = {}", inst.ty, i, inst.kind)?;
+                    write!(f, "\n  {:?} {} = {}", inst.ty, i, inst.kind)?;
                 }
                 if !self.block(*block).succs.is_empty() {
-                    writeln!(
+                    write!(
                         f,
-                        " successors: {}",
+                        "\n successors: {}",
                         self.block(*block)
                             .succs
                             .iter()

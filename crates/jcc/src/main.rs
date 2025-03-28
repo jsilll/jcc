@@ -148,8 +148,9 @@ fn try_main() -> Result<()> {
 
     // Generate SSA
     if args.ssa {
-        let ssa = SSABuilder::new(&ast, &ctx, &mut interner).build();
+        let ssa = SSABuilder::new(&ast, &mut interner).build();
         println!("{}", ssa);
+        assert!(ssa.verify());
         return Ok(());
     }
 

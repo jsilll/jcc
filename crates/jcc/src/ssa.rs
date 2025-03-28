@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{parse, sema};
 
 use ssa::{string_interner::DefaultStringInterner, Program};
@@ -12,6 +14,7 @@ pub struct SSABuilder<'a> {
     ctx: &'a sema::SemaCtx,
     func: Option<ssa::FuncRef>,
     block: Option<ssa::BlockRef>,
+    variables: HashMap<parse::DeclRef, ssa::InstRef>,
 }
 
 impl<'a> SSABuilder<'a> {
@@ -25,6 +28,7 @@ impl<'a> SSABuilder<'a> {
             ctx,
             func: None,
             block: None,
+            variables: HashMap::new(),
             prog: Program::new(interner),
         }
     }
@@ -70,7 +74,10 @@ impl<'a> SSABuilder<'a> {
                 let ptr = self
                     .prog
                     .new_inst(ssa::Inst::new(ssa::Type::Int32, ssa::InstKind::Alloca));
-                self.prog.block_mut(self.block.unwrap()).insts.push(ptr);
+
+                self.append_to_block(ptr);
+                self.variables.insert(decl, ptr);
+
                 if let Some(init) = init {
                     let val = self.visit_expr(*init);
                     let inst = self.prog.new_inst(ssa::Inst::new(
@@ -101,5 +108,12 @@ impl<'a> SSABuilder<'a> {
             }
             _ => todo!(),
         }
+    }
+
+    fn append_to_block(&mut self, instr: ssa::InstRef) {
+        self.prog
+            .block_mut(self.block.expect("block not set"))
+            .insts
+            .push(instr);
     }
 }

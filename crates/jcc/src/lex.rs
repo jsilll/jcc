@@ -392,7 +392,6 @@ pub enum TokenKind {
     StarEq,
     /// The `~` token.
     Tilde,
-
     /// The `break` keyword.
     KwBreak,
     /// The `case keyword.
@@ -421,7 +420,6 @@ pub enum TokenKind {
     KwVoid,
     /// The `while` keyword.
     KwWhile,
-
     /// A number.
     Number(i64),
     /// An identifier.
@@ -473,7 +471,6 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Star => write!(f, "'*'"),
             TokenKind::StarEq => write!(f, "'*='"),
             TokenKind::Tilde => write!(f, "'~'"),
-
             TokenKind::KwBreak => write!(f, "'break'"),
             TokenKind::KwCase => write!(f, "'case'"),
             TokenKind::KwContinue => write!(f, "'continue'"),
@@ -488,7 +485,6 @@ impl std::fmt::Display for TokenKind {
             TokenKind::KwSwitch => write!(f, "'switch'"),
             TokenKind::KwVoid => write!(f, "'void'"),
             TokenKind::KwWhile => write!(f, "'while'"),
-
             TokenKind::Number(_) => write!(f, "a number"),
             TokenKind::Identifier(_) => write!(f, "an identifier"),
         }

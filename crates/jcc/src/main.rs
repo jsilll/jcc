@@ -68,7 +68,7 @@ fn try_main() -> Result<()> {
         .output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Err(anyhow::anyhow!("\nexiting due to preprocessor errors"));
+        return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
     }
 
     // Add file to db
@@ -86,7 +86,7 @@ fn try_main() -> Result<()> {
     }
     if !lexer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
+        return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
@@ -99,7 +99,7 @@ fn try_main() -> Result<()> {
     let parser_result = Parser::new(&file, lexer_result.tokens.iter(), &mut interner).parse();
     if !parser_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to parser errors"));
+        return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.verbose {
         println!("{:#?}", parser_result.ast);
@@ -109,7 +109,7 @@ fn try_main() -> Result<()> {
     }
     if parser_result.ast.items().is_empty() {
         eprintln!("Error: no items found in the source file");
-        return Err(anyhow::anyhow!("\nexiting due to no items found"));
+        return Err(anyhow::anyhow!("exiting due to no items found"));
     }
 
     let mut ast = parser_result.ast;
@@ -123,7 +123,7 @@ fn try_main() -> Result<()> {
             &mut std::io::stderr(),
             &control_result.diagnostics,
         )?;
-        return Err(anyhow::anyhow!("\nexiting due to control errors"));
+        return Err(anyhow::anyhow!("exiting due to control errors"));
     }
     let resolver_result = ResolverPass::new().analyze(&mut ast);
     if !resolver_result.diagnostics.is_empty() {
@@ -132,12 +132,12 @@ fn try_main() -> Result<()> {
             &mut std::io::stderr(),
             &resolver_result.diagnostics,
         )?;
-        return Err(anyhow::anyhow!("\nexiting due to resolver errors"));
+        return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
     let typer_result = TyperPass::new(&mut ctx).analyze(&ast);
     if !typer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to typer errors"));
+        return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.verbose {
         println!("{:#?}", ast);
@@ -193,7 +193,7 @@ fn try_main() -> Result<()> {
         .output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
+        return Err(anyhow::anyhow!("exiting due to assembler errors"));
     }
 
     Ok(())

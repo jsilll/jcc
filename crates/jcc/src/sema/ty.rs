@@ -35,12 +35,14 @@ pub struct TyperDiagnostic {
 pub struct TyperPass<'ctx> {
     result: TyperResult,
     ctx: &'ctx mut SemaCtx,
+    switch_cases: HashSet<Expr>,
 }
 
 impl<'ctx> TyperPass<'ctx> {
     pub fn new(ctx: &'ctx mut SemaCtx) -> Self {
         Self {
             ctx,
+            switch_cases: HashSet::new(),
             result: TyperResult::default(),
         }
     }
@@ -88,7 +90,6 @@ impl<'ctx> TyperPass<'ctx> {
             }
             Stmt::Switch { cond, body } => {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
-                    let mut values = HashSet::new();
                     switch
                         .cases
                         .clone()
@@ -96,7 +97,7 @@ impl<'ctx> TyperPass<'ctx> {
                         .for_each(|stmt| match ast.stmt(*stmt) {
                             Stmt::Case { expr, .. } => {
                                 if self.assert_is_constant(ast, *expr)
-                                    && !values.insert(*ast.expr(*expr))
+                                    && !self.switch_cases.insert(*ast.expr(*expr))
                                 {
                                     self.result.diagnostics.push(TyperDiagnostic {
                                         span: *ast.expr_span(*expr),
@@ -107,6 +108,7 @@ impl<'ctx> TyperPass<'ctx> {
                             _ => panic!("unexpected statement in switch case"),
                         });
                 }
+                self.switch_cases.clear();
                 self.analyze_expr(ast, *cond);
                 self.analyze_stmt(ast, *body);
             }

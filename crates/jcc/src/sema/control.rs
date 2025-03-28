@@ -36,7 +36,7 @@ pub struct ControlDiagnostic {
 pub struct ControlPass<'ctx> {
     ctx: &'ctx mut SemaCtx,
     result: ControlResult,
-    stmts: Vec<TrackedStmt>,
+    tracked: Vec<TrackedStmt>,
     defined_labels: HashSet<DefaultSymbol>,
     unresolved_labels: HashMap<DefaultSymbol, Vec<SourceSpan>>,
 }
@@ -45,7 +45,7 @@ impl<'ctx> ControlPass<'ctx> {
     pub fn new(ctx: &'ctx mut SemaCtx) -> Self {
         Self {
             ctx,
-            stmts: Vec::new(),
+            tracked: Vec::new(),
             result: ControlResult::default(),
             defined_labels: HashSet::default(),
             unresolved_labels: HashMap::default(),
@@ -76,7 +76,7 @@ impl<'ctx> ControlPass<'ctx> {
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
         match ast.stmt_mut(stmt) {
             Stmt::Break(inner) => {
-                match self.stmts.last() {
+                match self.tracked.last() {
                     Some(TrackedStmt::Loop(loop_stmt)) => *inner = Some(*loop_stmt),
                     Some(TrackedStmt::Switch(switch_stmt)) => *inner = Some(*switch_stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
@@ -87,7 +87,7 @@ impl<'ctx> ControlPass<'ctx> {
                 return;
             }
             Stmt::Continue(inner) => {
-                match self.stmts.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Loop(loop_stmt) => Some(*loop_stmt),
                     _ => None,
                 }) {
@@ -105,7 +105,7 @@ impl<'ctx> ControlPass<'ctx> {
             Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
             Stmt::Break(_) | Stmt::Continue(_) => unreachable!(),
             Stmt::Default(inner) => {
-                match self.stmts.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
                 }) {
@@ -127,7 +127,7 @@ impl<'ctx> ControlPass<'ctx> {
                 self.analyze_stmt(ast, inner);
             }
             Stmt::Case { stmt: inner, .. } => {
-                match self.stmts.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
                 }) {
@@ -164,18 +164,17 @@ impl<'ctx> ControlPass<'ctx> {
                 self.analyze_stmt(ast, inner);
             }
             Stmt::Compound(stmt) => {
-                ast.block_items(stmt)
-                    .to_owned()
-                    .into_iter()
-                    .for_each(|block_item| match block_item {
+                ast.block_items(stmt).to_owned().into_iter().for_each(
+                    |block_item| match block_item {
                         BlockItem::Decl(_) => {}
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
-                    });
+                    },
+                );
             }
             Stmt::Switch { body, .. } => {
-                self.stmts.push(TrackedStmt::Switch(stmt));
+                self.tracked.push(TrackedStmt::Switch(stmt));
                 self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.pop();
             }
             Stmt::If {
                 then, otherwise, ..
@@ -186,19 +185,19 @@ impl<'ctx> ControlPass<'ctx> {
                 }
             }
             Stmt::While { body, .. } => {
-                self.stmts.push(TrackedStmt::Loop(stmt));
+                self.tracked.push(TrackedStmt::Loop(stmt));
                 self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.pop();
             }
             Stmt::DoWhile { body, .. } => {
-                self.stmts.push(TrackedStmt::Loop(stmt));
+                self.tracked.push(TrackedStmt::Loop(stmt));
                 self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.pop();
             }
             Stmt::For { body, .. } => {
-                self.stmts.push(TrackedStmt::Loop(stmt));
+                self.tracked.push(TrackedStmt::Loop(stmt));
                 self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.pop();
             }
         }
     }

@@ -477,31 +477,29 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::KwVoid)?;
         self.eat(TokenKind::RParen)?;
         self.eat(TokenKind::LBrace)?;
-        let body = self.parse_body()?;
+        let body = self.parse_body();
         self.eat(TokenKind::RBrace)?;
         Some(self.result.ast.new_item(Item { name, body }, span))
     }
 
-    fn parse_body(&mut self) -> Option<BlockItemSlice> {
+    fn parse_body(&mut self) -> BlockItemSlice {
         let base = self.block_item_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
-                TokenKind::KwInt => {
-                    let decl = self.parse_decl()?;
-                    self.block_item_stack.push(BlockItem::Decl(decl));
-                }
-                _ => {
-                    let stmt = self.parse_stmt()?;
-                    self.block_item_stack.push(BlockItem::Stmt(stmt));
-                }
+                TokenKind::KwInt => match self.parse_decl() {
+                    None => self.sync(TokenKind::Semi, TokenKind::RBrace),
+                    Some(decl) => self.block_item_stack.push(BlockItem::Decl(decl)),
+                },
+                _ => match self.parse_stmt() {
+                    None => self.sync(TokenKind::Semi, TokenKind::RBrace),
+                    Some(expr) => self.block_item_stack.push(BlockItem::Stmt(expr)),
+                },
             }
         }
-        Some(
-            self.result
-                .ast
-                .new_block_items(self.block_item_stack.drain(base..)),
-        )
+        self.result
+            .ast
+            .new_block_items(self.block_item_stack.drain(base..))
     }
 
     fn parse_decl(&mut self) -> Option<DeclRef> {
@@ -558,7 +556,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LBrace => {
                 self.iter.next();
-                let body = self.parse_body()?;
+                let body = self.parse_body();
                 self.eat(TokenKind::RBrace)?;
                 Some(self.result.ast.new_stmt(Stmt::Compound(body), *span))
             }
@@ -800,6 +798,19 @@ impl<'a> Parser<'a> {
             .result
             .ast
             .new_expr(Expr::Unary { op, expr: *expr }, *span);
+    }
+
+    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
+        while let Some(token) = self.iter.peek() {
+            if token.kind == eat {
+                self.iter.next();
+                break;
+            }
+            if token.kind == stop {
+                break;
+            }
+            self.iter.next();
+        }
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<&Token> {

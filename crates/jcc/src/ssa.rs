@@ -11,7 +11,7 @@ use std::collections::HashMap;
 pub struct SSABuilder<'a> {
     prog: Program<'a>,
     ast: &'a parse::Ast,
-    // ctx: &'a sema::SemaCtx,
+    // TODO: ctx: &'a sema::SemaCtx,
     func: Option<ssa::FuncRef>,
     block: Option<ssa::BlockRef>,
     variables: HashMap<parse::DeclRef, ssa::InstRef>,
@@ -69,14 +69,8 @@ impl<'a> SSABuilder<'a> {
         };
 
         if append_return {
-            let val = self.prog.new_inst_with_span(
-                ssa::Inst::new(ssa::Type::Int32, ssa::InstKind::Const(0)),
-                span,
-            );
-            let ret = self.prog.new_inst_with_span(
-                ssa::Inst::new(ssa::Type::Void, ssa::InstKind::Ret(val)),
-                span,
-            );
+            let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
+            let ret = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
             self.append_slice_to_block(&[val, ret]);
         }
     }
@@ -86,21 +80,16 @@ impl<'a> SSABuilder<'a> {
             parse::Decl::Var { init, .. } => {
                 let span = *self.ast.decl_span(decl);
 
-                let ptr = self.prog.new_inst_with_span(
-                    ssa::Inst::new(ssa::Type::Int32, ssa::InstKind::Alloca),
-                    span,
-                );
+                let ptr = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
 
                 self.append_to_block(ptr);
                 self.variables.insert(decl, ptr);
 
                 if let Some(init) = init {
                     let val = self.visit_expr(*init, ExprMode::RightValue);
-                    let inst = self.prog.new_inst_with_span(
-                        ssa::Inst::new(ssa::Type::Void, ssa::InstKind::Store { val, ptr }),
-                        span,
-                    );
-
+                    let inst = self
+                        .prog
+                        .new_inst_with_span(ssa::Inst::store(ptr, val), span);
                     self.append_to_block(inst);
                 }
             }
@@ -144,9 +133,7 @@ impl<'a> SSABuilder<'a> {
                 self.visit_expr(expr, mode)
             }
             parse::Expr::Const(c) => {
-                let inst = self
-                    .prog
-                    .new_inst(ssa::Inst::new(ssa::Type::Int32, ssa::InstKind::Const(*c)));
+                let inst = self.prog.new_inst(ssa::Inst::const_i32(*c));
                 self.append_to_block(inst);
                 inst
             }
@@ -159,9 +146,7 @@ impl<'a> SSABuilder<'a> {
                 match mode {
                     ExprMode::LeftValue => ptr,
                     ExprMode::RightValue => {
-                        let inst = self
-                            .prog
-                            .new_inst(ssa::Inst::new(ssa::Type::Int32, ssa::InstKind::Load(ptr)));
+                        let inst = self.prog.new_inst(ssa::Inst::load(ptr));
                         self.append_to_block(inst);
                         inst
                     }
@@ -190,10 +175,7 @@ impl<'a> SSABuilder<'a> {
                 parse::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let store = self.prog.new_inst(ssa::Inst::new(
-                        ssa::Type::Void,
-                        ssa::InstKind::Store { ptr: lhs, val: rhs },
-                    ));
+                    let store = self.prog.new_inst(ssa::Inst::store(lhs, rhs));
                     self.append_to_block(store);
                     lhs
                 }

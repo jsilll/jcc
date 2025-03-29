@@ -2,6 +2,8 @@ pub mod effects;
 
 pub mod insertion;
 
+pub mod verify;
+
 pub use source_file;
 
 pub use string_interner;
@@ -62,11 +64,19 @@ impl Inst {
     }
 
     pub fn get_arg(ty: Type) -> Self {
-        Self::new(ty, InstKind::GetArg)
+        Self::new(ty, InstKind::Arg)
+    }
+
+    pub fn alloca() -> Self {
+        Self::new(Type::IntPtr, InstKind::Alloca)
     }
 
     pub fn ret(val: InstRef) -> Self {
         Self::new(Type::Void, InstKind::Ret(val))
+    }
+
+    pub fn load(ptr: InstRef) -> Self {
+        Self::new(Type::Int32, InstKind::Load(ptr))
     }
 
     pub fn const_i32(val: i64) -> Self {
@@ -75,6 +85,10 @@ impl Inst {
 
     pub fn const_i64(val: i64) -> Self {
         Self::new(Type::Int64, InstKind::Const(val))
+    }
+
+    pub fn store(ptr: InstRef, val: InstRef) -> Self {
+        Self::new(Type::Void, InstKind::Store { ptr, val })
     }
 
     pub fn upsilon(phi: InstRef, val: InstRef) -> Self {
@@ -182,10 +196,10 @@ pub enum InstKind {
     Nop,
     /// A phi instruction.
     Phi,
+    /// A get argument instruction.
+    Arg,
     /// A stack allocation instruction.
     Alloca,
-    /// A get argument instruction.
-    GetArg,
     /// A constant instruction.
     Const(i64),
     /// A return instruction.
@@ -486,19 +500,34 @@ impl<'a> Program<'a> {
         r
     }
 
-    pub fn insts(&self) -> impl Iterator<Item = InstRef> {
+    pub fn insts_iter(&self) -> impl Iterator<Item = InstRef> {
         // TODO: Skip deleted insts
         unsafe { (1..self.insts.len()).map(|i| InstRef::new_unchecked(i)) }
     }
 
-    pub fn blocks(&self) -> impl Iterator<Item = BlockRef> {
+    pub fn blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
         // TODO: Skip deleted blocks
         unsafe { (1..self.blocks.len()).map(|i| BlockRef::new_unchecked(i)) }
     }
 
-    pub fn funcs(&self) -> impl Iterator<Item = FuncRef> {
+    pub fn funcs_iter(&self) -> impl Iterator<Item = FuncRef> {
         // TODO: Skip deleted funcs
         unsafe { (1..self.funcs.len()).map(|i| FuncRef::new_unchecked(i)) }
+    }
+
+    pub fn insts_iter2(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
+        // TODO: Skip deleted insts
+        self.insts_iter().zip(self.insts.iter().skip(1))
+    }
+
+    pub fn blocks_iter2(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
+        // TODO: Skip deleted blocks
+        self.blocks_iter().zip(self.blocks.iter().skip(1))
+    }
+
+    pub fn funcs_iter2(&self) -> impl Iterator<Item = (FuncRef, &Func)> {
+        // TODO: Skip deleted funcs
+        self.funcs_iter().zip(self.funcs.iter().skip(1))
     }
 
     pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
@@ -520,65 +549,6 @@ impl<'a> Program<'a> {
                     .push(BlockRef::new(idx));
             }
         }
-    }
-
-    pub fn verify(&self) -> bool {
-        // TODO: Check SSA dominance rule: each use must be dominated by its definition
-        // This requires implementing dominance calculation first
-        //
-        // For now, iterate over all the instructions and check their types:
-        for inst in &self.insts {
-            match inst.kind {
-                InstKind::Ret(_) => {
-                    if inst.ty != Type::Void {
-                        return false;
-                    }
-                }
-                InstKind::Jump(_) => {
-                    if inst.ty != Type::Void {
-                        return false;
-                    }
-                }
-                InstKind::Load(_) => {
-                    if inst.ty != Type::Int32 {
-                        return false;
-                    }
-                }
-                InstKind::Identity(val) => {
-                    if inst.ty != self.inst(val).ty {
-                        return false;
-                    }
-                }
-                InstKind::Store { .. } => {
-                    if inst.ty != Type::Void {
-                        return false;
-                    }
-                }
-                InstKind::Upsilon { .. } => {
-                    if inst.ty != Type::Void {
-                        return false;
-                    }
-                }
-                InstKind::Unary { .. } => {
-                    if inst.ty != Type::Int32 {
-                        return false;
-                    }
-                }
-                InstKind::Binary { .. } => {
-                    if inst.ty != Type::Int32 {
-                        return false;
-                    }
-                }
-                InstKind::Branch { .. } => {
-                    if inst.ty != Type::Void {
-                        return false;
-                    }
-                }
-                _ => return false,
-            }
-        }
-
-        true
     }
 }
 

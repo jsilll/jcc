@@ -6,6 +6,7 @@ use jcc::{
     tacky::TackyBuilder,
 };
 
+use ssa::verify::SSAVerifier;
 use tacky::{
     amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
@@ -149,8 +150,22 @@ fn try_main() -> Result<()> {
     // Generate SSA
     if args.ssa {
         let ssa = SSABuilder::new(&ast, &mut interner).build();
-        println!("{}", ssa);
-        assert!(ssa.verify());
+        if args.verbose {
+            println!("{}", ssa);
+        }
+
+        let verifier_result = SSAVerifier::new(&ssa).verify();
+        if !verifier_result.diagnostics.is_empty() {
+            for diag in verifier_result.diagnostics {
+                match diag {
+                    ssa::verify::SSAVerifierDiagnostic::InvalidType(i) => {
+                        eprintln!("error: invalid type for instruction {}", i);
+                    }
+                }
+            }
+            return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+        }
+
         return Ok(());
     }
 

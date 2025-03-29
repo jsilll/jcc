@@ -54,7 +54,7 @@ impl std::fmt::Display for BlockRef {
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
-    pub instrs: Vec<Instr>,
+    pub instrs: Vec<Inst>,
     pub spans: Vec<SourceSpan>,
     pub label: Option<DefaultSymbol>,
 }
@@ -78,7 +78,7 @@ impl std::fmt::Debug for Block {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Instr {
+pub enum Inst {
     /// A `ret` instruction.
     Ret,
     /// A `cdq` instruction.

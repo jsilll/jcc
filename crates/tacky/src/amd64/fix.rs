@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{BinaryOp, Block, Instr, Operand, Program, Reg};
+use super::{BinaryOp, Block, Inst, Operand, Program, Reg};
 
 // ---------------------------------------------------------------------------
 // AMD64Fixer
@@ -28,20 +28,18 @@ impl AMD64Fixer {
             }
             idx = 0;
         });
-        if let Some(Instr::Alloca(size)) = program.0.blocks[0].instrs.first_mut() {
-            *size = self.offset;
+        if let Some(block) = program.0.blocks.first_mut() {
+            if let Some(Inst::Alloca(size)) = block.instrs.first_mut() {
+                *size = self.offset;
+            }
         }
     }
 
     fn fix_instr(&mut self, block: &mut Block, idx: &mut usize) {
         let instr = &mut block.instrs[*idx];
         match instr {
-            &mut Instr::Ret
-            | Instr::Cdq
-            | Instr::Jmp(_)
-            | Instr::Alloca(_)
-            | Instr::JmpCC { .. } => {}
-            Instr::Idiv(oper) => {
+            &mut Inst::Ret | Inst::Cdq | Inst::Jmp(_) | Inst::Alloca(_) | Inst::JmpCC { .. } => {}
+            Inst::Idiv(oper) => {
                 self.fix_operand(oper);
                 if let Operand::Imm(_) = oper {
                     // NOTE
@@ -58,7 +56,7 @@ impl AMD64Fixer {
                     *oper = Operand::Reg(Reg::Rg10);
                     block.instrs.insert(
                         *idx,
-                        Instr::Mov {
+                        Inst::Mov {
                             src: tmp,
                             dst: Operand::Reg(Reg::Rg10),
                         },
@@ -66,7 +64,7 @@ impl AMD64Fixer {
                     *idx += 1;
                 }
             }
-            Instr::Mov { src, dst } => {
+            Inst::Mov { src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
                 if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
@@ -85,7 +83,7 @@ impl AMD64Fixer {
                     *dst = Operand::Reg(Reg::Rg10);
                     block.instrs.insert(
                         *idx + 1,
-                        Instr::Mov {
+                        Inst::Mov {
                             src: Operand::Reg(Reg::Rg10),
                             dst: tmp,
                         },
@@ -93,7 +91,7 @@ impl AMD64Fixer {
                     *idx += 1;
                 }
             }
-            Instr::Cmp { lhs, rhs } => {
+            Inst::Cmp { lhs, rhs } => {
                 self.fix_operand(lhs);
                 self.fix_operand(rhs);
                 if matches!(rhs, Operand::Imm(_)) {
@@ -112,7 +110,7 @@ impl AMD64Fixer {
                     *rhs = Operand::Reg(Reg::Rg11);
                     block.instrs.insert(
                         *idx,
-                        Instr::Mov {
+                        Inst::Mov {
                             src: tmp,
                             dst: Operand::Reg(Reg::Rg11),
                         },
@@ -133,7 +131,7 @@ impl AMD64Fixer {
                     *lhs = Operand::Reg(Reg::Rg10);
                     block.instrs.insert(
                         *idx,
-                        Instr::Mov {
+                        Inst::Mov {
                             src: tmp,
                             dst: Operand::Reg(Reg::Rg10),
                         },
@@ -141,7 +139,7 @@ impl AMD64Fixer {
                     *idx += 1;
                 }
             }
-            Instr::Test { lhs: src, rhs: dst } => {
+            Inst::Test { lhs: src, rhs: dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
                 if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
@@ -159,7 +157,7 @@ impl AMD64Fixer {
                     *src = Operand::Reg(Reg::Rg10);
                     block.instrs.insert(
                         *idx,
-                        Instr::Mov {
+                        Inst::Mov {
                             src: tmp,
                             dst: Operand::Reg(Reg::Rg10),
                         },
@@ -180,7 +178,7 @@ impl AMD64Fixer {
                     *dst = Operand::Reg(Reg::Rg10);
                     block.instrs.insert(
                         *idx,
-                        Instr::Mov {
+                        Inst::Mov {
                             src: tmp,
                             dst: Operand::Reg(Reg::Rg10),
                         },
@@ -188,11 +186,11 @@ impl AMD64Fixer {
                     *idx += 1;
                 }
             }
-            Instr::SetCC { dst, .. } => {
+            Inst::SetCC { dst, .. } => {
                 self.fix_operand(dst);
             }
-            Instr::Unary { src, .. } => self.fix_operand(src),
-            Instr::Binary { op, src, dst } => {
+            Inst::Unary { src, .. } => self.fix_operand(src),
+            Inst::Binary { op, src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
                 match *op {
@@ -214,7 +212,7 @@ impl AMD64Fixer {
                             *dst = Operand::Reg(Reg::Rg11);
                             block.instrs.insert(
                                 *idx,
-                                Instr::Mov {
+                                Inst::Mov {
                                     src: tmp,
                                     dst: Operand::Reg(Reg::Rg11),
                                 },
@@ -222,7 +220,7 @@ impl AMD64Fixer {
                             *idx += 2;
                             block.instrs.insert(
                                 *idx,
-                                Instr::Mov {
+                                Inst::Mov {
                                     src: Operand::Reg(Reg::Rg11),
                                     dst: tmp,
                                 },
@@ -246,7 +244,7 @@ impl AMD64Fixer {
                             *src = Operand::Reg(Reg::Rcx);
                             block.instrs.insert(
                                 *idx,
-                                Instr::Mov {
+                                Inst::Mov {
                                     src: tmp,
                                     dst: Operand::Reg(Reg::Rcx),
                                 },
@@ -270,7 +268,7 @@ impl AMD64Fixer {
                             *src = Operand::Reg(Reg::Rg10);
                             block.instrs.insert(
                                 *idx,
-                                Instr::Mov {
+                                Inst::Mov {
                                     src: tmp,
                                     dst: Operand::Reg(Reg::Rg10),
                                 },

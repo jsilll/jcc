@@ -2,7 +2,7 @@ use source_file::SourceSpan;
 
 use std::collections::HashMap;
 
-use super::{BinaryOp, Block, BlockRef, CondCode, FnDef, Instr, Operand, Program, Reg, UnaryOp};
+use super::{BinaryOp, Block, BlockRef, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
 
 // ---------------------------------------------------------------------------
 // AMD64Builder
@@ -45,19 +45,19 @@ impl AMD64FnDefBuilder {
 
     fn build(mut self, fn_def: &crate::FnDef) -> FnDef {
         self.fn_def.span = fn_def.span;
-        self.append_to_block(Instr::Alloca(0), fn_def.span);
+        self.append_to_block(Inst::Alloca(0), fn_def.span);
 
         let mut iter = fn_def.blocks_iter_both();
         if let Some((block_ref, block)) = iter.next() {
             self.block_map.insert(block_ref, self.block);
             block.instrs_iter_both().for_each(|(instr, span)| {
-                self.build_from_instr(instr, span);
+                self.build_from_inst(instr, span);
             });
         }
         iter.for_each(|(block_ref, block)| {
             self.block = self.get_or_create_block(block_ref);
             block.instrs_iter_both().for_each(|(instr, span)| {
-                self.build_from_instr(instr, span);
+                self.build_from_inst(instr, span);
             });
         });
 
@@ -74,7 +74,7 @@ impl AMD64FnDefBuilder {
         self.fn_def
     }
 
-    fn append_to_block(&mut self, instr: Instr, span: SourceSpan) {
+    fn append_to_block(&mut self, instr: Inst, span: SourceSpan) {
         let block = self.fn_def.get_block_mut(self.block);
         block.instrs.push(instr);
         block.spans.push(span);
@@ -87,29 +87,29 @@ impl AMD64FnDefBuilder {
             .or_insert_with(|| self.fn_def.push_block(Block::default()))
     }
 
-    fn build_from_instr(&mut self, instr: &crate::Instr, span: &SourceSpan) {
+    fn build_from_inst(&mut self, instr: &crate::Inst, span: &SourceSpan) {
         match instr {
-            crate::Instr::Return(value) => {
+            crate::Inst::Return(value) => {
                 let src = Self::build_from_value(value);
                 let dst = Operand::Reg(Reg::Rax);
-                self.append_to_block(Instr::Mov { src, dst }, *span);
-                self.append_to_block(Instr::Ret, *span);
+                self.append_to_block(Inst::Mov { src, dst }, *span);
+                self.append_to_block(Inst::Ret, *span);
             }
-            crate::Instr::Jump(target) => {
+            crate::Inst::Jump(target) => {
                 let target = self.get_or_create_block(*target);
-                self.append_to_block(Instr::Jmp(target), *span);
+                self.append_to_block(Inst::Jmp(target), *span);
             }
-            crate::Instr::Copy { src, dst } => {
+            crate::Inst::Copy { src, dst } => {
                 let src = Self::build_from_value(src);
                 let dst = Self::build_from_value(dst);
-                self.append_to_block(Instr::Mov { src, dst }, *span);
+                self.append_to_block(Inst::Mov { src, dst }, *span);
             }
-            crate::Instr::JumpIfZero { cond, target }
-            | crate::Instr::JumpIfNotZero { cond, target } => {
+            crate::Inst::JumpIfZero { cond, target }
+            | crate::Inst::JumpIfNotZero { cond, target } => {
                 let cond = Self::build_from_value(cond);
                 let target = self.get_or_create_block(*target);
                 self.append_to_block(
-                    Instr::Test {
+                    Inst::Test {
                         lhs: cond,
                         rhs: cond,
                     },
@@ -117,11 +117,11 @@ impl AMD64FnDefBuilder {
                 );
                 self.append_to_block(
                     match instr {
-                        crate::Instr::JumpIfZero { .. } => Instr::JmpCC {
+                        crate::Inst::JumpIfZero { .. } => Inst::JmpCC {
                             cond_code: CondCode::Equal,
                             target,
                         },
-                        crate::Instr::JumpIfNotZero { .. } => Instr::JmpCC {
+                        crate::Inst::JumpIfNotZero { .. } => Inst::JmpCC {
                             cond_code: CondCode::NotEqual,
                             target,
                         },
@@ -130,7 +130,7 @@ impl AMD64FnDefBuilder {
                     *span,
                 );
             }
-            crate::Instr::Unary { op, src, dst } => match op {
+            crate::Inst::Unary { op, src, dst } => match op {
                 crate::UnaryOp::Neg => {
                     self.build_unary_instr(UnaryOp::Neg, src, dst, span);
                 }
@@ -147,21 +147,21 @@ impl AMD64FnDefBuilder {
                     let src = Self::build_from_value(src);
                     let dst = Self::build_from_value(dst);
                     self.append_to_block(
-                        Instr::Mov {
+                        Inst::Mov {
                             src: Operand::Imm(0),
                             dst,
                         },
                         *span,
                     );
                     self.append_to_block(
-                        Instr::Cmp {
+                        Inst::Cmp {
                             lhs: Operand::Imm(0),
                             rhs: src,
                         },
                         *span,
                     );
                     self.append_to_block(
-                        Instr::SetCC {
+                        Inst::SetCC {
                             cond_code: CondCode::Equal,
                             dst,
                         },
@@ -169,7 +169,7 @@ impl AMD64FnDefBuilder {
                     );
                 }
             },
-            crate::Instr::Binary { op, lhs, rhs, dst } => {
+            crate::Inst::Binary { op, lhs, rhs, dst } => {
                 let lhs = Self::build_from_value(lhs);
                 let rhs = Self::build_from_value(rhs);
                 let dst = Self::build_from_value(dst);
@@ -200,16 +200,16 @@ impl AMD64FnDefBuilder {
                     }
                     crate::BinaryOp::Div | crate::BinaryOp::Rem => {
                         self.append_to_block(
-                            Instr::Mov {
+                            Inst::Mov {
                                 src: lhs,
                                 dst: Operand::Reg(Reg::Rax),
                             },
                             *span,
                         );
-                        self.append_to_block(Instr::Cdq, *span);
-                        self.append_to_block(Instr::Idiv(rhs), *span);
+                        self.append_to_block(Inst::Cdq, *span);
+                        self.append_to_block(Inst::Idiv(rhs), *span);
                         self.append_to_block(
-                            Instr::Mov {
+                            Inst::Mov {
                                 src: match op {
                                     crate::BinaryOp::Div => Operand::Reg(Reg::Rax),
                                     crate::BinaryOp::Rem => Operand::Reg(Reg::Rdx),
@@ -227,16 +227,16 @@ impl AMD64FnDefBuilder {
                     | crate::BinaryOp::GreaterThan
                     | crate::BinaryOp::GreaterEqual => {
                         // TODO: extract this to a function and remove the expect
-                        self.append_to_block(Instr::Cmp { lhs: rhs, rhs: lhs }, *span);
+                        self.append_to_block(Inst::Cmp { lhs: rhs, rhs: lhs }, *span);
                         self.append_to_block(
-                            Instr::Mov {
+                            Inst::Mov {
                                 src: Operand::Imm(0),
                                 dst,
                             },
                             *span,
                         );
                         self.append_to_block(
-                            Instr::SetCC {
+                            Inst::SetCC {
                                 cond_code: CondCode::try_from(*op)
                                     .expect("unexpected binary operator"),
                                 dst,
@@ -258,8 +258,8 @@ impl AMD64FnDefBuilder {
     ) {
         let src = Self::build_from_value(src);
         let dst = Self::build_from_value(dst);
-        self.append_to_block(Instr::Mov { src, dst }, *span);
-        self.append_to_block(Instr::Unary { op, src: dst }, *span);
+        self.append_to_block(Inst::Mov { src, dst }, *span);
+        self.append_to_block(Inst::Unary { op, src: dst }, *span);
     }
 
     fn build_binary_instr(
@@ -270,8 +270,8 @@ impl AMD64FnDefBuilder {
         dst: Operand,
         span: &SourceSpan,
     ) {
-        self.append_to_block(Instr::Mov { src: lhs, dst }, *span);
-        self.append_to_block(Instr::Binary { op, src: rhs, dst }, *span);
+        self.append_to_block(Inst::Mov { src: lhs, dst }, *span);
+        self.append_to_block(Inst::Binary { op, src: rhs, dst }, *span);
     }
 
     fn build_from_value(value: &crate::Value) -> Operand {

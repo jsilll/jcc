@@ -4,6 +4,8 @@ pub mod insertion;
 
 pub mod verify;
 
+pub mod amd64;
+
 pub use source_file;
 
 pub use string_interner;
@@ -374,12 +376,8 @@ impl<'a> Program<'a> {
         &self.funcs[func.0.get() as usize]
     }
 
-    pub fn block_name(&self, block: BlockRef) -> &DefaultSymbol {
-        &self.blocks_name[block.0.get() as usize]
-    }
-
-    pub fn func_name(&self, func: FuncRef) -> &DefaultSymbol {
-        &self.funcs_name[func.0.get() as usize]
+    pub fn inst_span(&self, inst: InstRef) -> &SourceSpan {
+        &self.insts_span[inst.0.get() as usize]
     }
 
     pub fn block_span(&self, block: BlockRef) -> &SourceSpan {
@@ -388,6 +386,14 @@ impl<'a> Program<'a> {
 
     pub fn func_span(&self, func: FuncRef) -> &SourceSpan {
         &self.funcs_span[func.0.get() as usize]
+    }
+
+    pub fn block_name(&self, block: BlockRef) -> &DefaultSymbol {
+        &self.blocks_name[block.0.get() as usize]
+    }
+
+    pub fn func_name(&self, func: FuncRef) -> &DefaultSymbol {
+        &self.funcs_name[func.0.get() as usize]
     }
 
     pub fn inst_mut(&mut self, inst: InstRef) -> &mut Inst {

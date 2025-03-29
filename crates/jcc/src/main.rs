@@ -147,42 +147,52 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Generate SSA
-    if args.ssa {
-        let ssa = SSABuilder::new(&ast, &mut interner).build();
-        if args.verbose {
-            println!("{}", ssa);
-        }
+    let mut amd64 = match args.ssa {
+        true => {
+            // Generate SSA
+            let ssa = SSABuilder::new(&ast, &mut interner).build();
+            if args.verbose {
+                println!("{}", ssa);
+            }
 
-        let verifier_result = SSAVerifier::new(&ssa).verify();
-        if !verifier_result.diagnostics.is_empty() {
-            for diag in verifier_result.diagnostics {
-                match diag {
-                    ssa::verify::SSAVerifierDiagnostic::InvalidType(i) => {
-                        eprintln!("error: invalid type for instruction {}", i);
+            let verifier_result = SSAVerifier::new(&ssa).verify();
+            if !verifier_result.diagnostics.is_empty() {
+                for diag in verifier_result.diagnostics {
+                    match diag {
+                        ssa::verify::SSAVerifierDiagnostic::InvalidType(i) => {
+                            eprintln!("error: invalid type for instruction {}", i);
+                        }
                     }
                 }
+                return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
             }
-            return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+
+            let amd64 = ssa::amd64::AMD64Builder::new(&ssa).build();
+            if args.verbose {
+                println!("{:#?}", amd64);
+            }
+
+            amd64
         }
+        false => {
+            // Generate Tacky
+            let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
+            if args.verbose {
+                println!("{:#?}", tacky);
+            }
+            if args.tacky {
+                return Ok(());
+            }
 
-        return Ok(());
-    }
+            // Generate AMD64
+            let amd64 = AMD64Builder::new(&tacky).build();
+            if args.verbose {
+                println!("{:#?}", amd64);
+            }
 
-    // Generate Tacky
-    let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
-    if args.verbose {
-        println!("{:#?}", tacky);
-    }
-    if args.tacky {
-        return Ok(());
-    }
-
-    // Generate AMD64
-    let mut amd64 = AMD64Builder::new(&tacky).build();
-    if args.verbose {
-        println!("{:#?}", amd64);
-    }
+            amd64
+        }
+    };
 
     // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);

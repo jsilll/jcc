@@ -62,7 +62,7 @@ pub struct BlockRef(u32);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
-    pub instrs: Vec<Instr>,
+    pub instrs: Vec<Inst>,
     pub spans: Vec<SourceSpan>,
     pub label: Option<DefaultSymbol>,
 }
@@ -75,13 +75,13 @@ impl Block {
         }
     }
 
-    pub fn with_instrs(mut self, instrs: &[Instr], span: SourceSpan) -> Self {
+    pub fn with_instrs(mut self, instrs: &[Inst], span: SourceSpan) -> Self {
         self.instrs.extend_from_slice(instrs);
         self.spans.resize(self.instrs.len(), span);
         self
     }
 
-    pub fn instrs_iter_both(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
+    pub fn instrs_iter_both(&self) -> impl Iterator<Item = (&Inst, &SourceSpan)> {
         self.instrs.iter().zip(self.spans.iter())
     }
 }
@@ -96,7 +96,7 @@ impl std::fmt::Debug for Block {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Instr {
+pub enum Inst {
     /// A return instruction.
     Return(Value),
     /// An unconditional jump instruction.

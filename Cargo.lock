@@ -327,7 +327,6 @@ name = "ssa"
 version = "0.1.0"
 dependencies = [
  "source_file",
- "string-interner",
  "tacky",
 ]
 

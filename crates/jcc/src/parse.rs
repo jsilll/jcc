@@ -1098,7 +1098,6 @@ impl From<TokenKind> for Option<Precedence> {
 // EntityRef<T>
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
 pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
 
 impl<T> EntityRef<T> {
@@ -1131,5 +1130,11 @@ impl<T> PartialEq for EntityRef<T> {
 impl<T> std::hash::Hash for EntityRef<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
+    }
+}
+
+impl<T> std::fmt::Debug for EntityRef<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EntityRef::<{}>({})", std::any::type_name::<T>(), self.0)
     }
 }

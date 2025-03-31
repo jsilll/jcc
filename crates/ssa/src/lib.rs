@@ -8,12 +8,10 @@ pub mod amd64;
 
 pub use source_file;
 
-pub use string_interner;
-
 use effects::{AbstractHeap, FastEffects};
 
 use source_file::SourceSpan;
-use string_interner::{DefaultStringInterner, DefaultSymbol};
+use tacky::string_interner::{DefaultStringInterner, DefaultSymbol};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -53,7 +51,7 @@ pub struct Inst {
 }
 
 impl Inst {
-    pub fn new(ty: Type, kind: InstKind) -> Self {
+    fn new(ty: Type, kind: InstKind) -> Self {
         Self {
             ty,
             kind,
@@ -118,6 +116,22 @@ impl Inst {
             },
         )
     }
+
+    pub fn not() -> Self {}
+    pub fn neg() -> Self {}
+    pub fn inc() -> Self {}
+    pub fn dec() -> Self {}
+    pub fn bitNot() -> Self {}
+
+    pub fn add() -> Self {}
+    pub fn sub() -> Self {}
+    pub fn mul() -> Self {}
+    pub fn div() -> Self {}
+    pub fn rem() -> Self {}
+    pub fn bitOr() -> Self {}
+    pub fn bitAnd() -> Self {}
+    pub fn bitShl() -> Self {}
+    pub fn bitShr() -> Self {}
 
     pub fn is_const(&self, val: i64) -> bool {
         match self.kind {
@@ -328,9 +342,9 @@ impl BaseHeaps {
 // Program
 // ---------------------------------------------------------------------------
 
-pub struct Program<'a> {
+pub struct Program {
     heaps: BaseHeaps,
-    interner: &'a mut DefaultStringInterner,
+    interner: DefaultStringInterner,
     insts: Vec<Inst>,
     insts_span: Vec<SourceSpan>,
     insts_free: HashSet<InstRef>,
@@ -344,8 +358,8 @@ pub struct Program<'a> {
     funcs_free: HashSet<FuncRef>,
 }
 
-impl<'a> Program<'a> {
-    pub fn new(interner: &'a mut DefaultStringInterner) -> Self {
+impl Program {
+    pub fn new(mut interner: DefaultStringInterner) -> Self {
         let question_mark_symbol = interner.get_or_intern_static("?");
         Self {
             interner,
@@ -362,6 +376,10 @@ impl<'a> Program<'a> {
             funcs_name: vec![question_mark_symbol],
             blocks_name: vec![question_mark_symbol],
         }
+    }
+
+    pub fn take_interner(self) -> DefaultStringInterner {
+        self.interner
     }
 
     pub fn inst(&self, inst: InstRef) -> &Inst {
@@ -613,7 +631,7 @@ impl fmt::Display for InstKind {
     }
 }
 
-impl<'a> fmt::Display for Program<'a> {
+impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
             write!(f, "define @{}", self.interner.resolve(*name).unwrap_or("?"))?;

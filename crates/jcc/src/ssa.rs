@@ -1,66 +1,62 @@
 use crate::parse;
 
-use ssa::{string_interner::DefaultStringInterner, Program};
+use tacky::string_interner::DefaultStringInterner;
 
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// SSABuilder
+// Root function
 // ---------------------------------------------------------------------------
 
-pub struct SSABuilder<'a> {
-    prog: Program<'a>,
+pub fn build<'a>(ast: &parse::Ast, interner: DefaultStringInterner) -> ssa::Program {
+    let mut prog = ssa::Program::new(interner);
+    ast.items_iter().for_each(|item| {
+        SSAFuncBuilder::new(ast, item, &mut prog).build();
+    });
+    prog
+}
+
+// ---------------------------------------------------------------------------
+// SSAFuncBuilder
+// ---------------------------------------------------------------------------
+
+struct SSAFuncBuilder<'a> {
     ast: &'a parse::Ast,
-    // TODO: ctx: &'a sema::SemaCtx,
-    func: Option<ssa::FuncRef>,
-    block: Option<ssa::BlockRef>,
+    item: parse::ItemRef,
+    prog: &'a mut ssa::Program,
+    // func: ssa::FuncRef,
+    block: ssa::BlockRef,
     variables: HashMap<parse::DeclRef, ssa::InstRef>,
 }
 
-impl<'a> SSABuilder<'a> {
-    pub fn new(
-        ast: &'a parse::Ast,
-        // ctx: &'a sema::SemaCtx,
-        interner: &'a mut DefaultStringInterner,
-    ) -> Self {
+impl<'a> SSAFuncBuilder<'a> {
+    fn new(ast: &'a parse::Ast, item: parse::ItemRef, prog: &'a mut ssa::Program) -> Self {
+        let span = *ast.item_span(item);
+
+        let func = prog.new_func_with_span_interned(ast.item(item).name, span);
+        let block = prog.new_block_with_span("entry", span);
+        prog.func_mut(func).blocks.push(block);
+
         Self {
             ast,
-            // ctx,
-            func: None,
-            block: None,
+            // func,
+            prog,
+            item,
+            block,
             variables: HashMap::new(),
-            prog: Program::new(interner),
         }
     }
 
-    pub fn build(mut self) -> Program<'a> {
-        self.ast.items_iter().for_each(|item| {
-            self.visit_item(item);
-        });
-        self.prog
-    }
-
-    fn visit_item(&mut self, item: parse::ItemRef) {
-        let span = *self.ast.item_span(item);
-
-        let func = self
-            .prog
-            .new_func_with_span_interned(self.ast.item(item).name, span);
-        let block = self.prog.new_block_with_span("entry", span);
-        self.prog.func_mut(func).blocks.push(block);
-
-        self.func = Some(func);
-        self.block = Some(block);
-
+    fn build(mut self) {
         self.ast
-            .block_items(self.ast.item(item).body)
+            .block_items(self.ast.item(self.item).body)
             .iter()
             .for_each(|item| match item {
                 parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                 parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
             });
 
-        let append_return = match self.ast.block_items(self.ast.item(item).body).last() {
+        let append_return = match self.ast.block_items(self.ast.item(self.item).body).last() {
             Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
                 parse::Stmt::Return(_) => false,
                 _ => true,
@@ -69,10 +65,24 @@ impl<'a> SSABuilder<'a> {
         };
 
         if append_return {
+            let span = *self.ast.item_span(self.item);
             let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
             let ret = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
             self.append_slice_to_block(&[val, ret]);
         }
+    }
+
+    #[inline]
+    fn append_to_block(&mut self, instr: ssa::InstRef) {
+        self.prog.block_mut(self.block).insts.push(instr);
+    }
+
+    #[inline]
+    fn append_slice_to_block(&mut self, instrs: &[ssa::InstRef]) {
+        self.prog
+            .block_mut(self.block)
+            .insts
+            .extend_from_slice(instrs);
     }
 
     fn visit_decl(&mut self, decl: parse::DeclRef) {
@@ -104,9 +114,7 @@ impl<'a> SSABuilder<'a> {
             }
             parse::Stmt::Return(expr) => {
                 let val = self.visit_expr(*expr, ExprMode::RightValue);
-                let inst = self
-                    .prog
-                    .new_inst(ssa::Inst::new(ssa::Type::Void, ssa::InstKind::Ret(val)));
+                let inst = self.prog.new_inst(ssa::Inst::ret(val));
                 self.append_to_block(inst);
             }
             parse::Stmt::Default(_) => todo!(),
@@ -126,16 +134,16 @@ impl<'a> SSABuilder<'a> {
 
     fn visit_expr(&mut self, expr: parse::ExprRef, mode: ExprMode) -> ssa::InstRef {
         match self.ast.expr(expr) {
+            parse::Expr::Const(c) => {
+                let inst = self.prog.new_inst(ssa::Inst::const_i32(*c));
+                self.append_to_block(inst);
+                inst
+            }
             parse::Expr::Grouped(mut expr) => {
                 while let parse::Expr::Grouped(inner) = self.ast.expr(expr) {
                     expr = *inner;
                 }
                 self.visit_expr(expr, mode)
-            }
-            parse::Expr::Const(c) => {
-                let inst = self.prog.new_inst(ssa::Inst::const_i32(*c));
-                self.append_to_block(inst);
-                inst
             }
             parse::Expr::Var { decl, .. } => {
                 let ptr = self
@@ -152,7 +160,20 @@ impl<'a> SSABuilder<'a> {
                     }
                 }
             }
-            parse::Expr::Unary { .. } => todo!(),
+            parse::Expr::Unary { op, expr } => match op {
+                parse::UnaryOp::Neg => {
+                    let val = self.visit_expr(*expr, ExprMode::RightValue);
+                    let inst = self.prog.new_inst(ssa::Inst::neg(val));
+                    self.append_to_block(inst);
+                    inst
+                }
+                parse::UnaryOp::BitNot => todo!(),
+                parse::UnaryOp::LogicalNot => todo!(),
+                parse::UnaryOp::PreInc => todo!(),
+                parse::UnaryOp::PreDec => todo!(),
+                parse::UnaryOp::PostInc => todo!(),
+                parse::UnaryOp::PostDec => todo!(),
+            },
             parse::Expr::Binary { op, lhs, rhs } => match op {
                 parse::BinaryOp::LogicalOr => todo!(),
                 parse::BinaryOp::LogicalAnd => todo!(),
@@ -192,20 +213,6 @@ impl<'a> SSABuilder<'a> {
             },
             parse::Expr::Ternary { .. } => todo!(),
         }
-    }
-
-    fn append_to_block(&mut self, instr: ssa::InstRef) {
-        self.prog
-            .block_mut(self.block.expect("block not set"))
-            .insts
-            .push(instr);
-    }
-
-    fn append_slice_to_block(&mut self, instrs: &[ssa::InstRef]) {
-        self.prog
-            .block_mut(self.block.expect("block not set"))
-            .insts
-            .extend_from_slice(instrs);
     }
 }
 

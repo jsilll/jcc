@@ -23,12 +23,12 @@ pub enum SSAVerifierDiagnostic {
 // ---------------------------------------------------------------------------
 
 pub struct SSAVerifier<'a> {
-    ssa: &'a Program<'a>,
+    ssa: &'a Program,
     result: SSAVerifierResult,
 }
 
 impl<'a> SSAVerifier<'a> {
-    pub fn new(ssa: &'a Program<'a>) -> Self {
+    pub fn new(ssa: &'a Program) -> Self {
         Self {
             ssa,
             result: SSAVerifierResult::default(),

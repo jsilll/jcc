@@ -2,7 +2,6 @@ use jcc::{
     lex::{Lexer, LexerDiagnosticKind},
     parse::Parser,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
-    ssa::SSABuilder,
     tacky::TackyBuilder,
 };
 
@@ -147,10 +146,10 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    let mut amd64 = match args.ssa {
+    let (mut amd64, interner) = match args.ssa {
         true => {
             // Generate SSA
-            let ssa = SSABuilder::new(&ast, &mut interner).build();
+            let ssa = jcc::ssa::build(&ast, interner);
             if args.verbose {
                 println!("{}", ssa);
             }
@@ -172,7 +171,7 @@ fn try_main() -> Result<()> {
                 println!("{:#?}", amd64);
             }
 
-            amd64
+            (amd64, ssa.take_interner())
         }
         false => {
             // Generate Tacky
@@ -190,7 +189,7 @@ fn try_main() -> Result<()> {
                 println!("{:#?}", amd64);
             }
 
-            amd64
+            (amd64, interner)
         }
     };
 

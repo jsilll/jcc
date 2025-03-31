@@ -7,14 +7,14 @@ use tacky::amd64;
 // ---------------------------------------------------------------------------
 
 pub struct AMD64Builder<'a> {
-    ssa: &'a crate::Program<'a>,
+    ssa: &'a crate::Program,
     prog: amd64::Program,
     block: amd64::BlockRef,
     variables: HashMap<crate::InstRef, amd64::Operand>,
 }
 
 impl<'a> AMD64Builder<'a> {
-    pub fn new(ssa: &'a crate::Program<'a>) -> Self {
+    pub fn new(ssa: &'a crate::Program) -> Self {
         let mut prog = amd64::Program::default();
         let block = prog.0.push_block(amd64::Block::default());
         Self {

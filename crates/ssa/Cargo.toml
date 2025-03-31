@@ -5,5 +5,4 @@ edition = "2021"
 
 [dependencies]
 source_file = { path = "../source_file" }
-string-interner = "0.17.0"
 tacky = { path = "../tacky" }

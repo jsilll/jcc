@@ -148,17 +148,22 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.stmt(stmt) {
             parse::Stmt::Empty => {}
-            parse::Stmt::Break(inner) => {
+            parse::Stmt::Break => {
                 let block = self
                     .break_blocks
-                    .get(&inner.expect("expected a break block"))
+                    .get(self.ctx.breaks.get(&stmt).expect("expected a break block"))
                     .expect("expected a break block");
                 self.append_to_block(Inst::Jump(*block), *self.ast.stmt_span(stmt));
             }
-            parse::Stmt::Continue(inner) => {
+            parse::Stmt::Continue => {
                 let block = self
                     .continue_blocks
-                    .get(&inner.expect("expected a continue block"))
+                    .get(
+                        self.ctx
+                            .continues
+                            .get(&stmt)
+                            .expect("expected a continue block"),
+                    )
                     .expect("expected a continue block");
                 self.append_to_block(Inst::Jump(*block), *self.ast.stmt_span(stmt));
             }

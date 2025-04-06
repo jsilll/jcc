@@ -109,6 +109,8 @@ impl<'a> SSAFuncBuilder<'a> {
     fn visit_stmt(&mut self, stmt: parse::StmtRef) {
         match self.ast.stmt(stmt) {
             parse::Stmt::Empty => {}
+            parse::Stmt::Break => todo!(),
+            parse::Stmt::Continue => todo!(),
             parse::Stmt::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
             }
@@ -119,8 +121,6 @@ impl<'a> SSAFuncBuilder<'a> {
             }
             parse::Stmt::Default(_) => todo!(),
             parse::Stmt::Goto(_) => todo!(),
-            parse::Stmt::Break(_) => todo!(),
-            parse::Stmt::Continue(_) => todo!(),
             parse::Stmt::Compound(_) => todo!(),
             parse::Stmt::Case { .. } => todo!(),
             parse::Stmt::Switch { .. } => todo!(),

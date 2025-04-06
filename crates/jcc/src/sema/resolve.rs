@@ -76,20 +76,19 @@ impl ResolverPass {
 
     fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
         match ast.stmt(stmt).clone() {
-            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Empty | Stmt::Goto(_) | Stmt::Break | Stmt::Continue => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, expr),
             Stmt::Return(expr) => self.analyze_expr(ast, expr),
             Stmt::Default(stmt) => self.analyze_stmt(ast, stmt),
             Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
             Stmt::Compound(items) => {
                 self.symbols.push_scope();
-                ast.block_items(items)
-                    .to_owned()
-                    .into_iter()
-                    .for_each(|block_item| match block_item {
+                ast.block_items(items).to_owned().into_iter().for_each(
+                    |block_item| match block_item {
                         BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
                         BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
-                    });
+                    },
+                );
                 self.symbols.pop_scope();
             }
             Stmt::Case { expr, stmt } => {

@@ -229,6 +229,10 @@ pub enum Stmt {
     /// An empty statement.
     #[default]
     Empty,
+    /// A break statement.
+    Break,
+    /// A continue statement.
+    Continue,
     /// An expression statement.
     Expr(ExprRef),
     /// A return statement.
@@ -237,10 +241,6 @@ pub enum Stmt {
     Default(StmtRef),
     /// A goto statement.
     Goto(DefaultSymbol),
-    /// A break statement.
-    Break(Option<StmtRef>),
-    /// A continue statement.
-    Continue(Option<StmtRef>),
     /// A compound statement.
     Compound(BlockItemSlice),
     /// A case statement.
@@ -526,6 +526,16 @@ impl<'a> Parser<'a> {
                 self.iter.next();
                 Some(self.result.ast.new_stmt(Stmt::Empty, *span))
             }
+            TokenKind::KwBreak => {
+                self.iter.next();
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.new_stmt(Stmt::Break, *span))
+            }
+            TokenKind::KwContinue => {
+                self.iter.next();
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.new_stmt(Stmt::Continue, *span))
+            }
             TokenKind::KwReturn => {
                 self.iter.next();
                 let expr = self.parse_expr(0)?;
@@ -543,16 +553,6 @@ impl<'a> Parser<'a> {
                 let (_, name) = self.eat_identifier()?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_stmt(Stmt::Goto(name), *span))
-            }
-            TokenKind::KwBreak => {
-                self.iter.next();
-                self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt::Break(None), *span))
-            }
-            TokenKind::KwContinue => {
-                self.iter.next();
-                self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt::Continue(None), *span))
             }
             TokenKind::LBrace => {
                 self.iter.next();

@@ -71,7 +71,7 @@ impl<'ctx> TyperPass<'ctx> {
 
     fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.stmt(stmt) {
-            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
+            Stmt::Empty | Stmt::Goto(_) | Stmt::Break | Stmt::Continue => {}
             Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
             Stmt::Return(expr) => self.analyze_expr(ast, *expr),
             Stmt::Default(stmt) => self.analyze_stmt(ast, *stmt),

@@ -95,6 +95,56 @@ impl Inst {
         Self::new(Type::Void, InstKind::Upsilon { phi, val })
     }
 
+    pub fn not(val: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Unary {
+                val,
+                op: UnaryOp::Not,
+            },
+        )
+    }
+
+    pub fn neg(val: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Unary {
+                val,
+                op: UnaryOp::Neg,
+            },
+        )
+    }
+
+    pub fn inc(val: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Unary {
+                val,
+                op: UnaryOp::Inc,
+            },
+        )
+    }
+
+    pub fn dec(val: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Unary {
+                val,
+                op: UnaryOp::Dec,
+            },
+        )
+    }
+
+    pub fn bit_not(val: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Unary {
+                val,
+                op: UnaryOp::BitNot,
+            },
+        )
+    }
+
     pub fn add_i32(lhs: InstRef, rhs: InstRef) -> Self {
         Self::new(
             Type::Int32,
@@ -117,21 +167,15 @@ impl Inst {
         )
     }
 
-    pub fn not() -> Self {}
-    pub fn neg() -> Self {}
-    pub fn inc() -> Self {}
-    pub fn dec() -> Self {}
-    pub fn bitNot() -> Self {}
-
-    pub fn add() -> Self {}
-    pub fn sub() -> Self {}
-    pub fn mul() -> Self {}
-    pub fn div() -> Self {}
-    pub fn rem() -> Self {}
-    pub fn bitOr() -> Self {}
-    pub fn bitAnd() -> Self {}
-    pub fn bitShl() -> Self {}
-    pub fn bitShr() -> Self {}
+    // pub fn add() -> Self {}
+    // pub fn sub() -> Self {}
+    // pub fn mul() -> Self {}
+    // pub fn div() -> Self {}
+    // pub fn rem() -> Self {}
+    // pub fn bitOr() -> Self {}
+    // pub fn bitAnd() -> Self {}
+    // pub fn bitShl() -> Self {}
+    // pub fn bitShr() -> Self {}
 
     pub fn is_const(&self, val: i64) -> bool {
         match self.kind {

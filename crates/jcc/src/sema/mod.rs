@@ -14,6 +14,8 @@ use std::collections::HashMap;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct SemaCtx {
+    pub breaks: HashMap<StmtRef, StmtRef>,
+    pub continues: HashMap<StmtRef, StmtRef>,
     pub switches: HashMap<StmtRef, SwitchCases>,
 }
 

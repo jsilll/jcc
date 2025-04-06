@@ -554,7 +554,7 @@ impl<'a> TackyFnDefBuilder<'a> {
         let span = *self.ast.expr_span(expr);
         match self.ast.expr(expr) {
             parse::Expr::Const(c) => Value::Const(*c),
-            parse::Expr::Var { decl, .. } => self.get_or_make_some_var(*decl),
+            parse::Expr::Var(_) => self.get_or_make_some_var(self.ctx.vars.get(&expr).cloned()),
             parse::Expr::Grouped(mut expr) => {
                 while let parse::Expr::Grouped(inner) = self.ast.expr(expr) {
                     expr = *inner

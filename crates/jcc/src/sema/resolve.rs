@@ -7,6 +7,8 @@ use tacky::{
 
 use std::collections::HashMap;
 
+use super::SemaCtx;
+
 // ---------------------------------------------------------------------------
 // ResolverResult
 // ---------------------------------------------------------------------------
@@ -30,93 +32,96 @@ pub struct ResolverDiagnostic {
 // ResolverPass
 // ---------------------------------------------------------------------------
 
-pub struct ResolverPass {
+pub struct ResolverPass<'a> {
+    ast: &'a Ast,
+    ctx: &'a mut SemaCtx,
     result: ResolverResult,
     symbols: SymbolTable<DefaultSymbol, DeclRef>,
 }
 
-impl ResolverPass {
-    pub fn new() -> Self {
+impl<'a> ResolverPass<'a> {
+    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
         Self {
+            ast,
+            ctx,
             symbols: SymbolTable::new(),
             result: ResolverResult::default(),
         }
     }
 
-    pub fn analyze(mut self, ast: &mut Ast) -> ResolverResult {
-        ast.items_iter().for_each(|item| {
+    pub fn analyze(mut self) -> ResolverResult {
+        self.ast.items_iter().for_each(|item| {
             self.symbols.push_scope();
-            ast.block_items(ast.item(item).body)
-                .to_owned()
-                .into_iter()
+            self.ast.block_items(self.ast.item(item).body)
+                .iter()
                 .for_each(|block_item| match block_item {
-                    BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+                    BlockItem::Decl(decl) => self.analyze_decl(*decl),
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
                 });
             self.symbols.pop_scope();
         });
         self.result
     }
 
-    fn analyze_decl(&mut self, ast: &mut Ast, decl: DeclRef) {
-        match ast.decl(decl) {
+    fn analyze_decl(&mut self, decl: DeclRef) {
+        match self.ast.decl(decl) {
             Decl::Var { name, init } => {
                 if let Some(_) = self.symbols.insert(*name, decl) {
                     self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *ast.decl_span(decl),
+                        span: *self.ast.decl_span(decl),
                         kind: ResolverDiagnosticKind::RedeclaredVariable,
                     });
                 }
                 if let Some(expr) = init {
-                    self.analyze_expr(ast, *expr);
+                    self.analyze_expr(*expr);
                 }
             }
         }
     }
 
-    fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
-        match ast.stmt(stmt).clone() {
+    fn analyze_stmt(&mut self, stmt: StmtRef) {
+        match self.ast.stmt(stmt) {
             Stmt::Empty | Stmt::Goto(_) | Stmt::Break | Stmt::Continue => {}
-            Stmt::Expr(expr) => self.analyze_expr(ast, expr),
-            Stmt::Return(expr) => self.analyze_expr(ast, expr),
-            Stmt::Default(stmt) => self.analyze_stmt(ast, stmt),
-            Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
+            Stmt::Expr(expr) => self.analyze_expr(*expr),
+            Stmt::Return(expr) => self.analyze_expr(*expr),
+            Stmt::Default(stmt) => self.analyze_stmt(*stmt),
+            Stmt::Label { stmt, .. } => self.analyze_stmt(*stmt),
             Stmt::Compound(items) => {
                 self.symbols.push_scope();
-                ast.block_items(items).to_owned().into_iter().for_each(
-                    |block_item| match block_item {
-                        BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
-                        BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
-                    },
-                );
+                self.ast.block_items(*items)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(decl) => self.analyze_decl(*decl),
+                        BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
+                    });
                 self.symbols.pop_scope();
             }
             Stmt::Case { expr, stmt } => {
-                self.analyze_expr(ast, expr);
-                self.analyze_stmt(ast, stmt);
+                self.analyze_expr(*expr);
+                self.analyze_stmt(*stmt);
             }
             Stmt::Switch { cond, body } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_stmt(ast, body);
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*body);
             }
             Stmt::If {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_stmt(ast, then);
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*then);
                 if let Some(otherwise) = otherwise {
-                    self.analyze_stmt(ast, otherwise);
+                    self.analyze_stmt(*otherwise);
                 }
             }
             Stmt::While { cond, body } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_stmt(ast, body);
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*body);
             }
             Stmt::DoWhile { body, cond } => {
-                self.analyze_stmt(ast, body);
-                self.analyze_expr(ast, cond);
+                self.analyze_stmt(*body);
+                self.analyze_expr(*cond);
             }
             Stmt::For {
                 init,
@@ -127,52 +132,48 @@ impl ResolverPass {
                 self.symbols.push_scope();
                 if let Some(init) = init {
                     match init {
-                        ForInit::Decl(decl) => self.analyze_decl(ast, decl),
-                        ForInit::Expr(expr) => self.analyze_expr(ast, expr),
+                        ForInit::Decl(decl) => self.analyze_decl(*decl),
+                        ForInit::Expr(expr) => self.analyze_expr(*expr),
                     }
                 }
                 if let Some(cond) = cond {
-                    self.analyze_expr(ast, cond);
+                    self.analyze_expr(*cond);
                 }
                 if let Some(step) = step {
-                    self.analyze_expr(ast, step);
+                    self.analyze_expr(*step);
                 }
-                self.analyze_stmt(ast, body);
+                self.analyze_stmt(*body);
                 self.symbols.pop_scope();
             }
         }
     }
 
-    fn analyze_expr(&mut self, ast: &mut Ast, expr: ExprRef) {
-        if let Expr::Var { name, decl } = ast.expr_mut(expr) {
-            match self.symbols.get(name) {
+    fn analyze_expr(&mut self, expr: ExprRef) {
+        match self.ast.expr(expr) {
+            Expr::Const(_) => {}
+            Expr::Grouped(expr) => self.analyze_expr(*expr),
+            Expr::Var(name) => match self.symbols.get(name) {
                 Some(decl_ref) => {
-                    *decl = Some(*decl_ref);
+                    self.ctx.vars.insert(expr, *decl_ref);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *ast.expr_span(expr),
+                    span: *self.ast.expr_span(expr),
                     kind: ResolverDiagnosticKind::UndefinedVariable,
                 }),
-            }
-            return;
-        }
-        match ast.expr(expr).clone() {
-            Expr::Const(_) => {}
-            Expr::Var { .. } => unreachable!(),
-            Expr::Grouped(expr) => self.analyze_expr(ast, expr),
-            Expr::Unary { expr, .. } => self.analyze_expr(ast, expr),
+            },
+            Expr::Unary { expr, .. } => self.analyze_expr(*expr),
             Expr::Binary { lhs, rhs, .. } => {
-                self.analyze_expr(ast, lhs);
-                self.analyze_expr(ast, rhs);
+                self.analyze_expr(*lhs);
+                self.analyze_expr(*rhs);
             }
             Expr::Ternary {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_expr(ast, then);
-                self.analyze_expr(ast, otherwise);
+                self.analyze_expr(*cond);
+                self.analyze_expr(*then);
+                self.analyze_expr(*otherwise);
             }
         }
     }

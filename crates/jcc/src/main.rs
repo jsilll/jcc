@@ -112,11 +112,11 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("exiting due to no items found"));
     }
 
-    let mut ast = parser_result.ast;
+    let ast = parser_result.ast;
 
     // Analyze the AST
     let mut ctx = SemaCtx::default();
-    let control_result = ControlPass::new(&mut ctx).analyze(&mut ast);
+    let control_result = ControlPass::new(&mut ctx).analyze(&ast);
     if !control_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
@@ -125,7 +125,7 @@ fn try_main() -> Result<()> {
         )?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let resolver_result = ResolverPass::new().analyze(&mut ast);
+    let resolver_result = ResolverPass::new(&ast, &mut ctx).analyze();
     if !resolver_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
@@ -134,7 +134,7 @@ fn try_main() -> Result<()> {
         )?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
-    let typer_result = TyperPass::new(&mut ctx).analyze(&ast);
+    let typer_result = TyperPass::new(&ast, &mut ctx).analyze();
     if !typer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
@@ -149,7 +149,7 @@ fn try_main() -> Result<()> {
     let (mut amd64, interner) = match args.ssa {
         true => {
             // Generate SSA
-            let ssa = jcc::ssa::build(&ast, interner);
+            let ssa = jcc::ssa::build(&ast, &mut ctx, interner);
             if args.verbose {
                 println!("{}", ssa);
             }

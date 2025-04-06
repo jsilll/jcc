@@ -1,4 +1,4 @@
-use crate::parse;
+use crate::{parse, sema};
 
 use tacky::string_interner::DefaultStringInterner;
 
@@ -8,10 +8,14 @@ use std::collections::HashMap;
 // Root function
 // ---------------------------------------------------------------------------
 
-pub fn build<'a>(ast: &parse::Ast, interner: DefaultStringInterner) -> ssa::Program {
+pub fn build<'a>(
+    ast: &'a parse::Ast,
+    ctx: &'a sema::SemaCtx,
+    interner: DefaultStringInterner,
+) -> ssa::Program {
     let mut prog = ssa::Program::new(interner);
     ast.items_iter().for_each(|item| {
-        SSAFuncBuilder::new(ast, item, &mut prog).build();
+        SSAFuncBuilder::new(ast, ctx, item, &mut prog).build();
     });
     prog
 }
@@ -22,15 +26,21 @@ pub fn build<'a>(ast: &parse::Ast, interner: DefaultStringInterner) -> ssa::Prog
 
 struct SSAFuncBuilder<'a> {
     ast: &'a parse::Ast,
+    ctx: &'a sema::SemaCtx,
     item: parse::ItemRef,
     prog: &'a mut ssa::Program,
     // func: ssa::FuncRef,
     block: ssa::BlockRef,
-    variables: HashMap<parse::DeclRef, ssa::InstRef>,
+    vars: HashMap<parse::DeclRef, ssa::InstRef>,
 }
 
 impl<'a> SSAFuncBuilder<'a> {
-    fn new(ast: &'a parse::Ast, item: parse::ItemRef, prog: &'a mut ssa::Program) -> Self {
+    fn new(
+        ast: &'a parse::Ast,
+        ctx: &'a sema::SemaCtx,
+        item: parse::ItemRef,
+        prog: &'a mut ssa::Program,
+    ) -> Self {
         let span = *ast.item_span(item);
 
         let func = prog.new_func_with_span_interned(ast.item(item).name, span);
@@ -39,11 +49,12 @@ impl<'a> SSAFuncBuilder<'a> {
 
         Self {
             ast,
+            ctx,
             // func,
             prog,
             item,
             block,
-            variables: HashMap::new(),
+            vars: HashMap::new(),
         }
     }
 
@@ -93,7 +104,7 @@ impl<'a> SSAFuncBuilder<'a> {
                 let ptr = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
 
                 self.append_to_block(ptr);
-                self.variables.insert(decl, ptr);
+                self.vars.insert(decl, ptr);
 
                 if let Some(init) = init {
                     let val = self.visit_expr(*init, ExprMode::RightValue);
@@ -145,10 +156,16 @@ impl<'a> SSAFuncBuilder<'a> {
                 }
                 self.visit_expr(expr, mode)
             }
-            parse::Expr::Var { decl, .. } => {
+            parse::Expr::Var(_) => {
+                let decl = self
+                    .ctx
+                    .vars
+                    .get(&expr)
+                    .copied()
+                    .expect("expected a variable");
                 let ptr = self
-                    .variables
-                    .get(&decl.expect("expected a resolved variable"))
+                    .vars
+                    .get(&decl)
                     .copied()
                     .expect("expected a pointer to a variable");
                 match mode {

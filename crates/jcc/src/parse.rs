@@ -274,13 +274,10 @@ pub type ExprRef = EntityRef<Expr>;
 pub enum Expr {
     /// A constant integer value.
     Const(i64),
-    /// A variable reference.
-    Var {
-        name: DefaultSymbol,
-        decl: Option<DeclRef>,
-    },
     /// A grouped expression.
     Grouped(ExprRef),
+    /// A variable reference.
+    Var(DefaultSymbol),
     /// An unary expression.
     Unary { op: UnaryOp, expr: ExprRef },
     /// A binary expression.
@@ -740,13 +737,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Identifier(name) => {
                 self.iter.next();
-                let expr = self.result.ast.new_expr(
-                    Expr::Var {
-                        name: *name,
-                        decl: None,
-                    },
-                    *span,
-                );
+                let expr = self.result.ast.new_expr(Expr::Var(*name), *span);
                 Some(self.parse_expr_postfix(expr))
             }
             TokenKind::LParen => {

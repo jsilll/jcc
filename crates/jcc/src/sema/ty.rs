@@ -96,13 +96,15 @@ impl<'ctx> TyperPass<'ctx> {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
                     switch
                         .cases
-                        .clone() // TODO: Remove this for performance
                         .iter()
                         .for_each(|stmt| match self.ast.stmt(*stmt) {
                             Stmt::Case { expr, .. } => {
-                                if self.assert_is_constant(*expr)
-                                    && !self.switch_cases.insert(*self.ast.expr(*expr))
-                                {
+                                if !is_constant(self.ast, *expr) {
+                                    self.result.diagnostics.push(TyperDiagnostic {
+                                        span: *self.ast.expr_span(*expr),
+                                        kind: TyperDiagnosticKind::NotConstant,
+                                    });
+                                } else if !self.switch_cases.insert(*self.ast.expr(*expr)) {
                                     self.result.diagnostics.push(TyperDiagnostic {
                                         span: *self.ast.expr_span(*expr),
                                         kind: TyperDiagnosticKind::DuplicateSwitchCase,
@@ -207,17 +209,6 @@ impl<'ctx> TyperPass<'ctx> {
             self.result.diagnostics.push(TyperDiagnostic {
                 span: *self.ast.expr_span(expr),
                 kind: TyperDiagnosticKind::InvalidLValue,
-            });
-            return false;
-        }
-        return true;
-    }
-
-    fn assert_is_constant(&mut self, expr: ExprRef) -> bool {
-        if !is_constant(self.ast, expr) {
-            self.result.diagnostics.push(TyperDiagnostic {
-                span: *self.ast.expr_span(expr),
-                kind: TyperDiagnosticKind::NotConstant,
             });
             return false;
         }

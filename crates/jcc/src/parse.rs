@@ -315,7 +315,7 @@ pub enum UnaryOp {
     /// The postfix `++` operator.
     PostInc,
     /// The postfix `--` operator.
-    PostDec,
+    PostDec, 
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

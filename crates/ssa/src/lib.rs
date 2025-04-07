@@ -135,7 +135,7 @@ impl Inst {
         )
     }
 
-    pub fn bit_not(val: InstRef) -> Self {
+    pub fn bnot(val: InstRef) -> Self {
         Self::new(
             Type::Int32,
             InstKind::Unary {
@@ -145,7 +145,73 @@ impl Inst {
         )
     }
 
-    pub fn add_i32(lhs: InstRef, rhs: InstRef) -> Self {
+    pub fn eq(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Equal,
+            },
+        )
+    }
+
+    pub fn neq(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::NotEqual,
+            },
+        )
+    }
+
+    pub fn lt(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::LessThan,
+            },
+        )
+    }
+
+    pub fn leq(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::LessEqual,
+            },
+        )
+    }
+
+    pub fn gt(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::GreaterThan,
+            },
+        )
+    }
+
+    pub fn geq(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::GreaterEqual,
+            },
+        )
+    }
+
+    pub fn add(lhs: InstRef, rhs: InstRef) -> Self {
         Self::new(
             Type::Int32,
             InstKind::Binary {
@@ -156,26 +222,104 @@ impl Inst {
         )
     }
 
-    pub fn add_i64(lhs: InstRef, rhs: InstRef) -> Self {
+    pub fn sub(lhs: InstRef, rhs: InstRef) -> Self {
         Self::new(
-            Type::Int64,
+            Type::Int32,
             InstKind::Binary {
                 lhs,
                 rhs,
-                op: BinaryOp::Add,
+                op: BinaryOp::Sub,
             },
         )
     }
 
-    // pub fn add() -> Self {}
-    // pub fn sub() -> Self {}
-    // pub fn mul() -> Self {}
-    // pub fn div() -> Self {}
-    // pub fn rem() -> Self {}
-    // pub fn bitOr() -> Self {}
-    // pub fn bitAnd() -> Self {}
-    // pub fn bitShl() -> Self {}
-    // pub fn bitShr() -> Self {}
+    pub fn mul(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Mul,
+            },
+        )
+    }
+
+    pub fn div(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Div,
+            },
+        )
+    }
+
+    pub fn rem(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::Rem,
+            },
+        )
+    }
+
+    pub fn bor(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::BitOr,
+            },
+        )
+    }
+
+    pub fn band(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::BitAnd,
+            },
+        )
+    }
+
+    pub fn bxor(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::BitXor,
+            },
+        )
+    }
+
+    pub fn bshl(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::BitShl,
+            },
+        )
+    }
+
+    pub fn bshr(lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(
+            Type::Int32,
+            InstKind::Binary {
+                lhs,
+                rhs,
+                op: BinaryOp::BitShr,
+            },
+        )
+    }
 
     pub fn is_const(&self, val: i64) -> bool {
         match self.kind {
@@ -306,6 +450,18 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
+    /// The equal operator.
+    Equal,
+    /// The not equal operator.
+    NotEqual,
+    /// The less than operator.
+    LessThan,
+    /// The less than or equal operator.
+    LessEqual,
+    /// The greater than operator.
+    GreaterThan,
+    /// The greater than or equal operator.
+    GreaterEqual,
     /// The add operaotr.
     Add,
     /// The sub operator.
@@ -320,6 +476,8 @@ pub enum BinaryOp {
     BitOr,
     /// The bit and operator.
     BitAnd,
+    /// The bit xor operator.
+    BitXor,
     /// The bit shift left operator.
     BitShl,
     /// The bit shift right operator.

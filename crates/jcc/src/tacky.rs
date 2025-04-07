@@ -554,13 +554,8 @@ impl<'a> TackyFnDefBuilder<'a> {
         let span = *self.ast.expr_span(expr);
         match self.ast.expr(expr) {
             parse::Expr::Const(c) => Value::Const(*c),
+            parse::Expr::Grouped(expr) => self.build_from_expr(*expr),
             parse::Expr::Var(_) => self.get_or_make_some_var(self.ctx.vars.get(&expr).cloned()),
-            parse::Expr::Grouped(mut expr) => {
-                while let parse::Expr::Grouped(inner) = self.ast.expr(expr) {
-                    expr = *inner
-                }
-                self.build_from_expr(expr)
-            }
             parse::Expr::Unary { op, expr } => match op {
                 parse::UnaryOp::Neg => self.build_unary_op(UnaryOp::Neg, *expr, span),
                 parse::UnaryOp::BitNot => self.build_unary_op(UnaryOp::BitNot, *expr, span),

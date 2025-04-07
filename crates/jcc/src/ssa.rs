@@ -15,7 +15,7 @@ pub fn build<'a>(
 ) -> ssa::Program {
     let mut prog = ssa::Program::new(interner);
     ast.items_iter().for_each(|item| {
-        SSAFuncBuilder::new(ast, ctx, item, &mut prog).build();
+        SSAFuncBuilder::new(ast, ctx, &mut prog, item).build();
     });
     prog
 }
@@ -27,10 +27,10 @@ pub fn build<'a>(
 struct SSAFuncBuilder<'a> {
     ast: &'a parse::Ast,
     ctx: &'a sema::SemaCtx,
-    item: parse::ItemRef,
     prog: &'a mut ssa::Program,
-    // func: ssa::FuncRef,
+    item: parse::ItemRef,
     block: ssa::BlockRef,
+    // func: ssa::FuncRef,
     vars: HashMap<parse::DeclRef, ssa::InstRef>,
 }
 
@@ -38,8 +38,8 @@ impl<'a> SSAFuncBuilder<'a> {
     fn new(
         ast: &'a parse::Ast,
         ctx: &'a sema::SemaCtx,
-        item: parse::ItemRef,
         prog: &'a mut ssa::Program,
+        item: parse::ItemRef,
     ) -> Self {
         let span = *ast.item_span(item);
 
@@ -50,7 +50,6 @@ impl<'a> SSAFuncBuilder<'a> {
         Self {
             ast,
             ctx,
-            // func,
             prog,
             item,
             block,
@@ -150,12 +149,7 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.append_to_block(inst);
                 inst
             }
-            parse::Expr::Grouped(mut expr) => {
-                while let parse::Expr::Grouped(inner) = self.ast.expr(expr) {
-                    expr = *inner;
-                }
-                self.visit_expr(expr, mode)
-            }
+            parse::Expr::Grouped(expr) => self.visit_expr(*expr, mode),
             parse::Expr::Var(_) => {
                 let decl = self
                     .ctx
@@ -178,38 +172,15 @@ impl<'a> SSAFuncBuilder<'a> {
                 }
             }
             parse::Expr::Unary { op, expr } => match op {
-                parse::UnaryOp::Neg => {
-                    let val = self.visit_expr(*expr, ExprMode::RightValue);
-                    let inst = self.prog.new_inst(ssa::Inst::neg(val));
-                    self.append_to_block(inst);
-                    inst
-                }
-                parse::UnaryOp::BitNot => todo!(),
-                parse::UnaryOp::LogicalNot => todo!(),
-                parse::UnaryOp::PreInc => todo!(),
-                parse::UnaryOp::PreDec => todo!(),
-                parse::UnaryOp::PostInc => todo!(),
-                parse::UnaryOp::PostDec => todo!(),
+                parse::UnaryOp::Neg => self.build_unary_op(ssa::Inst::neg, *expr),
+                parse::UnaryOp::BitNot => self.build_unary_op(ssa::Inst::bnot, *expr),
+                parse::UnaryOp::LogicalNot => self.build_unary_op(ssa::Inst::not, *expr),
+                parse::UnaryOp::PreInc => self.build_prefix_unary_op(ssa::Inst::inc, *expr),
+                parse::UnaryOp::PreDec => self.build_prefix_unary_op(ssa::Inst::dec, *expr),
+                parse::UnaryOp::PostInc => self.build_postfix_unary_op(ssa::Inst::inc, *expr),
+                parse::UnaryOp::PostDec => self.build_postfix_unary_op(ssa::Inst::dec, *expr),
             },
             parse::Expr::Binary { op, lhs, rhs } => match op {
-                parse::BinaryOp::LogicalOr => todo!(),
-                parse::BinaryOp::LogicalAnd => todo!(),
-                parse::BinaryOp::Equal => todo!(),
-                parse::BinaryOp::NotEqual => todo!(),
-                parse::BinaryOp::LessThan => todo!(),
-                parse::BinaryOp::LessEqual => todo!(),
-                parse::BinaryOp::GreaterThan => todo!(),
-                parse::BinaryOp::GreaterEqual => todo!(),
-                parse::BinaryOp::Add => todo!(),
-                parse::BinaryOp::Sub => todo!(),
-                parse::BinaryOp::Mul => todo!(),
-                parse::BinaryOp::Div => todo!(),
-                parse::BinaryOp::Rem => todo!(),
-                parse::BinaryOp::BitOr => todo!(),
-                parse::BinaryOp::BitAnd => todo!(),
-                parse::BinaryOp::BitXor => todo!(),
-                parse::BinaryOp::BitLsh => todo!(),
-                parse::BinaryOp::BitRsh => todo!(),
                 parse::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
@@ -217,19 +188,103 @@ impl<'a> SSAFuncBuilder<'a> {
                     self.append_to_block(store);
                     lhs
                 }
-                parse::BinaryOp::AddAssign => todo!(),
-                parse::BinaryOp::SubAssign => todo!(),
-                parse::BinaryOp::MulAssign => todo!(),
-                parse::BinaryOp::DivAssign => todo!(),
-                parse::BinaryOp::RemAssign => todo!(),
-                parse::BinaryOp::BitOrAssign => todo!(),
-                parse::BinaryOp::BitAndAssign => todo!(),
-                parse::BinaryOp::BitXorAssign => todo!(),
-                parse::BinaryOp::BitLshAssign => todo!(),
-                parse::BinaryOp::BitRshAssign => todo!(),
+                parse::BinaryOp::LogicalOr => todo!("implement short-circuiting"),
+                parse::BinaryOp::LogicalAnd => todo!("implement short-circuiting"),
+                parse::BinaryOp::Equal => self.build_binary_op(ssa::Inst::eq, *lhs, *rhs),
+                parse::BinaryOp::NotEqual => self.build_binary_op(ssa::Inst::neq, *lhs, *rhs),
+                parse::BinaryOp::LessThan => self.build_binary_op(ssa::Inst::lt, *lhs, *rhs),
+                parse::BinaryOp::LessEqual => self.build_binary_op(ssa::Inst::leq, *lhs, *rhs),
+                parse::BinaryOp::GreaterThan => self.build_binary_op(ssa::Inst::gt, *lhs, *rhs),
+                parse::BinaryOp::GreaterEqual => self.build_binary_op(ssa::Inst::geq, *lhs, *rhs),
+                parse::BinaryOp::Add => self.build_binary_op(ssa::Inst::add, *lhs, *rhs),
+                parse::BinaryOp::Sub => self.build_binary_op(ssa::Inst::sub, *lhs, *rhs),
+                parse::BinaryOp::Mul => self.build_binary_op(ssa::Inst::mul, *lhs, *rhs),
+                parse::BinaryOp::Div => self.build_binary_op(ssa::Inst::div, *lhs, *rhs),
+                parse::BinaryOp::Rem => self.build_binary_op(ssa::Inst::rem, *lhs, *rhs),
+                parse::BinaryOp::BitOr => self.build_binary_op(ssa::Inst::bor, *lhs, *rhs),
+                parse::BinaryOp::BitAnd => self.build_binary_op(ssa::Inst::band, *lhs, *rhs),
+                parse::BinaryOp::BitXor => self.build_binary_op(ssa::Inst::bxor, *lhs, *rhs),
+                parse::BinaryOp::BitLsh => self.build_binary_op(ssa::Inst::bshl, *lhs, *rhs),
+                parse::BinaryOp::BitRsh => self.build_binary_op(ssa::Inst::bshr, *lhs, *rhs),
+                parse::BinaryOp::AddAssign => self.build_binary_assign_op(ssa::Inst::add, *lhs, *rhs),
+                parse::BinaryOp::SubAssign => self.build_binary_assign_op(ssa::Inst::sub, *lhs, *rhs),
+                parse::BinaryOp::MulAssign => self.build_binary_assign_op(ssa::Inst::mul, *lhs, *rhs),
+                parse::BinaryOp::DivAssign => self.build_binary_assign_op(ssa::Inst::div, *lhs, *rhs),
+                parse::BinaryOp::RemAssign => self.build_binary_assign_op(ssa::Inst::rem, *lhs, *rhs),
+                parse::BinaryOp::BitOrAssign => self.build_binary_assign_op(ssa::Inst::bor, *lhs, *rhs),
+                parse::BinaryOp::BitAndAssign => self.build_binary_assign_op(ssa::Inst::band, *lhs, *rhs),
+                parse::BinaryOp::BitXorAssign => self.build_binary_assign_op(ssa::Inst::bxor, *lhs, *rhs),
+                parse::BinaryOp::BitLshAssign => self.build_binary_assign_op(ssa::Inst::bshl, *lhs, *rhs),
+                parse::BinaryOp::BitRshAssign => self.build_binary_assign_op(ssa::Inst::bshr, *lhs, *rhs),
             },
             parse::Expr::Ternary { .. } => todo!(),
         }
+    }
+
+    fn build_unary_op<F: FnOnce(ssa::InstRef) -> ssa::Inst>(
+        &mut self,
+        op: F,
+        expr: parse::ExprRef,
+    ) -> ssa::InstRef {
+        let val = self.visit_expr(expr, ExprMode::RightValue);
+        let inst = self.prog.new_inst(op(val));
+        self.append_slice_to_block(&[val, inst]);
+        inst
+    }
+
+    fn build_prefix_unary_op<F: FnOnce(ssa::InstRef) -> ssa::Inst>(
+        &mut self,
+        op: F,
+        expr: parse::ExprRef,
+    ) -> ssa::InstRef {
+        let lhs = self.visit_expr(expr, ExprMode::LeftValue);
+        let rhs = self.visit_expr(expr, ExprMode::RightValue);
+        let inst1 = self.prog.new_inst(op(rhs));
+        let inst2 = self.prog.new_inst(ssa::Inst::store(lhs, inst1));
+        self.append_slice_to_block(&[rhs, inst1, inst2]);
+        inst1
+    }
+
+    fn build_postfix_unary_op<F: FnOnce(ssa::InstRef) -> ssa::Inst>(
+        &mut self,
+        op: F,
+        expr: parse::ExprRef,
+    ) -> ssa::InstRef {
+        let lhs = self.visit_expr(expr, ExprMode::LeftValue);
+        let rhs = self.visit_expr(expr, ExprMode::RightValue);
+        let inst1 = self.prog.new_inst(op(rhs));
+        let inst2 = self.prog.new_inst(ssa::Inst::store(lhs, inst1));
+        self.append_slice_to_block(&[rhs, inst1, inst2]);
+        rhs
+    }
+
+    fn build_binary_op<F: FnOnce(ssa::InstRef, ssa::InstRef) -> ssa::Inst>(
+        &mut self,
+        op: F,
+        lhs: parse::ExprRef,
+        rhs: parse::ExprRef,
+    ) -> ssa::InstRef {
+        let lhs = self.visit_expr(lhs, ExprMode::RightValue);
+        let rhs = self.visit_expr(rhs, ExprMode::RightValue);
+        let inst1 = self.prog.new_inst(op(lhs, rhs));
+        let inst2 = self.prog.new_inst(ssa::Inst::store(lhs, inst1));
+        self.append_slice_to_block(&[rhs, inst1, inst2]);
+        inst1
+    }
+
+    fn build_binary_assign_op<F: FnOnce(ssa::InstRef, ssa::InstRef) -> ssa::Inst>(
+        &mut self,
+        op: F,
+        lhs: parse::ExprRef,
+        rhs: parse::ExprRef,
+    ) -> ssa::InstRef {
+        let vlhs = self.visit_expr(lhs, ExprMode::RightValue);
+        let vrhs = self.visit_expr(rhs, ExprMode::RightValue);
+        let inst = self.prog.new_inst(op(vlhs, vrhs));
+        let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
+        let store = self.prog.new_inst(ssa::Inst::store(ptr, inst));
+        self.append_slice_to_block(&[vlhs, vrhs, inst, store]);
+        inst
     }
 }
 

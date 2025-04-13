@@ -259,7 +259,7 @@ impl AMD64FnDefBuilder {
         let src = Self::build_from_value(src);
         let dst = Self::build_from_value(dst);
         self.append_to_block(Inst::Mov { src, dst }, *span);
-        self.append_to_block(Inst::Unary { op, src: dst }, *span);
+        self.append_to_block(Inst::Unary { op, dst }, *span);
     }
 
     fn build_binary_instr(

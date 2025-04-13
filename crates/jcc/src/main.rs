@@ -166,11 +166,8 @@ fn try_main() -> Result<()> {
                 return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
             }
 
+            // Generate AMD64
             let amd64 = ssa::amd64::AMD64Builder::new(&ssa).build();
-            if args.verbose {
-                println!("{:#?}", amd64);
-            }
-
             (amd64, ssa.take_interner())
         }
         false => {
@@ -185,13 +182,12 @@ fn try_main() -> Result<()> {
 
             // Generate AMD64
             let amd64 = AMD64Builder::new(&tacky).build();
-            if args.verbose {
-                println!("{:#?}", amd64);
-            }
-
             (amd64, interner)
         }
     };
+    if args.verbose {
+        println!("{:#?}", amd64);
+    }
 
     // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);

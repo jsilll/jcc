@@ -118,13 +118,13 @@ impl<'a> AMD64Emitter<'a> {
                     }
                 }
             }
-            Inst::Unary { op, src } => {
-                let src = self.emit_operand_32(src);
+            Inst::Unary { op, dst } => {
+                let dst = self.emit_operand_32(dst);
                 match op {
-                    UnaryOp::Not => self.writeln(&format!("notl {src}")),
-                    UnaryOp::Neg => self.writeln(&format!("negl {src}")),
-                    UnaryOp::Inc => self.writeln(&format!("incl {src}")),
-                    UnaryOp::Dec => self.writeln(&format!("decl {src}")),
+                    UnaryOp::Not => self.writeln(&format!("notl {dst}")),
+                    UnaryOp::Neg => self.writeln(&format!("negl {dst}")),
+                    UnaryOp::Inc => self.writeln(&format!("incl {dst}")),
+                    UnaryOp::Dec => self.writeln(&format!("decl {dst}")),
                 };
             }
             Inst::Binary { op, src, dst } => {

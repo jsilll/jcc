@@ -189,7 +189,7 @@ impl AMD64Fixer {
             Inst::SetCC { dst, .. } => {
                 self.fix_operand(dst);
             }
-            Inst::Unary { src, .. } => self.fix_operand(src),
+            Inst::Unary { dst, .. } => self.fix_operand(dst),
             Inst::Binary { op, src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);

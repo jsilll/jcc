@@ -25,9 +25,24 @@ use std::{
 pub enum Type {
     #[default]
     Void,
+    Int8,
+    Int16,
     Int32,
     Int64,
     IntPtr,
+}
+
+impl Type {
+    pub fn size(&self) -> u32 {
+        match self {
+            Type::Void => 0,
+            Type::Int8 => 1,
+            Type::Int16 => 2,
+            Type::Int32 => 4,
+            Type::Int64 => 8,
+            Type::IntPtr => 8,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +60,7 @@ pub struct Inst {
     pub ty: Type,
     pub kind: InstKind,
     pub(crate) idx: InstIdx,
-    // TODO: pub block: BlockRef,
+    // pub block: BlockRef,
 }
 
 impl Inst {
@@ -57,10 +72,6 @@ impl Inst {
         }
     }
 
-    pub fn nop() -> Self {
-        Self::new(Type::Void, InstKind::Nop)
-    }
-
     pub fn phi(ty: Type) -> Self {
         Self::new(ty, InstKind::Phi)
     }
@@ -69,8 +80,16 @@ impl Inst {
         Self::new(ty, InstKind::Arg)
     }
 
+    pub fn nop() -> Self {
+        Self::new(Type::Void, InstKind::Nop)
+    }
+
     pub fn alloca() -> Self {
         Self::new(Type::IntPtr, InstKind::Alloca)
+    }
+
+    pub fn ret(val: InstRef) -> Self {
+        Self::new(Type::Void, InstKind::Ret(val))
     }
 
     pub fn const_i32(val: i64) -> Self {
@@ -79,10 +98,6 @@ impl Inst {
 
     pub fn const_i64(val: i64) -> Self {
         Self::new(Type::Int64, InstKind::Const(val))
-    }
-
-    pub fn ret(val: InstRef) -> Self {
-        Self::new(Type::Void, InstKind::Ret(val))
     }
 
     pub fn load(ptr: InstRef) -> Self {
@@ -224,12 +239,30 @@ pub enum UnaryOp {
     Inc,
     /// The dec operator.
     Dec,
-    /// The bit not operator.
-    BitNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
+    /// The bit or operator.
+    Or,
+    /// The bit and operator.
+    And,
+    /// The bit xor operator.
+    Xor,
+    /// The bit shift left operator.
+    Shl,
+    /// The bit shift right operator.
+    Shr,
+    /// The add operaotr.
+    Add,
+    /// The sub operator.
+    Sub,
+    /// The mul operator.
+    Mul,
+    /// The div operator.
+    Div,
+    /// The rem operator.
+    Rem,
     /// The equal operator.
     Equal,
     /// The not equal operator.
@@ -242,26 +275,6 @@ pub enum BinaryOp {
     GreaterThan,
     /// The greater than or equal operator.
     GreaterEqual,
-    /// The add operaotr.
-    Add,
-    /// The sub operator.
-    Sub,
-    /// The mul operator.
-    Mul,
-    /// The div operator.
-    Div,
-    /// The rem operator.
-    Rem,
-    /// The bit or operator.
-    BitOr,
-    /// The bit and operator.
-    BitAnd,
-    /// The bit xor operator.
-    BitXor,
-    /// The bit shift left operator.
-    BitShl,
-    /// The bit shift right operator.
-    BitShr,
 }
 
 // ---------------------------------------------------------------------------

@@ -104,7 +104,7 @@ pub enum Inst {
         target: BlockRef,
     },
     /// A unary operation instruction.
-    Unary { op: UnaryOp, src: Operand },
+    Unary { op: UnaryOp, dst: Operand },
     /// A binary operation instruction.
     Binary {
         op: BinaryOp,
@@ -153,12 +153,6 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    /// The `add` operator.
-    Add,
-    /// The `sub` operator.
-    Sub,
-    /// The `mul` operator.
-    Mul,
     /// The `or` operator.
     Or,
     /// The `and` operator.
@@ -169,6 +163,12 @@ pub enum BinaryOp {
     Shl,
     /// The `sar` operator.
     Shr,
+    /// The `add` operator.
+    Add,
+    /// The `sub` operator.
+    Sub,
+    /// The `mul` operator.
+    Mul,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

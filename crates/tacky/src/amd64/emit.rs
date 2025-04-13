@@ -1,4 +1,4 @@
-use string_interner::DefaultStringInterner;
+use crate::Interner;
 
 use super::{BinaryOp, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
 
@@ -10,11 +10,11 @@ pub struct AMD64Emitter<'a> {
     output: String,
     indent_level: usize,
     program: &'a Program,
-    interner: &'a DefaultStringInterner,
+    interner: &'a Interner,
 }
 
 impl<'a> AMD64Emitter<'a> {
-    pub fn new(program: &'a Program, interner: &'a DefaultStringInterner) -> Self {
+    pub fn new(program: &'a Program, interner: &'a Interner) -> Self {
         Self {
             program,
             interner,

@@ -2,10 +2,10 @@ use crate::lex::{Token, TokenKind};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceFile, SourceSpan},
-    string_interner::{DefaultStringInterner, DefaultSymbol, Symbol},
+    Interner, Symbol,
 };
 
-use std::{iter::Peekable, marker::PhantomData, num::NonZeroU32, slice::Iter};
+use std::{iter::Peekable, num::NonZeroU32, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // Ast
@@ -27,6 +27,7 @@ pub struct Ast {
 impl Default for Ast {
     fn default() -> Self {
         Ast {
+            block_items: Default::default(),
             items: vec![Default::default()],
             decls: vec![Default::default()],
             stmts: vec![Default::default()],
@@ -35,7 +36,6 @@ impl Default for Ast {
             decls_span: vec![Default::default()],
             stmts_span: vec![Default::default()],
             exprs_span: vec![Default::default()],
-            block_items: Default::default(),
         }
     }
 }
@@ -129,7 +129,7 @@ impl Ast {
 
     #[inline]
     pub fn new_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
-        let r = ItemRef::new(self.items.len());
+        let r = ItemRef(NonZeroU32::new(self.items.len() as u32).unwrap());
         self.items.push(item);
         self.items_span.push(span);
         r
@@ -137,7 +137,7 @@ impl Ast {
 
     #[inline]
     pub fn new_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
-        let r = DeclRef::new(self.decls.len());
+        let r = DeclRef(NonZeroU32::new(self.decls.len() as u32).unwrap());
         self.decls.push(decl);
         self.decls_span.push(span);
         r
@@ -145,7 +145,7 @@ impl Ast {
 
     #[inline]
     pub fn new_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
-        let r = StmtRef::new(self.stmts.len());
+        let r = StmtRef(NonZeroU32::new(self.stmts.len() as u32).unwrap());
         self.stmts.push(stmt);
         self.stmts_span.push(span);
         r
@@ -153,7 +153,7 @@ impl Ast {
 
     #[inline]
     pub fn new_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
-        let r = ExprRef::new(self.exprs.len());
+        let r = ExprRef(NonZeroU32::new(self.exprs.len() as u32).unwrap());
         self.exprs.push(expr);
         self.exprs_span.push(span);
         r
@@ -172,7 +172,7 @@ impl Ast {
 
     #[inline]
     pub fn items_iter(&self) -> impl Iterator<Item = ItemRef> {
-        unsafe { (1..self.items.len()).map(|i| ItemRef::new_unchecked(i)) }
+        unsafe { (1..self.items.len()).map(|i| ItemRef(NonZeroU32::new_unchecked(i as u32))) }
     }
 
     #[inline]
@@ -185,44 +185,26 @@ impl Ast {
 // Ast Nodes
 // ---------------------------------------------------------------------------
 
-pub type ItemRef = EntityRef<Item>;
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ItemRef(NonZeroU32);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Item {
-    pub name: DefaultSymbol,
+    pub name: Symbol,
     pub body: BlockItemSlice,
 }
 
-impl Default for Item {
-    fn default() -> Self {
-        Self {
-            body: Default::default(),
-            name: DefaultSymbol::try_from_usize(0).unwrap(),
-        }
-    }
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct DeclRef(NonZeroU32);
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Decl {
+    pub name: Symbol,
+    pub init: Option<ExprRef>,
 }
 
-pub type DeclRef = EntityRef<Decl>;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Decl {
-    /// A variable declaration.
-    Var {
-        name: DefaultSymbol,
-        init: Option<ExprRef>,
-    },
-}
-
-impl Default for Decl {
-    fn default() -> Self {
-        Self::Var {
-            init: None,
-            name: DefaultSymbol::try_from_usize(0).unwrap(),
-        }
-    }
-}
-
-pub type StmtRef = EntityRef<Stmt>;
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StmtRef(NonZeroU32);
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
@@ -233,22 +215,22 @@ pub enum Stmt {
     Break,
     /// A continue statement.
     Continue,
+    /// A goto statement.
+    Goto(Symbol),
     /// An expression statement.
     Expr(ExprRef),
     /// A return statement.
     Return(ExprRef),
     /// A default statement.
     Default(StmtRef),
-    /// A goto statement.
-    Goto(DefaultSymbol),
     /// A compound statement.
     Compound(BlockItemSlice),
     /// A case statement.
     Case { expr: ExprRef, stmt: StmtRef },
+    /// A label statement.
+    Label { label: Symbol, stmt: StmtRef },
     /// A switch statement.
     Switch { cond: ExprRef, body: StmtRef },
-    /// A label statement.
-    Label { label: DefaultSymbol, stmt: StmtRef },
     /// An if statement.
     If {
         cond: ExprRef,
@@ -268,16 +250,17 @@ pub enum Stmt {
     },
 }
 
-pub type ExprRef = EntityRef<Expr>;
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ExprRef(NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {
     /// A constant integer value.
     Const(i64),
+    /// A variable reference.
+    Var(Symbol),
     /// A grouped expression.
     Grouped(ExprRef),
-    /// A variable reference.
-    Var(DefaultSymbol),
     /// An unary expression.
     Unary { op: UnaryOp, expr: ExprRef },
     /// A binary expression.
@@ -315,7 +298,7 @@ pub enum UnaryOp {
     /// The postfix `++` operator.
     PostInc,
     /// The postfix `--` operator.
-    PostDec, 
+    PostDec,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -353,9 +336,9 @@ pub enum BinaryOp {
     /// The `^` operator.
     BitXor,
     /// The `<<` operator.
-    BitLsh,
+    BitShl,
     /// The `>>` operator.
-    BitRsh,
+    BitShr,
     /// The `=` operator.
     Assign,
     /// The `+=` operator.
@@ -375,9 +358,9 @@ pub enum BinaryOp {
     /// The `^=` operator.
     BitXorAssign,
     /// The `<<=` operator.
-    BitLshAssign,
+    BitShlAssign,
     /// The `>>=` operator.
-    BitRshAssign,
+    BitShrAssign,
 }
 
 // ---------------------------------------------------------------------------
@@ -432,18 +415,14 @@ pub struct ParserDiagnostic {
 
 pub struct Parser<'a> {
     file: &'a SourceFile,
+    interner: &'a mut Interner,
     iter: Peekable<Iter<'a, Token>>,
-    interner: &'a mut DefaultStringInterner,
     result: ParserResult,
     block_item_stack: Vec<BlockItem>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(
-        file: &'a SourceFile,
-        iter: Iter<'a, Token>,
-        interner: &'a mut DefaultStringInterner,
-    ) -> Self {
+    pub fn new(file: &'a SourceFile, interner: &'a mut Interner, iter: Iter<'a, Token>) -> Self {
         Self {
             file,
             interner,
@@ -513,7 +492,7 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         self.eat(TokenKind::Semi)?;
-        Some(self.result.ast.new_decl(Decl::Var { name, init }, span))
+        Some(self.result.ast.new_decl(Decl { name, init }, span))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -828,7 +807,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eat_identifier(&mut self) -> Option<(SourceSpan, DefaultSymbol)> {
+    fn eat_identifier(&mut self) -> Option<(SourceSpan, Symbol)> {
         let token = self.iter.peek().or_else(|| {
             self.result.diagnostics.push(ParserDiagnostic {
                 span: self.file.end_span(),
@@ -967,12 +946,12 @@ impl From<TokenKind> for Option<Precedence> {
             TokenKind::LtLtEq => Some(Precedence {
                 prec: 0,
                 assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitLshAssign),
+                token: InfixToken::Binary(BinaryOp::BitShlAssign),
             }),
             TokenKind::GtGtEq => Some(Precedence {
                 prec: 0,
                 assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitRshAssign),
+                token: InfixToken::Binary(BinaryOp::BitShrAssign),
             }),
             // Group: Right-to-left Associativity
             TokenKind::Question => Some(Precedence {
@@ -1046,12 +1025,12 @@ impl From<TokenKind> for Option<Precedence> {
             TokenKind::LtLt => Some(Precedence {
                 prec: 9,
                 assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitLsh),
+                token: InfixToken::Binary(BinaryOp::BitShl),
             }),
             TokenKind::GtGt => Some(Precedence {
                 prec: 9,
                 assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitRsh),
+                token: InfixToken::Binary(BinaryOp::BitShr),
             }),
             // Group: Left-to-right Associativity
             TokenKind::Plus => Some(Precedence {
@@ -1082,50 +1061,5 @@ impl From<TokenKind> for Option<Precedence> {
             }),
             _ => None,
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// EntityRef<T>
-// ---------------------------------------------------------------------------
-
-pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
-
-impl<T> EntityRef<T> {
-    pub fn new(idx: usize) -> Self {
-        Self(
-            NonZeroU32::new(idx as u32).expect("expected a positive index"),
-            PhantomData,
-        )
-    }
-
-    unsafe fn new_unchecked(idx: usize) -> Self {
-        Self(NonZeroU32::new_unchecked(idx as u32), PhantomData)
-    }
-}
-
-impl<T> Copy for EntityRef<T> {}
-impl<T> Clone for EntityRef<T> {
-    fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
-    }
-}
-
-impl<T> Eq for EntityRef<T> {}
-impl<T> PartialEq for EntityRef<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<T> std::hash::Hash for EntityRef<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-
-impl<T> std::fmt::Debug for EntityRef<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EntityRef::<{}>({})", std::any::type_name::<T>(), self.0)
     }
 }

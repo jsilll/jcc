@@ -1,6 +1,6 @@
 use crate::{parse, sema};
 
-use tacky::string_interner::DefaultStringInterner;
+use tacky::Interner;
 
 use std::collections::HashMap;
 
@@ -8,11 +8,7 @@ use std::collections::HashMap;
 // Root function
 // ---------------------------------------------------------------------------
 
-pub fn build<'a>(
-    ast: &'a parse::Ast,
-    ctx: &'a sema::SemaCtx,
-    interner: DefaultStringInterner,
-) -> ssa::Program {
+pub fn build<'a>(ast: &'a parse::Ast, ctx: &'a sema::SemaCtx, interner: Interner) -> ssa::Program {
     let mut prog = ssa::Program::new(interner);
     ast.items_iter().for_each(|item| {
         SSAFuncBuilder::new(ast, ctx, &mut prog, item).build();
@@ -42,11 +38,9 @@ impl<'a> SSAFuncBuilder<'a> {
         item: parse::ItemRef,
     ) -> Self {
         let span = *ast.item_span(item);
-
         let func = prog.new_func_with_span_interned(ast.item(item).name, span);
         let block = prog.new_block_with_span("entry", span);
         prog.func_mut(func).blocks.push(block);
-
         Self {
             ast,
             ctx,
@@ -65,7 +59,6 @@ impl<'a> SSAFuncBuilder<'a> {
                 parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                 parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
             });
-
         let append_return = match self.ast.block_items(self.ast.item(self.item).body).last() {
             Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
                 parse::Stmt::Return(_) => false,
@@ -73,7 +66,6 @@ impl<'a> SSAFuncBuilder<'a> {
             },
             _ => true,
         };
-
         if append_return {
             let span = *self.ast.item_span(self.item);
             let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
@@ -96,23 +88,19 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn visit_decl(&mut self, decl: parse::DeclRef) {
-        match self.ast.decl(decl) {
-            parse::Decl::Var { init, .. } => {
-                let span = *self.ast.decl_span(decl);
-
-                let ptr = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
-
-                self.append_to_block(ptr);
-                self.vars.insert(decl, ptr);
-
-                if let Some(init) = init {
-                    let val = self.visit_expr(*init, ExprMode::RightValue);
-                    let inst = self
-                        .prog
-                        .new_inst_with_span(ssa::Inst::store(ptr, val), span);
-                    self.append_to_block(inst);
-                }
-            }
+        let span = *self.ast.decl_span(decl);
+        let ptr = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
+        self.append_to_block(ptr);
+        self.vars.insert(decl, ptr);
+        if let parse::Decl {
+            init: Some(expr), ..
+        } = self.ast.decl(decl)
+        {
+            let val = self.visit_expr(*expr, ExprMode::RightValue);
+            let inst = self
+                .prog
+                .new_inst_with_span(ssa::Inst::store(ptr, val), span);
+            self.append_to_block(inst);
         }
     }
 
@@ -144,12 +132,12 @@ impl<'a> SSAFuncBuilder<'a> {
 
     fn visit_expr(&mut self, expr: parse::ExprRef, mode: ExprMode) -> ssa::InstRef {
         match self.ast.expr(expr) {
+            parse::Expr::Grouped(expr) => self.visit_expr(*expr, mode),
             parse::Expr::Const(c) => {
                 let inst = self.prog.new_inst(ssa::Inst::const_i32(*c));
                 self.append_to_block(inst);
                 inst
             }
-            parse::Expr::Grouped(expr) => self.visit_expr(*expr, mode),
             parse::Expr::Var(_) => {
                 let decl = self
                     .ctx
@@ -172,13 +160,13 @@ impl<'a> SSAFuncBuilder<'a> {
                 }
             }
             parse::Expr::Unary { op, expr } => match op {
-                parse::UnaryOp::Neg => self.build_unary_op(ssa::Inst::neg, *expr),
-                parse::UnaryOp::BitNot => self.build_unary_op(ssa::Inst::bnot, *expr),
-                parse::UnaryOp::LogicalNot => self.build_unary_op(ssa::Inst::not, *expr),
-                parse::UnaryOp::PreInc => self.build_prefix_unary_op(ssa::Inst::inc, *expr),
-                parse::UnaryOp::PreDec => self.build_prefix_unary_op(ssa::Inst::dec, *expr),
-                parse::UnaryOp::PostInc => self.build_postfix_unary_op(ssa::Inst::inc, *expr),
-                parse::UnaryOp::PostDec => self.build_postfix_unary_op(ssa::Inst::dec, *expr),
+                parse::UnaryOp::Neg => self.build_unary_op(ssa::UnaryOp::Neg, *expr),
+                parse::UnaryOp::BitNot => self.build_unary_op(ssa::UnaryOp::BitNot, *expr),
+                parse::UnaryOp::LogicalNot => self.build_unary_op(ssa::UnaryOp::Not, *expr),
+                parse::UnaryOp::PreInc => self.build_prefix_unary_op(ssa::UnaryOp::Inc, *expr),
+                parse::UnaryOp::PreDec => self.build_prefix_unary_op(ssa::UnaryOp::Dec, *expr),
+                parse::UnaryOp::PostInc => self.build_postfix_unary_op(ssa::UnaryOp::Inc, *expr),
+                parse::UnaryOp::PostDec => self.build_postfix_unary_op(ssa::UnaryOp::Dec, *expr),
             },
             parse::Expr::Binary { op, lhs, rhs } => match op {
                 parse::BinaryOp::Assign => {
@@ -190,97 +178,126 @@ impl<'a> SSAFuncBuilder<'a> {
                 }
                 parse::BinaryOp::LogicalOr => todo!("implement short-circuiting"),
                 parse::BinaryOp::LogicalAnd => todo!("implement short-circuiting"),
-                parse::BinaryOp::Equal => self.build_binary_op(ssa::Inst::eq, *lhs, *rhs),
-                parse::BinaryOp::NotEqual => self.build_binary_op(ssa::Inst::neq, *lhs, *rhs),
-                parse::BinaryOp::LessThan => self.build_binary_op(ssa::Inst::lt, *lhs, *rhs),
-                parse::BinaryOp::LessEqual => self.build_binary_op(ssa::Inst::leq, *lhs, *rhs),
-                parse::BinaryOp::GreaterThan => self.build_binary_op(ssa::Inst::gt, *lhs, *rhs),
-                parse::BinaryOp::GreaterEqual => self.build_binary_op(ssa::Inst::geq, *lhs, *rhs),
-                parse::BinaryOp::Add => self.build_binary_op(ssa::Inst::add, *lhs, *rhs),
-                parse::BinaryOp::Sub => self.build_binary_op(ssa::Inst::sub, *lhs, *rhs),
-                parse::BinaryOp::Mul => self.build_binary_op(ssa::Inst::mul, *lhs, *rhs),
-                parse::BinaryOp::Div => self.build_binary_op(ssa::Inst::div, *lhs, *rhs),
-                parse::BinaryOp::Rem => self.build_binary_op(ssa::Inst::rem, *lhs, *rhs),
-                parse::BinaryOp::BitOr => self.build_binary_op(ssa::Inst::bor, *lhs, *rhs),
-                parse::BinaryOp::BitAnd => self.build_binary_op(ssa::Inst::band, *lhs, *rhs),
-                parse::BinaryOp::BitXor => self.build_binary_op(ssa::Inst::bxor, *lhs, *rhs),
-                parse::BinaryOp::BitLsh => self.build_binary_op(ssa::Inst::bshl, *lhs, *rhs),
-                parse::BinaryOp::BitRsh => self.build_binary_op(ssa::Inst::bshr, *lhs, *rhs),
-                parse::BinaryOp::AddAssign => self.build_binary_assign_op(ssa::Inst::add, *lhs, *rhs),
-                parse::BinaryOp::SubAssign => self.build_binary_assign_op(ssa::Inst::sub, *lhs, *rhs),
-                parse::BinaryOp::MulAssign => self.build_binary_assign_op(ssa::Inst::mul, *lhs, *rhs),
-                parse::BinaryOp::DivAssign => self.build_binary_assign_op(ssa::Inst::div, *lhs, *rhs),
-                parse::BinaryOp::RemAssign => self.build_binary_assign_op(ssa::Inst::rem, *lhs, *rhs),
-                parse::BinaryOp::BitOrAssign => self.build_binary_assign_op(ssa::Inst::bor, *lhs, *rhs),
-                parse::BinaryOp::BitAndAssign => self.build_binary_assign_op(ssa::Inst::band, *lhs, *rhs),
-                parse::BinaryOp::BitXorAssign => self.build_binary_assign_op(ssa::Inst::bxor, *lhs, *rhs),
-                parse::BinaryOp::BitLshAssign => self.build_binary_assign_op(ssa::Inst::bshl, *lhs, *rhs),
-                parse::BinaryOp::BitRshAssign => self.build_binary_assign_op(ssa::Inst::bshr, *lhs, *rhs),
+                parse::BinaryOp::Equal => self.build_binary_op(ssa::BinaryOp::Equal, *lhs, *rhs),
+                parse::BinaryOp::NotEqual => {
+                    self.build_binary_op(ssa::BinaryOp::NotEqual, *lhs, *rhs)
+                }
+                parse::BinaryOp::LessThan => {
+                    self.build_binary_op(ssa::BinaryOp::LessThan, *lhs, *rhs)
+                }
+                parse::BinaryOp::LessEqual => {
+                    self.build_binary_op(ssa::BinaryOp::LessEqual, *lhs, *rhs)
+                }
+                parse::BinaryOp::GreaterThan => {
+                    self.build_binary_op(ssa::BinaryOp::GreaterThan, *lhs, *rhs)
+                }
+                parse::BinaryOp::GreaterEqual => {
+                    self.build_binary_op(ssa::BinaryOp::GreaterEqual, *lhs, *rhs)
+                }
+                parse::BinaryOp::Add => self.build_binary_op(ssa::BinaryOp::Add, *lhs, *rhs),
+                parse::BinaryOp::Sub => self.build_binary_op(ssa::BinaryOp::Sub, *lhs, *rhs),
+                parse::BinaryOp::Mul => self.build_binary_op(ssa::BinaryOp::Mul, *lhs, *rhs),
+                parse::BinaryOp::Div => self.build_binary_op(ssa::BinaryOp::Div, *lhs, *rhs),
+                parse::BinaryOp::Rem => self.build_binary_op(ssa::BinaryOp::Rem, *lhs, *rhs),
+                parse::BinaryOp::BitOr => self.build_binary_op(ssa::BinaryOp::BitOr, *lhs, *rhs),
+                parse::BinaryOp::BitAnd => self.build_binary_op(ssa::BinaryOp::BitAnd, *lhs, *rhs),
+                parse::BinaryOp::BitXor => self.build_binary_op(ssa::BinaryOp::BitXor, *lhs, *rhs),
+                parse::BinaryOp::BitShl => self.build_binary_op(ssa::BinaryOp::BitShl, *lhs, *rhs),
+                parse::BinaryOp::BitShr => self.build_binary_op(ssa::BinaryOp::BitShr, *lhs, *rhs),
+                parse::BinaryOp::AddAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::Add, *lhs, *rhs)
+                }
+                parse::BinaryOp::SubAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::Sub, *lhs, *rhs)
+                }
+                parse::BinaryOp::MulAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::Mul, *lhs, *rhs)
+                }
+                parse::BinaryOp::DivAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::Div, *lhs, *rhs)
+                }
+                parse::BinaryOp::RemAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::Rem, *lhs, *rhs)
+                }
+                parse::BinaryOp::BitOrAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::BitOr, *lhs, *rhs)
+                }
+                parse::BinaryOp::BitAndAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::BitAnd, *lhs, *rhs)
+                }
+                parse::BinaryOp::BitXorAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::BitXor, *lhs, *rhs)
+                }
+                parse::BinaryOp::BitShlAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::BitShl, *lhs, *rhs)
+                }
+                parse::BinaryOp::BitShrAssign => {
+                    self.build_binary_assign_op(ssa::BinaryOp::BitShr, *lhs, *rhs)
+                }
             },
             parse::Expr::Ternary { .. } => todo!(),
         }
     }
 
-    fn build_unary_op<F: FnOnce(ssa::InstRef) -> ssa::Inst>(
-        &mut self,
-        op: F,
-        expr: parse::ExprRef,
-    ) -> ssa::InstRef {
+    fn build_unary_op(&mut self, op: ssa::UnaryOp, expr: parse::ExprRef) -> ssa::InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        let inst = self.prog.new_inst(op(val));
-        self.append_slice_to_block(&[val, inst]);
+        let inst = self
+            .prog
+            .new_inst(ssa::Inst::unary(ssa::Type::Int32, op, val));
+        self.append_to_block(inst);
         inst
     }
 
-    fn build_prefix_unary_op<F: FnOnce(ssa::InstRef) -> ssa::Inst>(
-        &mut self,
-        op: F,
-        expr: parse::ExprRef,
-    ) -> ssa::InstRef {
-        let lhs = self.visit_expr(expr, ExprMode::LeftValue);
+    fn build_prefix_unary_op(&mut self, op: ssa::UnaryOp, expr: parse::ExprRef) -> ssa::InstRef {
         let rhs = self.visit_expr(expr, ExprMode::RightValue);
-        let inst1 = self.prog.new_inst(op(rhs));
+        let inst1 = self
+            .prog
+            .new_inst(ssa::Inst::unary(ssa::Type::Int32, op, rhs));
+
+        let lhs = self.visit_expr(expr, ExprMode::LeftValue);
         let inst2 = self.prog.new_inst(ssa::Inst::store(lhs, inst1));
         self.append_slice_to_block(&[rhs, inst1, inst2]);
         inst1
     }
 
-    fn build_postfix_unary_op<F: FnOnce(ssa::InstRef) -> ssa::Inst>(
-        &mut self,
-        op: F,
-        expr: parse::ExprRef,
-    ) -> ssa::InstRef {
+    fn build_postfix_unary_op(&mut self, op: ssa::UnaryOp, expr: parse::ExprRef) -> ssa::InstRef {
         let lhs = self.visit_expr(expr, ExprMode::LeftValue);
         let rhs = self.visit_expr(expr, ExprMode::RightValue);
-        let inst1 = self.prog.new_inst(op(rhs));
+        let inst1 = self
+            .prog
+            .new_inst(ssa::Inst::unary(ssa::Type::Int32, op, rhs));
         let inst2 = self.prog.new_inst(ssa::Inst::store(lhs, inst1));
         self.append_slice_to_block(&[rhs, inst1, inst2]);
         rhs
     }
 
-    fn build_binary_op<F: FnOnce(ssa::InstRef, ssa::InstRef) -> ssa::Inst>(
+    fn build_binary_op(
         &mut self,
-        op: F,
+        op: ssa::BinaryOp,
         lhs: parse::ExprRef,
         rhs: parse::ExprRef,
     ) -> ssa::InstRef {
         let lhs = self.visit_expr(lhs, ExprMode::RightValue);
         let rhs = self.visit_expr(rhs, ExprMode::RightValue);
-        let inst1 = self.prog.new_inst(op(lhs, rhs));
+        let inst1 = self
+            .prog
+            .new_inst(ssa::Inst::binary(ssa::Type::Int32, op, lhs, rhs));
         let inst2 = self.prog.new_inst(ssa::Inst::store(lhs, inst1));
         self.append_slice_to_block(&[rhs, inst1, inst2]);
         inst1
     }
 
-    fn build_binary_assign_op<F: FnOnce(ssa::InstRef, ssa::InstRef) -> ssa::Inst>(
+    fn build_binary_assign_op(
         &mut self,
-        op: F,
+        op: ssa::BinaryOp,
         lhs: parse::ExprRef,
         rhs: parse::ExprRef,
     ) -> ssa::InstRef {
         let vlhs = self.visit_expr(lhs, ExprMode::RightValue);
         let vrhs = self.visit_expr(rhs, ExprMode::RightValue);
-        let inst = self.prog.new_inst(op(vlhs, vrhs));
+        let inst = self
+            .prog
+            .new_inst(ssa::Inst::binary(ssa::Type::Int32, op, vlhs, vrhs));
         let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
         let store = self.prog.new_inst(ssa::Inst::store(ptr, inst));
         self.append_slice_to_block(&[vlhs, vrhs, inst, store]);

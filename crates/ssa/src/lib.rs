@@ -1,22 +1,19 @@
+pub mod verify;
+
 pub mod effects;
 
 pub mod insertion;
 
-pub mod verify;
-
 pub mod amd64;
-
-pub use source_file;
 
 use effects::{AbstractHeap, FastEffects};
 
 use source_file::SourceSpan;
-use tacky::string_interner::{DefaultStringInterner, DefaultSymbol};
+use tacky::{Interner, Symbol};
 
 use std::{
     collections::{HashMap, HashSet},
     fmt,
-    marker::PhantomData,
     num::NonZeroU32,
 };
 
@@ -37,7 +34,8 @@ pub enum Type {
 // Inst
 // ---------------------------------------------------------------------------
 
-pub type InstRef = EntityRef<Inst>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InstIdx(pub(crate) u32);
@@ -59,6 +57,10 @@ impl Inst {
         }
     }
 
+    pub fn nop() -> Self {
+        Self::new(Type::Void, InstKind::Nop)
+    }
+
     pub fn phi(ty: Type) -> Self {
         Self::new(ty, InstKind::Phi)
     }
@@ -71,20 +73,20 @@ impl Inst {
         Self::new(Type::IntPtr, InstKind::Alloca)
     }
 
-    pub fn ret(val: InstRef) -> Self {
-        Self::new(Type::Void, InstKind::Ret(val))
-    }
-
-    pub fn load(ptr: InstRef) -> Self {
-        Self::new(Type::Int32, InstKind::Load(ptr))
-    }
-
     pub fn const_i32(val: i64) -> Self {
         Self::new(Type::Int32, InstKind::Const(val))
     }
 
     pub fn const_i64(val: i64) -> Self {
         Self::new(Type::Int64, InstKind::Const(val))
+    }
+
+    pub fn ret(val: InstRef) -> Self {
+        Self::new(Type::Void, InstKind::Ret(val))
+    }
+
+    pub fn load(ptr: InstRef) -> Self {
+        Self::new(Type::Int32, InstKind::Load(ptr))
     }
 
     pub fn store(ptr: InstRef, val: InstRef) -> Self {
@@ -95,230 +97,12 @@ impl Inst {
         Self::new(Type::Void, InstKind::Upsilon { phi, val })
     }
 
-    pub fn not(val: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Unary {
-                val,
-                op: UnaryOp::Not,
-            },
-        )
+    pub fn unary(ty: Type, op: UnaryOp, val: InstRef) -> Self {
+        Self::new(ty, InstKind::Unary { op, val })
     }
 
-    pub fn neg(val: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Unary {
-                val,
-                op: UnaryOp::Neg,
-            },
-        )
-    }
-
-    pub fn inc(val: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Unary {
-                val,
-                op: UnaryOp::Inc,
-            },
-        )
-    }
-
-    pub fn dec(val: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Unary {
-                val,
-                op: UnaryOp::Dec,
-            },
-        )
-    }
-
-    pub fn bnot(val: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Unary {
-                val,
-                op: UnaryOp::BitNot,
-            },
-        )
-    }
-
-    pub fn eq(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Equal,
-            },
-        )
-    }
-
-    pub fn neq(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::NotEqual,
-            },
-        )
-    }
-
-    pub fn lt(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::LessThan,
-            },
-        )
-    }
-
-    pub fn leq(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::LessEqual,
-            },
-        )
-    }
-
-    pub fn gt(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::GreaterThan,
-            },
-        )
-    }
-
-    pub fn geq(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::GreaterEqual,
-            },
-        )
-    }
-
-    pub fn add(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Add,
-            },
-        )
-    }
-
-    pub fn sub(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Sub,
-            },
-        )
-    }
-
-    pub fn mul(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Mul,
-            },
-        )
-    }
-
-    pub fn div(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Div,
-            },
-        )
-    }
-
-    pub fn rem(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::Rem,
-            },
-        )
-    }
-
-    pub fn bor(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::BitOr,
-            },
-        )
-    }
-
-    pub fn band(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::BitAnd,
-            },
-        )
-    }
-
-    pub fn bxor(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::BitXor,
-            },
-        )
-    }
-
-    pub fn bshl(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::BitShl,
-            },
-        )
-    }
-
-    pub fn bshr(lhs: InstRef, rhs: InstRef) -> Self {
-        Self::new(
-            Type::Int32,
-            InstKind::Binary {
-                lhs,
-                rhs,
-                op: BinaryOp::BitShr,
-            },
-        )
+    pub fn binary(ty: Type, op: BinaryOp, lhs: InstRef, rhs: InstRef) -> Self {
+        Self::new(ty, InstKind::Binary { op, lhs, rhs })
     }
 
     pub fn is_const(&self, val: i64) -> bool {
@@ -386,10 +170,6 @@ impl Inst {
             }
             _ => {}
         }
-    }
-
-    pub fn into_identity(&mut self, val: InstRef) {
-        self.kind = InstKind::Identity(val)
     }
 }
 
@@ -488,7 +268,8 @@ pub enum BinaryOp {
 // Block
 // ---------------------------------------------------------------------------
 
-pub type BlockRef = EntityRef<Block>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlockRef(NonZeroU32);
 
 // #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 // pub struct BlockIdx(u32);
@@ -504,7 +285,8 @@ pub struct Block {
 // Func
 // ---------------------------------------------------------------------------
 
-pub type FuncRef = EntityRef<Func>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FuncRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone)]
 pub struct Func {
@@ -546,22 +328,22 @@ impl BaseHeaps {
 
 pub struct Program {
     heaps: BaseHeaps,
-    interner: DefaultStringInterner,
+    interner: Interner,
     insts: Vec<Inst>,
     insts_span: Vec<SourceSpan>,
     insts_free: HashSet<InstRef>,
     blocks: Vec<Block>,
+    blocks_name: Vec<Symbol>,
     blocks_span: Vec<SourceSpan>,
-    blocks_name: Vec<DefaultSymbol>,
     blocks_free: HashSet<BlockRef>,
     funcs: Vec<Func>,
+    funcs_name: Vec<Symbol>,
     funcs_span: Vec<SourceSpan>,
-    funcs_name: Vec<DefaultSymbol>,
     funcs_free: HashSet<FuncRef>,
 }
 
 impl Program {
-    pub fn new(mut interner: DefaultStringInterner) -> Self {
+    pub fn new(mut interner: Interner) -> Self {
         let question_mark_symbol = interner.get_or_intern_static("?");
         Self {
             interner,
@@ -580,7 +362,7 @@ impl Program {
         }
     }
 
-    pub fn take_interner(self) -> DefaultStringInterner {
+    pub fn take_interner(self) -> Interner {
         self.interner
     }
 
@@ -608,11 +390,11 @@ impl Program {
         &self.funcs_span[func.0.get() as usize]
     }
 
-    pub fn block_name(&self, block: BlockRef) -> &DefaultSymbol {
+    pub fn block_name(&self, block: BlockRef) -> &Symbol {
         &self.blocks_name[block.0.get() as usize]
     }
 
-    pub fn func_name(&self, func: FuncRef) -> &DefaultSymbol {
+    pub fn func_name(&self, func: FuncRef) -> &Symbol {
         &self.funcs_name[func.0.get() as usize]
     }
 
@@ -641,53 +423,53 @@ impl Program {
     }
 
     pub fn new_inst(&mut self, inst: Inst) -> InstRef {
-        let idx = InstRef::new(self.insts.len());
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
         self.insts.push(inst);
         self.insts_span.push(Default::default());
-        idx
+        r
     }
 
     pub fn new_block(&mut self, name: &str) -> BlockRef {
-        let idx = BlockRef::new(self.blocks.len());
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
         self.blocks_span.push(Default::default());
         self.blocks_name.push(self.interner.get_or_intern(name));
-        idx
+        r
     }
 
     pub fn new_func(&mut self, name: &str) -> FuncRef {
-        let idx = FuncRef::new(self.funcs.len());
+        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Default::default());
         self.funcs_span.push(Default::default());
         self.funcs_name.push(self.interner.get_or_intern(name));
-        idx
+        r
     }
 
-    pub fn new_block_interned(&mut self, name: DefaultSymbol) -> BlockRef {
-        let idx = BlockRef::new(self.blocks.len());
+    pub fn new_block_interned(&mut self, name: Symbol) -> BlockRef {
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
         self.blocks_span.push(Default::default());
         self.blocks_name.push(name);
-        idx
+        r
     }
 
-    pub fn new_func_interned(&mut self, name: DefaultSymbol) -> FuncRef {
-        let idx = FuncRef::new(self.funcs.len());
+    pub fn new_func_interned(&mut self, name: Symbol) -> FuncRef {
+        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Default::default());
         self.funcs_span.push(Default::default());
         self.funcs_name.push(name);
-        idx
+        r
     }
 
     pub fn new_inst_with_span(&mut self, inst: Inst, span: SourceSpan) -> InstRef {
-        let r = InstRef::new(self.insts.len());
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
         self.insts.push(inst);
         self.insts_span.push(span);
         r
     }
 
     pub fn new_block_with_span(&mut self, name: &str, span: SourceSpan) -> BlockRef {
-        let r = BlockRef::new(self.blocks.len());
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
         self.blocks_span.push(span);
         self.blocks_name.push(self.interner.get_or_intern(name));
@@ -695,31 +477,23 @@ impl Program {
     }
 
     pub fn new_func_with_span(&mut self, name: &str, span: SourceSpan) -> FuncRef {
-        let r = FuncRef::new(self.funcs.len());
+        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Default::default());
         self.funcs_span.push(span);
         self.funcs_name.push(self.interner.get_or_intern(name));
         r
     }
 
-    pub fn new_block_with_span_interned(
-        &mut self,
-        name: DefaultSymbol,
-        span: SourceSpan,
-    ) -> BlockRef {
-        let r = BlockRef::new(self.blocks.len());
+    pub fn new_block_with_span_interned(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
         self.blocks_span.push(span);
         self.blocks_name.push(name);
         r
     }
 
-    pub fn new_func_with_span_interned(
-        &mut self,
-        name: DefaultSymbol,
-        span: SourceSpan,
-    ) -> FuncRef {
-        let r = FuncRef::new(self.funcs.len());
+    pub fn new_func_with_span_interned(&mut self, name: Symbol, span: SourceSpan) -> FuncRef {
+        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Default::default());
         self.funcs_span.push(span);
         self.funcs_name.push(name);
@@ -728,17 +502,17 @@ impl Program {
 
     pub fn insts_iter(&self) -> impl Iterator<Item = InstRef> {
         // TODO: Skip deleted insts
-        unsafe { (1..self.insts.len()).map(|i| InstRef::new_unchecked(i)) }
+        unsafe { (1..self.insts.len()).map(|i| InstRef(NonZeroU32::new_unchecked(i as u32))) }
     }
 
     pub fn blocks_iter(&self) -> impl Iterator<Item = BlockRef> {
         // TODO: Skip deleted blocks
-        unsafe { (1..self.blocks.len()).map(|i| BlockRef::new_unchecked(i)) }
+        unsafe { (1..self.blocks.len()).map(|i| BlockRef(NonZeroU32::new_unchecked(i as u32))) }
     }
 
     pub fn funcs_iter(&self) -> impl Iterator<Item = FuncRef> {
         // TODO: Skip deleted funcs
-        unsafe { (1..self.funcs.len()).map(|i| FuncRef::new_unchecked(i)) }
+        unsafe { (1..self.funcs.len()).map(|i| FuncRef(NonZeroU32::new_unchecked(i as u32))) }
     }
 
     pub fn insts_iter2(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
@@ -761,7 +535,7 @@ impl Program {
         for (idx, inst) in self.insts.iter().enumerate().skip(1) {
             if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
                 if *p == phi {
-                    args.push(InstRef::new(idx))
+                    args.push(InstRef(NonZeroU32::new(idx as u32).unwrap()));
                 }
             }
         }
@@ -772,7 +546,7 @@ impl Program {
             for succ in &block.succs {
                 pred.entry(*succ)
                     .or_insert(Vec::new())
-                    .push(BlockRef::new(idx));
+                    .push(BlockRef(NonZeroU32::new(idx as u32).unwrap()));
             }
         }
     }
@@ -859,45 +633,5 @@ impl fmt::Display for Program {
             }
         }
         Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// EntityRef<T>
-// ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub struct EntityRef<T>(NonZeroU32, PhantomData<T>);
-
-impl<T> EntityRef<T> {
-    pub fn new(idx: usize) -> Self {
-        Self(
-            NonZeroU32::new(idx as u32).expect("expected a positive index"),
-            PhantomData,
-        )
-    }
-
-    unsafe fn new_unchecked(idx: usize) -> Self {
-        Self(NonZeroU32::new_unchecked(idx as u32), PhantomData)
-    }
-}
-
-impl<T> Copy for EntityRef<T> {}
-impl<T> Clone for EntityRef<T> {
-    fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
-    }
-}
-
-impl<T> Eq for EntityRef<T> {}
-impl<T> PartialEq for EntityRef<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<T> std::hash::Hash for EntityRef<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
     }
 }

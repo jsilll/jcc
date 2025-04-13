@@ -1,6 +1,6 @@
 use tacky::{
     source_file::{diag::Diagnostic, SourceFile, SourceSpan},
-    string_interner::{DefaultStringInterner, DefaultSymbol},
+    Interner, Symbol,
 };
 
 use peeking_take_while::PeekableExt;
@@ -43,14 +43,14 @@ pub struct Token {
 
 pub struct Lexer<'a> {
     file: &'a SourceFile,
-    interner: &'a mut DefaultStringInterner,
+    interner: &'a mut Interner,
     result: LexerResult,
     nesting: Vec<TokenKind>,
     chars: Peekable<CharIndices<'a>>,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceFile, interner: &'a mut DefaultStringInterner) -> Self {
+    pub fn new(file: &'a SourceFile, interner: &'a mut Interner) -> Self {
         Self {
             file,
             interner,
@@ -423,7 +423,7 @@ pub enum TokenKind {
     /// A number.
     Number(i64),
     /// An identifier.
-    Identifier(DefaultSymbol),
+    Identifier(Symbol),
 }
 
 impl std::fmt::Display for TokenKind {

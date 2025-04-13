@@ -9,7 +9,7 @@ use ssa::verify::SSAVerifier;
 use tacky::{
     amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
-    string_interner::StringInterner,
+    Interner,
 };
 
 use anyhow::{Context, Result};
@@ -77,7 +77,7 @@ fn try_main() -> Result<()> {
     let file = db.files().last().context("Failed to store file in db")?;
 
     // Lex file
-    let mut interner = StringInterner::default();
+    let mut interner = Interner::new();
     let mut lexer_result = Lexer::new(&file, &mut interner).lex();
     if args.lex {
         lexer_result
@@ -96,7 +96,7 @@ fn try_main() -> Result<()> {
     }
 
     // Parse tokens
-    let parser_result = Parser::new(&file, lexer_result.tokens.iter(), &mut interner).parse();
+    let parser_result = Parser::new(&file, &mut interner, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));

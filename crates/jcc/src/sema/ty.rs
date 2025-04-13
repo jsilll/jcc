@@ -63,18 +63,15 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn analyze_decl(&mut self, decl: DeclRef) {
-        match self.ast.decl(decl) {
-            Decl::Var { init, .. } => {
-                if let Some(init) = init {
-                    self.analyze_expr(*init);
-                }
-            }
+        let Decl { init, .. } = self.ast.decl(decl);
+        if let Some(init) = init {
+            self.analyze_expr(*init);
         }
     }
 
     fn analyze_stmt(&mut self, stmt: StmtRef) {
         match self.ast.stmt(stmt) {
-            Stmt::Empty | Stmt::Goto(_) | Stmt::Break | Stmt::Continue => {}
+            Stmt::Empty | Stmt::Break | Stmt::Continue | Stmt::Goto(_) => {}
             Stmt::Expr(expr) => self.analyze_expr(*expr),
             Stmt::Return(expr) => self.analyze_expr(*expr),
             Stmt::Default(stmt) => self.analyze_stmt(*stmt),
@@ -181,8 +178,8 @@ impl<'ctx> TyperPass<'ctx> {
                 | BinaryOp::BitOrAssign
                 | BinaryOp::BitAndAssign
                 | BinaryOp::BitXorAssign
-                | BinaryOp::BitLshAssign
-                | BinaryOp::BitRshAssign => {
+                | BinaryOp::BitShlAssign
+                | BinaryOp::BitShrAssign => {
                     self.assert_is_lvalue(*lhs);
                     self.analyze_expr(*lhs);
                     self.analyze_expr(*rhs);

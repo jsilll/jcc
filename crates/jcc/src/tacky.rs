@@ -1,12 +1,8 @@
-use crate::{
-    parse::{self, Ast},
-    sema::SemaCtx,
-};
+use crate::{parse, sema};
 
 use tacky::{
-    source_file::SourceSpan,
-    string_interner::{DefaultStringInterner, DefaultSymbol},
-    BinaryOp, Block, BlockRef, FnDef, Inst, Program, UnaryOp, Value,
+    source_file::SourceSpan, BinaryOp, Block, BlockRef, FnDef, Inst, Interner, Program, Symbol,
+    UnaryOp, Value,
 };
 
 use std::collections::HashMap;
@@ -16,16 +12,16 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 
 pub struct TackyBuilder<'a> {
-    ctx: &'a SemaCtx,
-    interner: &'a mut DefaultStringInterner,
+    ctx: &'a sema::SemaCtx,
+    interner: &'a mut Interner,
 }
 
 impl<'a> TackyBuilder<'a> {
-    pub fn new(ctx: &'a SemaCtx, interner: &'a mut DefaultStringInterner) -> Self {
+    pub fn new(ctx: &'a sema::SemaCtx, interner: &'a mut Interner) -> Self {
         Self { ctx, interner }
     }
 
-    pub fn build(self, ast: &Ast) -> Program {
+    pub fn build(self, ast: &parse::Ast) -> Program {
         let (item_ref, item) = ast
             .items_iter2()
             .next()
@@ -40,21 +36,21 @@ impl<'a> TackyBuilder<'a> {
 // ---------------------------------------------------------------------------
 
 struct TackyFnDefBuilder<'a> {
-    ast: &'a Ast,
-    ctx: &'a SemaCtx,
-    interner: &'a mut DefaultStringInterner,
+    ast: &'a parse::Ast,
+    ctx: &'a sema::SemaCtx,
+    interner: &'a mut Interner,
     fn_def: FnDef,
     tmp_count: u32,
     block: BlockRef,
     variables: HashMap<parse::DeclRef, Value>,
+    labeled_blocks: HashMap<Symbol, BlockRef>,
     case_blocks: HashMap<parse::StmtRef, BlockRef>,
     break_blocks: HashMap<parse::StmtRef, BlockRef>,
-    labeled_blocks: HashMap<DefaultSymbol, BlockRef>,
     continue_blocks: HashMap<parse::StmtRef, BlockRef>,
 }
 
 impl<'a> TackyFnDefBuilder<'a> {
-    fn new(ast: &'a parse::Ast, ctx: &'a SemaCtx, interner: &'a mut DefaultStringInterner) -> Self {
+    fn new(ast: &'a parse::Ast, ctx: &'a sema::SemaCtx, interner: &'a mut Interner) -> Self {
         let mut fn_def = FnDef::default();
         let block = fn_def.push_block(Block::default());
         Self {
@@ -103,7 +99,7 @@ impl<'a> TackyFnDefBuilder<'a> {
         root.spans.push(span);
     }
 
-    fn get_or_make_block(&mut self, label: DefaultSymbol) -> BlockRef {
+    fn get_or_make_block(&mut self, label: Symbol) -> BlockRef {
         self.labeled_blocks
             .entry(label)
             .or_insert_with(|| self.fn_def.push_block(Block::with_label(label)))
@@ -134,14 +130,13 @@ impl<'a> TackyFnDefBuilder<'a> {
 
     fn build_from_decl(&mut self, decl: parse::DeclRef) {
         let span = *self.ast.decl_span(decl);
-        match self.ast.decl(decl) {
-            parse::Decl::Var { init, .. } => {
-                if let Some(init) = init {
-                    let dst = self.get_or_make_var(decl);
-                    let src = self.build_from_expr(*init);
-                    self.append_to_block(Inst::Copy { src, dst }, span);
-                }
-            }
+        if let parse::Decl {
+            init: Some(init), ..
+        } = self.ast.decl(decl)
+        {
+            let dst = self.get_or_make_var(decl);
+            let src = self.build_from_expr(*init);
+            self.append_to_block(Inst::Copy { src, dst }, span);
         }
     }
 
@@ -592,8 +587,8 @@ impl<'a> TackyFnDefBuilder<'a> {
                 parse::BinaryOp::BitOr => self.build_binary_op(BinaryOp::BitOr, *lhs, *rhs, span),
                 parse::BinaryOp::BitAnd => self.build_binary_op(BinaryOp::BitAnd, *lhs, *rhs, span),
                 parse::BinaryOp::BitXor => self.build_binary_op(BinaryOp::BitXor, *lhs, *rhs, span),
-                parse::BinaryOp::BitLsh => self.build_binary_op(BinaryOp::BitShl, *lhs, *rhs, span),
-                parse::BinaryOp::BitRsh => self.build_binary_op(BinaryOp::BitShr, *lhs, *rhs, span),
+                parse::BinaryOp::BitShl => self.build_binary_op(BinaryOp::BitShl, *lhs, *rhs, span),
+                parse::BinaryOp::BitShr => self.build_binary_op(BinaryOp::BitShr, *lhs, *rhs, span),
                 parse::BinaryOp::Assign => {
                     let lhs = self.build_from_expr(*lhs);
                     let rhs = self.build_from_expr(*rhs);
@@ -624,10 +619,10 @@ impl<'a> TackyFnDefBuilder<'a> {
                 parse::BinaryOp::BitXorAssign => {
                     self.build_binary_assign_op(BinaryOp::BitXor, *lhs, *rhs, span)
                 }
-                parse::BinaryOp::BitLshAssign => {
+                parse::BinaryOp::BitShlAssign => {
                     self.build_binary_assign_op(BinaryOp::BitShl, *lhs, *rhs, span)
                 }
-                parse::BinaryOp::BitRshAssign => {
+                parse::BinaryOp::BitShrAssign => {
                     self.build_binary_assign_op(BinaryOp::BitShr, *lhs, *rhs, span)
                 }
             },

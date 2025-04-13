@@ -5,7 +5,8 @@ pub mod fix;
 pub mod emit;
 
 use source_file::SourceSpan;
-use string_interner::DefaultSymbol;
+
+use crate::Symbol;
 
 // ---------------------------------------------------------------------------
 // AMD64 IR
@@ -56,11 +57,11 @@ impl std::fmt::Display for BlockRef {
 pub struct Block {
     pub instrs: Vec<Inst>,
     pub spans: Vec<SourceSpan>,
-    pub label: Option<DefaultSymbol>,
+    pub label: Option<Symbol>,
 }
 
 impl Block {
-    pub fn with_label(label: DefaultSymbol) -> Self {
+    pub fn with_label(label: Symbol) -> Self {
         Block {
             label: Some(label),
             ..Default::default()

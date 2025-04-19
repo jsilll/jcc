@@ -191,8 +191,12 @@ impl<'a> SSAFuncBuilder<'a> {
                 }
             },
             parse::Expr::Binary { op, lhs, rhs } => match op {
-                parse::BinaryOp::LogicalOr => self.build_short_circuit(true, *lhs, *rhs, span),
-                parse::BinaryOp::LogicalAnd => self.build_short_circuit(false, *lhs, *rhs, span),
+                parse::BinaryOp::LogicalOr => {
+                    self.build_short_circuit(LogicalOp::Or, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::LogicalAnd => {
+                    self.build_short_circuit(LogicalOp::And, *lhs, *rhs, span)
+                }
                 parse::BinaryOp::Equal => self.build_binary(ssa::BinaryOp::Equal, *lhs, *rhs, span),
                 parse::BinaryOp::NotEqual => {
                     self.build_binary(ssa::BinaryOp::NotEqual, *lhs, *rhs, span)
@@ -362,70 +366,88 @@ impl<'a> SSAFuncBuilder<'a> {
 
     fn build_short_circuit(
         &mut self,
-        skips_on: bool,
+        op: LogicalOp,
         lhs: parse::ExprRef,
         rhs: parse::ExprRef,
         span: SourceSpan,
     ) -> ssa::InstRef {
-        let rhs_block = self
-            .prog
-            .new_block_with_span(if skips_on { "or.rhs" } else { "and.rhs" }, span);
-        let cont_block = self
-            .prog
-            .new_block_with_span(if skips_on { "or.cont" } else { "and.cont" }, span);
+        let rhs_block = self.prog.new_block_with_span(
+            match op {
+                LogicalOp::Or => "or.rhs",
+                LogicalOp::And => "and.rhs",
+            },
+            span,
+        );
+        let cont_block = self.prog.new_block_with_span(
+            match op {
+                LogicalOp::Or => "or.cont",
+                LogicalOp::And => "and.cont",
+            },
+            span,
+        );
         self.prog
             .func_mut(self.func)
             .blocks
             .extend_from_slice(&[rhs_block, cont_block]);
+
         let phi = self
             .prog
             .new_inst_with_span(ssa::Inst::phi(ssa::Type::Int32), span);
 
         // === LHS Block ===
         let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
-        let true_val = self.prog.new_inst_with_span(
-            if skips_on {
-                ssa::Inst::const_i32(1)
-            } else {
-                ssa::Inst::const_i32(0)
+
+        let short_circuit_val = self.prog.new_inst_with_span(
+            match op {
+                LogicalOp::Or => ssa::Inst::const_i32(1),
+                LogicalOp::And => ssa::Inst::const_i32(0),
             },
             span,
         );
+
         let upsilon = self
             .prog
-            .new_inst_with_span(ssa::Inst::upsilon(phi, true_val), span);
+            .new_inst_with_span(ssa::Inst::upsilon(phi, short_circuit_val), span);
+
+        let (true_target, false_target) = match op {
+            LogicalOp::Or => (cont_block, rhs_block),
+            LogicalOp::And => (rhs_block, cont_block),
+        };
+
         let branch = self
             .prog
-            .new_inst_with_span(ssa::Inst::branch(lhs_val, cont_block, rhs_block), span);
-        self.append_slice_to_block(&[true_val, upsilon, branch]);
+            .new_inst_with_span(ssa::Inst::branch(lhs_val, true_target, false_target), span);
+
+        self.append_slice_to_block(&[short_circuit_val, upsilon, branch]);
 
         // === RHS Block ===
         self.block = rhs_block;
         let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
-        let false_val = self.prog.new_inst_with_span(
-            if skips_on {
-                ssa::Inst::const_i32(0)
-            } else {
-                ssa::Inst::const_i32(1)
-            },
+        
+        let zero_val = self.prog.new_inst_with_span(
+            ssa::Inst::const_i32(0),
             span,
         );
+        
         let is_nonzero = self.prog.new_inst_with_span(
             ssa::Inst::binary(
                 ssa::Type::Int32,
                 ssa::BinaryOp::NotEqual,
                 rhs_val,
-                false_val,
+                zero_val,
             ),
             span,
         );
+        
         let upsilon = self
             .prog
             .new_inst_with_span(ssa::Inst::upsilon(phi, is_nonzero), span);
+            
         let jmp_rhs = self
             .prog
             .new_inst_with_span(ssa::Inst::jump(cont_block), span);
-        self.append_slice_to_block(&[false_val, is_nonzero, upsilon, jmp_rhs]);
+            
+        self.append_slice_to_block(&[zero_val, is_nonzero, upsilon, jmp_rhs]);
 
         // === Merge Block ===
         self.block = cont_block;
@@ -442,4 +464,14 @@ impl<'a> SSAFuncBuilder<'a> {
 enum ExprMode {
     LeftValue,
     RightValue,
+}
+
+// ---------------------------------------------------------------------------
+// LogicalOp
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LogicalOp {
+    Or,
+    And,
 }

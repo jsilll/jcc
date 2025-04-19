@@ -54,8 +54,8 @@ impl<'a> AMD64FuncBuilder<'a> {
         let span = *self.ssa.func_span(self.func);
         self.append_to_block(amd64::Inst::Alloca(0), span);
         self.ssa.func(self.func).blocks.iter().for_each(|b| {
-            let block_ref = self.get_or_make_block(*b);
-            self.prog.0.get_block_mut(block_ref).label = Some(*self.ssa.block_name(*b));
+            self.block = self.get_or_make_block(*b);
+            self.prog.0.get_block_mut(self.block).label = Some(*self.ssa.block_name(*b));
             self.ssa.block(*b).insts.iter().for_each(|inst| {
                 self.visit_inst(*inst);
             });
@@ -93,11 +93,7 @@ impl<'a> AMD64FuncBuilder<'a> {
     fn get_or_make_block(&mut self, block: crate::BlockRef) -> amd64::BlockRef {
         self.blocks
             .entry(block)
-            .or_insert_with(|| {
-                let b = self.prog.0.push_block(amd64::Block::default());
-                self.block = b;
-                b
-            })
+            .or_insert_with(|| self.prog.0.push_block(amd64::Block::default()))
             .clone()
     }
 
@@ -283,7 +279,14 @@ impl<'a> AMD64FuncBuilder<'a> {
         dst: amd64::Operand,
         span: crate::SourceSpan,
     ) {
-        self.append_to_block(amd64::Inst::Cmp { lhs, rhs }, span);
+        self.append_to_block(amd64::Inst::Cmp { lhs: rhs, rhs: lhs }, span);
+        self.append_to_block(
+            amd64::Inst::Mov {
+                src: amd64::Operand::Imm(0),
+                dst,
+            },
+            span,
+        );
         self.append_to_block(amd64::Inst::SetCC { cond_code, dst }, span);
     }
 

@@ -637,6 +637,7 @@ impl fmt::Display for Program {
                 write!(f, "\n{}:", self.interner.resolve(name).unwrap_or("?"))?;
                 for i in &self.block(*block).insts {
                     let inst = self.inst(*i);
+                    // TODO: properly print the names of blocks instead of 'b<idx>'
                     write!(f, "\n  {:?} {} = {}", inst.ty, i, inst.kind)?;
                 }
                 if !self.block(*block).succs.is_empty() {

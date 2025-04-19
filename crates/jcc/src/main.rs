@@ -167,7 +167,7 @@ fn try_main() -> Result<()> {
             }
 
             // Generate AMD64
-            let amd64 = ssa::amd64::AMD64Builder::new(&ssa).build();
+            let amd64 = ssa::amd64::build(&ssa);
             (amd64, ssa.take_interner())
         }
         false => {

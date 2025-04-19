@@ -104,6 +104,10 @@ impl Inst {
         Self::new(Type::Int32, InstKind::Load(ptr))
     }
 
+    pub fn jump(block: BlockRef) -> Self {
+        Self::new(Type::Void, InstKind::Jump(block))
+    }
+
     pub fn store(ptr: InstRef, val: InstRef) -> Self {
         Self::new(Type::Void, InstKind::Store { ptr, val })
     }
@@ -114,6 +118,10 @@ impl Inst {
 
     pub fn unary(ty: Type, op: UnaryOp, val: InstRef) -> Self {
         Self::new(ty, InstKind::Unary { op, val })
+    }
+
+    pub fn branch(val: InstRef, then: BlockRef, other: BlockRef) -> Self {
+        Self::new(Type::Void, InstKind::Branch { val, then, other })
     }
 
     pub fn binary(ty: Type, op: BinaryOp, lhs: InstRef, rhs: InstRef) -> Self {
@@ -212,7 +220,7 @@ pub enum InstKind {
     /// A store instruction.
     Store { ptr: InstRef, val: InstRef },
     /// An upsilon instruction.
-    Upsilon { val: InstRef, phi: InstRef },
+    Upsilon { phi: InstRef, val: InstRef },
     /// A unary instruction.
     Unary { op: UnaryOp, val: InstRef },
     /// A binary instruction.
@@ -595,8 +603,8 @@ impl fmt::Display for InstKind {
             InstKind::Load(ptr) => write!(f, "Load({})", ptr),
             InstKind::Identity(i) => write!(f, "Identity({})", i),
             InstKind::Store { val, ptr } => write!(f, "Store {{ ptr: {}, val: {} }}", ptr, val),
-            InstKind::Upsilon { val, phi } => {
-                write!(f, "Upsilon {{ val: {}, phi: {} }}", val, phi)
+            InstKind::Upsilon { phi, val } => {
+                write!(f, "Upsilon {{ phi: {}, val: {} }}", phi, val)
             }
             InstKind::Unary { op, val } => {
                 write!(f, "{:?}({})", op, val)

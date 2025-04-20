@@ -142,7 +142,61 @@ impl<'a> SSAFuncBuilder<'a> {
             parse::Stmt::Case { .. } => todo!(),
             parse::Stmt::Switch { .. } => todo!(),
             parse::Stmt::Label { .. } => todo!(),
-            parse::Stmt::If { .. } => todo!(),
+            parse::Stmt::If {
+                cond,
+                then,
+                otherwise: None,
+            } => {
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let then_block = self.prog.new_block_with_span("if.then", span);
+                let cont_block = self.prog.new_block_with_span("if.cont", span);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[then_block, cont_block]);
+
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, then_block, cont_block), span);
+                self.append_to_block(branch);
+
+                // === Then Block ===
+                self.block = then_block;
+                self.visit_stmt(*then);
+
+                // === Merge Block ===
+                self.block = cont_block;
+            }
+            parse::Stmt::If {
+                cond,
+                then,
+                otherwise: Some(otherwise),
+            } => {
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let then_block = self.prog.new_block_with_span("if.then", span);
+                let else_block = self.prog.new_block_with_span("if.else", span);
+                let cont_block = self.prog.new_block_with_span("if.cont", span);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[then_block, else_block, cont_block]);
+
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, then_block, else_block), span);
+                self.append_to_block(branch);
+
+                // === Then Block ===
+                self.block = then_block;
+                self.visit_stmt(*then);
+
+                // === Else Block ===
+                self.block = else_block;
+                self.visit_stmt(*otherwise);
+
+                // === Merge Block ===
+                self.block = cont_block;
+            }
             parse::Stmt::While { .. } => todo!(),
             parse::Stmt::DoWhile { .. } => todo!(),
             parse::Stmt::For { .. } => todo!(),

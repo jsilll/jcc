@@ -1,6 +1,6 @@
 use crate::{parse, sema};
 
-use tacky::{source_file::SourceSpan, Interner};
+use tacky::{source_file::SourceSpan, Interner, Symbol};
 
 use std::collections::HashMap;
 
@@ -28,6 +28,7 @@ struct SSAFuncBuilder<'a> {
     block: ssa::BlockRef,
     item: parse::ItemRef,
     vars: HashMap<parse::DeclRef, ssa::InstRef>,
+    labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
 }
 
 impl<'a> SSAFuncBuilder<'a> {
@@ -49,6 +50,7 @@ impl<'a> SSAFuncBuilder<'a> {
             item,
             block,
             vars: HashMap::new(),
+            labeled_blocks: HashMap::new(),
         }
     }
 
@@ -105,6 +107,18 @@ impl<'a> SSAFuncBuilder<'a> {
             .expect("expected a variable declaration")
     }
 
+    #[inline]
+    fn get_or_make_block(&mut self, label: Symbol, span: SourceSpan) -> ssa::BlockRef {
+        self.labeled_blocks
+            .entry(label)
+            .or_insert_with(|| {
+                let block = self.prog.new_block_with_span_interned(label, span);
+                self.prog.func_mut(self.func).blocks.push(block);
+                block
+            })
+            .clone()
+    }
+
     fn visit_decl(&mut self, decl: parse::DeclRef) {
         let span = *self.ast.decl_span(decl);
         let ptr = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
@@ -137,11 +151,31 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.append_to_block(inst);
             }
             parse::Stmt::Default(_) => todo!(),
-            parse::Stmt::Goto(_) => todo!(),
-            parse::Stmt::Compound(_) => todo!(),
+            parse::Stmt::Goto(label) => {
+                let block = self.get_or_make_block(*label, span);
+                let inst = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
+                self.append_to_block(inst);
+            }
+            parse::Stmt::Compound(items) => {
+                self.ast
+                    .block_items(*items)
+                    .iter()
+                    .for_each(|item| match item {
+                        parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    });
+            }
             parse::Stmt::Case { .. } => todo!(),
             parse::Stmt::Switch { .. } => todo!(),
-            parse::Stmt::Label { .. } => todo!(),
+            parse::Stmt::Label { label, stmt } => {
+                let block = self.get_or_make_block(*label, span);
+                let inst = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
+                self.append_to_block(inst);
+
+                // === Labeled Block ===
+                self.block = block;
+                self.visit_stmt(*stmt);
+            }
             parse::Stmt::If {
                 cond,
                 then,
@@ -163,6 +197,10 @@ impl<'a> SSAFuncBuilder<'a> {
                 // === Then Block ===
                 self.block = then_block;
                 self.visit_stmt(*then);
+                let jmp_then = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cont_block), span);
+                self.append_to_block(jmp_then);
 
                 // === Merge Block ===
                 self.block = cont_block;
@@ -189,10 +227,18 @@ impl<'a> SSAFuncBuilder<'a> {
                 // === Then Block ===
                 self.block = then_block;
                 self.visit_stmt(*then);
+                let jmp_then = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cont_block), span);
+                self.append_to_block(jmp_then);
 
                 // === Else Block ===
                 self.block = else_block;
                 self.visit_stmt(*otherwise);
+                let jmp_else = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cont_block), span);
+                self.append_to_block(jmp_else);
 
                 // === Merge Block ===
                 self.block = cont_block;

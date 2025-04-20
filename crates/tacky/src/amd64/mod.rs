@@ -293,7 +293,9 @@ impl std::fmt::Display for Inst {
 impl std::fmt::Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if let Some(_) = &self.label {
-            write!(f, "<block label>:")?;
+            write!(f, "<block with label>:")?;
+        } else {
+            write!(f, "<block without label>:")?;
         }
         for instr in self.instrs.iter() {
             write!(f, "\n  {}", instr)?;
@@ -304,9 +306,13 @@ impl std::fmt::Display for Block {
 
 impl std::fmt::Display for FnDef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for block in &self.blocks {
+        if let Some(block) = self.blocks.first() {
             write!(f, "{}", block)?;
         }
+        self.blocks
+            .iter()
+            .skip(1)
+            .try_for_each(|block| write!(f, "\n{}", block))?;
         Ok(())
     }
 }

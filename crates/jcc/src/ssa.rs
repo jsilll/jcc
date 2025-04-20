@@ -263,7 +263,57 @@ impl<'a> SSAFuncBuilder<'a> {
                     self.build_binary_assign(ssa::BinaryOp::Shr, *lhs, *rhs, span)
                 }
             },
-            parse::Expr::Ternary { .. } => todo!("ternary expressions"),
+            parse::Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+            } => {
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+
+                let then_block = self.prog.new_block_with_span("tern.then", span);
+                let else_block = self.prog.new_block_with_span("tern.else", span);
+                let cont_block = self.prog.new_block_with_span("tern.cont", span);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[then_block, else_block, cont_block]);
+
+                let phi = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::phi(ssa::Type::Int32), span);
+
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, then_block, else_block), span);
+                self.append_to_block(branch);
+
+                // === Then Block ===
+                self.block = then_block;
+                let then_val = self.visit_expr(*then, ExprMode::RightValue);
+                let upsilon = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::upsilon(phi, then_val), span);
+                let jmp_then = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cont_block), span);
+                self.append_slice_to_block(&[upsilon, jmp_then]);
+
+                // === Else Block ===
+                self.block = else_block;
+                let else_val = self.visit_expr(*otherwise, ExprMode::RightValue);
+                let upsilon = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::upsilon(phi, else_val), span);
+                let jmp_else = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cont_block), span);
+                self.append_slice_to_block(&[upsilon, jmp_else]);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.append_to_block(phi);
+                phi
+            }
         }
     }
 
@@ -423,30 +473,22 @@ impl<'a> SSAFuncBuilder<'a> {
         // === RHS Block ===
         self.block = rhs_block;
         let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
-        
-        let zero_val = self.prog.new_inst_with_span(
-            ssa::Inst::const_i32(0),
-            span,
-        );
-        
+
+        let zero_val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
+
         let is_nonzero = self.prog.new_inst_with_span(
-            ssa::Inst::binary(
-                ssa::Type::Int32,
-                ssa::BinaryOp::NotEqual,
-                rhs_val,
-                zero_val,
-            ),
+            ssa::Inst::binary(ssa::Type::Int32, ssa::BinaryOp::NotEqual, rhs_val, zero_val),
             span,
         );
-        
+
         let upsilon = self
             .prog
             .new_inst_with_span(ssa::Inst::upsilon(phi, is_nonzero), span);
-            
+
         let jmp_rhs = self
             .prog
             .new_inst_with_span(ssa::Inst::jump(cont_block), span);
-            
+
         self.append_slice_to_block(&[zero_val, is_nonzero, upsilon, jmp_rhs]);
 
         // === Merge Block ===

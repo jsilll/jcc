@@ -21,7 +21,6 @@ pub fn build(ssa: &crate::Program) -> tacky::amd64::Program {
 struct AMD64FuncBuilder<'a> {
     ssa: &'a crate::Program,
     prog: &'a mut amd64::Program,
-    stack_size: u32,
     pseudo_count: u32,
     func: crate::FuncRef,
     block: amd64::BlockRef,
@@ -44,7 +43,6 @@ impl<'a> AMD64FuncBuilder<'a> {
             func,
             block,
             blocks,
-            stack_size: 0,
             pseudo_count: 0,
             operands: HashMap::new(),
         }
@@ -111,9 +109,8 @@ impl<'a> AMD64FuncBuilder<'a> {
             crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Arg => todo!("handle args"),
             crate::InstKind::Alloca => {
-                self.operands
-                    .insert(i, amd64::Operand::Stack(self.stack_size));
-                self.stack_size += inst.ty.size();
+                let dst = self.make_pseudo();
+                self.operands.insert(i, dst);
             }
             crate::InstKind::Const(c) => {
                 self.operands.insert(i, amd64::Operand::Imm(c));
@@ -279,7 +276,6 @@ impl<'a> AMD64FuncBuilder<'a> {
         dst: amd64::Operand,
         span: crate::SourceSpan,
     ) {
-        self.append_to_block(amd64::Inst::Cmp { lhs: rhs, rhs: lhs }, span);
         self.append_to_block(
             amd64::Inst::Mov {
                 src: amd64::Operand::Imm(0),
@@ -287,6 +283,7 @@ impl<'a> AMD64FuncBuilder<'a> {
             },
             span,
         );
+        self.append_to_block(amd64::Inst::Cmp { lhs: rhs, rhs: lhs }, span);
         self.append_to_block(amd64::Inst::SetCC { cond_code, dst }, span);
     }
 

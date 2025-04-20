@@ -186,13 +186,13 @@ fn try_main() -> Result<()> {
         }
     };
     if args.verbose {
-        println!("{:#?}", amd64);
+        println!("{}", amd64);
     }
 
     // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);
     if args.verbose {
-        println!("{:#?}", amd64);
+        println!("{}", amd64);
     }
     if args.codegen {
         return Ok(());

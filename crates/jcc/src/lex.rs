@@ -44,6 +44,7 @@ pub struct Token {
 pub struct Lexer<'a> {
     file: &'a SourceFile,
     interner: &'a mut Interner,
+    idx: u32,
     result: LexerResult,
     nesting: Vec<TokenKind>,
     chars: Peekable<CharIndices<'a>>,
@@ -53,6 +54,7 @@ impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile, interner: &'a mut Interner) -> Self {
         Self {
             file,
+            idx: 0,
             interner,
             result: LexerResult::default(),
             nesting: Vec::with_capacity(16),
@@ -61,60 +63,55 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn lex(mut self) -> LexerResult {
-        while let Some((begin, c)) = self.chars.next().map(|(begin, c)| (begin as u32, c)) {
+        while let Some((idx, c)) = self.chars.next().map(|(idx, c)| (idx as u32, c)) {
+            self.idx = idx;
             match c {
                 c if c.is_whitespace() => continue,
-                c if c.is_digit(10) => self.lex_number(begin),
-                c if c.is_ascii_alphabetic() || c == '_' => self.lex_keyword_or_identifier(begin),
-                ';' => self.lex_char(begin, TokenKind::Semi),
-                ':' => self.lex_char(begin, TokenKind::Colon),
-                '~' => self.lex_char(begin, TokenKind::Tilde),
-                '?' => self.lex_char(begin, TokenKind::Question),
-                '=' => self.lex_char_double(begin, '=', TokenKind::EqEq, TokenKind::Eq),
-                '!' => self.lex_char_double(begin, '=', TokenKind::BangEq, TokenKind::Bang),
-                '*' => self.lex_char_double(begin, '=', TokenKind::StarEq, TokenKind::Star),
-                '/' => self.lex_char_double(begin, '=', TokenKind::SlashEq, TokenKind::Slash),
-                '^' => self.lex_char_double(begin, '=', TokenKind::CaretEq, TokenKind::Caret),
-                '%' => self.lex_char_double(begin, '=', TokenKind::PercentEq, TokenKind::Percent),
-                '(' => self.handle_nesting_open(begin, TokenKind::LParen, TokenKind::RParen),
-                '{' => self.handle_nesting_open(begin, TokenKind::LBrace, TokenKind::RBrace),
-                '[' => self.handle_nesting_open(begin, TokenKind::LBrack, TokenKind::RBrack),
-                ')' => self.handle_nesting_close(begin, TokenKind::LParen, TokenKind::RParen),
-                '}' => self.handle_nesting_close(begin, TokenKind::LBrace, TokenKind::RBrace),
-                ']' => self.handle_nesting_close(begin, TokenKind::LBrack, TokenKind::RBrack),
-                '+' => self.lex_char_double2(
-                    begin,
-                    ('+', TokenKind::PlusPlus),
+                c if c.is_digit(10) => self.handle_number(),
+                c if c.is_ascii_alphabetic() || c == '_' => self.handle_word(),
+                ';' => self.push_token(TokenKind::Semi, 1),
+                ':' => self.push_token(TokenKind::Colon, 1),
+                '~' => self.push_token(TokenKind::Tilde, 1),
+                '?' => self.push_token(TokenKind::Question, 1),
+                '=' => self.try_match('=', TokenKind::EqEq, TokenKind::Eq),
+                '!' => self.try_match('=', TokenKind::BangEq, TokenKind::Bang),
+                '*' => self.try_match('=', TokenKind::StarEq, TokenKind::Star),
+                '/' => self.try_match('=', TokenKind::SlashEq, TokenKind::Slash),
+                '^' => self.try_match('=', TokenKind::CaretEq, TokenKind::Caret),
+                '%' => self.try_match('=', TokenKind::PercentEq, TokenKind::Percent),
+                '(' => self.handle_nesting_open(TokenKind::LParen, TokenKind::RParen),
+                '{' => self.handle_nesting_open(TokenKind::LBrace, TokenKind::RBrace),
+                '[' => self.handle_nesting_open(TokenKind::LBrack, TokenKind::RBrack),
+                ')' => self.handle_nesting_close(TokenKind::LParen, TokenKind::RParen),
+                '}' => self.handle_nesting_close(TokenKind::LBrace, TokenKind::RBrace),
+                ']' => self.handle_nesting_close(TokenKind::LBrack, TokenKind::RBrack),
+                '+' => self.try_match2(
                     ('=', TokenKind::PlusEq),
+                    ('+', TokenKind::PlusPlus),
                     TokenKind::Plus,
                 ),
-                '-' => self.lex_char_double2(
-                    begin,
-                    ('-', TokenKind::MinusMinus),
+                '-' => self.try_match2(
                     ('=', TokenKind::MinusEq),
+                    ('-', TokenKind::MinusMinus),
                     TokenKind::Minus,
                 ),
-                '&' => self.lex_char_double2(
-                    begin,
-                    ('&', TokenKind::AmpAmp),
+                '&' => self.try_match2(
                     ('=', TokenKind::AmpEq),
+                    ('&', TokenKind::AmpAmp),
                     TokenKind::Amp,
                 ),
-                '|' => self.lex_char_double2(
-                    begin,
-                    ('|', TokenKind::PipePipe),
+                '|' => self.try_match2(
                     ('=', TokenKind::PipeEq),
+                    ('|', TokenKind::PipePipe),
                     TokenKind::Pipe,
                 ),
-                '<' => self.lex_char_triple(
-                    begin,
+                '<' => self.try_match3(
                     ('=', TokenKind::LtEq),
                     ('<', TokenKind::LtLt),
                     ('=', TokenKind::LtLtEq),
                     TokenKind::Lt,
                 ),
-                '>' => self.lex_char_triple(
-                    begin,
+                '>' => self.try_match3(
                     ('=', TokenKind::GtEq),
                     ('>', TokenKind::GtGt),
                     ('=', TokenKind::GtGtEq),
@@ -122,44 +119,56 @@ impl<'a> Lexer<'a> {
                 ),
                 _ => self.result.diagnostics.push(LexerDiagnostic {
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
-                    span: self.file.span(begin..begin + 1).unwrap_or_default(),
+                    span: self.file.span(idx..idx + 1).unwrap_or_default(),
                 }),
             }
         }
         if !self.nesting.is_empty() {
             for i in 0..self.nesting.len() {
-                self.insert_unbalanced_token(self.nesting[i], None);
+                self.push_unbalanced_token(self.nesting[i], true);
             }
         }
         self.result
     }
 
-    fn lex_char(&mut self, begin: u32, kind: TokenKind) {
+    fn push_token(&mut self, kind: TokenKind, len: u32) {
         self.result.tokens.push(Token {
             kind,
-            span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            span: self.file.span(self.idx..self.idx + len).unwrap_or_default(),
         })
     }
 
-    fn lex_char_double(&mut self, begin: u32, ch: char, kind: TokenKind, fallback: TokenKind) {
+    fn push_unbalanced_token(&mut self, kind: TokenKind, end: bool) {
+        let span = if end {
+            self.file.end_span()
+        } else {
+            self.file.span(self.idx..self.idx + 1).unwrap_or_default()
+        };
+        self.result.tokens.push(Token { kind, span });
+        self.result.diagnostics.push(LexerDiagnostic {
+            kind: LexerDiagnosticKind::UnbalancedToken(kind),
+            span,
+        });
+    }
+
+    fn try_match(&mut self, ch: char, kind: TokenKind, fallback: TokenKind) {
         match self.chars.peek() {
             Some((_, ch2)) if *ch2 == ch => {
                 self.chars.next();
                 self.result.tokens.push(Token {
                     kind,
-                    span: self.file.span(begin..begin + 2).unwrap_or_default(),
+                    span: self.file.span(self.idx..self.idx + 2).unwrap_or_default(),
                 });
             }
             _ => self.result.tokens.push(Token {
                 kind: fallback,
-                span: self.file.span(begin..begin + 1).unwrap_or_default(),
+                span: self.file.span(self.idx..self.idx + 1).unwrap_or_default(),
             }),
         }
     }
 
-    fn lex_char_double2(
+    fn try_match2(
         &mut self,
-        begin: u32,
         kind1: (char, TokenKind),
         kind2: (char, TokenKind),
         fallback: TokenKind,
@@ -177,13 +186,12 @@ impl<'a> Lexer<'a> {
         };
         self.result.tokens.push(Token {
             kind: token,
-            span: self.file.span(begin..begin + len).unwrap_or_default(),
+            span: self.file.span(self.idx..self.idx + len).unwrap_or_default(),
         });
     }
 
-    fn lex_char_triple(
+    fn try_match3(
         &mut self,
-        begin: u32,
         kind1: (char, TokenKind),
         kind2: (char, TokenKind),
         kind3: (char, TokenKind),
@@ -192,91 +200,79 @@ impl<'a> Lexer<'a> {
         match self.chars.peek() {
             Some((_, c)) if *c == kind1.0 => {
                 self.chars.next();
-                self.lex_char(begin, kind1.1)
+                self.push_token(kind1.1, 1);
             }
             Some((_, c)) if *c == kind2.0 => {
                 self.chars.next();
-                self.lex_char_double(begin, kind3.0, kind3.1, kind2.1)
+                self.try_match(kind3.0, kind3.1, kind2.1)
             }
-            _ => self.lex_char(begin, fallback),
+            _ => self.push_token(fallback, 1),
         }
     }
 
-    fn lex_number(&mut self, begin: u32) {
-        let end = self
-            .chars
-            .peeking_take_while(|(_, c)| c.is_digit(10))
-            .last()
-            .map(|(end, _)| end as u32)
-            .unwrap_or_else(|| begin)
-            + 1;
-        let number = self.file.slice(begin..end).unwrap_or_default();
-        let number = number.parse().unwrap_or_default();
-        if let Some((_, c)) = self.chars.peek() {
-            if c.is_ascii_alphabetic() {
-                self.result.diagnostics.push(LexerDiagnostic {
-                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
-                    span: self.file.span(begin..end).unwrap_or_default(),
-                });
-            }
-        }
-        self.result.tokens.push(Token {
-            kind: TokenKind::Number(number),
-            span: self.file.span(begin..end).unwrap_or_default(),
-        });
-    }
-
-    fn lex_keyword_or_identifier(&mut self, begin: u32) {
-        let end = self
-            .chars
-            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
-            .last()
-            .map(|(end, _)| end as u32)
-            .unwrap_or_else(|| begin)
-            + 1;
-        let ident = self.file.slice(begin..end).unwrap_or_default();
-        let kind = KEYWORDS
-            .get(ident)
-            .copied()
-            .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
-        self.result.tokens.push(Token {
-            kind,
-            span: self.file.span(begin..end).unwrap_or_default(),
-        });
-    }
-
-    fn handle_nesting_open(&mut self, begin: u32, open: TokenKind, close: TokenKind) {
+    fn handle_nesting_open(&mut self, open: TokenKind, close: TokenKind) {
         self.nesting.push(close);
-        self.lex_char(begin, open);
+        self.push_token(open, 1);
     }
 
-    fn handle_nesting_close(&mut self, begin: u32, open: TokenKind, close: TokenKind) {
+    fn handle_nesting_close(&mut self, open: TokenKind, close: TokenKind) {
         let mut matched = false;
         while let Some(kind) = self.nesting.pop() {
             if kind == close {
                 matched = true;
                 break;
             }
-            self.insert_unbalanced_token(kind, Some(begin));
+            self.push_unbalanced_token(kind, false);
         }
         if !matched {
-            self.insert_unbalanced_token(open, Some(begin));
+            self.push_unbalanced_token(open, false);
         }
         self.result.tokens.push(Token {
             kind: close,
-            span: self.file.span(begin..begin + 1).unwrap_or_default(),
+            span: self.file.span(self.idx..self.idx + 1).unwrap_or_default(),
         });
     }
 
-    fn insert_unbalanced_token(&mut self, kind: TokenKind, begin: Option<u32>) {
-        let span = begin
-            .map(|b| self.file.span(b..b + 1))
-            .flatten()
-            .unwrap_or(self.file.end_span());
-        self.result.tokens.push(Token { kind, span });
-        self.result.diagnostics.push(LexerDiagnostic {
-            kind: LexerDiagnosticKind::UnbalancedToken(kind),
-            span,
+    fn handle_number(&mut self) {
+        let end = self
+            .chars
+            .peeking_take_while(|(_, c)| c.is_digit(10))
+            .last()
+            .map(|(end, _)| end as u32)
+            .unwrap_or_else(|| self.idx)
+            + 1;
+        let number = self.file.slice(self.idx..end).unwrap_or_default();
+        let number = number.parse().unwrap_or_default();
+        if let Some((_, c)) = self.chars.peek() {
+            if c.is_ascii_alphabetic() {
+                self.result.diagnostics.push(LexerDiagnostic {
+                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
+                    span: self.file.span(self.idx..end).unwrap_or_default(),
+                });
+            }
+        }
+        self.result.tokens.push(Token {
+            kind: TokenKind::Number(number),
+            span: self.file.span(self.idx..end).unwrap_or_default(),
+        });
+    }
+
+    fn handle_word(&mut self) {
+        let end = self
+            .chars
+            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
+            .last()
+            .map(|(end, _)| end as u32)
+            .unwrap_or_else(|| self.idx)
+            + 1;
+        let ident = self.file.slice(self.idx..end).unwrap_or_default();
+        let kind = KEYWORDS
+            .get(ident)
+            .copied()
+            .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
+        self.result.tokens.push(Token {
+            kind,
+            span: self.file.span(self.idx..end).unwrap_or_default(),
         });
     }
 }
@@ -306,7 +302,7 @@ static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
 // TokenKind
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     /// The `&` token.
     Amp,

@@ -29,6 +29,9 @@ struct SSAFuncBuilder<'a> {
     item: parse::ItemRef,
     vars: HashMap<parse::DeclRef, ssa::InstRef>,
     labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
+    case_blocks: HashMap<parse::StmtRef, ssa::BlockRef>,
+    break_blocks: HashMap<parse::StmtRef, ssa::BlockRef>,
+    continue_blocks: HashMap<parse::StmtRef, ssa::BlockRef>,
 }
 
 impl<'a> SSAFuncBuilder<'a> {
@@ -50,7 +53,10 @@ impl<'a> SSAFuncBuilder<'a> {
             item,
             block,
             vars: HashMap::new(),
+            case_blocks: HashMap::new(),
+            break_blocks: HashMap::new(),
             labeled_blocks: HashMap::new(),
+            continue_blocks: HashMap::new(),
         }
     }
 
@@ -108,7 +114,7 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     #[inline]
-    fn get_or_make_block(&mut self, label: Symbol, span: SourceSpan) -> ssa::BlockRef {
+    fn get_or_make_labeled_block(&mut self, label: Symbol, span: SourceSpan) -> ssa::BlockRef {
         self.labeled_blocks
             .entry(label)
             .or_insert_with(|| {
@@ -140,21 +146,24 @@ impl<'a> SSAFuncBuilder<'a> {
         let span = self.ast.stmt_span(stmt).clone();
         match self.ast.stmt(stmt) {
             parse::Stmt::Empty => {}
-            parse::Stmt::Break => todo!(),
-            parse::Stmt::Continue => todo!(),
             parse::Stmt::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
             }
-            parse::Stmt::Return(expr) => {
-                let val = self.visit_expr(*expr, ExprMode::RightValue);
-                let inst = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
-                self.append_to_block(inst);
+            parse::Stmt::Default(inner) => {
+                let block = self
+                    .case_blocks
+                    .remove(&stmt)
+                    .expect("expected a case block");
+                self.block = block;
+                self.visit_stmt(*inner);
             }
-            parse::Stmt::Default(_) => todo!(),
-            parse::Stmt::Goto(label) => {
-                let block = self.get_or_make_block(*label, span);
-                let inst = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
-                self.append_to_block(inst);
+            parse::Stmt::Case { stmt: inner, .. } => {
+                let block = self
+                    .case_blocks
+                    .remove(&stmt)
+                    .expect("expected a case block");
+                self.block = block;
+                self.visit_stmt(*inner);
             }
             parse::Stmt::Compound(items) => {
                 self.ast
@@ -165,16 +174,45 @@ impl<'a> SSAFuncBuilder<'a> {
                         parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
             }
-            parse::Stmt::Case { .. } => todo!(),
-            parse::Stmt::Switch { .. } => todo!(),
+            parse::Stmt::Return(expr) => {
+                let val = self.visit_expr(*expr, ExprMode::RightValue);
+                let inst = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
+                self.append_to_block(inst);
+            }
+            parse::Stmt::Goto(label) => {
+                let block = self.get_or_make_labeled_block(*label, span);
+                let inst = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
+                self.append_to_block(inst);
+            }
+            parse::Stmt::Break => {
+                let block = self
+                    .break_blocks
+                    .get(self.ctx.breaks.get(&stmt).expect("expected a break block"))
+                    .expect("expected a break block");
+                let jump = self.prog.new_inst_with_span(ssa::Inst::jump(*block), span);
+                self.append_to_block(jump);
+            }
             parse::Stmt::Label { label, stmt } => {
-                let block = self.get_or_make_block(*label, span);
+                let block = self.get_or_make_labeled_block(*label, span);
                 let inst = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
                 self.append_to_block(inst);
 
                 // === Labeled Block ===
                 self.block = block;
                 self.visit_stmt(*stmt);
+            }
+            parse::Stmt::Continue => {
+                let block = self
+                    .continue_blocks
+                    .get(
+                        self.ctx
+                            .continues
+                            .get(&stmt)
+                            .expect("expected a continue block"),
+                    )
+                    .expect("expected a continue block");
+                let jump = self.prog.new_inst_with_span(ssa::Inst::jump(*block), span);
+                self.append_to_block(jump);
             }
             parse::Stmt::If {
                 cond,
@@ -243,9 +281,319 @@ impl<'a> SSAFuncBuilder<'a> {
                 // === Merge Block ===
                 self.block = cont_block;
             }
-            parse::Stmt::While { .. } => todo!(),
-            parse::Stmt::DoWhile { .. } => todo!(),
-            parse::Stmt::For { .. } => todo!(),
+            parse::Stmt::While { cond, body } => {
+                let cond_block = self.prog.new_block_with_span("while.cond", span);
+                let body_block = self.prog.new_block_with_span("while.body", span);
+                let cont_block = self.prog.new_block_with_span("while.cont", span);
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, cond_block);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[cond_block, body_block, cont_block]);
+
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Cond Block ===
+                self.block = cond_block;
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, body_block, cont_block), span);
+                self.append_to_block(branch);
+
+                // === Body Block ===
+                self.block = body_block;
+                self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.break_blocks.remove(&stmt);
+                self.continue_blocks.remove(&stmt);
+            }
+            parse::Stmt::DoWhile { body, cond } => {
+                let body_block = self.prog.new_block_with_span("do.body", span);
+                let cond_block = self.prog.new_block_with_span("do.cond", span);
+                let cont_block = self.prog.new_block_with_span("do.cont", span);
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, cond_block);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[body_block, cond_block, cont_block]);
+
+                // === Body Block ===
+                self.block = body_block;
+                self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Cond Block ===
+                self.block = cond_block;
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, body_block, cont_block), span);
+                self.append_to_block(branch);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.break_blocks.remove(&stmt);
+                self.continue_blocks.remove(&stmt);
+            }
+            parse::Stmt::For {
+                init,
+                cond: None,
+                step: None,
+                body,
+            } => {
+                let body_block = self.prog.new_block_with_span("for.body", span);
+                let cont_block = self.prog.new_block_with_span("for.cont", span);
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, body_block);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[body_block, cont_block]);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => {
+                            self.visit_decl(*decl);
+                        }
+                        parse::ForInit::Expr(expr) => {
+                            self.visit_expr(*expr, ExprMode::RightValue);
+                        }
+                    }
+                }
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(body_block), span);
+                self.append_to_block(jump);
+
+                // === Body Block ===
+                self.block = body_block;
+                self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(body_block), span);
+                self.append_to_block(jump);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.break_blocks.remove(&stmt);
+                self.continue_blocks.remove(&stmt);
+            }
+            parse::Stmt::For {
+                init,
+                cond: Some(cond),
+                step: None,
+                body,
+            } => {
+                let cond_block = self.prog.new_block_with_span("for.cond", span);
+                let body_block = self.prog.new_block_with_span("for.body", span);
+                let cont_block = self.prog.new_block_with_span("for.cont", span);
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, cond_block);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[cond_block, body_block, cont_block]);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => {
+                            self.visit_decl(*decl);
+                        }
+                        parse::ForInit::Expr(expr) => {
+                            self.visit_expr(*expr, ExprMode::RightValue);
+                        }
+                    }
+                }
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Cond Block ===
+                self.block = cond_block;
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, body_block, cont_block), span);
+                self.append_to_block(branch);
+
+                // === Body Block ===
+                self.block = body_block;
+                self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.break_blocks.remove(&stmt);
+                self.continue_blocks.remove(&stmt);
+            }
+            parse::Stmt::For {
+                init,
+                cond: None,
+                step: Some(step),
+                body,
+            } => {
+                let step_block = self.prog.new_block_with_span("for.step", span);
+                let body_block = self.prog.new_block_with_span("for.body", span);
+                let cont_block = self.prog.new_block_with_span("for.cont", span);
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, step_block);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[step_block, body_block, cont_block]);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => {
+                            self.visit_decl(*decl);
+                        }
+                        parse::ForInit::Expr(expr) => {
+                            self.visit_expr(*expr, ExprMode::RightValue);
+                        }
+                    }
+                }
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(body_block), span);
+                self.append_to_block(jump);
+
+                // === Step Block ===
+                self.block = step_block;
+                self.visit_expr(*step, ExprMode::RightValue);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(body_block), span);
+                self.append_to_block(jump);
+
+                // === Body Block ===
+                self.block = body_block;
+                self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(step_block), span);
+                self.append_to_block(jump);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.break_blocks.remove(&stmt);
+                self.continue_blocks.remove(&stmt);
+            }
+            parse::Stmt::For {
+                init,
+                cond: Some(cond),
+                step: Some(step),
+                body,
+            } => {
+                let cond_block = self.prog.new_block_with_span("for.cond", span);
+                let step_block = self.prog.new_block_with_span("for.step", span);
+                let body_block = self.prog.new_block_with_span("for.body", span);
+                let cont_block = self.prog.new_block_with_span("for.cont", span);
+                self.break_blocks.insert(stmt, cont_block);
+                self.continue_blocks.insert(stmt, step_block);
+                self.prog
+                    .func_mut(self.func)
+                    .blocks
+                    .extend_from_slice(&[cond_block, step_block, body_block, cont_block]);
+
+                if let Some(init) = init {
+                    match init {
+                        parse::ForInit::Decl(decl) => {
+                            self.visit_decl(*decl);
+                        }
+                        parse::ForInit::Expr(expr) => {
+                            self.visit_expr(*expr, ExprMode::RightValue);
+                        }
+                    }
+                }
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Cond Block ===
+                self.block = cond_block;
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let branch = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::branch(cond_val, body_block, cont_block), span);
+                self.append_to_block(branch);
+
+                // === Step Block ===
+                self.block = step_block;
+                self.visit_expr(*step, ExprMode::RightValue);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cond_block), span);
+                self.append_to_block(jump);
+
+                // === Body Block ===
+                self.block = body_block;
+                self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(step_block), span);
+                self.append_to_block(jump);
+
+                // === Merge Block ===
+                self.block = cont_block;
+                self.break_blocks.remove(&stmt);
+                self.continue_blocks.remove(&stmt);
+            }
+            parse::Stmt::Switch { cond, body } => {
+                let mut cases = Vec::new();
+                let mut default_block = None;
+                if let Some(switch) = self.ctx.switches.get(&stmt) {
+                    cases.reserve(switch.cases.len());
+                    switch.cases.iter().for_each(|stmt| {
+                        if let parse::Stmt::Case { .. } = self.ast.stmt(*stmt) {
+                            // TODO: Grab the case value
+                            let case_block = self.prog.new_block_with_span("switch.case", span);
+                            self.prog.func_mut(self.func).blocks.push(case_block);
+                            self.case_blocks.insert(*stmt, case_block);
+                            cases.push((0, case_block));
+                        }
+                    });
+                    if let Some(stmt) = switch.default {
+                        let block = self.prog.new_block_with_span("switch.default", span);
+                        self.case_blocks.insert(stmt, block);
+                        default_block = Some(block);
+                    }
+                }
+
+                let cont_block = self.prog.new_block_with_span("switch.cont", span);
+                self.prog.func_mut(self.func).blocks.push(cont_block);
+
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let switch = self.prog.new_inst_with_span(
+                    ssa::Inst::switch(cond_val, default_block.unwrap_or(cont_block), cases),
+                    span,
+                );
+                self.append_slice_to_block(&[cond_val, switch]);
+
+                self.visit_stmt(*body);
+
+                // === Merge Block ===
+                self.block = cont_block;
+            }
         }
     }
 

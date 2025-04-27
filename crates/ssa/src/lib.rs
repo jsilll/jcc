@@ -120,12 +120,34 @@ impl Inst {
         Self::new(ty, InstKind::Unary { op, val })
     }
 
-    pub fn branch(val: InstRef, then: BlockRef, other: BlockRef) -> Self {
-        Self::new(Type::Void, InstKind::Branch { val, then, other })
-    }
-
     pub fn binary(ty: Type, op: BinaryOp, lhs: InstRef, rhs: InstRef) -> Self {
         Self::new(ty, InstKind::Binary { op, lhs, rhs })
+    }
+
+    pub fn select(ty: Type, cond: InstRef, then: InstRef, other: InstRef) -> Self {
+        Self::new(ty, InstKind::Select { cond, then, other })
+    }
+
+    pub fn branch(val: InstRef, then: BlockRef, other: BlockRef) -> Self {
+        Self::new(
+            Type::Void,
+            InstKind::Branch {
+                cond: val,
+                then,
+                other,
+            },
+        )
+    }
+
+    pub fn switch(cond: InstRef, default: BlockRef, cases: Vec<(i64, BlockRef)>) -> Self {
+        Self::new(
+            Type::Void,
+            InstKind::Switch {
+                cond,
+                cases,
+                default,
+            },
+        )
     }
 
     pub fn is_const(&self, val: i64) -> bool {
@@ -137,24 +159,37 @@ impl Inst {
 
     pub fn has_side_effects(&self) -> bool {
         match self.kind {
-            InstKind::Ret(_) | InstKind::Jump(_) | InstKind::Branch { .. } => true,
+            InstKind::Ret(_)
+            | InstKind::Jump(_)
+            | InstKind::Branch { .. }
+            | InstKind::Switch { .. } => true,
             _ => false,
         }
     }
 
     pub fn get_args(&self, args: &mut Vec<InstRef>) {
         match &self.kind {
-            InstKind::Upsilon { phi, val } => args.extend([*phi, *val]),
-            InstKind::Binary { lhs, rhs, .. } => args.extend([*lhs, *rhs]),
             InstKind::Ret(val)
+            | InstKind::Load(val)
             | InstKind::Identity(val)
             | InstKind::Unary { val, .. }
-            | InstKind::Branch { val, .. } => args.push(*val),
-            _ => {}
+            | InstKind::Select { cond: val, .. }
+            | InstKind::Branch { cond: val, .. }
+            | InstKind::Switch { cond: val, .. } => args.push(*val),
+            InstKind::Store { ptr, val } => args.extend([*ptr, *val]),
+            InstKind::Upsilon { phi, val } => args.extend([*phi, *val]),
+            InstKind::Binary { lhs, rhs, .. } => args.extend([*lhs, *rhs]),
+            InstKind::Nop
+            | InstKind::Phi
+            | InstKind::Arg
+            | InstKind::Alloca
+            | InstKind::Jump(_)
+            | InstKind::Const(_) => {}
         }
     }
 
     pub fn get_effects(&self, prog: &Program, effects: &mut FastEffects) {
+        // TODO: Complete
         match self.kind {
             InstKind::Phi => effects.reads.push(prog.heaps.ssa_state),
             InstKind::Upsilon { .. } => effects.writes.push(prog.heaps.ssa_state),
@@ -166,11 +201,12 @@ impl Inst {
     }
 
     pub fn replace_args(&mut self, map: &HashMap<InstRef, InstRef>) {
+        // TODO: Complete
         match &mut self.kind {
             InstKind::Ret(val)
             | InstKind::Identity(val)
             | InstKind::Unary { val, .. }
-            | InstKind::Branch { val, .. } => {
+            | InstKind::Branch { cond: val, .. } => {
                 if let Some(v) = map.get(val) {
                     *val = *v;
                 }
@@ -229,11 +265,23 @@ pub enum InstKind {
         lhs: InstRef,
         rhs: InstRef,
     },
+    /// A select instruction.
+    Select {
+        cond: InstRef,
+        then: InstRef,
+        other: InstRef,
+    },
     /// A branch instruction.
     Branch {
-        val: InstRef,
+        cond: InstRef,
         then: BlockRef,
         other: BlockRef,
+    },
+    /// A switch instruction.
+    Switch {
+        cond: InstRef,
+        default: BlockRef,
+        cases: Vec<(i64, BlockRef)>,
     },
 }
 
@@ -598,8 +646,13 @@ impl fmt::Display for FuncRef {
 impl fmt::Display for InstKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            InstKind::Nop => write!(f, "Nop"),
+            InstKind::Phi => write!(f, "Phi"),
+            InstKind::Arg => write!(f, "Arg"),
+            InstKind::Alloca => write!(f, "Alloca"),
             InstKind::Ret(i) => write!(f, "Ret({})", i),
             InstKind::Jump(b) => write!(f, "Jump({})", b),
+            InstKind::Const(i) => write!(f, "Const({})", i),
             InstKind::Load(ptr) => write!(f, "Load({})", ptr),
             InstKind::Identity(i) => write!(f, "Identity({})", i),
             InstKind::Store { val, ptr } => write!(f, "Store {{ ptr: {}, val: {} }}", ptr, val),
@@ -612,18 +665,31 @@ impl fmt::Display for InstKind {
             InstKind::Binary { op, lhs, rhs } => {
                 write!(f, "{:?}({}, {})", op, lhs, rhs)
             }
-            InstKind::Branch {
-                val: cond,
-                then,
-                other,
-            } => {
+            InstKind::Select { cond, then, other } => {
+                write!(
+                    f,
+                    "Select {{ cond: {}, then: {}, other: {} }}",
+                    cond, then, other
+                )
+            }
+            InstKind::Branch { cond, then, other } => {
                 write!(
                     f,
                     "Branch {{ cond: {}, then: {}, other: {} }}",
                     cond, then, other
                 )
             }
-            _ => write!(f, "{:?}", self),
+            InstKind::Switch {
+                cond,
+                cases,
+                default,
+            } => {
+                write!(
+                    f,
+                    "Switch {{ cond: {}, default: {}, cases: {:?} }}",
+                    cond, default, cases
+                )
+            }
         }
     }
 }

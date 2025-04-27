@@ -105,21 +105,22 @@ impl<'a> AMD64FuncBuilder<'a> {
     fn visit_inst(&mut self, i: crate::InstRef) {
         let inst = self.ssa.inst(i);
         let span = *self.ssa.inst_span(i);
-        match inst.kind {
-            crate::InstKind::Nop | crate::InstKind::Phi => {}
+        match &inst.kind {
             crate::InstKind::Arg => todo!("handle args"),
+            crate::InstKind::Select { .. } => todo!("handle select"),
+            crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Alloca => {
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
             }
-            crate::InstKind::Const(c) => {
-                self.operands.insert(i, amd64::Operand::Imm(c));
-            }
             crate::InstKind::Identity(val) => {
                 self.operands.insert(i, self.get_operand(&val));
             }
+            crate::InstKind::Const(c) => {
+                self.operands.insert(i, amd64::Operand::Imm(*c));
+            }
             crate::InstKind::Jump(block) => {
-                let block = self.get_or_make_block(block);
+                let block = self.get_or_make_block(*block);
                 self.append_to_block(amd64::Inst::Jmp(block), span);
             }
             crate::InstKind::Ret(val) => {
@@ -153,7 +154,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                 );
             }
             crate::InstKind::Upsilon { phi, val } => {
-                let dst = self.get_or_make_operand(phi);
+                let dst = self.get_or_make_operand(*phi);
                 self.append_to_block(
                     amd64::Inst::Mov {
                         dst,
@@ -161,6 +162,52 @@ impl<'a> AMD64FuncBuilder<'a> {
                     },
                     span,
                 );
+            }
+            crate::InstKind::Branch { cond, then, other } => {
+                let cond = self.get_operand(&cond);
+                let then = self.get_or_make_block(*then);
+                let other = self.get_or_make_block(*other);
+                self.append_to_block(
+                    amd64::Inst::Test {
+                        lhs: cond,
+                        rhs: cond,
+                    },
+                    span,
+                );
+                self.append_to_block(
+                    amd64::Inst::JmpCC {
+                        cond_code: amd64::CondCode::NotEqual,
+                        target: then,
+                    },
+                    span,
+                );
+                self.append_to_block(amd64::Inst::Jmp(other), span);
+            }
+            crate::InstKind::Switch {
+                cond,
+                default,
+                cases,
+            } => {
+                let cond = self.get_operand(&cond);
+                cases.iter().for_each(|(val, block)| {
+                    let block = self.get_or_make_block(*block);
+                    self.append_to_block(
+                        amd64::Inst::Cmp {
+                            lhs: cond,
+                            rhs: amd64::Operand::Imm(*val),
+                        },
+                        span,
+                    );
+                    self.append_to_block(
+                        amd64::Inst::JmpCC {
+                            cond_code: amd64::CondCode::Equal,
+                            target: block,
+                        },
+                        span,
+                    );
+                });
+                let default = self.get_or_make_block(*default);
+                self.append_to_block(amd64::Inst::Jmp(default), span);
             }
             crate::InstKind::Unary { op, val } => {
                 let dst = self.make_pseudo();
@@ -172,20 +219,6 @@ impl<'a> AMD64FuncBuilder<'a> {
                     crate::UnaryOp::Inc => self.build_unary(amd64::UnaryOp::Inc, src, dst, span),
                     crate::UnaryOp::Dec => self.build_unary(amd64::UnaryOp::Dec, src, dst, span),
                 }
-            }
-            crate::InstKind::Branch { val, then, other } => {
-                let val = self.get_operand(&val);
-                let then = self.get_or_make_block(then);
-                let other = self.get_or_make_block(other);
-                self.append_to_block(amd64::Inst::Test { lhs: val, rhs: val }, span);
-                self.append_to_block(
-                    amd64::Inst::JmpCC {
-                        cond_code: amd64::CondCode::NotEqual,
-                        target: then,
-                    },
-                    span,
-                );
-                self.append_to_block(amd64::Inst::Jmp(other), span);
             }
             crate::InstKind::Binary { op, lhs, rhs } => {
                 let dst = self.make_pseudo();

@@ -114,7 +114,21 @@ impl<'a> SSAVerifier<'a> {
                             .push(SSAVerifierDiagnostic::InvalidType(i));
                     }
                 }
+                InstKind::Select { .. } => {
+                    if inst.ty != Type::Int32 {
+                        self.result
+                            .diagnostics
+                            .push(SSAVerifierDiagnostic::InvalidType(i));
+                    }
+                }
                 InstKind::Branch { .. } => {
+                    if inst.ty != Type::Void {
+                        self.result
+                            .diagnostics
+                            .push(SSAVerifierDiagnostic::InvalidType(i));
+                    }
+                }
+                InstKind::Switch { .. } => {
                     if inst.ty != Type::Void {
                         self.result
                             .diagnostics

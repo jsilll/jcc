@@ -623,7 +623,7 @@ impl<'a> Parser<'a> {
                     *span,
                 ))
             }
-            TokenKind::Identifier(name) => match self.iter.clone().skip(1).next() {
+            TokenKind::Identifier => match self.iter.clone().skip(1).next() {
                 Some(Token {
                     kind: TokenKind::Colon,
                     ..
@@ -631,11 +631,8 @@ impl<'a> Parser<'a> {
                     self.iter.next();
                     self.iter.next();
                     let stmt = self.parse_stmt()?;
-                    Some(
-                        self.result
-                            .ast
-                            .new_stmt(Stmt::Label { label: *name, stmt }, *span),
-                    )
+                    let label = self.intern_span(span);
+                    Some(self.result.ast.new_stmt(Stmt::Label { label, stmt }, *span))
                 }
                 _ => {
                     let expr = self.parse_expr(0)?;
@@ -710,13 +707,16 @@ impl<'a> Parser<'a> {
     fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
         let Token { kind, span } = self.iter.peek()?;
         match kind {
-            TokenKind::Number(n) => {
+            TokenKind::Number => {
                 self.iter.next();
-                Some(self.result.ast.new_expr(Expr::Const(*n), *span))
+                let number = self.file.slice(*span).expect("expected span to be valid");
+                let number = number.parse().expect("expected number to be valid");
+                Some(self.result.ast.new_expr(Expr::Const(number), *span))
             }
-            TokenKind::Identifier(name) => {
+            TokenKind::Identifier => {
                 self.iter.next();
-                let expr = self.result.ast.new_expr(Expr::Var(*name), *span);
+                let name = self.intern_span(span);
+                let expr = self.result.ast.new_expr(Expr::Var(name), *span);
                 Some(self.parse_expr_postfix(expr))
             }
             TokenKind::LParen => {
@@ -791,12 +791,7 @@ impl<'a> Parser<'a> {
             });
             None
         })?;
-        let matches = match (token.kind, kind) {
-            (TokenKind::Number(_), TokenKind::Number(_))
-            | (TokenKind::Identifier(_), TokenKind::Identifier(_)) => true,
-            _ => token.kind == kind,
-        };
-        if matches {
+        if token.kind == kind {
             self.iter.next()
         } else {
             self.result.diagnostics.push(ParserDiagnostic {
@@ -815,19 +810,26 @@ impl<'a> Parser<'a> {
             });
             None
         })?;
-        if let TokenKind::Identifier(s) = token.kind {
-            let span = token.span;
-            self.iter.next();
-            Some((span, s))
-        } else {
-            self.result.diagnostics.push(ParserDiagnostic {
-                span: token.span,
-                kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier(
-                    self.interner.get_or_intern_static("?"),
-                )),
-            });
-            None
+        match token.kind {
+            TokenKind::Identifier => {
+                let span = token.span;
+                self.iter.next();
+                let symbol = self.intern_span(&span);
+                Some((span, symbol))
+            }
+            _ => {
+                self.result.diagnostics.push(ParserDiagnostic {
+                    span: token.span,
+                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier),
+                });
+                None
+            }
         }
+    }
+
+    fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
+        self.interner
+            .get_or_intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 }
 

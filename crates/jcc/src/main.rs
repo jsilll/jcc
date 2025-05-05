@@ -81,7 +81,7 @@ fn try_main() -> Result<()> {
 
     // Lex file
     let mut interner = Interner::new();
-    let mut lexer_result = Lexer::new(&file, &mut interner).lex();
+    let mut lexer_result = Lexer::new(&file).lex();
     if args.lex {
         lexer_result
             .diagnostics

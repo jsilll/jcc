@@ -1,7 +1,4 @@
-use tacky::{
-    source_file::{diag::Diagnostic, SourceFile, SourceSpan},
-    Interner, Symbol,
-};
+use tacky::source_file::{diag::Diagnostic, SourceFile, SourceSpan};
 
 use peeking_take_while::PeekableExt;
 
@@ -43,7 +40,6 @@ pub struct Token {
 
 pub struct Lexer<'a> {
     file: &'a SourceFile,
-    interner: &'a mut Interner,
     idx: u32,
     result: LexerResult,
     nesting: Vec<TokenKind>,
@@ -51,11 +47,10 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceFile, interner: &'a mut Interner) -> Self {
+    pub fn new(file: &'a SourceFile) -> Self {
         Self {
             file,
             idx: 0,
-            interner,
             result: LexerResult::default(),
             nesting: Vec::with_capacity(16),
             chars: file.data().char_indices().peekable(),
@@ -242,8 +237,6 @@ impl<'a> Lexer<'a> {
             .map(|(end, _)| end as u32)
             .unwrap_or_else(|| self.idx)
             + 1;
-        let number = self.file.slice(self.idx..end).unwrap_or_default();
-        let number = number.parse().unwrap_or_default();
         if let Some((_, c)) = self.chars.peek() {
             if c.is_ascii_alphabetic() {
                 self.result.diagnostics.push(LexerDiagnostic {
@@ -253,7 +246,7 @@ impl<'a> Lexer<'a> {
             }
         }
         self.result.tokens.push(Token {
-            kind: TokenKind::Number(number),
+            kind: TokenKind::Number,
             span: self.file.span(self.idx..end).unwrap_or_default(),
         });
     }
@@ -270,7 +263,8 @@ impl<'a> Lexer<'a> {
         let kind = KEYWORDS
             .get(ident)
             .copied()
-            .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
+            .unwrap_or(TokenKind::Identifier);
+        // TODO: move this (self.interner.get_or_intern(ident)));
         self.result.tokens.push(Token {
             kind,
             span: self.file.span(self.idx..end).unwrap_or_default(),
@@ -420,9 +414,9 @@ pub enum TokenKind {
     /// The `while` keyword.
     KwWhile,
     /// A number.
-    Number(i64),
+    Number,
     /// An identifier.
-    Identifier(Symbol),
+    Identifier,
 }
 
 impl std::fmt::Display for TokenKind {
@@ -485,8 +479,8 @@ impl std::fmt::Display for TokenKind {
             TokenKind::KwSwitch => write!(f, "'switch'"),
             TokenKind::KwVoid => write!(f, "'void'"),
             TokenKind::KwWhile => write!(f, "'while'"),
-            TokenKind::Number(_) => write!(f, "a number"),
-            TokenKind::Identifier(_) => write!(f, "an identifier"),
+            TokenKind::Number => write!(f, "a number"),
+            TokenKind::Identifier => write!(f, "an identifier"),
         }
     }
 }

@@ -548,6 +548,7 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_expr(&mut self, expr: parse::ExprRef) -> Value {
         let span = *self.ast.expr_span(expr);
         match self.ast.expr(expr) {
+            parse::Expr::Call { .. } => todo!("handle function calls"),
             parse::Expr::Const(c) => Value::Const(*c),
             parse::Expr::Grouped(expr) => self.build_from_expr(*expr),
             parse::Expr::Var(_) => self.get_or_make_some_var(self.ctx.vars.get(&expr).cloned()),

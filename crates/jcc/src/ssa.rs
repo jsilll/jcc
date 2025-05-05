@@ -621,6 +621,7 @@ impl<'a> SSAFuncBuilder<'a> {
     fn visit_expr(&mut self, expr: parse::ExprRef, mode: ExprMode) -> ssa::InstRef {
         let span = self.ast.expr_span(expr).clone();
         match self.ast.expr(expr) {
+            parse::Expr::Call { .. } => todo!("handle function calls"),
             parse::Expr::Grouped(expr) => self.visit_expr(*expr, mode),
             parse::Expr::Const(c) => {
                 let inst = self.prog.new_inst_with_span(ssa::Inst::const_i32(*c), span);

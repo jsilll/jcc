@@ -150,6 +150,7 @@ impl<'a> ResolverPass<'a> {
     fn visit_expr(&mut self, expr: ExprRef) {
         match self.ast.expr(expr) {
             Expr::Const(_) => {}
+            Expr::Call { .. } => todo!("handle function calls"),
             Expr::Grouped(expr) => self.visit_expr(*expr),
             Expr::Var(name) => match self.symbols.get(name) {
                 Some(decl_ref) => {

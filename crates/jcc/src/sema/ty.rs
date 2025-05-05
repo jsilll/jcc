@@ -159,6 +159,7 @@ impl<'ctx> TyperPass<'ctx> {
 
     fn analyze_expr(&mut self, expr: ExprRef) {
         match self.ast.expr(expr) {
+            Expr::Call { .. } => todo!("handle function calls"),
             Expr::Var { .. } | Expr::Const(_) => {}
             Expr::Grouped(expr) => self.analyze_expr(*expr),
             Expr::Unary { op, expr } => match op {
@@ -221,8 +222,11 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
     match ast.expr(expr) {
         Expr::Var { .. } => true,
         Expr::Grouped(expr) => is_lvalue(ast, *expr),
-        Expr::Const(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
-        Expr::Ternary { .. } => false,
+        Expr::Const(_)
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Ternary { .. }
+        | Expr::Call { .. } => false,
     }
 }
 
@@ -230,7 +234,11 @@ fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
     match ast.expr(expr) {
         Expr::Const(_) => true,
         Expr::Grouped(expr) => is_constant(ast, *expr),
-        Expr::Var { .. } | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => false,
+        Expr::Var { .. }
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Ternary { .. }
+        | Expr::Call { .. } => false,
     }
 }
 

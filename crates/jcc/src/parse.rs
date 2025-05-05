@@ -17,16 +17,18 @@ pub struct Ast {
     decls: Vec<Decl>,
     stmts: Vec<Stmt>,
     exprs: Vec<Expr>,
+    args: Vec<ExprRef>,
+    block_items: Vec<BlockItem>,
     items_span: Vec<SourceSpan>,
     decls_span: Vec<SourceSpan>,
     stmts_span: Vec<SourceSpan>,
     exprs_span: Vec<SourceSpan>,
-    block_items: Vec<BlockItem>,
 }
 
 impl Default for Ast {
     fn default() -> Self {
         Ast {
+            args: Default::default(),
             block_items: Default::default(),
             items: vec![Default::default()],
             decls: vec![Default::default()],
@@ -47,6 +49,7 @@ impl std::fmt::Debug for Ast {
             .field("decls", &&self.decls[1..])
             .field("stmts", &&self.stmts[1..])
             .field("exprs", &&self.exprs[1..])
+            .field("args", &self.args)
             .field("block_items", &self.block_items)
             .finish()
     }
@@ -122,6 +125,10 @@ impl Ast {
         &mut self.exprs[expr.0.get() as usize]
     }
 
+    pub fn args(&self, slice: ArgsSlice) -> &[ExprRef] {
+        &self.args[slice.begin as usize..slice.end as usize]
+    }
+
     #[inline]
     pub fn block_items(&self, slice: BlockItemSlice) -> &[BlockItem] {
         &self.block_items[slice.begin as usize..slice.end as usize]
@@ -157,6 +164,14 @@ impl Ast {
         self.exprs.push(expr);
         self.exprs_span.push(span);
         r
+    }
+
+    #[inline]
+    pub fn new_args(&mut self, args: impl IntoIterator<Item = ExprRef>) -> ArgsSlice {
+        let begin = self.args.len() as u32;
+        self.args.extend(args);
+        let end = self.args.len() as u32;
+        ArgsSlice { begin, end }
     }
 
     #[inline]
@@ -275,6 +290,8 @@ pub enum Expr {
         then: ExprRef,
         otherwise: ExprRef,
     },
+    /// A function call expression.
+    Call { name: Symbol, args: ArgsSlice },
 }
 
 impl Default for Expr {
@@ -387,6 +404,12 @@ pub enum BlockItem {
 pub struct BlockItemSlice {
     begin: u32,
     end: u32,
+}
+
+#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct ArgsSlice {
+    pub begin: u32,
+    pub end: u32,
 }
 
 // ---------------------------------------------------------------------------

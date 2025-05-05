@@ -70,6 +70,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_digit(10) => self.handle_number(),
                 c if c.is_ascii_alphabetic() || c == '_' => self.handle_word(),
                 ';' => self.push_token(TokenKind::Semi, 1),
+                ',' => self.push_token(TokenKind::Comma, 1),
                 ':' => self.push_token(TokenKind::Colon, 1),
                 '~' => self.push_token(TokenKind::Tilde, 1),
                 '?' => self.push_token(TokenKind::Question, 1),
@@ -310,6 +311,8 @@ pub enum TokenKind {
     AmpAmp,
     /// The `&=` token.
     AmpEq,
+    /// The `,` token.
+    Comma,
     /// The `:` token.
     Colon,
     /// The `!` token.
@@ -428,6 +431,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Amp => write!(f, "'&'"),
             TokenKind::AmpAmp => write!(f, "'&&'"),
             TokenKind::AmpEq => write!(f, "'&='"),
+            TokenKind::Comma => write!(f, "','"),
             TokenKind::Colon => write!(f, "':'"),
             TokenKind::Bang => write!(f, "'!'"),
             TokenKind::BangEq => write!(f, "'!='"),

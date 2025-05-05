@@ -157,23 +157,6 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.block = block;
                 self.visit_stmt(*inner);
             }
-            parse::Stmt::Case { stmt: inner, .. } => {
-                let block = self
-                    .case_blocks
-                    .remove(&stmt)
-                    .expect("expected a case block");
-                self.block = block;
-                self.visit_stmt(*inner);
-            }
-            parse::Stmt::Compound(items) => {
-                self.ast
-                    .block_items(*items)
-                    .iter()
-                    .for_each(|item| match item {
-                        parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                        parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    });
-            }
             parse::Stmt::Return(expr) => {
                 let val = self.visit_expr(*expr, ExprMode::RightValue);
                 let inst = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
@@ -200,6 +183,29 @@ impl<'a> SSAFuncBuilder<'a> {
                 // === Labeled Block ===
                 self.block = block;
                 self.visit_stmt(*stmt);
+            }
+            parse::Stmt::Compound(items) => {
+                self.ast
+                    .block_items(*items)
+                    .iter()
+                    .for_each(|item| match item {
+                        parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    });
+            }
+            parse::Stmt::Case { stmt: inner, .. } => {
+                let block = self
+                    .case_blocks
+                    .remove(&stmt)
+                    .expect("expected a case block");
+
+                // === Previous Block ===
+                let jump = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
+                self.append_to_block(jump);
+
+                // === Case Block ===
+                self.block = block;
+                self.visit_stmt(*inner);
             }
             parse::Stmt::Continue => {
                 let block = self
@@ -328,6 +334,12 @@ impl<'a> SSAFuncBuilder<'a> {
                     .func_mut(self.func)
                     .blocks
                     .extend_from_slice(&[body_block, cond_block, cont_block]);
+
+                // === Jump to Body Block ===
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(body_block), span);
+                self.append_to_block(jump);
 
                 // === Body Block ===
                 self.block = body_block;
@@ -564,16 +576,20 @@ impl<'a> SSAFuncBuilder<'a> {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
                     cases.reserve(switch.cases.len());
                     switch.cases.iter().for_each(|stmt| {
-                        if let parse::Stmt::Case { .. } = self.ast.stmt(*stmt) {
-                            // TODO: Grab the case value
+                        if let parse::Stmt::Case { expr, .. } = self.ast.stmt(*stmt) {
+                            let val = match self.ast.expr(*expr) {
+                                parse::Expr::Const(c) => *c,
+                                _ => panic!("expected a constant expression"),
+                            };
                             let case_block = self.prog.new_block_with_span("switch.case", span);
                             self.prog.func_mut(self.func).blocks.push(case_block);
                             self.case_blocks.insert(*stmt, case_block);
-                            cases.push((0, case_block));
+                            cases.push((val, case_block));
                         }
                     });
                     if let Some(stmt) = switch.default {
                         let block = self.prog.new_block_with_span("switch.default", span);
+                        self.prog.func_mut(self.func).blocks.push(block);
                         self.case_blocks.insert(stmt, block);
                         default_block = Some(block);
                     }
@@ -581,15 +597,20 @@ impl<'a> SSAFuncBuilder<'a> {
 
                 let cont_block = self.prog.new_block_with_span("switch.cont", span);
                 self.prog.func_mut(self.func).blocks.push(cont_block);
+                self.break_blocks.insert(stmt, cont_block);
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                 let switch = self.prog.new_inst_with_span(
                     ssa::Inst::switch(cond_val, default_block.unwrap_or(cont_block), cases),
                     span,
                 );
-                self.append_slice_to_block(&[cond_val, switch]);
+                self.append_to_block(switch);
 
                 self.visit_stmt(*body);
+                let jump = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::jump(cont_block), span);
+                self.append_to_block(jump);
 
                 // === Merge Block ===
                 self.block = cont_block;
@@ -671,15 +692,6 @@ impl<'a> SSAFuncBuilder<'a> {
                 parse::BinaryOp::BitXor => self.build_binary(ssa::BinaryOp::Xor, *lhs, *rhs, span),
                 parse::BinaryOp::BitShl => self.build_binary(ssa::BinaryOp::Shl, *lhs, *rhs, span),
                 parse::BinaryOp::BitShr => self.build_binary(ssa::BinaryOp::Shr, *lhs, *rhs, span),
-                parse::BinaryOp::Assign => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let store = self
-                        .prog
-                        .new_inst_with_span(ssa::Inst::store(lhs, rhs), span);
-                    self.append_to_block(store);
-                    lhs
-                }
                 parse::BinaryOp::AddAssign => {
                     self.build_binary_assign(ssa::BinaryOp::Add, *lhs, *rhs, span)
                 }
@@ -709,6 +721,18 @@ impl<'a> SSAFuncBuilder<'a> {
                 }
                 parse::BinaryOp::BitShrAssign => {
                     self.build_binary_assign(ssa::BinaryOp::Shr, *lhs, *rhs, span)
+                }
+                parse::BinaryOp::Assign => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    let store = self
+                        .prog
+                        .new_inst_with_span(ssa::Inst::store(lhs, rhs), span);
+                    self.append_to_block(store);
+                    match mode {
+                        ExprMode::LeftValue => lhs,
+                        ExprMode::RightValue => rhs,
+                    }
                 }
             },
             parse::Expr::Ternary {

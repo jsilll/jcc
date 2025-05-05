@@ -40,6 +40,9 @@ struct Args {
     /// Run until the codegen and stop
     #[clap(long)]
     pub codegen: bool,
+    /// Do not link the source files
+    #[clap(long, short = 'c')]
+    pub no_link: bool,
     /// Emit an assembly file but not an executable
     #[clap(long, short = 'S')]
     pub assembly: bool,
@@ -207,11 +210,16 @@ fn try_main() -> Result<()> {
     }
 
     // Run the assembler and linker with `gcc`
-    let output = Command::new("gcc")
-        .arg(&asm_path)
+    let mut extension = "";
+    let mut cmd = Command::new("gcc");
+    if args.no_link {
+        cmd.arg("-c");
+        extension = "o";
+    }
+    cmd.arg(&asm_path)
         .arg("-o")
-        .arg(&args.path.with_extension(""))
-        .output()?;
+        .arg(&args.path.with_extension(extension));
+    let output = cmd.output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
         return Err(anyhow::anyhow!("exiting due to assembler errors"));

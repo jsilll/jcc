@@ -65,15 +65,19 @@ impl<'a> ResolverPass<'a> {
     }
 
     fn visit_decl(&mut self, decl: DeclRef) {
-        let Decl { name, init } = self.ast.decl(decl);
-        if let Some(_) = self.symbols.insert(*name, decl) {
-            self.result.diagnostics.push(ResolverDiagnostic {
-                span: *self.ast.decl_span(decl),
-                kind: ResolverDiagnosticKind::RedeclaredVariable,
-            });
-        }
-        if let Some(expr) = init {
-            self.visit_expr(*expr);
+        match self.ast.decl(decl) {
+            Decl::Var { name, init } => {
+                if let Some(_) = self.symbols.insert(*name, decl) {
+                    self.result.diagnostics.push(ResolverDiagnostic {
+                        span: *self.ast.decl_span(decl),
+                        kind: ResolverDiagnosticKind::RedeclaredVariable,
+                    });
+                }
+                if let Some(expr) = init {
+                    self.visit_expr(*expr);
+                }
+            }
+            Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 

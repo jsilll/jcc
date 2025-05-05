@@ -63,9 +63,13 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn analyze_decl(&mut self, decl: DeclRef) {
-        let Decl { init, .. } = self.ast.decl(decl);
-        if let Some(init) = init {
-            self.analyze_expr(*init);
+        match self.ast.decl(decl) {
+            Decl::Var { init, .. } => {
+                if let Some(init) = init {
+                    self.analyze_expr(*init);
+                }
+            }
+            Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 

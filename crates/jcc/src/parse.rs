@@ -18,6 +18,7 @@ pub struct Ast {
     stmts: Vec<Stmt>,
     exprs: Vec<Expr>,
     args: Vec<ExprRef>,
+    params: Vec<Symbol>,
     block_items: Vec<BlockItem>,
     items_span: Vec<SourceSpan>,
     decls_span: Vec<SourceSpan>,
@@ -29,6 +30,7 @@ impl Default for Ast {
     fn default() -> Self {
         Ast {
             args: Default::default(),
+            params: Default::default(),
             block_items: Default::default(),
             items: vec![Default::default()],
             decls: vec![Default::default()],
@@ -50,6 +52,7 @@ impl std::fmt::Debug for Ast {
             .field("stmts", &&self.stmts[1..])
             .field("exprs", &&self.exprs[1..])
             .field("args", &self.args)
+            .field("params", &self.params)
             .field("block_items", &self.block_items)
             .finish()
     }
@@ -125,13 +128,19 @@ impl Ast {
         &mut self.exprs[expr.0.get() as usize]
     }
 
-    pub fn args(&self, slice: ArgsSlice) -> &[ExprRef] {
-        &self.args[slice.begin as usize..slice.end as usize]
+    #[inline]
+    pub fn args(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
+        &self.args[slice.0 as usize..slice.1 as usize]
     }
 
     #[inline]
-    pub fn block_items(&self, slice: BlockItemSlice) -> &[BlockItem] {
-        &self.block_items[slice.begin as usize..slice.end as usize]
+    pub fn params(&self, slice: Slice<Symbol>) -> &[Symbol] {
+        &self.params[slice.0 as usize..slice.1 as usize]
+    }
+
+    #[inline]
+    pub fn block_items(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
+        &self.block_items[slice.0 as usize..slice.1 as usize]
     }
 
     #[inline]
@@ -167,22 +176,30 @@ impl Ast {
     }
 
     #[inline]
-    pub fn new_args(&mut self, args: impl IntoIterator<Item = ExprRef>) -> ArgsSlice {
+    pub fn new_args(&mut self, args: impl IntoIterator<Item = ExprRef>) -> Slice<ExprRef> {
         let begin = self.args.len() as u32;
         self.args.extend(args);
         let end = self.args.len() as u32;
-        ArgsSlice { begin, end }
+        Slice::new(begin, end)
+    }
+
+    #[inline]
+    pub fn new_params(&mut self, params: impl IntoIterator<Item = Symbol>) -> Slice<Symbol> {
+        let begin = self.params.len() as u32;
+        self.params.extend(params);
+        let end = self.params.len() as u32;
+        Slice::new(begin, end)
     }
 
     #[inline]
     pub fn new_block_items(
         &mut self,
         items: impl IntoIterator<Item = BlockItem>,
-    ) -> BlockItemSlice {
+    ) -> Slice<BlockItem> {
         let begin = self.block_items.len() as u32;
         self.block_items.extend(items);
         let end = self.block_items.len() as u32;
-        BlockItemSlice { begin, end }
+        Slice::new(begin, end)
     }
 
     #[inline]
@@ -206,16 +223,31 @@ pub struct ItemRef(NonZeroU32);
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Item {
     pub name: Symbol,
-    pub body: BlockItemSlice,
+    pub body: Slice<BlockItem>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DeclRef(NonZeroU32);
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Decl {
-    pub name: Symbol,
-    pub init: Option<ExprRef>,
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum Decl {
+    /// A variable declaration.
+    Var { name: Symbol, init: Option<ExprRef> },
+    /// A function declaration.
+    Func {
+        name: Symbol,
+        params: Slice<Symbol>,
+        body: Option<Slice<BlockItem>>,
+    },
+}
+
+impl Default for Decl {
+    fn default() -> Self {
+        Self::Var {
+            name: Symbol::default(),
+            init: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -239,7 +271,7 @@ pub enum Stmt {
     /// A default statement.
     Default(StmtRef),
     /// A compound statement.
-    Compound(BlockItemSlice),
+    Compound(Slice<BlockItem>),
     /// A case statement.
     Case { expr: ExprRef, stmt: StmtRef },
     /// A label statement.
@@ -291,7 +323,7 @@ pub enum Expr {
         otherwise: ExprRef,
     },
     /// A function call expression.
-    Call { name: Symbol, args: ArgsSlice },
+    Call { name: Symbol, args: Slice<ExprRef> },
 }
 
 impl Default for Expr {
@@ -385,6 +417,22 @@ pub enum BinaryOp {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct Slice<T>(u32, u32, std::marker::PhantomData<T>);
+
+impl<T> Slice<T> {
+    #[inline]
+    pub fn new(begin: u32, end: u32) -> Self {
+        Slice(begin, end, std::marker::PhantomData)
+    }
+}
+
+impl<T> Default for Slice<T> {
+    fn default() -> Self {
+        Slice(0, 0, std::marker::PhantomData)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum ForInit {
     /// A declaration.
     Decl(DeclRef),
@@ -398,18 +446,6 @@ pub enum BlockItem {
     Decl(DeclRef),
     /// A statement.
     Stmt(StmtRef),
-}
-
-#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct BlockItemSlice {
-    begin: u32,
-    end: u32,
-}
-
-#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ArgsSlice {
-    pub begin: u32,
-    pub end: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -469,6 +505,11 @@ impl<'a> Parser<'a> {
         self.result
     }
 
+    fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
+        self.interner
+            .get_or_intern(self.file.slice(*span).expect("expected span to be valid"))
+    }
+
     fn parse_item(&mut self) -> Option<ItemRef> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
@@ -481,7 +522,7 @@ impl<'a> Parser<'a> {
         Some(self.result.ast.new_item(Item { name, body }, span))
     }
 
-    fn parse_body(&mut self) -> BlockItemSlice {
+    fn parse_body(&mut self) -> Slice<BlockItem> {
         let base = self.block_item_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
@@ -515,7 +556,7 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         self.eat(TokenKind::Semi)?;
-        Some(self.result.ast.new_decl(Decl { name, init }, span))
+        Some(self.result.ast.new_decl(Decl::Var { name, init }, span))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -849,44 +890,6 @@ impl<'a> Parser<'a> {
             }
         }
     }
-
-    fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
-        self.interner
-            .get_or_intern(self.file.slice(*span).expect("expected span to be valid"))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ParserDiagnosticKind
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ParserDiagnosticKind {
-    UnexpectedEof,
-    UnexpectedToken,
-    ExpectedToken(TokenKind),
-}
-
-impl From<ParserDiagnostic> for Diagnostic {
-    fn from(diagnostic: ParserDiagnostic) -> Self {
-        match diagnostic.kind {
-            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error(
-                diagnostic.span,
-                "unexpected end of file",
-                "expected more tokens",
-            ),
-            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                "expected a different token",
-            ),
-            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                format!("expected {token} instead"),
-            ),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,6 +1088,39 @@ impl From<TokenKind> for Option<Precedence> {
                 token: InfixToken::Binary(BinaryOp::Rem),
             }),
             _ => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ParserDiagnosticKind
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ParserDiagnosticKind {
+    UnexpectedEof,
+    UnexpectedToken,
+    ExpectedToken(TokenKind),
+}
+
+impl From<ParserDiagnostic> for Diagnostic {
+    fn from(diagnostic: ParserDiagnostic) -> Self {
+        match diagnostic.kind {
+            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error(
+                diagnostic.span,
+                "unexpected end of file",
+                "expected more tokens",
+            ),
+            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                "expected a different token",
+            ),
+            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                format!("expected {token} instead"),
+            ),
         }
     }
 }

@@ -127,18 +127,20 @@ impl<'a> SSAFuncBuilder<'a> {
 
     fn visit_decl(&mut self, decl: parse::DeclRef) {
         let span = *self.ast.decl_span(decl);
-        let ptr = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
-        self.append_to_block(ptr);
-        self.vars.insert(decl, ptr);
-        if let parse::Decl {
-            init: Some(expr), ..
-        } = self.ast.decl(decl)
-        {
-            let val = self.visit_expr(*expr, ExprMode::RightValue);
-            let inst = self
-                .prog
-                .new_inst_with_span(ssa::Inst::store(ptr, val), span);
-            self.append_to_block(inst);
+        match self.ast.decl(decl) {
+            parse::Decl::Var { init, .. } => {
+                let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
+                self.append_to_block(alloca);
+                self.vars.insert(decl, alloca);
+                if let Some(init) = init {
+                    let val = self.visit_expr(*init, ExprMode::RightValue);
+                    let store = self
+                        .prog
+                        .new_inst_with_span(ssa::Inst::store(alloca, val), span);
+                    self.append_to_block(store);
+                }
+            }
+            parse::Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 

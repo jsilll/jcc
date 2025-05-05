@@ -130,13 +130,15 @@ impl<'a> TackyFnDefBuilder<'a> {
 
     fn build_from_decl(&mut self, decl: parse::DeclRef) {
         let span = *self.ast.decl_span(decl);
-        if let parse::Decl {
-            init: Some(init), ..
-        } = self.ast.decl(decl)
-        {
-            let dst = self.get_or_make_var(decl);
-            let src = self.build_from_expr(*init);
-            self.append_to_block(Inst::Copy { src, dst }, span);
+        match self.ast.decl(decl) {
+            parse::Decl::Var { init, .. } => {
+                if let Some(init) = init {
+                    let dst = self.get_or_make_var(decl);
+                    let src = self.build_from_expr(*init);
+                    self.append_to_block(Inst::Copy { src, dst }, span);
+                }
+            }
+            parse::Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 

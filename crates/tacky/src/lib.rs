@@ -4,10 +4,37 @@ pub mod arm64;
 
 pub use source_file;
 
-pub use string_interner;
-
 use source_file::SourceSpan;
-use string_interner::DefaultSymbol;
+
+use string_interner::{backend::StringBackend, DefaultHashBuilder, StringInterner};
+
+/// -------------------------------------------------------------------------------
+/// Interner
+/// -------------------------------------------------------------------------------
+
+pub type Interner = StringInterner<StringBackend<Symbol>, DefaultHashBuilder>;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Symbol(std::num::NonZeroU32);
+
+impl Default for Symbol {
+    #[inline]
+    fn default() -> Self {
+        unsafe { Self(std::num::NonZeroU32::new_unchecked(1)) }
+    }
+}
+
+impl string_interner::Symbol for Symbol {
+    #[inline]
+    fn try_from_usize(index: usize) -> Option<Self> {
+        std::num::NonZeroU32::new((index as u32).wrapping_add(1)).map(Self)
+    }
+
+    #[inline]
+    fn to_usize(self) -> usize {
+        self.0.get() as usize - 1
+    }
+}
 
 // TODO:
 // Build a TACKY checker to enforce the following rules:
@@ -62,26 +89,26 @@ pub struct BlockRef(u32);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
-    pub instrs: Vec<Instr>,
+    pub instrs: Vec<Inst>,
+    pub label: Option<Symbol>,
     pub spans: Vec<SourceSpan>,
-    pub label: Option<DefaultSymbol>,
 }
 
 impl Block {
-    pub fn with_label(label: DefaultSymbol) -> Self {
+    pub fn with_label(label: Symbol) -> Self {
         Block {
             label: Some(label),
             ..Default::default()
         }
     }
 
-    pub fn with_instrs(mut self, instrs: &[Instr], span: SourceSpan) -> Self {
+    pub fn with_instrs(mut self, instrs: &[Inst], span: SourceSpan) -> Self {
         self.instrs.extend_from_slice(instrs);
         self.spans.resize(self.instrs.len(), span);
         self
     }
 
-    pub fn instrs_iter_both(&self) -> impl Iterator<Item = (&Instr, &SourceSpan)> {
+    pub fn instrs_iter_both(&self) -> impl Iterator<Item = (&Inst, &SourceSpan)> {
         self.instrs.iter().zip(self.spans.iter())
     }
 }
@@ -96,7 +123,7 @@ impl std::fmt::Debug for Block {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Instr {
+pub enum Inst {
     /// A return instruction.
     Return(Value),
     /// An unconditional jump instruction.
@@ -121,7 +148,7 @@ pub enum Instr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Value {
     /// A constant value.
-    Constant(u32),
+    Const(i64),
     /// A variable reference.
     Variable(u32),
 }

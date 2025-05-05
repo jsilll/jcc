@@ -1,13 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use crate::{
+    parse::{Ast, BlockItem, Stmt, StmtRef},
+    sema::SemaCtx,
+};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
-    string_interner::DefaultSymbol,
+    Symbol,
 };
 
-use crate::parse::{Ast, BlockItem, Stmt, StmtRef};
-
-use super::SemaCtx;
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // ControlResult
@@ -35,30 +36,30 @@ pub struct ControlDiagnostic {
 pub struct ControlPass<'ctx> {
     ctx: &'ctx mut SemaCtx,
     result: ControlResult,
-    stmts: Vec<TrackedStmt>,
-    defined_labels: HashSet<DefaultSymbol>,
-    unresolved_labels: HashMap<DefaultSymbol, Vec<SourceSpan>>,
+    tracked: Vec<TrackedStmt>,
+    defined_labels: HashSet<Symbol>,
+    unresolved_labels: HashMap<Symbol, Vec<SourceSpan>>,
 }
 
 impl<'ctx> ControlPass<'ctx> {
     pub fn new(ctx: &'ctx mut SemaCtx) -> Self {
         Self {
             ctx,
-            stmts: Vec::new(),
+            tracked: Vec::new(),
             result: ControlResult::default(),
             defined_labels: HashSet::default(),
             unresolved_labels: HashMap::default(),
         }
     }
 
-    pub fn analyze(mut self, ast: &mut Ast) -> ControlResult {
-        ast.items_iter_refs().for_each(|item| {
-            ast.get_block_items(ast.get_item(item).body)
-                .to_owned()
-                .into_iter()
-                .for_each(|block_item| match block_item {
-                    BlockItem::Decl(_) => {}
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+    pub fn analyze(mut self, ast: &Ast) -> ControlResult {
+        ast.items_iter().for_each(|item| {
+            ast.block_items(ast.item(item).body)
+                .iter()
+                .for_each(|block_item| {
+                    if let BlockItem::Stmt(stmt) = block_item {
+                        self.visit_stmt(ast, *stmt)
+                    }
                 });
         });
         self.unresolved_labels.values().for_each(|spans| {
@@ -72,39 +73,45 @@ impl<'ctx> ControlPass<'ctx> {
         self.result
     }
 
-    fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
-        match ast.get_stmt_mut(stmt) {
-            Stmt::Break(inner) => {
-                match self.stmts.last() {
-                    Some(TrackedStmt::Loop(loop_stmt)) => *inner = Some(*loop_stmt),
-                    Some(TrackedStmt::Switch(switch_stmt)) => *inner = Some(*switch_stmt),
-                    _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
-                        kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
-                    }),
+    fn visit_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
+        match ast.stmt(stmt) {
+            Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
+            Stmt::Break => match self.tracked.last() {
+                Some(TrackedStmt::Loop(loop_stmt)) => {
+                    self.ctx.breaks.insert(stmt, *loop_stmt);
                 }
-                return;
-            }
-            Stmt::Continue(inner) => {
-                match self.stmts.iter().rev().find_map(|stmt| match stmt {
+                Some(TrackedStmt::Switch(switch_stmt)) => {
+                    self.ctx.breaks.insert(stmt, *switch_stmt);
+                }
+                _ => self.result.diagnostics.push(ControlDiagnostic {
+                    span: *ast.stmt_span(stmt),
+                    kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
+                }),
+            },
+            Stmt::Continue => {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Loop(loop_stmt) => Some(*loop_stmt),
                     _ => None,
                 }) {
-                    Some(loop_stmt) => *inner = Some(loop_stmt),
+                    Some(loop_stmt) => {
+                        self.ctx.continues.insert(stmt, loop_stmt);
+                    }
                     None => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
-                return;
             }
-            _ => {}
-        }
-        match ast.get_stmt(stmt).clone() {
-            Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
-            Stmt::Break(_) | Stmt::Continue(_) => unreachable!(),
+            Stmt::Goto(label) => {
+                if !self.defined_labels.contains(&label) {
+                    self.unresolved_labels
+                        .entry(*label)
+                        .or_insert_with(Vec::new)
+                        .push(*ast.stmt_span(stmt));
+                }
+            }
             Stmt::Default(inner) => {
-                match self.stmts.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
                 }) {
@@ -113,20 +120,20 @@ impl<'ctx> ControlPass<'ctx> {
                         match switch.default {
                             None => switch.default = Some(stmt),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {
-                                span: *ast.get_stmt_span(stmt),
+                                span: *ast.stmt_span(stmt),
                                 kind: ControlDiagnosticKind::DuplicateDefault,
                             }),
                         }
                     }
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
-                self.analyze_stmt(ast, inner);
+                self.visit_stmt(ast, *inner);
             }
             Stmt::Case { stmt: inner, .. } => {
-                match self.stmts.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
                 }) {
@@ -138,66 +145,57 @@ impl<'ctx> ControlPass<'ctx> {
                         .cases
                         .push(stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
-                self.analyze_stmt(ast, inner);
-            }
-            Stmt::Goto(label) => {
-                if !self.defined_labels.contains(&label) {
-                    self.unresolved_labels
-                        .entry(label)
-                        .or_insert_with(Vec::new)
-                        .push(*ast.get_stmt_span(stmt));
-                }
+                self.visit_stmt(ast, *inner);
             }
             Stmt::Label { label, stmt: inner } => {
-                if !self.defined_labels.insert(label) {
+                if !self.defined_labels.insert(*label) {
                     self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.get_stmt_span(stmt),
+                        span: *ast.stmt_span(stmt),
                         kind: ControlDiagnosticKind::RedeclaredLabel,
                     });
                 }
                 self.unresolved_labels.remove(&label);
-                self.analyze_stmt(ast, inner);
+                self.visit_stmt(ast, *inner);
             }
             Stmt::Compound(stmt) => {
-                ast.get_block_items(stmt)
-                    .to_owned()
-                    .into_iter()
+                ast.block_items(*stmt)
+                    .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
                     });
             }
             Stmt::Switch { body, .. } => {
-                self.stmts.push(TrackedStmt::Switch(stmt));
-                self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.push(TrackedStmt::Switch(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
             }
             Stmt::If {
                 then, otherwise, ..
             } => {
-                self.analyze_stmt(ast, then);
+                self.visit_stmt(ast, *then);
                 if let Some(otherwise) = otherwise {
-                    self.analyze_stmt(ast, otherwise);
+                    self.visit_stmt(ast, *otherwise);
                 }
             }
             Stmt::While { body, .. } => {
-                self.stmts.push(TrackedStmt::Loop(stmt));
-                self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.push(TrackedStmt::Loop(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
             }
             Stmt::DoWhile { body, .. } => {
-                self.stmts.push(TrackedStmt::Loop(stmt));
-                self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.push(TrackedStmt::Loop(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
             }
             Stmt::For { body, .. } => {
-                self.stmts.push(TrackedStmt::Loop(stmt));
-                self.analyze_stmt(ast, body);
-                self.stmts.pop();
+                self.tracked.push(TrackedStmt::Loop(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
             }
         }
     }

@@ -5,14 +5,15 @@ use jcc::{
     tacky::TackyBuilder,
 };
 
-use anyhow::{Context, Result};
-use clap::Parser as ClapParser;
-
+use ssa::verify::SSAVerifier;
 use tacky::{
     amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
-    string_interner::StringInterner,
+    Interner,
 };
+
+use anyhow::{Context, Result};
+use clap::Parser as ClapParser;
 
 use std::{path::PathBuf, process::Command};
 
@@ -30,6 +31,9 @@ struct Args {
     /// Run until the semantic analyzer and stop
     #[clap(long)]
     pub validate: bool,
+    /// Run until the SSA generator and stop
+    #[clap(long)]
+    pub ssa: bool,
     /// Run until the tacky generator and stop
     #[clap(long)]
     pub tacky: bool,
@@ -64,7 +68,7 @@ fn try_main() -> Result<()> {
         .output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Err(anyhow::anyhow!("\nexiting due to preprocessor errors"));
+        return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
     }
 
     // Add file to db
@@ -73,7 +77,7 @@ fn try_main() -> Result<()> {
     let file = db.files().last().context("Failed to store file in db")?;
 
     // Lex file
-    let mut interner = StringInterner::default();
+    let mut interner = Interner::new();
     let mut lexer_result = Lexer::new(&file, &mut interner).lex();
     if args.lex {
         lexer_result
@@ -82,7 +86,7 @@ fn try_main() -> Result<()> {
     }
     if !lexer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to lexer errors"));
+        return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
@@ -92,10 +96,10 @@ fn try_main() -> Result<()> {
     }
 
     // Parse tokens
-    let parser_result = Parser::new(&file, lexer_result.tokens.iter()).parse();
+    let parser_result = Parser::new(&file, &mut interner, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to parser errors"));
+        return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.verbose {
         println!("{:#?}", parser_result.ast);
@@ -105,35 +109,35 @@ fn try_main() -> Result<()> {
     }
     if parser_result.ast.items().is_empty() {
         eprintln!("Error: no items found in the source file");
-        return Err(anyhow::anyhow!("\nexiting due to no items found"));
+        return Err(anyhow::anyhow!("exiting due to no items found"));
     }
 
-    let mut ast = parser_result.ast;
+    let ast = parser_result.ast;
 
     // Analyze the AST
     let mut ctx = SemaCtx::default();
-    let control_result = ControlPass::new(&mut ctx).analyze(&mut ast);
+    let control_result = ControlPass::new(&mut ctx).analyze(&ast);
     if !control_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
             &mut std::io::stderr(),
             &control_result.diagnostics,
         )?;
-        return Err(anyhow::anyhow!("\nexiting due to control errors"));
+        return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let resolver_result = ResolverPass::new().analyze(&mut ast);
+    let resolver_result = ResolverPass::new(&ast, &mut ctx).analyze();
     if !resolver_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
             &mut std::io::stderr(),
             &resolver_result.diagnostics,
         )?;
-        return Err(anyhow::anyhow!("\nexiting due to resolver errors"));
+        return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
-    let typer_result = TyperPass::new(&mut ctx).analyze(&ast);
+    let typer_result = TyperPass::new(&ast, &mut ctx).analyze();
     if !typer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
-        return Err(anyhow::anyhow!("\nexiting due to typer errors"));
+        return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.verbose {
         println!("{:#?}", ast);
@@ -142,25 +146,53 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Generate Tacky
-    let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
-    if args.verbose {
-        println!("{:#?}", tacky);
-    }
-    if args.tacky {
-        return Ok(());
-    }
+    let (mut amd64, interner) = match args.ssa {
+        true => {
+            // Generate SSA
+            let ssa = jcc::ssa::build(&ast, &mut ctx, interner);
+            if args.verbose {
+                println!("{}", ssa);
+            }
 
-    // Generate AMD64
-    let mut amd64 = AMD64Builder::new(&tacky).build();
+            let verifier_result = SSAVerifier::new(&ssa).verify();
+            if !verifier_result.diagnostics.is_empty() {
+                for diag in verifier_result.diagnostics {
+                    match diag {
+                        ssa::verify::SSAVerifierDiagnostic::InvalidType(i) => {
+                            eprintln!("error: invalid type for instruction {}", i);
+                        }
+                    }
+                }
+                return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+            }
+
+            // Generate AMD64
+            let amd64 = ssa::amd64::build(&ssa);
+            (amd64, ssa.take_interner())
+        }
+        false => {
+            // Generate Tacky
+            let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
+            if args.verbose {
+                println!("{:#?}", tacky);
+            }
+            if args.tacky {
+                return Ok(());
+            }
+
+            // Generate AMD64
+            let amd64 = AMD64Builder::new(&tacky).build();
+            (amd64, interner)
+        }
+    };
     if args.verbose {
-        println!("{:#?}", amd64);
+        println!("{}", amd64);
     }
 
     // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);
     if args.verbose {
-        println!("{:#?}", amd64);
+        println!("{}", amd64);
     }
     if args.codegen {
         return Ok(());
@@ -182,7 +214,7 @@ fn try_main() -> Result<()> {
         .output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Err(anyhow::anyhow!("\nexiting due to assembler errors"));
+        return Err(anyhow::anyhow!("exiting due to assembler errors"));
     }
 
     Ok(())

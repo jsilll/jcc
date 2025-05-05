@@ -172,6 +172,7 @@ dependencies = [
  "clap",
  "peeking_take_while",
  "phf",
+ "ssa",
  "tacky",
  "thiserror",
 ]
@@ -324,6 +325,10 @@ dependencies = [
 [[package]]
 name = "ssa"
 version = "0.1.0"
+dependencies = [
+ "source_file",
+ "tacky",
+]
 
 [[package]]
 name = "string-interner"

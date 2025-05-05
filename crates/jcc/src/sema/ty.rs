@@ -1,12 +1,13 @@
-use std::collections::HashSet;
+use crate::{
+    parse::{
+        Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
+    },
+    sema::SemaCtx,
+};
 
 use tacky::source_file::{diag::Diagnostic, SourceSpan};
 
-use crate::parse::{
-    Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
-};
-
-use super::SemaCtx;
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // TyperResult
@@ -31,74 +32,78 @@ pub struct TyperDiagnostic {
 // TyperPass
 // ---------------------------------------------------------------------------
 
-pub struct TyperPass<'ctx> {
+pub struct TyperPass<'a> {
+    ast: &'a Ast,
+    ctx: &'a mut SemaCtx,
     result: TyperResult,
-    ctx: &'ctx mut SemaCtx,
+    switch_cases: HashSet<Expr>,
 }
 
 impl<'ctx> TyperPass<'ctx> {
-    pub fn new(ctx: &'ctx mut SemaCtx) -> Self {
+    pub fn new(ast: &'ctx Ast, ctx: &'ctx mut SemaCtx) -> Self {
         Self {
+            ast,
             ctx,
+            switch_cases: HashSet::new(),
             result: TyperResult::default(),
         }
     }
 
-    pub fn analyze(mut self, ast: &Ast) -> TyperResult {
-        ast.items().iter().for_each(|item| {
-            ast.get_block_items(item.body)
+    pub fn analyze(mut self) -> TyperResult {
+        self.ast.items().iter().for_each(|item| {
+            self.ast
+                .block_items(item.body)
                 .iter()
                 .for_each(|block_item| match block_item {
-                    BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                    BlockItem::Decl(decl) => self.analyze_decl(*decl),
+                    BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
                 });
         });
         self.result
     }
 
-    fn analyze_decl(&mut self, ast: &Ast, decl: DeclRef) {
-        match ast.get_decl(decl) {
-            Decl::Var { init, .. } => {
-                if let Some(init) = init {
-                    self.analyze_expr(ast, *init);
-                }
-            }
+    fn analyze_decl(&mut self, decl: DeclRef) {
+        let Decl { init, .. } = self.ast.decl(decl);
+        if let Some(init) = init {
+            self.analyze_expr(*init);
         }
     }
 
-    fn analyze_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
-        match ast.get_stmt(stmt) {
-            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
-            Stmt::Expr(expr) => self.analyze_expr(ast, *expr),
-            Stmt::Return(expr) => self.analyze_expr(ast, *expr),
-            Stmt::Default(stmt) => self.analyze_stmt(ast, *stmt),
-            Stmt::Label { stmt, .. } => self.analyze_stmt(ast, *stmt),
+    fn analyze_stmt(&mut self, stmt: StmtRef) {
+        match self.ast.stmt(stmt) {
+            Stmt::Empty | Stmt::Break | Stmt::Continue | Stmt::Goto(_) => {}
+            Stmt::Expr(expr) => self.analyze_expr(*expr),
+            Stmt::Return(expr) => self.analyze_expr(*expr),
+            Stmt::Default(stmt) => self.analyze_stmt(*stmt),
+            Stmt::Label { stmt, .. } => self.analyze_stmt(*stmt),
             Stmt::Compound(items) => {
-                ast.get_block_items(*items)
+                self.ast
+                    .block_items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.analyze_decl(ast, *decl),
-                        BlockItem::Stmt(stmt) => self.analyze_stmt(ast, *stmt),
+                        BlockItem::Decl(decl) => self.analyze_decl(*decl),
+                        BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
                     });
             }
             Stmt::Case { expr, stmt } => {
-                self.analyze_expr(ast, *expr);
-                self.analyze_stmt(ast, *stmt);
+                self.analyze_expr(*expr);
+                self.analyze_stmt(*stmt);
             }
             Stmt::Switch { cond, body } => {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
-                    let mut values = HashSet::new();
                     switch
                         .cases
-                        .clone()
                         .iter()
-                        .for_each(|stmt| match ast.get_stmt(*stmt) {
+                        .for_each(|stmt| match self.ast.stmt(*stmt) {
                             Stmt::Case { expr, .. } => {
-                                if self.assert_is_constant(ast, *expr)
-                                    && !values.insert(*ast.get_expr(*expr))
-                                {
+                                if !is_constant(self.ast, *expr) {
                                     self.result.diagnostics.push(TyperDiagnostic {
-                                        span: *ast.get_expr_span(*expr),
+                                        span: *self.ast.expr_span(*expr),
+                                        kind: TyperDiagnosticKind::NotConstant,
+                                    });
+                                } else if !self.switch_cases.insert(*self.ast.expr(*expr)) {
+                                    self.result.diagnostics.push(TyperDiagnostic {
+                                        span: *self.ast.expr_span(*expr),
                                         kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                     });
                                 }
@@ -106,27 +111,28 @@ impl<'ctx> TyperPass<'ctx> {
                             _ => panic!("unexpected statement in switch case"),
                         });
                 }
-                self.analyze_expr(ast, *cond);
-                self.analyze_stmt(ast, *body);
+                self.switch_cases.clear();
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*body);
             }
             Stmt::If {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.analyze_expr(ast, *cond);
-                self.analyze_stmt(ast, *then);
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*then);
                 if let Some(otherwise) = otherwise {
-                    self.analyze_stmt(ast, *otherwise);
+                    self.analyze_stmt(*otherwise);
                 }
             }
             Stmt::While { cond, body } => {
-                self.analyze_expr(ast, *cond);
-                self.analyze_stmt(ast, *body);
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*body);
             }
             Stmt::DoWhile { body, cond } => {
-                self.analyze_stmt(ast, *body);
-                self.analyze_expr(ast, *cond);
+                self.analyze_stmt(*body);
+                self.analyze_expr(*cond);
             }
             Stmt::For {
                 init,
@@ -136,31 +142,31 @@ impl<'ctx> TyperPass<'ctx> {
             } => {
                 if let Some(init) = init {
                     match init {
-                        ForInit::Decl(decl) => self.analyze_decl(ast, *decl),
-                        ForInit::Expr(expr) => self.analyze_expr(ast, *expr),
+                        ForInit::Decl(decl) => self.analyze_decl(*decl),
+                        ForInit::Expr(expr) => self.analyze_expr(*expr),
                     }
                 }
                 if let Some(cond) = cond {
-                    self.analyze_expr(ast, *cond);
+                    self.analyze_expr(*cond);
                 }
                 if let Some(step) = step {
-                    self.analyze_expr(ast, *step);
+                    self.analyze_expr(*step);
                 }
-                self.analyze_stmt(ast, *body);
+                self.analyze_stmt(*body);
             }
         }
     }
 
-    fn analyze_expr(&mut self, ast: &Ast, expr: ExprRef) {
-        match ast.get_expr(expr) {
-            Expr::Var { .. } | Expr::Constant(_) => {}
-            Expr::Grouped(expr) => self.analyze_expr(ast, *expr),
+    fn analyze_expr(&mut self, expr: ExprRef) {
+        match self.ast.expr(expr) {
+            Expr::Var { .. } | Expr::Const(_) => {}
+            Expr::Grouped(expr) => self.analyze_expr(*expr),
             Expr::Unary { op, expr } => match op {
                 UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    self.assert_is_lvalue(ast, *expr);
-                    self.analyze_expr(ast, *expr);
+                    self.assert_is_lvalue(*expr);
+                    self.analyze_expr(*expr);
                 }
-                _ => self.analyze_expr(ast, *expr),
+                _ => self.analyze_expr(*expr),
             },
             Expr::Binary { op, lhs, rhs } => match op {
                 BinaryOp::Assign
@@ -172,15 +178,15 @@ impl<'ctx> TyperPass<'ctx> {
                 | BinaryOp::BitOrAssign
                 | BinaryOp::BitAndAssign
                 | BinaryOp::BitXorAssign
-                | BinaryOp::BitLshAssign
-                | BinaryOp::BitRshAssign => {
-                    self.assert_is_lvalue(ast, *lhs);
-                    self.analyze_expr(ast, *lhs);
-                    self.analyze_expr(ast, *rhs);
+                | BinaryOp::BitShlAssign
+                | BinaryOp::BitShrAssign => {
+                    self.assert_is_lvalue(*lhs);
+                    self.analyze_expr(*lhs);
+                    self.analyze_expr(*rhs);
                 }
                 _ => {
-                    self.analyze_expr(ast, *lhs);
-                    self.analyze_expr(ast, *rhs);
+                    self.analyze_expr(*lhs);
+                    self.analyze_expr(*rhs);
                 }
             },
             Expr::Ternary {
@@ -188,29 +194,18 @@ impl<'ctx> TyperPass<'ctx> {
                 then,
                 otherwise,
             } => {
-                self.analyze_expr(ast, *cond);
-                self.analyze_expr(ast, *then);
-                self.analyze_expr(ast, *otherwise);
+                self.analyze_expr(*cond);
+                self.analyze_expr(*then);
+                self.analyze_expr(*otherwise);
             }
         }
     }
 
-    fn assert_is_lvalue(&mut self, ast: &Ast, expr: ExprRef) -> bool {
-        if !is_lvalue(ast, expr) {
+    fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
+        if !is_lvalue(self.ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
-                span: *ast.get_expr_span(expr),
+                span: *self.ast.expr_span(expr),
                 kind: TyperDiagnosticKind::InvalidLValue,
-            });
-            return false;
-        }
-        return true;
-    }
-
-    fn assert_is_constant(&mut self, ast: &Ast, expr: ExprRef) -> bool {
-        if !is_constant(ast, expr) {
-            self.result.diagnostics.push(TyperDiagnostic {
-                span: *ast.get_expr_span(expr),
-                kind: TyperDiagnosticKind::NotConstant,
             });
             return false;
         }
@@ -223,17 +218,17 @@ impl<'ctx> TyperPass<'ctx> {
 // ---------------------------------------------------------------------------
 
 fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.get_expr(expr) {
+    match ast.expr(expr) {
         Expr::Var { .. } => true,
         Expr::Grouped(expr) => is_lvalue(ast, *expr),
-        Expr::Constant(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
+        Expr::Const(_) | Expr::Unary { .. } | Expr::Binary { .. } => false,
         Expr::Ternary { .. } => false,
     }
 }
 
 fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.get_expr(expr) {
-        Expr::Constant(_) => true,
+    match ast.expr(expr) {
+        Expr::Const(_) => true,
         Expr::Grouped(expr) => is_constant(ast, *expr),
         Expr::Var { .. } | Expr::Unary { .. } | Expr::Binary { .. } | Expr::Ternary { .. } => false,
     }

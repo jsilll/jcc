@@ -1,6 +1,6 @@
-use string_interner::DefaultStringInterner;
+use crate::Interner;
 
-use super::{BinaryOp, CondCode, FnDef, Instr, Operand, Program, Reg, UnaryOp};
+use super::{BinaryOp, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
 
 // ---------------------------------------------------------------------------
 // AMD64Emitter
@@ -10,11 +10,11 @@ pub struct AMD64Emitter<'a> {
     output: String,
     indent_level: usize,
     program: &'a Program,
-    interner: &'a DefaultStringInterner,
+    interner: &'a Interner,
 }
 
 impl<'a> AMD64Emitter<'a> {
-    pub fn new(program: &'a Program, interner: &'a DefaultStringInterner) -> Self {
+    pub fn new(program: &'a Program, interner: &'a Interner) -> Self {
         Self {
             program,
             interner,
@@ -43,7 +43,7 @@ impl<'a> AMD64Emitter<'a> {
         fn_def.blocks.iter().enumerate().for_each(|(idx, block)| {
             if let Some(label) = block.label {
                 // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
-                let label = self.interner.resolve(label).expect("invalid label");
+                let label = self.interner.resolve(label).unwrap_or("invalid_label");
                 self.writeln(&format!(".L{label}{idx}:"));
             }
             self.with_indent(|emitter| {
@@ -55,28 +55,28 @@ impl<'a> AMD64Emitter<'a> {
         });
     }
 
-    fn emit_instr(&mut self, instr: &Instr) {
+    fn emit_instr(&mut self, instr: &Inst) {
         match instr {
-            Instr::Ret => {
+            Inst::Ret => {
                 self.writeln("movq %rbp, %rsp");
                 self.writeln("popq %rbp");
                 self.writeln("ret");
             }
-            Instr::Cdq => self.writeln("cdq"),
-            Instr::Alloca(size) => {
+            Inst::Cdq => self.writeln("cdq"),
+            Inst::Alloca(size) => {
                 if *size > 0 {
                     self.writeln(&format!("subq ${size}, %rsp"));
                 }
             }
-            Instr::Idiv(oper) => {
+            Inst::Idiv(oper) => {
                 let oper = self.emit_operand_32(oper);
                 self.writeln(&format!("idivl {oper}"));
             }
-            Instr::Jmp(target) => {
+            Inst::Jmp(target) => {
                 let block = self.program.0.get_block(*target);
                 match block.label {
                     Some(label) => {
-                        let label = self.interner.resolve(label).expect("invalid label");
+                        let label = self.interner.resolve(label).unwrap_or("invalid_label");
                         self.writeln(&format!("jmp .L{label}{target}"));
                     }
                     None => {
@@ -84,31 +84,31 @@ impl<'a> AMD64Emitter<'a> {
                     }
                 }
             }
-            Instr::Mov { src, dst } => {
+            Inst::Mov { src, dst } => {
                 let src = self.emit_operand_32(src);
                 let dst = self.emit_operand_32(dst);
                 self.writeln(&format!("movl {src}, {dst}"));
             }
-            Instr::Cmp { lhs, rhs } => {
+            Inst::Cmp { lhs, rhs } => {
                 let lhs = self.emit_operand_32(lhs);
                 let rhs = self.emit_operand_32(rhs);
                 self.writeln(&format!("cmpl {lhs}, {rhs}"));
             }
-            Instr::SetCC { cond_code, dst } => {
+            Inst::SetCC { cond_code, dst } => {
                 let dst = self.emit_operand_8(dst);
                 let cond_code = self.emit_cond_code(*cond_code);
                 self.writeln(&format!("set{cond_code} {dst}"));
             }
-            Instr::Test { lhs, rhs } => {
+            Inst::Test { lhs, rhs } => {
                 let src = self.emit_operand_32(lhs);
                 let dst = self.emit_operand_32(rhs);
                 self.writeln(&format!("testl {src}, {dst}"));
             }
-            Instr::JmpCC { cond_code, target } => {
+            Inst::JmpCC { cond_code, target } => {
                 let block = self.program.0.get_block(*target);
                 match block.label {
                     Some(label) => {
-                        let label = self.interner.resolve(label).expect("invalid label");
+                        let label = self.interner.resolve(label).unwrap_or("invalid_label");
                         let cond_code = self.emit_cond_code(*cond_code);
                         self.writeln(&format!("j{cond_code} .L{label}{target}"));
                     }
@@ -118,16 +118,16 @@ impl<'a> AMD64Emitter<'a> {
                     }
                 }
             }
-            Instr::Unary { op, src } => {
-                let src = self.emit_operand_32(src);
+            Inst::Unary { op, dst } => {
+                let dst = self.emit_operand_32(dst);
                 match op {
-                    UnaryOp::Not => self.writeln(&format!("notl {src}")),
-                    UnaryOp::Neg => self.writeln(&format!("negl {src}")),
-                    UnaryOp::Inc => self.writeln(&format!("incl {src}")),
-                    UnaryOp::Dec => self.writeln(&format!("decl {src}")),
+                    UnaryOp::Not => self.writeln(&format!("notl {dst}")),
+                    UnaryOp::Neg => self.writeln(&format!("negl {dst}")),
+                    UnaryOp::Inc => self.writeln(&format!("incl {dst}")),
+                    UnaryOp::Dec => self.writeln(&format!("decl {dst}")),
                 };
             }
-            Instr::Binary { op, src, dst } => {
+            Inst::Binary { op, src, dst } => {
                 let src = self.emit_operand_32(src);
                 let dst = self.emit_operand_32(dst);
                 match op {

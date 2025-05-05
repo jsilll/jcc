@@ -2,10 +2,12 @@ use crate::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, 
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},
-    string_interner::DefaultSymbol,
+    Symbol,
 };
 
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
+
+use super::SemaCtx;
 
 // ---------------------------------------------------------------------------
 // ResolverResult
@@ -30,94 +32,95 @@ pub struct ResolverDiagnostic {
 // ResolverPass
 // ---------------------------------------------------------------------------
 
-pub struct ResolverPass {
+pub struct ResolverPass<'a> {
+    ast: &'a Ast,
+    ctx: &'a mut SemaCtx,
     result: ResolverResult,
-    symbols: SymbolTable<DefaultSymbol, DeclRef>,
+    symbols: SymbolTable<Symbol, DeclRef>,
 }
 
-impl ResolverPass {
-    pub fn new() -> Self {
+impl<'a> ResolverPass<'a> {
+    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
         Self {
+            ast,
+            ctx,
             symbols: SymbolTable::new(),
             result: ResolverResult::default(),
         }
     }
 
-    pub fn analyze(mut self, ast: &mut Ast) -> ResolverResult {
-        ast.items_iter_refs().for_each(|item| {
+    pub fn analyze(mut self) -> ResolverResult {
+        self.ast.items_iter().for_each(|item| {
             self.symbols.push_scope();
-            ast.get_block_items(ast.get_item(item).body)
-                .to_owned()
-                .into_iter()
+            self.ast
+                .block_items(self.ast.item(item).body)
+                .iter()
                 .for_each(|block_item| match block_item {
-                    BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+                    BlockItem::Decl(decl) => self.visit_decl(*decl),
+                    BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                 });
             self.symbols.pop_scope();
         });
         self.result
     }
 
-    fn analyze_decl(&mut self, ast: &mut Ast, decl: DeclRef) {
-        match ast.get_decl(decl) {
-            Decl::Var { name, init } => {
-                if let Some(_) = self.symbols.insert(*name, decl) {
-                    self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *ast.get_decl_span(decl),
-                        kind: ResolverDiagnosticKind::RedeclaredVariable,
-                    });
-                }
-                if let Some(expr) = init {
-                    self.analyze_expr(ast, *expr);
-                }
-            }
+    fn visit_decl(&mut self, decl: DeclRef) {
+        let Decl { name, init } = self.ast.decl(decl);
+        if let Some(_) = self.symbols.insert(*name, decl) {
+            self.result.diagnostics.push(ResolverDiagnostic {
+                span: *self.ast.decl_span(decl),
+                kind: ResolverDiagnosticKind::RedeclaredVariable,
+            });
+        }
+        if let Some(expr) = init {
+            self.visit_expr(*expr);
         }
     }
 
-    fn analyze_stmt(&mut self, ast: &mut Ast, stmt: StmtRef) {
-        match ast.get_stmt(stmt).clone() {
-            Stmt::Empty | Stmt::Goto(_) | Stmt::Break(_) | Stmt::Continue(_) => {}
-            Stmt::Expr(expr) => self.analyze_expr(ast, expr),
-            Stmt::Return(expr) => self.analyze_expr(ast, expr),
-            Stmt::Default(stmt) => self.analyze_stmt(ast, stmt),
-            Stmt::Label { stmt, .. } => self.analyze_stmt(ast, stmt),
+    fn visit_stmt(&mut self, stmt: StmtRef) {
+        match self.ast.stmt(stmt) {
+            Stmt::Empty | Stmt::Break | Stmt::Continue | Stmt::Goto(_) => {}
+            Stmt::Expr(expr) => self.visit_expr(*expr),
+            Stmt::Return(expr) => self.visit_expr(*expr),
+            Stmt::Default(stmt) => self.visit_stmt(*stmt),
+            Stmt::Label { stmt, .. } => self.visit_stmt(*stmt),
             Stmt::Compound(items) => {
                 self.symbols.push_scope();
-                ast.get_block_items(items)
-                    .to_owned()
-                    .into_iter()
+                self.ast
+                    .block_items(*items)
+                    .iter()
                     .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.analyze_decl(ast, decl),
-                        BlockItem::Stmt(stmt) => self.analyze_stmt(ast, stmt),
+                        BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
                 self.symbols.pop_scope();
             }
             Stmt::Case { expr, stmt } => {
-                self.analyze_expr(ast, expr);
-                self.analyze_stmt(ast, stmt);
+                self.visit_expr(*expr);
+                self.visit_stmt(*stmt);
             }
             Stmt::Switch { cond, body } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_stmt(ast, body);
+                self.visit_expr(*cond);
+                self.visit_stmt(*body);
             }
             Stmt::If {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_stmt(ast, then);
+                self.visit_expr(*cond);
+                self.visit_stmt(*then);
                 if let Some(otherwise) = otherwise {
-                    self.analyze_stmt(ast, otherwise);
+                    self.visit_stmt(*otherwise);
                 }
             }
             Stmt::While { cond, body } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_stmt(ast, body);
+                self.visit_expr(*cond);
+                self.visit_stmt(*body);
             }
             Stmt::DoWhile { body, cond } => {
-                self.analyze_stmt(ast, body);
-                self.analyze_expr(ast, cond);
+                self.visit_stmt(*body);
+                self.visit_expr(*cond);
             }
             Stmt::For {
                 init,
@@ -128,52 +131,48 @@ impl ResolverPass {
                 self.symbols.push_scope();
                 if let Some(init) = init {
                     match init {
-                        ForInit::Decl(decl) => self.analyze_decl(ast, decl),
-                        ForInit::Expr(expr) => self.analyze_expr(ast, expr),
+                        ForInit::Decl(decl) => self.visit_decl(*decl),
+                        ForInit::Expr(expr) => self.visit_expr(*expr),
                     }
                 }
                 if let Some(cond) = cond {
-                    self.analyze_expr(ast, cond);
+                    self.visit_expr(*cond);
                 }
                 if let Some(step) = step {
-                    self.analyze_expr(ast, step);
+                    self.visit_expr(*step);
                 }
-                self.analyze_stmt(ast, body);
+                self.visit_stmt(*body);
                 self.symbols.pop_scope();
             }
         }
     }
 
-    fn analyze_expr(&mut self, ast: &mut Ast, expr: ExprRef) {
-        if let Expr::Var { name, decl } = ast.get_expr_mut(expr) {
-            match self.symbols.get(name) {
+    fn visit_expr(&mut self, expr: ExprRef) {
+        match self.ast.expr(expr) {
+            Expr::Const(_) => {}
+            Expr::Grouped(expr) => self.visit_expr(*expr),
+            Expr::Var(name) => match self.symbols.get(name) {
                 Some(decl_ref) => {
-                    *decl = Some(*decl_ref);
+                    self.ctx.vars.insert(expr, *decl_ref);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *ast.get_expr_span(expr),
+                    span: *self.ast.expr_span(expr),
                     kind: ResolverDiagnosticKind::UndefinedVariable,
                 }),
-            }
-            return;
-        }
-        match ast.get_expr(expr).clone() {
-            Expr::Constant(_) => {}
-            Expr::Var { .. } => unreachable!(),
-            Expr::Grouped(expr) => self.analyze_expr(ast, expr),
-            Expr::Unary { expr, .. } => self.analyze_expr(ast, expr),
+            },
+            Expr::Unary { expr, .. } => self.visit_expr(*expr),
             Expr::Binary { lhs, rhs, .. } => {
-                self.analyze_expr(ast, lhs);
-                self.analyze_expr(ast, rhs);
+                self.visit_expr(*lhs);
+                self.visit_expr(*rhs);
             }
             Expr::Ternary {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.analyze_expr(ast, cond);
-                self.analyze_expr(ast, then);
-                self.analyze_expr(ast, otherwise);
+                self.visit_expr(*cond);
+                self.visit_expr(*then);
+                self.visit_expr(*otherwise);
             }
         }
     }
@@ -252,7 +251,7 @@ impl<S, V> SymbolTable<S, V> {
 
 impl<S, V> SymbolTable<S, V>
 where
-    S: Eq + Hash,
+    S: Eq + std::hash::Hash,
 {
     #[allow(dead_code)]
     pub fn get(&self, key: &S) -> Option<&V> {

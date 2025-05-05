@@ -4,9 +4,9 @@ pub mod control;
 
 pub mod resolve;
 
-use std::collections::HashMap;
+use crate::parse::{DeclRef, ExprRef, StmtRef};
 
-use crate::parse::StmtRef;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // SemaCtx
@@ -14,6 +14,9 @@ use crate::parse::StmtRef;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct SemaCtx {
+    pub vars: HashMap<ExprRef, DeclRef>,
+    pub breaks: HashMap<StmtRef, StmtRef>,
+    pub continues: HashMap<StmtRef, StmtRef>,
     pub switches: HashMap<StmtRef, SwitchCases>,
 }
 

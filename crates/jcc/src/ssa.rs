@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 pub fn build<'a>(ast: &'a parse::Ast, ctx: &'a sema::SemaCtx, interner: Interner) -> ssa::Program {
     let mut prog = ssa::Program::new(interner);
-    ast.items_iter().for_each(|item| {
-        SSAFuncBuilder::new(ast, ctx, &mut prog, item).build();
+    ast.root().iter().for_each(|decl| {
+        SSAFuncBuilder::new(ast, ctx, &mut prog, *decl).build();
     });
     prog
 }
@@ -26,7 +26,7 @@ struct SSAFuncBuilder<'a> {
     prog: &'a mut ssa::Program,
     func: ssa::FuncRef,
     block: ssa::BlockRef,
-    item: parse::ItemRef,
+    decl: parse::DeclRef,
     vars: HashMap<parse::DeclRef, ssa::InstRef>,
     labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
     case_blocks: HashMap<parse::StmtRef, ssa::BlockRef>,
@@ -39,47 +39,58 @@ impl<'a> SSAFuncBuilder<'a> {
         ast: &'a parse::Ast,
         ctx: &'a sema::SemaCtx,
         prog: &'a mut ssa::Program,
-        item: parse::ItemRef,
+        decl: parse::DeclRef,
     ) -> Self {
-        let span = *ast.item_span(item);
-        let func = prog.new_func_with_span_interned(ast.item(item).name, span);
-        let block = prog.new_block_with_span("entry", span);
-        prog.func_mut(func).blocks.push(block);
-        Self {
-            ast,
-            ctx,
-            prog,
-            func,
-            item,
-            block,
-            vars: HashMap::new(),
-            case_blocks: HashMap::new(),
-            break_blocks: HashMap::new(),
-            labeled_blocks: HashMap::new(),
-            continue_blocks: HashMap::new(),
+        let span = *ast.decl_span(decl);
+        match ast.decl(decl) {
+            parse::Decl::Var { .. } => todo!("handle variable declarations"),
+            parse::Decl::Func { name, .. } => {
+                let block = prog.new_block_with_span("entry", span);
+                let func = prog.new_func_with_span_interned(*name, span);
+                prog.func_mut(func).blocks.push(block);
+                Self {
+                    ast,
+                    ctx,
+                    prog,
+                    func,
+                    decl,
+                    block,
+                    vars: HashMap::new(),
+                    case_blocks: HashMap::new(),
+                    break_blocks: HashMap::new(),
+                    labeled_blocks: HashMap::new(),
+                    continue_blocks: HashMap::new(),
+                }
+            }
         }
     }
 
     fn build(mut self) {
-        self.ast
-            .block_items(self.ast.item(self.item).body)
-            .iter()
-            .for_each(|item| match item {
-                parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
-            });
-        let append_return = match self.ast.block_items(self.ast.item(self.item).body).last() {
-            Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
-                parse::Stmt::Return(_) => false,
-                _ => true,
-            },
-            _ => true,
-        };
-        if append_return {
-            let span = *self.ast.item_span(self.item);
-            let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
-            let ret = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
-            self.append_slice_to_block(&[val, ret]);
+        match self.ast.decl(self.decl) {
+            parse::Decl::Var { .. } => todo!("handle variable declarations"),
+            parse::Decl::Func { body, .. } => {
+                let body = body.expect("expected a function body");
+                self.ast
+                    .block_items(body)
+                    .iter()
+                    .for_each(|item| match item {
+                        parse::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        parse::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                    });
+                let append_return = match self.ast.block_items(body).last() {
+                    Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
+                        parse::Stmt::Return(_) => false,
+                        _ => true,
+                    },
+                    _ => true,
+                };
+                if append_return {
+                    let span = *self.ast.decl_span(self.decl);
+                    let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
+                    let ret = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
+                    self.append_slice_to_block(&[val, ret]);
+                }
+            }
         }
     }
 

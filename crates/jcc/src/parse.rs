@@ -13,33 +13,31 @@ use std::{iter::Peekable, num::NonZeroU32, slice::Iter};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Ast {
-    items: Vec<Item>,
+    root: Vec<DeclRef>,
     decls: Vec<Decl>,
     stmts: Vec<Stmt>,
     exprs: Vec<Expr>,
-    args: Vec<ExprRef>,
-    params: Vec<Symbol>,
-    block_items: Vec<BlockItem>,
-    items_span: Vec<SourceSpan>,
     decls_span: Vec<SourceSpan>,
     stmts_span: Vec<SourceSpan>,
     exprs_span: Vec<SourceSpan>,
+    sliced_args: Vec<ExprRef>,
+    sliced_params: Vec<Symbol>,
+    sliced_block_items: Vec<BlockItem>,
 }
 
 impl Default for Ast {
     fn default() -> Self {
         Ast {
-            args: Default::default(),
-            params: Default::default(),
-            block_items: Default::default(),
-            items: vec![Default::default()],
+            root: Default::default(),
             decls: vec![Default::default()],
             stmts: vec![Default::default()],
             exprs: vec![Default::default()],
-            items_span: vec![Default::default()],
             decls_span: vec![Default::default()],
             stmts_span: vec![Default::default()],
             exprs_span: vec![Default::default()],
+            sliced_args: Default::default(),
+            sliced_params: Default::default(),
+            sliced_block_items: Default::default(),
         }
     }
 }
@@ -47,13 +45,13 @@ impl Default for Ast {
 impl std::fmt::Debug for Ast {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ast")
-            .field("items", &&self.items[1..])
+            .field("root", &self.root)
             .field("decls", &&self.decls[1..])
             .field("stmts", &&self.stmts[1..])
             .field("exprs", &&self.exprs[1..])
-            .field("args", &self.args)
-            .field("params", &self.params)
-            .field("block_items", &self.block_items)
+            .field("sliced_args", &self.sliced_args)
+            .field("sliced_params", &self.sliced_params)
+            .field("sliced_block_items", &self.sliced_block_items)
             .finish()
     }
 }
@@ -64,13 +62,8 @@ impl Ast {
     }
 
     #[inline]
-    pub fn items(&self) -> &[Item] {
-        &self.items[1..]
-    }
-
-    #[inline]
-    pub fn item(&self, item: ItemRef) -> &Item {
-        &self.items[item.0.get() as usize]
+    pub fn root(&self) -> &[DeclRef] {
+        &self.root
     }
 
     #[inline]
@@ -89,11 +82,6 @@ impl Ast {
     }
 
     #[inline]
-    pub fn item_span(&self, item: ItemRef) -> &SourceSpan {
-        &self.items_span[item.0.get() as usize]
-    }
-
-    #[inline]
     pub fn decl_span(&self, decl: DeclRef) -> &SourceSpan {
         &self.decls_span[decl.0.get() as usize]
     }
@@ -106,11 +94,6 @@ impl Ast {
     #[inline]
     pub fn expr_span(&self, expr: ExprRef) -> &SourceSpan {
         &self.exprs_span[expr.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn item_mut(&mut self, item: ItemRef) -> &mut Item {
-        &mut self.items[item.0.get() as usize]
     }
 
     #[inline]
@@ -130,25 +113,17 @@ impl Ast {
 
     #[inline]
     pub fn args(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
-        &self.args[slice.0 as usize..slice.1 as usize]
+        &self.sliced_args[slice.0 as usize..slice.1 as usize]
     }
 
     #[inline]
     pub fn params(&self, slice: Slice<Symbol>) -> &[Symbol] {
-        &self.params[slice.0 as usize..slice.1 as usize]
+        &self.sliced_params[slice.0 as usize..slice.1 as usize]
     }
 
     #[inline]
     pub fn block_items(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
-        &self.block_items[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn new_item(&mut self, item: Item, span: SourceSpan) -> ItemRef {
-        let r = ItemRef(NonZeroU32::new(self.items.len() as u32).unwrap());
-        self.items.push(item);
-        self.items_span.push(span);
-        r
+        &self.sliced_block_items[slice.0 as usize..slice.1 as usize]
     }
 
     #[inline]
@@ -177,17 +152,17 @@ impl Ast {
 
     #[inline]
     pub fn new_args(&mut self, args: impl IntoIterator<Item = ExprRef>) -> Slice<ExprRef> {
-        let begin = self.args.len() as u32;
-        self.args.extend(args);
-        let end = self.args.len() as u32;
+        let begin = self.sliced_args.len() as u32;
+        self.sliced_args.extend(args);
+        let end = self.sliced_args.len() as u32;
         Slice::new(begin, end)
     }
 
     #[inline]
     pub fn new_params(&mut self, params: impl IntoIterator<Item = Symbol>) -> Slice<Symbol> {
-        let begin = self.params.len() as u32;
-        self.params.extend(params);
-        let end = self.params.len() as u32;
+        let begin = self.sliced_params.len() as u32;
+        self.sliced_params.extend(params);
+        let end = self.sliced_params.len() as u32;
         Slice::new(begin, end)
     }
 
@@ -196,35 +171,16 @@ impl Ast {
         &mut self,
         items: impl IntoIterator<Item = BlockItem>,
     ) -> Slice<BlockItem> {
-        let begin = self.block_items.len() as u32;
-        self.block_items.extend(items);
-        let end = self.block_items.len() as u32;
+        let begin = self.sliced_block_items.len() as u32;
+        self.sliced_block_items.extend(items);
+        let end = self.sliced_block_items.len() as u32;
         Slice::new(begin, end)
-    }
-
-    #[inline]
-    pub fn items_iter(&self) -> impl Iterator<Item = ItemRef> {
-        unsafe { (1..self.items.len()).map(|i| ItemRef(NonZeroU32::new_unchecked(i as u32))) }
-    }
-
-    #[inline]
-    pub fn items_iter2(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
-        self.items_iter().zip(self.items().iter())
     }
 }
 
 // ---------------------------------------------------------------------------
 // Ast Nodes
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ItemRef(NonZeroU32);
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Item {
-    pub name: Symbol,
-    pub body: Slice<BlockItem>,
-}
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DeclRef(NonZeroU32);
@@ -244,8 +200,8 @@ pub enum Decl {
 impl Default for Decl {
     fn default() -> Self {
         Self::Var {
-            name: Symbol::default(),
-            init: None,
+            name: Default::default(),
+            init: Default::default(),
         }
     }
 }
@@ -413,7 +369,7 @@ pub enum BinaryOp {
 }
 
 // ---------------------------------------------------------------------------
-// Support structures
+// Auxiliary structures
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -433,19 +389,19 @@ impl<T> Default for Slice<T> {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ForInit {
-    /// A declaration.
-    Decl(DeclRef),
-    /// An expression.
-    Expr(ExprRef),
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BlockItem {
     /// A declaration.
     Decl(DeclRef),
     /// A statement.
     Stmt(StmtRef),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ForInit {
+    /// An expression.
+    Expr(ExprRef),
+    /// A declaration.
+    Decl(DeclRef),
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +448,9 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParserResult {
-        self.parse_item();
+        if let Some(main) = self.parse_main() {
+            self.result.ast.root.push(main);
+        }
         assert!(self.block_item_stack.is_empty());
         if let Some(Token { span, .. }) = self.iter.next() {
             if self.result.diagnostics.is_empty() {
@@ -505,12 +463,13 @@ impl<'a> Parser<'a> {
         self.result
     }
 
+    #[inline]
     fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
         self.interner
             .get_or_intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 
-    fn parse_item(&mut self) -> Option<ItemRef> {
+    fn parse_main(&mut self) -> Option<DeclRef> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
         self.eat(TokenKind::LParen)?;
@@ -519,7 +478,14 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::LBrace)?;
         let body = self.parse_body();
         self.eat(TokenKind::RBrace)?;
-        Some(self.result.ast.new_item(Item { name, body }, span))
+        Some(self.result.ast.new_decl(
+            Decl::Func {
+                name,
+                body: Some(body),
+                params: Slice::default(),
+            },
+            span,
+        ))
     }
 
     fn parse_body(&mut self) -> Slice<BlockItem> {

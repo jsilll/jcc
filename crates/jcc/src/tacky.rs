@@ -22,11 +22,12 @@ impl<'a> TackyBuilder<'a> {
     }
 
     pub fn build(self, ast: &parse::Ast) -> Program {
-        let (item_ref, item) = ast
-            .items_iter2()
+        let decl = ast
+            .root()
+            .iter()
             .next()
             .expect("expected at least one item in the AST");
-        let fn_def = TackyFnDefBuilder::new(ast, self.ctx, self.interner).build(item_ref, item);
+        let fn_def = TackyFnDefBuilder::new(ast, self.ctx, self.interner).build(*decl);
         Program(fn_def)
     }
 }
@@ -68,23 +69,29 @@ impl<'a> TackyFnDefBuilder<'a> {
         }
     }
 
-    fn build(mut self, item_ref: parse::ItemRef, item: &parse::Item) -> FnDef {
-        self.fn_def.span = *self.ast.item_span(item_ref);
-        self.ast
-            .block_items(item.body)
-            .iter()
-            .for_each(|item| match item {
-                parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
-                parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
-            });
-        match self.ast.block_items(item.body).last() {
-            Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
-                parse::Stmt::Return(_) => {}
-                _ => self.append_to_block(Inst::Return(Value::Const(0)), self.fn_def.span),
-            },
-            _ => self.append_to_block(Inst::Return(Value::Const(0)), self.fn_def.span),
+    fn build(mut self, decl: parse::DeclRef) -> FnDef {
+        self.fn_def.span = *self.ast.decl_span(decl);
+        match self.ast.decl(decl) {
+            parse::Decl::Var { .. } => todo!("handle variable declarations"),
+            parse::Decl::Func { body, .. } => {
+                let body = body.expect("expected a function body");
+                self.ast
+                    .block_items(body)
+                    .iter()
+                    .for_each(|item| match item {
+                        parse::BlockItem::Decl(decl) => self.build_from_decl(*decl),
+                        parse::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
+                    });
+                match self.ast.block_items(body).last() {
+                    Some(parse::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
+                        parse::Stmt::Return(_) => {}
+                        _ => self.append_to_block(Inst::Return(Value::Const(0)), self.fn_def.span),
+                    },
+                    _ => self.append_to_block(Inst::Return(Value::Const(0)), self.fn_def.span),
+                }
+                self.fn_def
+            }
         }
-        self.fn_def
     }
 
     fn make_tmp(&mut self) -> Value {

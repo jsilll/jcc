@@ -110,9 +110,9 @@ fn try_main() -> Result<()> {
     if args.parse {
         return Ok(());
     }
-    if parser_result.ast.items().is_empty() {
-        eprintln!("Error: no items found in the source file");
-        return Err(anyhow::anyhow!("exiting due to no items found"));
+    if parser_result.ast.root().is_empty() {
+        eprintln!("Error: no declarations in the source file");
+        return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
 
     let ast = parser_result.ast;

@@ -1,5 +1,5 @@
 use crate::{
-    parse::{Ast, BlockItem, Stmt, StmtRef},
+    parse::{Ast, BlockItem, Decl, Stmt, StmtRef},
     sema::SemaCtx,
 };
 
@@ -53,14 +53,16 @@ impl<'ctx> ControlPass<'ctx> {
     }
 
     pub fn analyze(mut self, ast: &Ast) -> ControlResult {
-        ast.items_iter().for_each(|item| {
-            ast.block_items(ast.item(item).body)
-                .iter()
-                .for_each(|block_item| {
+        ast.root().iter().for_each(|decl| match ast.decl(*decl) {
+            Decl::Var { .. } => todo!("handle variable declarations"),
+            Decl::Func { body, .. } => {
+                let body = body.expect("expected a function body");
+                ast.block_items(body).iter().for_each(|block_item| {
                     if let BlockItem::Stmt(stmt) = block_item {
                         self.visit_stmt(ast, *stmt)
                     }
                 });
+            }
         });
         self.unresolved_labels.values().for_each(|spans| {
             spans.iter().for_each(|span| {

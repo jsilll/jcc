@@ -50,17 +50,24 @@ impl<'a> ResolverPass<'a> {
     }
 
     pub fn analyze(mut self) -> ResolverResult {
-        self.ast.items_iter().for_each(|item| {
-            self.symbols.push_scope();
-            self.ast
-                .block_items(self.ast.item(item).body)
-                .iter()
-                .for_each(|block_item| match block_item {
-                    BlockItem::Decl(decl) => self.visit_decl(*decl),
-                    BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                });
-            self.symbols.pop_scope();
-        });
+        self.ast
+            .root()
+            .iter()
+            .for_each(|decl| match self.ast.decl(*decl) {
+                Decl::Var { .. } => todo!("handle variable declarations"),
+                Decl::Func { body, .. } => {
+                    let body = body.expect("expected a function body");
+                    self.symbols.push_scope();
+                    self.ast
+                        .block_items(body)
+                        .iter()
+                        .for_each(|block_item| match block_item {
+                            BlockItem::Decl(decl) => self.visit_decl(*decl),
+                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        });
+                    self.symbols.pop_scope();
+                }
+            });
         self.result
     }
 

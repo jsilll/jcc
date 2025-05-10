@@ -32,9 +32,9 @@ pub struct TyperDiagnostic {
 // TyperPass
 // ---------------------------------------------------------------------------
 
-pub struct TyperPass<'a> {
-    ast: &'a Ast,
-    ctx: &'a mut SemaCtx,
+pub struct TyperPass<'ctx> {
+    ast: &'ctx Ast,
+    ctx: &'ctx mut SemaCtx,
     result: TyperResult,
     switch_cases: HashSet<Expr>,
 }
@@ -50,15 +50,22 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     pub fn analyze(mut self) -> TyperResult {
-        self.ast.items().iter().for_each(|item| {
-            self.ast
-                .block_items(item.body)
-                .iter()
-                .for_each(|block_item| match block_item {
-                    BlockItem::Decl(decl) => self.analyze_decl(*decl),
-                    BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
-                });
-        });
+        self.ast
+            .root()
+            .iter()
+            .for_each(|decl| match self.ast.decl(*decl) {
+                Decl::Var { .. } => todo!("handle variable declarations"),
+                Decl::Func { body, .. } => {
+                    let body = body.expect("expected a function body");
+                    self.ast
+                        .block_items(body)
+                        .iter()
+                        .for_each(|block_item| match block_item {
+                            BlockItem::Decl(decl) => self.analyze_decl(*decl),
+                            BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
+                        });
+                }
+            });
         self.result
     }
 

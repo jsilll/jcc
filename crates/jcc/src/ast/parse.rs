@@ -452,16 +452,11 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParserResult {
-        if let Some(main) = self.parse_func_decl() {
-            self.result.ast.root.push(main);
-        }
-        assert!(self.block_items_stack.is_empty());
-        if let Some(Token { span, .. }) = self.iter.next() {
-            if self.result.diagnostics.is_empty() {
-                self.result.diagnostics.push(ParserDiagnostic {
-                    span: *span,
-                    kind: ParserDiagnosticKind::UnexpectedToken,
-                })
+        while let Some(_) = self.iter.peek() {
+            if let Some(decl) = self.parse_func_decl() {
+                self.result.ast.root.push(decl);
+            } else {
+                self.sync(TokenKind::Semi, TokenKind::KwInt);
             }
         }
         self.result
@@ -471,6 +466,70 @@ impl<'a> Parser<'a> {
     fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
         self.interner
             .get_or_intern(self.file.slice(*span).expect("expected span to be valid"))
+    }
+
+    fn parse_decl(&mut self) -> Option<DeclRef> {
+        self.eat(TokenKind::KwInt)?;
+        let (span, name) = self.eat_identifier()?;
+        let Some(token) = self.iter.peek() else {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            return None;
+        };
+        match token.kind {
+            TokenKind::Semi => {
+                self.iter.next();
+                Some(
+                    self.result
+                        .ast
+                        .new_decl(Decl::Var { name, init: None }, span),
+                )
+            }
+            TokenKind::Eq => {
+                self.iter.next();
+                let init = self.parse_expr(0)?;
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.new_decl(
+                    Decl::Var {
+                        name,
+                        init: Some(init),
+                    },
+                    span,
+                ))
+            }
+            TokenKind::LParen => {
+                self.iter.next();
+                let params = self.parse_params();
+                self.eat(TokenKind::RParen)?;
+                let body = if let Some(Token {
+                    kind: TokenKind::Semi,
+                    ..
+                }) = self.iter.peek()
+                {
+                    self.iter.next();
+                    None
+                } else {
+                    self.eat(TokenKind::LBrace)?;
+                    let body = self.parse_body();
+                    self.eat(TokenKind::RBrace)?;
+                    Some(body)
+                };
+                Some(
+                    self.result
+                        .ast
+                        .new_decl(Decl::Func { name, params, body }, span),
+                )
+            }
+            _ => {
+                self.result.diagnostics.push(ParserDiagnostic {
+                    span: token.span,
+                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
+                });
+                None
+            }
+        }
     }
 
     fn parse_var_decl(&mut self) -> Option<DeclRef> {
@@ -531,9 +590,8 @@ impl<'a> Parser<'a> {
                 Slice::default()
             }
             TokenKind::KwInt => {
-                self.iter.next();
                 let base = self.params_stack.len();
-                if let Some(decl) = self.parse_var_decl() {
+                if let Some(decl) = self.parse_param() {
                     self.params_stack.push(decl);
                 }
                 while let Some(Token {
@@ -542,7 +600,7 @@ impl<'a> Parser<'a> {
                 }) = self.iter.peek()
                 {
                     self.iter.next();
-                    if let Some(decl) = self.parse_var_decl() {
+                    if let Some(decl) = self.parse_param() {
                         self.params_stack.push(decl);
                     }
                 }
@@ -558,12 +616,22 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_param(&mut self) -> Option<DeclRef> {
+        self.eat(TokenKind::KwInt)?;
+        let (span, name) = self.eat_identifier()?;
+        Some(
+            self.result
+                .ast
+                .new_decl(Decl::Var { name, init: None }, span),
+        )
+    }
+
     fn parse_body(&mut self) -> Slice<BlockItem> {
         let base = self.block_items_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
-                TokenKind::KwInt => match self.parse_var_decl() {
+                TokenKind::KwInt => match self.parse_decl() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
                     Some(decl) => self.block_items_stack.push(BlockItem::Decl(decl)),
                 },
@@ -595,6 +663,12 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_stmt(Stmt::Continue, *span))
             }
+            TokenKind::KwGoto => {
+                self.iter.next();
+                let (_, name) = self.eat_identifier()?;
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.new_stmt(Stmt::Goto(name), *span))
+            }
             TokenKind::KwReturn => {
                 self.iter.next();
                 let expr = self.parse_expr(0)?;
@@ -606,12 +680,6 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Colon)?;
                 let stmt = self.parse_stmt()?;
                 Some(self.result.ast.new_stmt(Stmt::Default(stmt), *span))
-            }
-            TokenKind::KwGoto => {
-                self.iter.next();
-                let (_, name) = self.eat_identifier()?;
-                self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt::Goto(name), *span))
             }
             TokenKind::LBrace => {
                 self.iter.next();
@@ -626,14 +694,6 @@ impl<'a> Parser<'a> {
                 let stmt = self.parse_stmt()?;
                 Some(self.result.ast.new_stmt(Stmt::Case { expr, stmt }, *span))
             }
-            TokenKind::KwSwitch => {
-                self.iter.next();
-                self.eat(TokenKind::LParen)?;
-                let cond = self.parse_expr(0)?;
-                self.eat(TokenKind::RParen)?;
-                let body = self.parse_stmt()?;
-                Some(self.result.ast.new_stmt(Stmt::Switch { cond, body }, *span))
-            }
             TokenKind::KwWhile => {
                 self.iter.next();
                 self.eat(TokenKind::LParen)?;
@@ -641,6 +701,14 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::RParen)?;
                 let body = self.parse_stmt()?;
                 Some(self.result.ast.new_stmt(Stmt::While { cond, body }, *span))
+            }
+            TokenKind::KwSwitch => {
+                self.iter.next();
+                self.eat(TokenKind::LParen)?;
+                let cond = self.parse_expr(0)?;
+                self.eat(TokenKind::RParen)?;
+                let body = self.parse_stmt()?;
+                Some(self.result.ast.new_stmt(Stmt::Switch { cond, body }, *span))
             }
             TokenKind::KwDo => {
                 self.iter.next();
@@ -880,7 +948,6 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::RParen => Slice::default(),
             _ => {
-                self.iter.next();
                 let base = self.args_stack.len();
                 if let Some(expr) = self.parse_expr(0) {
                     self.args_stack.push(expr);
@@ -895,7 +962,6 @@ impl<'a> Parser<'a> {
                         self.args_stack.push(expr);
                     }
                 }
-                self.eat(TokenKind::RParen);
                 self.result.ast.new_args(self.args_stack.drain(base..))
             }
         }

@@ -1,5 +1,5 @@
 use jcc::{
-    ast::parse::Parser,
+    ast::{graphviz::AstGraphviz, parse::Parser},
     lex::{Lexer, LexerDiagnosticKind},
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
     tacky::TackyBuilder,
@@ -28,6 +28,9 @@ struct Args {
     /// Run until the parser and stop
     #[clap(long)]
     pub parse: bool,
+    /// Emit AST as Graphviz DOT file and stop
+    #[clap(long)]
+    pub emit_ast_graphviz: bool,
     /// Run until the semantic analyzer and stop
     #[clap(long)]
     pub validate: bool,
@@ -62,15 +65,16 @@ fn try_main() -> Result<()> {
 
     // Run the preprocessor with `gcc -E -P`
     let pp_path = args.path.with_extension("i");
-    let output = Command::new("gcc")
+    let pp_output = Command::new("gcc")
         .arg("-E")
         .arg("-P")
         .arg(&args.path)
         .arg("-o")
         .arg(&pp_path)
-        .output()?;
-    if !output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        .output()
+        .context("Failed to run preprocessor (gcc -E -P)")?;
+    if !pp_output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&pp_output.stderr));
         return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
     }
 
@@ -106,6 +110,12 @@ fn try_main() -> Result<()> {
     }
     if args.verbose {
         println!("{:#?}", parser_result.ast);
+    }
+    if args.emit_ast_graphviz {
+        let dot_path = args.path.with_extension("dot");
+        let ast_graphviz = AstGraphviz::new(&parser_result.ast, &interner);
+        let dot = ast_graphviz.emit();
+        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
     }
     if args.parse {
         return Ok(());

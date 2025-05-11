@@ -183,7 +183,7 @@ impl Ast {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct DeclRef(NonZeroU32);
+pub struct DeclRef(pub(crate)NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Decl {
@@ -207,7 +207,7 @@ impl Default for Decl {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StmtRef(NonZeroU32);
+pub struct StmtRef(pub(crate)NonZeroU32);
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
@@ -254,7 +254,7 @@ pub enum Stmt {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ExprRef(NonZeroU32);
+pub struct ExprRef(pub(crate)NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {

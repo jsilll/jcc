@@ -183,7 +183,7 @@ impl Ast {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct DeclRef(pub(crate)NonZeroU32);
+pub struct DeclRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Decl {
@@ -207,7 +207,7 @@ impl Default for Decl {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StmtRef(pub(crate)NonZeroU32);
+pub struct StmtRef(pub(crate) NonZeroU32);
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
@@ -254,7 +254,7 @@ pub enum Stmt {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct ExprRef(pub(crate)NonZeroU32);
+pub struct ExprRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Expr {
@@ -532,6 +532,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::KwInt => {
                 self.iter.next();
+                let base = self.params_stack.len();
                 if let Some(decl) = self.parse_var_decl() {
                     self.params_stack.push(decl);
                 }
@@ -545,7 +546,7 @@ impl<'a> Parser<'a> {
                         self.params_stack.push(decl);
                     }
                 }
-                self.result.ast.new_params(self.params_stack.drain(0..))
+                self.result.ast.new_params(self.params_stack.drain(base..))
             }
             _ => {
                 self.result.diagnostics.push(ParserDiagnostic {
@@ -558,6 +559,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_body(&mut self) -> Slice<BlockItem> {
+        let base = self.block_items_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
@@ -573,7 +575,7 @@ impl<'a> Parser<'a> {
         }
         self.result
             .ast
-            .new_block_items(self.block_items_stack.drain(0..))
+            .new_block_items(self.block_items_stack.drain(base..))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -878,6 +880,8 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::RParen => Slice::default(),
             _ => {
+                self.iter.next();
+                let base = self.args_stack.len();
                 if let Some(expr) = self.parse_expr(0) {
                     self.args_stack.push(expr);
                 }
@@ -892,7 +896,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.eat(TokenKind::RParen);
-                self.result.ast.new_args(self.args_stack.drain(0..))
+                self.result.ast.new_args(self.args_stack.drain(base..))
             }
         }
     }

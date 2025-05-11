@@ -1,6 +1,6 @@
 use jcc::{
+    ast::parse::Parser,
     lex::{Lexer, LexerDiagnosticKind},
-    parse::Parser,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
     tacky::TackyBuilder,
 };

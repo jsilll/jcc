@@ -1,4 +1,4 @@
-use crate::{parse, sema};
+use crate::{ast::parse, sema};
 
 use tacky::{
     source_file::SourceSpan, BinaryOp, Block, BlockRef, FnDef, Inst, Interner, Program, Symbol,

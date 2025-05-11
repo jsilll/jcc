@@ -1,5 +1,5 @@
 use crate::{
-    parse::{Ast, BlockItem, Decl, Stmt, StmtRef},
+    ast::parse::{Ast, BlockItem, Decl, Stmt, StmtRef},
     sema::SemaCtx,
 };
 

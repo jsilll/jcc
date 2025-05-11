@@ -348,10 +348,10 @@ impl<'a> TackyFnDefBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
                         parse::ForInit::Expr(expr) => {
                             self.build_from_expr(*expr);
                         }
+                        parse::ForInit::VarDecl(decl) => self.build_from_decl(*decl),
                     }
                 }
                 self.append_to_block(Inst::Jump(loop_block), *self.ast.stmt_span(stmt));
@@ -383,10 +383,10 @@ impl<'a> TackyFnDefBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
                         parse::ForInit::Expr(expr) => {
                             self.build_from_expr(*expr);
                         }
+                        parse::ForInit::VarDecl(decl) => self.build_from_decl(*decl),
                     }
                 }
                 self.append_to_block(Inst::Jump(cond_block), *self.ast.stmt_span(stmt));
@@ -429,10 +429,10 @@ impl<'a> TackyFnDefBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
                         parse::ForInit::Expr(expr) => {
                             self.build_from_expr(*expr);
                         }
+                        parse::ForInit::VarDecl(decl) => self.build_from_decl(*decl),
                     }
                 }
                 self.append_to_block(Inst::Jump(loop_block), *self.ast.stmt_span(stmt));
@@ -471,10 +471,10 @@ impl<'a> TackyFnDefBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => self.build_from_decl(*decl),
                         parse::ForInit::Expr(expr) => {
                             self.build_from_expr(*expr);
                         }
+                        parse::ForInit::VarDecl(decl) => self.build_from_decl(*decl),
                     }
                 }
                 self.append_to_block(Inst::Jump(cond_block), *self.ast.stmt_span(stmt));

@@ -142,8 +142,8 @@ impl<'a> ResolverPass<'a> {
                 self.symbols.push_scope();
                 if let Some(init) = init {
                     match init {
-                        ForInit::Decl(decl) => self.visit_decl(*decl),
                         ForInit::Expr(expr) => self.visit_expr(*expr),
+                        ForInit::VarDecl(decl) => self.visit_decl(*decl),
                     }
                 }
                 if let Some(cond) = cond {

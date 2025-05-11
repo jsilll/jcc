@@ -392,7 +392,7 @@ impl<'a> SSAFuncBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => {
+                        parse::ForInit::VarDecl(decl) => {
                             self.visit_decl(*decl);
                         }
                         parse::ForInit::Expr(expr) => {
@@ -436,7 +436,7 @@ impl<'a> SSAFuncBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => {
+                        parse::ForInit::VarDecl(decl) => {
                             self.visit_decl(*decl);
                         }
                         parse::ForInit::Expr(expr) => {
@@ -488,7 +488,7 @@ impl<'a> SSAFuncBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => {
+                        parse::ForInit::VarDecl(decl) => {
                             self.visit_decl(*decl);
                         }
                         parse::ForInit::Expr(expr) => {
@@ -541,7 +541,7 @@ impl<'a> SSAFuncBuilder<'a> {
 
                 if let Some(init) = init {
                     match init {
-                        parse::ForInit::Decl(decl) => {
+                        parse::ForInit::VarDecl(decl) => {
                             self.visit_decl(*decl);
                         }
                         parse::ForInit::Expr(expr) => {

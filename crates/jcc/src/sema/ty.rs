@@ -153,8 +153,8 @@ impl<'ctx> TyperPass<'ctx> {
             } => {
                 if let Some(init) = init {
                     match init {
-                        ForInit::Decl(decl) => self.analyze_decl(*decl),
                         ForInit::Expr(expr) => self.analyze_expr(*expr),
+                        ForInit::VarDecl(decl) => self.analyze_decl(*decl),
                     }
                 }
                 if let Some(cond) = cond {

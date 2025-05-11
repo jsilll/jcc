@@ -10,7 +10,6 @@ pub struct AstGraphviz<'a> {
     ast: &'a Ast,
     interner: &'a Interner,
     output: String,
-    buffer: String,
     /// Used for nodes that don't have a direct Ref, like "Params" or "Args"
     node_counter: u32,
 }
@@ -22,15 +21,7 @@ impl<'a> AstGraphviz<'a> {
             interner,
             node_counter: 0,
             output: String::new(),
-            buffer: String::new(),
         }
-    }
-
-    #[inline]
-    fn get_symbol_name(&mut self, symbol: Symbol) {
-        self.buffer.clear();
-        self.buffer
-            .push_str(self.interner.resolve(symbol).unwrap_or("Unknown"));
     }
 
     #[inline]
@@ -53,6 +44,11 @@ impl<'a> AstGraphviz<'a> {
         let id = self.node_counter;
         self.node_counter += 1;
         format!("aux_{}_{}", hint, id)
+    }
+
+    #[inline]
+    fn get_symbol_name(&self, symbol: Symbol) -> &str {
+        self.interner.resolve(symbol).unwrap_or("Unknown")
     }
 
     pub fn emit(mut self) -> String {
@@ -93,12 +89,11 @@ impl<'a> AstGraphviz<'a> {
 
         match decl {
             Decl::Var { name, init } => {
-                self.get_symbol_name(*name);
                 writeln!(
                     self.output,
                     "  {} [label=\"VarDecl\\nname: {}\\n(int assumed)\", fillcolor=lightgoldenrodyellow];",
                     decl_node_graph_id,
-                    self.buffer.escape_default()
+                    self.get_symbol_name(*name).to_string().escape_default()
                 )
                 .unwrap();
                 if let Some(init_expr_ref) = init {
@@ -112,12 +107,12 @@ impl<'a> AstGraphviz<'a> {
                 }
             }
             Decl::Func { name, params, body } => {
-                self.get_symbol_name(*name);
+                let symbol_name = self.get_symbol_name(*name).to_string();
                 writeln!(
                     self.output,
                     "  {} [label=\"FuncDecl\\nname: {}\\n(int assumed)\", fillcolor=palegreen];",
                     decl_node_graph_id,
-                    self.buffer.escape_default()
+                    symbol_name.escape_default()
                 )
                 .unwrap();
 
@@ -199,9 +194,9 @@ impl<'a> AstGraphviz<'a> {
             Stmt::Break => ("BreakStmt".to_string(), "lightcoral".to_string()),
             Stmt::Continue => ("ContinueStmt".to_string(), "lightsalmon".to_string()),
             Stmt::Goto(label_sym) => {
-                self.get_symbol_name(*label_sym);
+                let symbol_name = self.get_symbol_name(*label_sym);
                 (
-                    format!("GotoStmt\\nlabel: {}", self.buffer.escape_default()),
+                    format!("GotoStmt\\nlabel: {}", symbol_name.escape_default()),
                     "sandybrown".to_string(),
                 )
             }
@@ -318,12 +313,12 @@ impl<'a> AstGraphviz<'a> {
                 label,
                 stmt: labeled_stmt_ref,
             } => {
-                self.get_symbol_name(*label);
+                let symbol_name = self.get_symbol_name(*label).to_string();
                 writeln!(
                     self.output,
                     "  {} [label=\"LabelStmt\\nlabel: {}\", fillcolor=beige];",
                     stmt_node_graph_id,
-                    self.buffer.escape_default()
+                    symbol_name.escape_default()
                 )
                 .unwrap();
                 let labeled_stmt_graph_id = self.visit_stmt(*labeled_stmt_ref);
@@ -519,9 +514,9 @@ impl<'a> AstGraphviz<'a> {
         let (label, fillcolor) = match expr {
             Expr::Const(val) => (format!("Const\\nvalue: {}", val), "gold".to_string()),
             Expr::Var(name_sym) => {
-                self.get_symbol_name(*name_sym);
+                let symbol_name = self.get_symbol_name(*name_sym);
                 (
-                    format!("VarRef\\nname: {}", self.buffer.escape_default()),
+                    format!("VarRef\\nname: {}", symbol_name.escape_default()),
                     "olivedrab1".to_string(),
                 )
             }
@@ -618,12 +613,12 @@ impl<'a> AstGraphviz<'a> {
                 return expr_node_graph_id;
             }
             Expr::Call { name, args } => {
-                self.get_symbol_name(*name);
+                let symbol_name = self.get_symbol_name(*name).to_string();
                 writeln!(
                     self.output,
                     "  {} [label=\"FunctionCall\\nname: {}\", fillcolor=deepskyblue];",
                     expr_node_graph_id,
-                    self.buffer.escape_default()
+                    symbol_name.escape_default()
                 )
                 .unwrap();
 

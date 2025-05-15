@@ -1,8 +1,8 @@
 use crate::ast::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
-use tacky::{Interner, Symbol};
-
 use std::fmt::Write;
+
+use tacky::{Interner, Symbol};
 
 pub struct AstGraphviz<'a> {
     ast: &'a Ast,
@@ -19,7 +19,7 @@ impl<'a> AstGraphviz<'a> {
             interner,
             node_counter: 0,
             indent_level: 0,
-            output: String::new(),
+            output: String::with_capacity(1024),
         }
     }
 
@@ -33,51 +33,63 @@ impl<'a> AstGraphviz<'a> {
         self.indent_level -= 1;
     }
 
-    #[inline]
     fn writeln(&mut self, s: &str) {
         for _ in 0..self.indent_level {
-            self.output.push(' ');
-            self.output.push(' ');
+            self.output.push_str("  ");
         }
         self.output.push_str(s);
         self.output.push('\n');
     }
 
-    #[inline]
     fn writeln_fmt(&mut self, args: std::fmt::Arguments) {
         for _ in 0..self.indent_level {
-            self.output.push(' ');
-            self.output.push(' ');
+            self.output.push_str("  ");
         }
-        self.output.write_fmt(args).expect("invalid arguments");
+        self.output
+            .write_fmt(args)
+            .expect("Formatting AST to string failed");
         self.output.push('\n');
-    }
-
-    #[inline]
-    fn decl_node_id(&self, decl: DeclRef) -> String {
-        format!("decl_{}", decl.0.get())
-    }
-
-    #[inline]
-    fn stmt_node_id(&self, stmt: StmtRef) -> String {
-        format!("stmt_{}", stmt.0.get())
-    }
-
-    #[inline]
-    fn expr_node_id(&self, expr: ExprRef) -> String {
-        format!("expr_{}", expr.0.get())
-    }
-
-    #[inline]
-    fn get_symbol_name(&self, symbol: Symbol) -> &str {
-        self.interner.resolve(symbol).unwrap_or("Unknown")
     }
 
     #[inline]
     fn fresh_aux_node_id(&mut self, hint: &str) -> String {
         let id = self.node_counter;
         self.node_counter += 1;
-        format!("aux_{}_{}", hint, id)
+        format!("aux_{hint}_{id}")
+    }
+
+    #[inline]
+    fn get_symbol_name(&self, symbol: Symbol) -> &str {
+        self.interner.resolve(symbol).unwrap_or("UnknownSymbol")
+    }
+
+    #[inline]
+    fn define_node(&mut self, id: &str, label: &str, fillcolor: &str) {
+        self.writeln_fmt(format_args!(
+            "{id} [label=\"{label}\", fillcolor={fillcolor}];",
+        ));
+    }
+
+    #[inline]
+    fn define_edge(&mut self, from_id: &str, to_id: &str, label: Option<&str>) {
+        match label {
+            None => self.writeln_fmt(format_args!("{from_id} -> {to_id};")),
+            Some(label) => {
+                self.writeln_fmt(format_args!("{from_id} -> {to_id} [label=\"{label}\"];",))
+            }
+        }
+    }
+
+    #[inline]
+    fn define_edge_dotted(&mut self, from_id: &str, to_id: &str, label: Option<&str>) {
+        match label {
+            None => self.writeln_fmt(format_args!("{from_id} -> {to_id} [style=dotted];")),
+            Some(label) => {
+                self.writeln_fmt(format_args!(
+                    "{from_id} -> {to_id} [label=\"{label}\", style=dotted];"
+                ));
+            }
+        }
     }
 
     pub fn emit(mut self) -> String {
@@ -88,10 +100,10 @@ impl<'a> AstGraphviz<'a> {
                 "node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10];",
             );
             s.writeln("edge [fontname=\"Helvetica\", fontsize=9];");
-            s.writeln("ast_root [label=\"ProgramRoot\", fillcolor=lightblue];");
-            s.ast.root().iter().for_each(|decl| {
-                let id = s.visit_decl(*decl);
-                s.writeln_fmt(format_args!("ast_root -> {};", id));
+            s.define_node("ast_root", "ProgramRoot", "lightblue");
+            s.ast.root().iter().for_each(|decl_ref| {
+                let id = s.visit_decl(*decl_ref);
+                s.define_edge("ast_root", &id, None);
             });
         });
         self.writeln("}}");
@@ -99,247 +111,162 @@ impl<'a> AstGraphviz<'a> {
     }
 
     fn visit_decl(&mut self, decl: DeclRef) -> String {
-        let id = self.decl_node_id(decl);
+        let decl_id = format!("decl_{}", decl.0.get());
         match self.ast.decl(decl) {
             Decl::Var { name, init } => {
-                let name = self.get_symbol_name(*name).to_string();
-                self.writeln_fmt(
-                    format_args!(
-                    "{} [label=\"VarDecl\\nname: {}\\n(int assumed)\", fillcolor=lightgoldenrodyellow];",
-                    id, name.escape_default()
-                ));
+                let name = self.get_symbol_name(*name);
+                let label = format!("VarDecl\\nname: {}\\n(int assumed)", name.escape_default());
+                self.define_node(&decl_id, &label, "lightgoldenrodyellow");
                 if let Some(init) = init {
                     let init_id = self.visit_expr(*init);
-                    self.writeln_fmt(format_args!(
-                        "{} -> {} [label=\"initializer\"];",
-                        id, init_id
-                    ));
+                    self.define_edge(&decl_id, &init_id, Some("initializer"));
                 }
             }
             Decl::Func { name, params, body } => {
-                let name = self.get_symbol_name(*name).to_string();
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"FuncDecl\\nname: {}\\n(int assumed)\", fillcolor=palegreen];",
-                    id,
-                    name.escape_default()
-                ));
+                let name = self.get_symbol_name(*name);
+                let label = format!("FuncDecl\\nname: {}\\n(int assumed)", name.escape_default());
+                self.define_node(&decl_id, &label, "palegreen");
+
                 let params = self.ast.params(*params);
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
-                    self.writeln_fmt(format_args!(
-                        "{} [label=\"Parameters\", fillcolor=aliceblue];",
-                        params_id
-                    ));
-                    self.writeln_fmt(format_args!("{} -> {} [label=\"params\"];", id, params_id));
+                    self.define_node(&params_id, "Parameters", "aliceblue");
+                    self.define_edge(&decl_id, &params_id, Some("params"));
                     for (idx, param) in params.iter().enumerate() {
                         let param_id = self.visit_decl(*param);
-                        self.writeln_fmt(format_args!(
-                            "{} -> {} [label=\"param {}\"];",
-                            params_id, param_id, idx
-                        ));
+                        let edge_label = format!("param {idx}");
+                        self.define_edge(&params_id, &param_id, Some(&edge_label));
                     }
                 }
+
                 match body {
                     None => {
+                        let fwd_decl_id = format!("{decl_id}_fwd");
                         self.writeln_fmt(format_args!(
-                            "{} -> {}_fwd [label=\"body (forward)\"];",
-                            id, id
+                            "{fwd_decl_id} [label=\"Forward Declaration\", shape=plaintext, fillcolor=none];",
                         ));
-                        self.writeln_fmt(format_args!("{}_fwd [label=\"Forward Declaration\", shape=plaintext, fillcolor=none];", id));
+                        self.define_edge_dotted(&decl_id, &fwd_decl_id, Some("body (forward)"));
                     }
                     Some(body) => {
                         let body_id = self.fresh_aux_node_id("func_body");
-                        self.writeln_fmt(format_args!(
-                            "{} [label=\"Function Body\", fillcolor=whitesmoke];",
-                            body_id
-                        ));
-                        self.writeln_fmt(format_args!("{} -> {} [label=\"body\"];", id, body_id));
+                        self.define_node(&body_id, "Function Body", "whitesmoke");
+                        self.define_edge(&decl_id, &body_id, Some("body"));
                         for (idx, item) in self.ast.block_items(*body).iter().enumerate() {
-                            let item_id = self.visit_block_item(*item);
-                            self.writeln_fmt(format_args!(
-                                "{} -> {} [label=\"item {}\"];",
-                                body_id, item_id, idx,
-                            ));
+                            let item_id = match item {
+                                BlockItem::Decl(decl) => self.visit_decl(*decl),
+                                BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                            };
+                            let edge_label = format!("item {idx}");
+                            self.define_edge(&body_id, &item_id, Some(&edge_label));
                         }
                     }
                 }
             }
         }
-        id
-    }
-
-    fn visit_block_item(&mut self, item: BlockItem) -> String {
-        match item {
-            BlockItem::Decl(decl_ref) => self.visit_decl(decl_ref),
-            BlockItem::Stmt(stmt_ref) => self.visit_stmt(stmt_ref),
-        }
+        decl_id
     }
 
     fn visit_stmt(&mut self, stmt: StmtRef) -> String {
-        let stmt_id = self.stmt_node_id(stmt);
-        let (label, color) = match self.ast.stmt(stmt) {
-            Stmt::Empty => ("EmptyStmt".to_string(), "gray90".to_string()),
-            Stmt::Break => ("BreakStmt".to_string(), "lightcoral".to_string()),
-            Stmt::Continue => ("ContinueStmt".to_string(), "lightsalmon".to_string()),
-            Stmt::Goto(symbol) => {
-                let name = self.get_symbol_name(*symbol);
-                (
-                    format!("GotoStmt\\nlabel: {}", name.escape_default()),
-                    "sandybrown".to_string(),
-                )
+        let stmt_id = format!("stmt_{}", stmt.0.get());
+        match self.ast.stmt(stmt) {
+            Stmt::Empty => {
+                self.define_node(&stmt_id, "EmptyStmt", "gray90");
+            }
+            Stmt::Break => {
+                self.define_node(&stmt_id, "BreakStmt", "lightcoral");
+            }
+            Stmt::Continue => {
+                self.define_node(&stmt_id, "ContinueStmt", "lightsalmon");
             }
             Stmt::Expr(expr) => {
+                self.define_node(&stmt_id, "ExprStmt", "azure");
                 let expr_id = self.visit_expr(*expr);
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"ExprStmt\", fillcolor=azure];",
-                    stmt_id
-                ));
-                self.writeln_fmt(format_args!("{} -> {};", stmt_id, expr_id));
-                return stmt_id;
+                self.define_edge(&stmt_id, &expr_id, None);
             }
             Stmt::Return(expr) => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"ReturnStmt\", fillcolor=mediumpurple1];",
-                    stmt_id
-                ));
+                self.define_node(&stmt_id, "ReturnStmt", "mediumpurple1");
                 let expr_id = self.visit_expr(*expr);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"value\"];",
-                    stmt_id, expr_id
-                ));
-                return stmt_id;
+                self.define_edge(&stmt_id, &expr_id, Some("value"));
             }
             Stmt::Default(inner) => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"DefaultStmt (Switch)\", fillcolor=khaki];",
-                    stmt_id
-                ));
+                self.define_node(&stmt_id, "DefaultStmt (Switch)", "khaki");
                 let inner_id = self.visit_stmt(*inner);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"stmt\"];",
-                    stmt_id, inner_id
-                ));
-                return stmt_id;
+                self.define_edge(&stmt_id, &inner_id, Some("stmt"));
             }
-            Stmt::Compound(items) => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"CompoundStmt (Block)\", fillcolor=lightcyan];",
-                    stmt_id
-                ));
-                let items = self.ast.block_items(*items);
-                if items.is_empty() {
-                    self.writeln_fmt(
-                        format_args!("{}_empty_marker [label=\"(empty block)\", shape=plaintext, fillcolor=none];", stmt_id)
-                    );
-                    self.writeln_fmt(format_args!("{} -> {}_empty_marker;", stmt_id, stmt_id));
-                } else {
-                    for (idx, item) in items.iter().enumerate() {
-                        let item_id = self.visit_block_item(*item);
-                        self.writeln_fmt(format_args!(
-                            "{} -> {} [label=\"item {}\"];",
-                            stmt_id, item_id, idx
-                        ));
-                    }
-                }
-                return stmt_id;
+            Stmt::Goto(symbol) => {
+                let name = self.get_symbol_name(*symbol);
+                let label = format!("GotoStmt\\nlabel: {}", name.escape_default());
+                self.define_node(&stmt_id, &label, "sandybrown");
             }
             Stmt::Label { label, stmt: inner } => {
-                let label = self.get_symbol_name(*label).to_string();
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"LabelStmt\\nlabel: {}\", fillcolor=beige];",
-                    stmt_id,
-                    label.escape_default()
-                ));
+                let label = self.get_symbol_name(*label);
+                let label = format!("LabelStmt\\nlabel: {}", label.escape_default());
+                self.define_node(&stmt_id, &label, "beige");
                 let inner_id = self.visit_stmt(*inner);
-                self.writeln_fmt(format_args!("{} -> {};", stmt_id, inner_id));
-                return stmt_id;
+                self.define_edge(&stmt_id, &inner_id, None);
             }
             Stmt::Case { expr, stmt: inner } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"CaseStmt (Switch)\", fillcolor=khaki];",
-                    stmt_id
-                ));
+                self.define_node(&stmt_id, "CaseStmt (Switch)", "khaki");
                 let expr_id = self.visit_expr(*expr);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"condition\"];",
-                    stmt_id, expr_id
-                ));
+                self.define_edge(&stmt_id, &expr_id, Some("condition"));
                 let inner_id = self.visit_stmt(*inner);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"stmt\"];",
-                    stmt_id, inner_id
-                ));
-                return stmt_id;
+                self.define_edge(&stmt_id, &inner_id, Some("stmt"));
             }
             Stmt::Switch { cond, body } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"SwitchStmt\", fillcolor=lightpink];",
-                    stmt_id
-                ));
+                self.define_node(&stmt_id, "SwitchStmt", "lightpink");
                 let cond_id = self.visit_expr(*cond);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"condition\"];",
-                    stmt_id, cond_id
-                ));
+                self.define_edge(&stmt_id, &cond_id, Some("condition"));
                 let body_id = self.visit_stmt(*body);
-                self.writeln_fmt(format_args!("{} -> {} [label=\"body\"];", stmt_id, body_id));
-                return stmt_id;
+                self.define_edge(&stmt_id, &body_id, Some("body"));
+            }
+            Stmt::While { cond, body } => {
+                self.define_node(&stmt_id, "WhileStmt", "paleturquoise");
+                let cond_id = self.visit_expr(*cond);
+                self.define_edge(&stmt_id, &cond_id, Some("condition"));
+                let body_id = self.visit_stmt(*body);
+                self.define_edge(&stmt_id, &body_id, Some("body"));
+            }
+            Stmt::DoWhile { body, cond } => {
+                self.define_node(&stmt_id, "DoWhileStmt", "paleturquoise1");
+                let body_id = self.visit_stmt(*body);
+                self.define_edge(&stmt_id, &body_id, Some("body"));
+                let cond_id = self.visit_expr(*cond);
+                self.define_edge(&stmt_id, &cond_id, Some("condition"));
             }
             Stmt::If {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"IfStmt\", fillcolor=skyblue];",
-                    stmt_id
-                ));
+                self.define_node(&stmt_id, "IfStmt", "skyblue");
                 let cond_id = self.visit_expr(*cond);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"condition\"];",
-                    stmt_id, cond_id
-                ));
+                self.define_edge(&stmt_id, &cond_id, Some("condition"));
                 let then_id = self.visit_stmt(*then);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"then_branch\"];",
-                    stmt_id, then_id
-                ));
+                self.define_edge(&stmt_id, &then_id, Some("then_branch"));
                 if let Some(otherwise) = otherwise {
                     let otherwise_id = self.visit_stmt(*otherwise);
-                    self.writeln_fmt(format_args!(
-                        "{} -> {} [label=\"else_branch\"];",
-                        stmt_id, otherwise_id
-                    ));
+                    self.define_edge(&stmt_id, &otherwise_id, Some("else_branch"));
                 }
-                return stmt_id;
             }
-            Stmt::While { cond, body } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"WhileStmt\", fillcolor=paleturquoise];",
-                    stmt_id
-                ));
-                let cond_id = self.visit_expr(*cond);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"condition\"];",
-                    stmt_id, cond_id
-                ));
-                let body_id = self.visit_stmt(*body);
-                self.writeln_fmt(format_args!("{} -> {} [label=\"body\"];", stmt_id, body_id));
-                return stmt_id;
-            }
-            Stmt::DoWhile { body, cond } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"DoWhileStmt\", fillcolor=paleturquoise1];",
-                    stmt_id
-                ));
-                let body_id = self.visit_stmt(*body);
-                self.writeln_fmt(format_args!("{} -> {} [label=\"body\"];", stmt_id, body_id));
-                let cond_id = self.visit_expr(*cond);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"condition\"];",
-                    stmt_id, cond_id
-                ));
-                return stmt_id;
+            Stmt::Compound(items) => {
+                self.define_node(&stmt_id, "CompoundStmt (Block)", "lightcyan");
+                let items = self.ast.block_items(*items);
+                if items.is_empty() {
+                    let empty_marker_id = format!("{stmt_id}_empty_marker");
+                    self.writeln_fmt(format_args!(
+                        "{empty_marker_id} [label=\"(empty block)\", shape=plaintext, fillcolor=none];",
+                    ));
+                    self.define_edge(&stmt_id, &empty_marker_id, None);
+                } else {
+                    for (idx, item) in items.iter().enumerate() {
+                        let item_id = match item {
+                            BlockItem::Decl(decl) => self.visit_decl(*decl),
+                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        };
+                        let label = format!("item {idx}");
+                        self.define_edge(&stmt_id, &item_id, Some(&label));
+                    }
+                }
             }
             Stmt::For {
                 init,
@@ -347,160 +274,102 @@ impl<'a> AstGraphviz<'a> {
                 step,
                 body,
             } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"ForStmt\", fillcolor=thistle];",
-                    stmt_id
-                ));
+                self.define_node(&stmt_id, "ForStmt", "thistle");
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => {
                             let init_id = self.visit_expr(*expr);
-                            self.writeln_fmt(format_args!(
-                                "{} -> {} [label=\"initializer (expr)\"];",
-                                stmt_id, init_id
-                            ));
+                            self.define_edge(&stmt_id, &init_id, Some("initializer (expr)"));
                         }
                         ForInit::VarDecl(decl) => {
                             let decl_id = self.visit_decl(*decl);
-                            self.writeln_fmt(format_args!(
-                                "{} -> {} [label=\"initializer (decl)\"];",
-                                stmt_id, decl_id
-                            ));
+                            self.define_edge(&stmt_id, &decl_id, Some("initializer (decl)"));
                         }
                     }
                 }
                 if let Some(cond) = cond {
                     let cond_id = self.visit_expr(*cond);
-                    self.writeln_fmt(format_args!(
-                        "{} -> {} [label=\"condition\"];",
-                        stmt_id, cond_id
-                    ));
+                    self.define_edge(&stmt_id, &cond_id, Some("condition"));
                 }
                 if let Some(step) = step {
                     let step_id = self.visit_expr(*step);
-                    self.writeln_fmt(format_args!("{} -> {} [label=\"step\"];", stmt_id, step_id));
+                    self.define_edge(&stmt_id, &step_id, Some("step"));
                 }
                 let body_id = self.visit_stmt(*body);
-                self.writeln_fmt(format_args!("{} -> {} [label=\"body\"];", stmt_id, body_id));
-                return stmt_id;
+                self.define_edge(&stmt_id, &body_id, Some("body"));
             }
-        };
-        self.writeln_fmt(format_args!(
-            "{} [label=\"{}\", fillcolor={}];",
-            stmt_id, label, color
-        ));
+        }
         stmt_id
     }
 
     fn visit_expr(&mut self, expr: ExprRef) -> String {
-        let expr_id = self.expr_node_id(expr);
-        let (label, fillcolor) = match self.ast.expr(expr) {
-            Expr::Const(val) => (format!("Const\\nvalue: {}", val), "gold".to_string()),
-            Expr::Var(symbol) => {
-                let symbol = self.get_symbol_name(*symbol);
-                (
-                    format!("VarRef\\nname: {}", symbol.escape_default()),
-                    "olivedrab1".to_string(),
-                )
+        let expr_id = format!("expr_{}", expr.0.get());
+        match self.ast.expr(expr) {
+            Expr::Const(val) => {
+                let label = format!("Const\\nvalue: {val}");
+                self.define_node(&expr_id, &label, "gold");
             }
             Expr::Grouped(inner) => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"GroupedExpr\", fillcolor=lightgrey];",
-                    expr_id
-                ));
+                self.define_node(&expr_id, "GroupedExpr", "lightgrey");
                 let inner_id = self.visit_expr(*inner);
-                self.writeln_fmt(format_args!("{} -> {};", expr_id, inner_id));
-                return expr_id;
+                self.define_edge(&expr_id, &inner_id, None);
+            }
+            Expr::Var(symbol) => {
+                let symbol = self.get_symbol_name(*symbol);
+                let label = format!("VarRef\\nname: {}", symbol.escape_default());
+                self.define_node(&expr_id, &label, "olivedrab1");
             }
             Expr::Unary { op, expr: inner } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"UnaryOp\\nop: {:?}\", fillcolor=coral];",
-                    expr_id, op
-                ));
+                let label = format!("UnaryOp\\nop: {:?}", op);
+                self.define_node(&expr_id, &label, "coral");
                 let inner_id = self.visit_expr(*inner);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"operand\"];",
-                    expr_id, inner_id
-                ));
-                return expr_id;
+                self.define_edge(&expr_id, &inner_id, Some("operand"));
             }
             Expr::Binary { op, lhs, rhs } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"BinaryOp\\nop: {:?}\", fillcolor=orchid];",
-                    expr_id, op
-                ));
+                let label = format!("BinaryOp\\nop: {:?}", op);
+                self.define_node(&expr_id, &label, "orchid");
                 let lhs_id = self.visit_expr(*lhs);
-                self.writeln_fmt(format_args!("{} -> {} [label=\"lhs\"];", expr_id, lhs_id));
+                self.define_edge(&expr_id, &lhs_id, Some("lhs"));
                 let rhs_id = self.visit_expr(*rhs);
-                self.writeln_fmt(format_args!("{} -> {} [label=\"rhs\"];", expr_id, rhs_id));
-                return expr_id;
+                self.define_edge(&expr_id, &rhs_id, Some("rhs"));
             }
             Expr::Ternary {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"TernaryOp\", fillcolor=mediumspringgreen];",
-                    expr_id
-                ));
+                self.define_node(&expr_id, "TernaryOp", "mediumspringgreen");
                 let cond_id = self.visit_expr(*cond);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"condition\"];",
-                    expr_id, cond_id
-                ));
+                self.define_edge(&expr_id, &cond_id, Some("condition"));
                 let then_id = self.visit_expr(*then);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"then_expr\"];",
-                    expr_id, then_id
-                ));
+                self.define_edge(&expr_id, &then_id, Some("then_expr"));
                 let otherwise_id = self.visit_expr(*otherwise);
-                self.writeln_fmt(format_args!(
-                    "{} -> {} [label=\"else_expr\"];",
-                    expr_id, otherwise_id
-                ));
-                return expr_id;
+                self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
             Expr::Call { name, args } => {
-                let name = self.get_symbol_name(*name).to_string();
-                self.writeln_fmt(format_args!(
-                    "{} [label=\"FunctionCall\\nname: {}\", fillcolor=deepskyblue];",
-                    expr_id,
-                    name.escape_default()
-                ));
+                let name = self.get_symbol_name(*name);
+                let label = format!("FunctionCall\\nname: {}", name.escape_default());
+                self.define_node(&expr_id, &label, "deepskyblue");
+
                 let args = self.ast.args(*args);
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
-                    self.writeln_fmt(format_args!(
-                        "{} [label=\"Arguments\", fillcolor=aliceblue];",
-                        args_id
-                    ));
-                    self.writeln_fmt(format_args!("{} -> {} [label=\"args\"];", expr_id, args_id));
+                    self.define_node(&args_id, "Arguments", "aliceblue");
+                    self.define_edge(&expr_id, &args_id, Some("args"));
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_id = self.visit_expr(*arg);
-                        self.writeln_fmt(format_args!(
-                            "{} -> {} [label=\"arg {}\"];",
-                            args_id, arg_id, idx
-                        ));
+                        let label = format!("arg {idx}");
+                        self.define_edge(&args_id, &arg_id, Some(&label));
                     }
                 } else {
-                    let no_args_node = format!("{}_no_args_marker", expr_id);
+                    let no_args_id = format!("{expr_id}_no_args_marker");
                     self.writeln_fmt(format_args!(
-                        "{} [label=\"(no arguments)\", shape=plaintext, fillcolor=none];",
-                        no_args_node
+                        "{no_args_id} [label=\"(no arguments)\", shape=plaintext, fillcolor=none];",
                     ));
-                    self.writeln_fmt(format_args!(
-                        "{} -> {} [style=dotted];",
-                        expr_id, no_args_node
-                    ));
+                    self.define_edge_dotted(&expr_id, &no_args_id, None);
                 }
-                return expr_id;
             }
-        };
-        self.writeln_fmt(format_args!(
-            "{} [label=\"{}\", fillcolor={}];",
-            expr_id, label, fillcolor
-        ));
+        }
         expr_id
     }
 }

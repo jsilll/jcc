@@ -1,4 +1,4 @@
-use crate::ast::parse::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
+use crate::ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
 use tacky::{
     source_file::{diag::Diagnostic, SourceSpan},

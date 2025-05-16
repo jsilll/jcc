@@ -4,7 +4,7 @@ pub mod control;
 
 pub mod resolve;
 
-use crate::ast::parse::{DeclRef, ExprRef, StmtRef};
+use crate::ast::{DeclRef, ExprRef, StmtRef};
 
 use std::collections::HashMap;
 

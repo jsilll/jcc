@@ -1,5 +1,5 @@
 use crate::{
-    ast::parse::{
+    ast::{
         Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
     },
     sema::SemaCtx,

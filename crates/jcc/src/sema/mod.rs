@@ -9,7 +9,7 @@ use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// SemaCtx
+// Type
 // ---------------------------------------------------------------------------
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,11 +20,9 @@ pub enum Type {
     Func(u32),
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct SwitchCases {
-    pub cases: Vec<StmtRef>,
-    pub default: Option<StmtRef>,
-}
+// ---------------------------------------------------------------------------
+// SemaCtx
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemaCtx {
@@ -67,4 +65,10 @@ impl SemaCtx {
     pub fn expr_type_mut(&mut self, expr: ExprRef) -> &mut Type {
         &mut self.exprs_type[expr.0.get() as usize]
     }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct SwitchCases {
+    pub cases: Vec<StmtRef>,
+    pub default: Option<StmtRef>,
 }

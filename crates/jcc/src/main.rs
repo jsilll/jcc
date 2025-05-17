@@ -129,7 +129,7 @@ fn try_main() -> Result<()> {
 
     // Analyze the AST
     let mut ctx = SemaCtx::new(&ast);
-    let control_result = ControlPass::new(&mut ctx).analyze(&ast);
+    let control_result = ControlPass::new(&mut ctx).check(&ast);
     if !control_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
@@ -138,7 +138,7 @@ fn try_main() -> Result<()> {
         )?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let resolver_result = ResolverPass::new(&ast, &mut ctx).analyze();
+    let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
     if !resolver_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
             &file,
@@ -147,7 +147,7 @@ fn try_main() -> Result<()> {
         )?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
-    let typer_result = TyperPass::new(&ast, &mut ctx).analyze();
+    let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {
         source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));

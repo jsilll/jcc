@@ -49,7 +49,7 @@ impl<'a> ResolverPass<'a> {
         }
     }
 
-    pub fn analyze(mut self) -> ResolverResult {
+    pub fn check(mut self) -> ResolverResult {
         self.ast
             .root()
             .iter()

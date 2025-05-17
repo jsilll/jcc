@@ -52,16 +52,17 @@ impl<'ctx> ControlPass<'ctx> {
         }
     }
 
-    pub fn analyze(mut self, ast: &Ast) -> ControlResult {
+    pub fn check(mut self, ast: &Ast) -> ControlResult {
         ast.root().iter().for_each(|decl| match ast.decl(*decl) {
             Decl::Var { .. } => todo!("handle variable declarations"),
             Decl::Func { body, .. } => {
-                let body = body.expect("expected a function body");
-                ast.block_items(body).iter().for_each(|block_item| {
-                    if let BlockItem::Stmt(stmt) = block_item {
-                        self.visit_stmt(ast, *stmt)
-                    }
-                });
+                if let Some(body) = body {
+                    ast.block_items(*body).iter().for_each(|block_item| {
+                        if let BlockItem::Stmt(stmt) = block_item {
+                            self.visit_stmt(ast, *stmt)
+                        }
+                    });
+                }
             }
         });
         self.unresolved_labels.values().for_each(|spans| {
@@ -157,7 +158,7 @@ impl<'ctx> ControlPass<'ctx> {
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
-            }            
+            }
             Stmt::Case { stmt: inner, .. } => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),

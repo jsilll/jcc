@@ -94,18 +94,21 @@ impl<'a> TackyFnDefBuilder<'a> {
         }
     }
 
+    #[inline]
     fn make_tmp(&mut self) -> Value {
         let tmp = Value::Variable(self.tmp_count);
         self.tmp_count += 1;
         tmp
     }
 
+    #[inline]
     fn append_to_block(&mut self, instr: Inst, span: SourceSpan) {
         let root = self.fn_def.get_block_mut(self.block);
         root.instrs.push(instr);
         root.spans.push(span);
     }
 
+    #[inline]
     fn get_or_make_block(&mut self, label: Symbol) -> BlockRef {
         self.labeled_blocks
             .entry(label)
@@ -138,6 +141,7 @@ impl<'a> TackyFnDefBuilder<'a> {
     fn build_from_decl(&mut self, decl: ast::DeclRef) {
         let span = *self.ast.decl_span(decl);
         match self.ast.decl(decl) {
+            ast::Decl::Func { .. } => todo!("handle function declarations"),
             ast::Decl::Var { init, .. } => {
                 if let Some(init) = init {
                     let dst = self.get_or_make_var(decl);
@@ -145,7 +149,6 @@ impl<'a> TackyFnDefBuilder<'a> {
                     self.append_to_block(Inst::Copy { src, dst }, span);
                 }
             }
-            ast::Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 
@@ -157,18 +160,6 @@ impl<'a> TackyFnDefBuilder<'a> {
                     .break_blocks
                     .get(self.ctx.breaks.get(&stmt).expect("expected a break block"))
                     .expect("expected a break block");
-                self.append_to_block(Inst::Jump(*block), *self.ast.stmt_span(stmt));
-            }
-            ast::Stmt::Continue => {
-                let block = self
-                    .continue_blocks
-                    .get(
-                        self.ctx
-                            .continues
-                            .get(&stmt)
-                            .expect("expected a continue block"),
-                    )
-                    .expect("expected a continue block");
                 self.append_to_block(Inst::Jump(*block), *self.ast.stmt_span(stmt));
             }
             ast::Stmt::Expr(expr) => {
@@ -216,6 +207,18 @@ impl<'a> TackyFnDefBuilder<'a> {
                         ast::BlockItem::Decl(decl) => self.build_from_decl(*decl),
                         ast::BlockItem::Stmt(stmt) => self.build_from_stmt(*stmt),
                     });
+            }
+            ast::Stmt::Continue => {
+                let block = self
+                    .continue_blocks
+                    .get(
+                        self.ctx
+                            .continues
+                            .get(&stmt)
+                            .expect("expected a continue block"),
+                    )
+                    .expect("expected a continue block");
+                self.append_to_block(Inst::Jump(*block), *self.ast.stmt_span(stmt));
             }
             ast::Stmt::If {
                 cond,

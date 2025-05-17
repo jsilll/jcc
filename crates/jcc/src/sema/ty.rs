@@ -71,12 +71,12 @@ impl<'ctx> TyperPass<'ctx> {
 
     fn analyze_decl(&mut self, decl: DeclRef) {
         match self.ast.decl(decl) {
+            Decl::Func { .. } => todo!("handle function declarations"),
             Decl::Var { init, .. } => {
                 if let Some(init) = init {
                     self.analyze_expr(*init);
                 }
             }
-            Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 
@@ -87,6 +87,29 @@ impl<'ctx> TyperPass<'ctx> {
             Stmt::Return(expr) => self.analyze_expr(*expr),
             Stmt::Default(stmt) => self.analyze_stmt(*stmt),
             Stmt::Label { stmt, .. } => self.analyze_stmt(*stmt),
+            Stmt::Case { expr, stmt } => {
+                self.analyze_expr(*expr);
+                self.analyze_stmt(*stmt);
+            }
+            Stmt::While { cond, body } => {
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*body);
+            }
+            Stmt::DoWhile { body, cond } => {
+                self.analyze_stmt(*body);
+                self.analyze_expr(*cond);
+            }            
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+            } => {
+                self.analyze_expr(*cond);
+                self.analyze_stmt(*then);
+                if let Some(otherwise) = otherwise {
+                    self.analyze_stmt(*otherwise);
+                }
+            }
             Stmt::Compound(items) => {
                 self.ast
                     .block_items(*items)
@@ -96,9 +119,25 @@ impl<'ctx> TyperPass<'ctx> {
                         BlockItem::Stmt(stmt) => self.analyze_stmt(*stmt),
                     });
             }
-            Stmt::Case { expr, stmt } => {
-                self.analyze_expr(*expr);
-                self.analyze_stmt(*stmt);
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if let Some(init) = init {
+                    match init {
+                        ForInit::Expr(expr) => self.analyze_expr(*expr),
+                        ForInit::VarDecl(decl) => self.analyze_decl(*decl),
+                    }
+                }
+                if let Some(cond) = cond {
+                    self.analyze_expr(*cond);
+                }
+                if let Some(step) = step {
+                    self.analyze_expr(*step);
+                }
+                self.analyze_stmt(*body);
             }
             Stmt::Switch { cond, body } => {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
@@ -126,45 +165,6 @@ impl<'ctx> TyperPass<'ctx> {
                 self.analyze_expr(*cond);
                 self.analyze_stmt(*body);
             }
-            Stmt::If {
-                cond,
-                then,
-                otherwise,
-            } => {
-                self.analyze_expr(*cond);
-                self.analyze_stmt(*then);
-                if let Some(otherwise) = otherwise {
-                    self.analyze_stmt(*otherwise);
-                }
-            }
-            Stmt::While { cond, body } => {
-                self.analyze_expr(*cond);
-                self.analyze_stmt(*body);
-            }
-            Stmt::DoWhile { body, cond } => {
-                self.analyze_stmt(*body);
-                self.analyze_expr(*cond);
-            }
-            Stmt::For {
-                init,
-                cond,
-                step,
-                body,
-            } => {
-                if let Some(init) = init {
-                    match init {
-                        ForInit::Expr(expr) => self.analyze_expr(*expr),
-                        ForInit::VarDecl(decl) => self.analyze_decl(*decl),
-                    }
-                }
-                if let Some(cond) = cond {
-                    self.analyze_expr(*cond);
-                }
-                if let Some(step) = step {
-                    self.analyze_expr(*step);
-                }
-                self.analyze_stmt(*body);
-            }
         }
     }
 
@@ -180,6 +180,15 @@ impl<'ctx> TyperPass<'ctx> {
                 }
                 _ => self.analyze_expr(*expr),
             },
+            Expr::Ternary {
+                cond,
+                then,
+                otherwise,
+            } => {
+                self.analyze_expr(*cond);
+                self.analyze_expr(*then);
+                self.analyze_expr(*otherwise);
+            }
             Expr::Binary { op, lhs, rhs } => match op {
                 BinaryOp::Assign
                 | BinaryOp::AddAssign
@@ -201,15 +210,6 @@ impl<'ctx> TyperPass<'ctx> {
                     self.analyze_expr(*rhs);
                 }
             },
-            Expr::Ternary {
-                cond,
-                then,
-                otherwise,
-            } => {
-                self.analyze_expr(*cond);
-                self.analyze_expr(*then);
-                self.analyze_expr(*otherwise);
-            }
         }
     }
 

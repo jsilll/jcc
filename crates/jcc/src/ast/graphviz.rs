@@ -114,8 +114,8 @@ impl<'a> AstGraphviz<'a> {
         let decl_id = format!("decl_{}", decl.0.get());
         match self.ast.decl(decl) {
             Decl::Var { name, init } => {
-                let name = self.get_symbol_name(*name);
-                let label = format!("VarDecl\\nname: {}\\n(int assumed)", name.escape_default());
+                let name = self.get_symbol_name(*name).escape_default();
+                let label = format!("VarDecl\\nname: {}\\n(int assumed)", name);
                 self.define_node(&decl_id, &label, "lightgoldenrodyellow");
                 if let Some(init) = init {
                     let init_id = self.visit_expr(*init);
@@ -123,8 +123,8 @@ impl<'a> AstGraphviz<'a> {
                 }
             }
             Decl::Func { name, params, body } => {
-                let name = self.get_symbol_name(*name);
-                let label = format!("FuncDecl\\nname: {}\\n(int assumed)", name.escape_default());
+                let name = self.get_symbol_name(*name).escape_default();
+                let label = format!("FuncDecl\\nname: {}\\n(int assumed)", name);
                 self.define_node(&decl_id, &label, "palegreen");
 
                 let params = self.ast.params(*params);
@@ -193,14 +193,14 @@ impl<'a> AstGraphviz<'a> {
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"));
             }
-            Stmt::Goto(symbol) => {
-                let name = self.get_symbol_name(*symbol);
-                let label = format!("GotoStmt\\nlabel: {}", name.escape_default());
+            Stmt::Goto(name) => {
+                let name = self.get_symbol_name(*name).escape_default();
+                let label = format!("GotoStmt\\nlabel: {}", name);
                 self.define_node(&stmt_id, &label, "sandybrown");
             }
             Stmt::Label { label, stmt: inner } => {
-                let label = self.get_symbol_name(*label);
-                let label = format!("LabelStmt\\nlabel: {}", label.escape_default());
+                let label = self.get_symbol_name(*label).escape_default();
+                let label = format!("LabelStmt\\nlabel: {}", label);
                 self.define_node(&stmt_id, &label, "beige");
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, None);
@@ -315,8 +315,8 @@ impl<'a> AstGraphviz<'a> {
                 self.define_edge(&expr_id, &inner_id, None);
             }
             Expr::Var(symbol) => {
-                let symbol = self.get_symbol_name(*symbol);
-                let label = format!("VarRef\\nname: {}", symbol.escape_default());
+                let symbol = self.get_symbol_name(*symbol).escape_default();
+                let label = format!("VarRef\\nname: {}", symbol);
                 self.define_node(&expr_id, &label, "olivedrab1");
             }
             Expr::Unary { op, expr: inner } => {
@@ -347,8 +347,8 @@ impl<'a> AstGraphviz<'a> {
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
             Expr::Call { name, args } => {
-                let name = self.get_symbol_name(*name);
-                let label = format!("FunctionCall\\nname: {}", name.escape_default());
+                let name = self.get_symbol_name(*name).escape_default();
+                let label = format!("FunctionCall\\nname: {}", name);
                 self.define_node(&expr_id, &label, "deepskyblue");
 
                 let args = self.ast.args(*args);

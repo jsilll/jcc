@@ -73,6 +73,7 @@ impl<'a> ResolverPass<'a> {
 
     fn visit_decl(&mut self, decl: DeclRef) {
         match self.ast.decl(decl) {
+            Decl::Func { .. } => todo!("handle function declarations"),
             Decl::Var { name, init } => {
                 if let Some(_) = self.symbols.insert(*name, decl) {
                     self.result.diagnostics.push(ResolverDiagnostic {
@@ -84,7 +85,6 @@ impl<'a> ResolverPass<'a> {
                     self.visit_expr(*expr);
                 }
             }
-            Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 
@@ -95,17 +95,6 @@ impl<'a> ResolverPass<'a> {
             Stmt::Return(expr) => self.visit_expr(*expr),
             Stmt::Default(stmt) => self.visit_stmt(*stmt),
             Stmt::Label { stmt, .. } => self.visit_stmt(*stmt),
-            Stmt::Compound(items) => {
-                self.symbols.push_scope();
-                self.ast
-                    .block_items(*items)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.visit_decl(*decl),
-                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    });
-                self.symbols.pop_scope();
-            }
             Stmt::Case { expr, stmt } => {
                 self.visit_expr(*expr);
                 self.visit_stmt(*stmt);
@@ -114,6 +103,14 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*cond);
                 self.visit_stmt(*body);
             }
+            Stmt::While { cond, body } => {
+                self.visit_expr(*cond);
+                self.visit_stmt(*body);
+            }
+            Stmt::DoWhile { body, cond } => {
+                self.visit_stmt(*body);
+                self.visit_expr(*cond);
+            }            
             Stmt::If {
                 cond,
                 then,
@@ -125,13 +122,16 @@ impl<'a> ResolverPass<'a> {
                     self.visit_stmt(*otherwise);
                 }
             }
-            Stmt::While { cond, body } => {
-                self.visit_expr(*cond);
-                self.visit_stmt(*body);
-            }
-            Stmt::DoWhile { body, cond } => {
-                self.visit_stmt(*body);
-                self.visit_expr(*cond);
+            Stmt::Compound(items) => {
+                self.symbols.push_scope();
+                self.ast
+                    .block_items(*items)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    });
+                self.symbols.pop_scope();
             }
             Stmt::For {
                 init,
@@ -163,20 +163,11 @@ impl<'a> ResolverPass<'a> {
             Expr::Const(_) => {}
             Expr::Call { .. } => todo!("handle function calls"),
             Expr::Grouped(expr) => self.visit_expr(*expr),
-            Expr::Var(name) => match self.symbols.get(name) {
-                Some(decl_ref) => {
-                    self.ctx.vars.insert(expr, *decl_ref);
-                }
-                None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *self.ast.expr_span(expr),
-                    kind: ResolverDiagnosticKind::UndefinedVariable,
-                }),
-            },
             Expr::Unary { expr, .. } => self.visit_expr(*expr),
             Expr::Binary { lhs, rhs, .. } => {
                 self.visit_expr(*lhs);
                 self.visit_expr(*rhs);
-            }
+            }            
             Expr::Ternary {
                 cond,
                 then,
@@ -186,6 +177,15 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*then);
                 self.visit_expr(*otherwise);
             }
+            Expr::Var(name) => match self.symbols.get(name) {
+                Some(decl_ref) => {
+                    self.ctx.vars.insert(expr, *decl_ref);
+                }
+                None => self.result.diagnostics.push(ResolverDiagnostic {
+                    span: *self.ast.expr_span(expr),
+                    kind: ResolverDiagnosticKind::UndefinedVariable,
+                }),
+            },
         }
     }
 }

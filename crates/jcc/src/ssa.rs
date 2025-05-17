@@ -139,6 +139,7 @@ impl<'a> SSAFuncBuilder<'a> {
     fn visit_decl(&mut self, decl: ast::DeclRef) {
         let span = *self.ast.decl_span(decl);
         match self.ast.decl(decl) {
+            ast::Decl::Func { .. } => todo!("handle function declarations"),
             ast::Decl::Var { init, .. } => {
                 let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
                 self.append_to_block(alloca);
@@ -151,7 +152,6 @@ impl<'a> SSAFuncBuilder<'a> {
                     self.append_to_block(store);
                 }
             }
-            ast::Decl::Func { .. } => todo!("handle function declarations"),
         }
     }
 

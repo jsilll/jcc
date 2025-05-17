@@ -78,6 +78,60 @@ impl<'ctx> ControlPass<'ctx> {
     fn visit_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
         match ast.stmt(stmt) {
             Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
+            Stmt::If {
+                then, otherwise, ..
+            } => {
+                self.visit_stmt(ast, *then);
+                if let Some(otherwise) = otherwise {
+                    self.visit_stmt(ast, *otherwise);
+                }
+            }
+            Stmt::While { body, .. } => {
+                self.tracked.push(TrackedStmt::Loop(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
+            }
+            Stmt::DoWhile { body, .. } => {
+                self.tracked.push(TrackedStmt::Loop(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
+            }
+            Stmt::For { body, .. } => {
+                self.tracked.push(TrackedStmt::Loop(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
+            }
+            Stmt::Switch { body, .. } => {
+                self.tracked.push(TrackedStmt::Switch(stmt));
+                self.visit_stmt(ast, *body);
+                self.tracked.pop();
+            }
+            Stmt::Compound(stmt) => {
+                ast.block_items(*stmt)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(_) => {}
+                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
+                    });
+            }
+            Stmt::Goto(label) => {
+                if !self.defined_labels.contains(&label) {
+                    self.unresolved_labels
+                        .entry(*label)
+                        .or_insert_with(Vec::new)
+                        .push(*ast.stmt_span(stmt));
+                }
+            }
+            Stmt::Label { label, stmt: inner } => {
+                if !self.defined_labels.insert(*label) {
+                    self.result.diagnostics.push(ControlDiagnostic {
+                        span: *ast.stmt_span(stmt),
+                        kind: ControlDiagnosticKind::RedeclaredLabel,
+                    });
+                }
+                self.unresolved_labels.remove(&label);
+                self.visit_stmt(ast, *inner);
+            }
             Stmt::Break => match self.tracked.last() {
                 Some(TrackedStmt::Loop(loop_stmt)) => {
                     self.ctx.breaks.insert(stmt, *loop_stmt);
@@ -103,14 +157,25 @@ impl<'ctx> ControlPass<'ctx> {
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
-            }
-            Stmt::Goto(label) => {
-                if !self.defined_labels.contains(&label) {
-                    self.unresolved_labels
-                        .entry(*label)
-                        .or_insert_with(Vec::new)
-                        .push(*ast.stmt_span(stmt));
+            }            
+            Stmt::Case { stmt: inner, .. } => {
+                match self.tracked.iter().rev().find_map(|stmt| match stmt {
+                    TrackedStmt::Switch(stmt) => Some(stmt),
+                    _ => None,
+                }) {
+                    Some(switch_stmt) => self
+                        .ctx
+                        .switches
+                        .entry(*switch_stmt)
+                        .or_default()
+                        .cases
+                        .push(stmt),
+                    _ => self.result.diagnostics.push(ControlDiagnostic {
+                        span: *ast.stmt_span(stmt),
+                        kind: ControlDiagnosticKind::CaseOutsideSwitch,
+                    }),
                 }
+                self.visit_stmt(ast, *inner);
             }
             Stmt::Default(inner) => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
@@ -133,71 +198,6 @@ impl<'ctx> ControlPass<'ctx> {
                     }),
                 }
                 self.visit_stmt(ast, *inner);
-            }
-            Stmt::Case { stmt: inner, .. } => {
-                match self.tracked.iter().rev().find_map(|stmt| match stmt {
-                    TrackedStmt::Switch(stmt) => Some(stmt),
-                    _ => None,
-                }) {
-                    Some(switch_stmt) => self
-                        .ctx
-                        .switches
-                        .entry(*switch_stmt)
-                        .or_default()
-                        .cases
-                        .push(stmt),
-                    _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.stmt_span(stmt),
-                        kind: ControlDiagnosticKind::CaseOutsideSwitch,
-                    }),
-                }
-                self.visit_stmt(ast, *inner);
-            }
-            Stmt::Label { label, stmt: inner } => {
-                if !self.defined_labels.insert(*label) {
-                    self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.stmt_span(stmt),
-                        kind: ControlDiagnosticKind::RedeclaredLabel,
-                    });
-                }
-                self.unresolved_labels.remove(&label);
-                self.visit_stmt(ast, *inner);
-            }
-            Stmt::Compound(stmt) => {
-                ast.block_items(*stmt)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
-                    });
-            }
-            Stmt::Switch { body, .. } => {
-                self.tracked.push(TrackedStmt::Switch(stmt));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
-            }
-            Stmt::If {
-                then, otherwise, ..
-            } => {
-                self.visit_stmt(ast, *then);
-                if let Some(otherwise) = otherwise {
-                    self.visit_stmt(ast, *otherwise);
-                }
-            }
-            Stmt::While { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
-            }
-            Stmt::DoWhile { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
-            }
-            Stmt::For { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
             }
         }
     }

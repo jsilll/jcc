@@ -127,6 +127,7 @@ impl<'a> Lexer<'a> {
         self.result
     }
 
+    #[inline]
     fn push_token(&mut self, kind: TokenKind, len: u32) {
         self.result.tokens.push(Token {
             kind,

@@ -62,10 +62,9 @@ impl<'a> Parser<'a> {
 
     pub fn parse(mut self) -> ParserResult {
         while let Some(_) = self.iter.peek() {
-            if let Some(decl) = self.parse_func_decl() {
-                self.result.ast.root.push(decl);
-            } else {
-                self.sync(TokenKind::Semi, TokenKind::KwInt);
+            match self.parse_func_decl() {
+                Some(decl) => self.result.ast.root.push(decl),
+                None => self.sync(TokenKind::Semi, TokenKind::KwInt),
             }
         }
         self.result
@@ -80,24 +79,14 @@ impl<'a> Parser<'a> {
     fn parse_decl(&mut self) -> Option<DeclRef> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
-        let Some(token) = self.iter.peek() else {
-            self.result.diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
-            return None;
-        };
+        let token = self.eat_some()?;
         match token.kind {
-            TokenKind::Semi => {
-                self.iter.next();
-                Some(
-                    self.result
-                        .ast
-                        .new_decl(Decl::Var { name, init: None }, span),
-                )
-            }
+            TokenKind::Semi => Some(
+                self.result
+                    .ast
+                    .new_decl(Decl::Var { name, init: None }, span),
+            ),
             TokenKind::Eq => {
-                self.iter.next();
                 let init = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_decl(
@@ -109,7 +98,6 @@ impl<'a> Parser<'a> {
                 ))
             }
             TokenKind::LParen => {
-                self.iter.next();
                 let params = self.parse_params();
                 self.eat(TokenKind::RParen)?;
                 let body = if let Some(Token {
@@ -132,10 +120,11 @@ impl<'a> Parser<'a> {
                 )
             }
             _ => {
-                self.result.diagnostics.push(ParserDiagnostic {
+                let diagnostic = ParserDiagnostic {
                     span: token.span,
                     kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
-                });
+                };
+                self.result.diagnostics.push(diagnostic);
                 None
             }
         }
@@ -185,11 +174,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_params(&mut self) -> Slice<DeclRef> {
-        let Some(token) = self.iter.peek() else {
-            self.result.diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
+        let Some(token) = self.peek_some() else {
             return Slice::default();
         };
         match token.kind {
@@ -216,10 +201,11 @@ impl<'a> Parser<'a> {
                 self.result.ast.new_params(self.params_stack.drain(base..))
             }
             _ => {
-                self.result.diagnostics.push(ParserDiagnostic {
+                let diagnostic = ParserDiagnostic {
                     span: token.span,
-                    kind: ParserDiagnosticKind::UnexpectedToken,
-                });
+                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::RParen),
+                };
+                self.result.diagnostics.push(diagnostic);
                 Slice::default()
             }
         }
@@ -465,23 +451,34 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
-        let Token { kind, span } = self.iter.peek()?;
+        #[inline]
+        fn parse_prefix_operator(
+            parser: &mut Parser,
+            op: UnaryOp,
+            span: &SourceSpan,
+        ) -> Option<ExprRef> {
+            let expr = parser.parse_expr_prefix()?;
+            Some(parser.result.ast.new_expr(Expr::Unary { op, expr }, *span))
+        }
+        let Token { kind, span } = self.iter.next()?;
         match kind {
+            TokenKind::Minus => parse_prefix_operator(self, UnaryOp::Neg, span),
+            TokenKind::Tilde => parse_prefix_operator(self, UnaryOp::BitNot, span),
+            TokenKind::Bang => parse_prefix_operator(self, UnaryOp::LogicalNot, span),
+            TokenKind::PlusPlus => parse_prefix_operator(self, UnaryOp::PreInc, span),
+            TokenKind::MinusMinus => parse_prefix_operator(self, UnaryOp::PreDec, span),
             TokenKind::LParen => {
-                self.iter.next();
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 let expr = self.result.ast.new_expr(Expr::Grouped(expr), *span);
                 Some(self.parse_expr_postfix(expr))
             }
             TokenKind::Number => {
-                self.iter.next();
                 let number = self.file.slice(*span).expect("expected span to be valid");
                 let number = number.parse().expect("expected number to be valid");
                 Some(self.result.ast.new_expr(Expr::Const(number), *span))
             }
             TokenKind::Identifier => {
-                self.iter.next();
                 let name = self.intern_span(span);
                 let expr = self.result.ast.new_expr(Expr::Var(name), *span);
                 match self.iter.peek() {
@@ -497,11 +494,6 @@ impl<'a> Parser<'a> {
                     _ => Some(self.parse_expr_postfix(expr)),
                 }
             }
-            TokenKind::Minus => self.parse_prefix_operator(UnaryOp::Neg, span),
-            TokenKind::Tilde => self.parse_prefix_operator(UnaryOp::BitNot, span),
-            TokenKind::Bang => self.parse_prefix_operator(UnaryOp::LogicalNot, span),
-            TokenKind::PlusPlus => self.parse_prefix_operator(UnaryOp::PreInc, span),
-            TokenKind::MinusMinus => self.parse_prefix_operator(UnaryOp::PreDec, span),
             _ => {
                 self.result.diagnostics.push(ParserDiagnostic {
                     span: *span,
@@ -510,13 +502,6 @@ impl<'a> Parser<'a> {
                 None
             }
         }
-    }
-
-    #[inline]
-    fn parse_prefix_operator(&mut self, op: UnaryOp, span: &SourceSpan) -> Option<ExprRef> {
-        self.iter.next();
-        let expr = self.parse_expr_prefix()?;
-        Some(self.result.ast.new_expr(Expr::Unary { op, expr }, *span))
     }
 
     fn parse_expr_postfix(&mut self, mut expr: ExprRef) -> ExprRef {
@@ -547,11 +532,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_args(&mut self) -> Slice<ExprRef> {
-        let Some(token) = self.iter.peek() else {
-            self.result.diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
+        let Some(token) = self.peek_some() else {
             return Slice::default();
         };
         match token.kind {
@@ -587,6 +568,26 @@ impl<'a> Parser<'a> {
             }
             self.iter.next();
         }
+    }
+
+    fn peek_some(&mut self) -> Option<&&Token> {
+        self.iter.peek().or_else(|| {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })
+    }
+
+    fn eat_some(&mut self) -> Option<&Token> {
+        self.iter.next().or_else(|| {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
+            None
+        })
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<&Token> {

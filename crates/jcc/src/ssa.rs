@@ -118,7 +118,7 @@ impl<'a> SSAFuncBuilder<'a> {
     #[inline]
     fn get_var_decl(&self, expr: ast::ExprRef) -> ast::DeclRef {
         self.ctx
-            .vars
+            .names
             .get(&expr)
             .copied()
             .expect("expected a variable declaration")

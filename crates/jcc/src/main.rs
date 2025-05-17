@@ -128,7 +128,7 @@ fn try_main() -> Result<()> {
     let ast = parser_result.ast;
 
     // Analyze the AST
-    let mut ctx = SemaCtx::default();
+    let mut ctx = SemaCtx::new(&ast);
     let control_result = ControlPass::new(&mut ctx).analyze(&ast);
     if !control_result.diagnostics.is_empty() {
         source_file::diag::report_batch(

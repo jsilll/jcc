@@ -36,7 +36,7 @@ pub struct ResolverPass<'a> {
     ast: &'a Ast,
     ctx: &'a mut SemaCtx,
     result: ResolverResult,
-    symbols: SymbolTable<Symbol, DeclRef>,
+    symbols: SymbolTable<Symbol, SymbolEntry>,
 }
 
 impl<'a> ResolverPass<'a> {
@@ -55,16 +55,30 @@ impl<'a> ResolverPass<'a> {
             .iter()
             .for_each(|decl| match self.ast.decl(*decl) {
                 Decl::Var { .. } => todo!("handle variable declarations"),
-                Decl::Func { body, .. } => {
-                    let body = body.expect("expected a function body");
+                Decl::Func { name, body, params } => {
+                    if let Some(entry) =
+                        self.symbols.insert(*name, SymbolEntry::with_linkage(*decl))
+                    {
+                        if !entry.has_linkage {
+                            self.result.diagnostics.push(ResolverDiagnostic {
+                                span: *self.ast.decl_span(*decl),
+                                kind: ResolverDiagnosticKind::RedeclaredFunction,
+                            });
+                        }
+                    }
                     self.symbols.push_scope();
                     self.ast
-                        .block_items(body)
+                        .params(*params)
                         .iter()
-                        .for_each(|block_item| match block_item {
-                            BlockItem::Decl(decl) => self.visit_decl(*decl),
-                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                        });
+                        .for_each(|param| self.visit_decl(*param));
+                    if let Some(body) = body {
+                        self.ast.block_items(*body).iter().for_each(
+                            |block_item| match block_item {
+                                BlockItem::Decl(decl) => self.visit_decl(*decl),
+                                BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                            },
+                        );
+                    }
                     self.symbols.pop_scope();
                 }
             });
@@ -73,9 +87,17 @@ impl<'a> ResolverPass<'a> {
 
     fn visit_decl(&mut self, decl: DeclRef) {
         match self.ast.decl(decl) {
-            Decl::Func { .. } => todo!("handle function declarations"),
+            Decl::Func { body: Some(_), .. } => {
+                self.result.diagnostics.push(ResolverDiagnostic {
+                    span: *self.ast.decl_span(decl),
+                    kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
+                });
+            }
             Decl::Var { name, init } => {
-                if let Some(_) = self.symbols.insert(*name, decl) {
+                if let Some(_) = self
+                    .symbols
+                    .insert(*name, SymbolEntry::without_linkage(decl))
+                {
                     self.result.diagnostics.push(ResolverDiagnostic {
                         span: *self.ast.decl_span(decl),
                         kind: ResolverDiagnosticKind::RedeclaredVariable,
@@ -84,6 +106,27 @@ impl<'a> ResolverPass<'a> {
                 if let Some(expr) = init {
                     self.visit_expr(*expr);
                 }
+            }
+            Decl::Func {
+                name,
+                params,
+                body: None,
+                ..
+            } => {
+                if let Some(entry) = self.symbols.insert(*name, SymbolEntry::with_linkage(decl)) {
+                    if !entry.has_linkage {
+                        self.result.diagnostics.push(ResolverDiagnostic {
+                            span: *self.ast.decl_span(decl),
+                            kind: ResolverDiagnosticKind::RedeclaredFunction,
+                        });
+                    }
+                }
+                self.symbols.push_scope();
+                self.ast
+                    .params(*params)
+                    .iter()
+                    .for_each(|param| self.visit_decl(*param));
+                self.symbols.pop_scope();
             }
         }
     }
@@ -110,7 +153,7 @@ impl<'a> ResolverPass<'a> {
             Stmt::DoWhile { body, cond } => {
                 self.visit_stmt(*body);
                 self.visit_expr(*cond);
-            }            
+            }
             Stmt::If {
                 cond,
                 then,
@@ -161,13 +204,12 @@ impl<'a> ResolverPass<'a> {
     fn visit_expr(&mut self, expr: ExprRef) {
         match self.ast.expr(expr) {
             Expr::Const(_) => {}
-            Expr::Call { .. } => todo!("handle function calls"),
             Expr::Grouped(expr) => self.visit_expr(*expr),
             Expr::Unary { expr, .. } => self.visit_expr(*expr),
             Expr::Binary { lhs, rhs, .. } => {
                 self.visit_expr(*lhs);
                 self.visit_expr(*rhs);
-            }            
+            }
             Expr::Ternary {
                 cond,
                 then,
@@ -178,14 +220,31 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*otherwise);
             }
             Expr::Var(name) => match self.symbols.get(name) {
-                Some(decl_ref) => {
-                    self.ctx.vars.insert(expr, *decl_ref);
+                Some(entry) => {
+                    self.ctx.names.insert(expr, entry.decl);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: *self.ast.expr_span(expr),
                     kind: ResolverDiagnosticKind::UndefinedVariable,
                 }),
             },
+            Expr::Call { name, args } => {
+                match self.symbols.get(name) {
+                    Some(entry) => {
+                        self.ctx.names.insert(expr, entry.decl);
+                    }
+                    None => {
+                        self.result.diagnostics.push(ResolverDiagnostic {
+                            span: *self.ast.expr_span(expr),
+                            kind: ResolverDiagnosticKind::UndefinedFunction,
+                        });
+                    }
+                }
+                self.ast
+                    .args(*args)
+                    .iter()
+                    .for_each(|arg| self.visit_expr(*arg));
+            }
         }
     }
 }
@@ -197,7 +256,10 @@ impl<'a> ResolverPass<'a> {
 #[derive(Clone, PartialEq, Eq)]
 pub enum ResolverDiagnosticKind {
     UndefinedVariable,
+    UndefinedFunction,
     RedeclaredVariable,
+    RedeclaredFunction,
+    IllegalLocalFunctionDefinition,
 }
 
 impl From<ResolverDiagnostic> for Diagnostic {
@@ -208,11 +270,51 @@ impl From<ResolverDiagnostic> for Diagnostic {
                 "undefined variable",
                 "this variable is not declared",
             ),
+            ResolverDiagnosticKind::UndefinedFunction => Diagnostic::error(
+                diagnostic.span,
+                "undefined function",
+                "this function is not declared",
+            ),
             ResolverDiagnosticKind::RedeclaredVariable => Diagnostic::error(
                 diagnostic.span,
                 "redeclared variable",
                 "this variable is already declared",
             ),
+            ResolverDiagnosticKind::RedeclaredFunction => Diagnostic::error(
+                diagnostic.span,
+                "redeclared function",
+                "this function is already declared",
+            ),
+            ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error(
+                diagnostic.span,
+                "illegal local function definition",
+                "local function definitions are not allowed",
+            ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Auxiliary structures
+// ---------------------------------------------------------------------------
+
+struct SymbolEntry {
+    pub decl: DeclRef,
+    pub has_linkage: bool,
+}
+
+impl SymbolEntry {
+    fn with_linkage(decl: DeclRef) -> Self {
+        Self {
+            decl,
+            has_linkage: true,
+        }
+    }
+
+    fn without_linkage(decl: DeclRef) -> Self {
+        Self {
+            decl,
+            has_linkage: false,
         }
     }
 }
@@ -222,7 +324,7 @@ impl From<ResolverDiagnostic> for Diagnostic {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-pub struct SymbolTable<S, V> {
+struct SymbolTable<S, V> {
     global: HashMap<S, V>,
     scopes: Vec<HashMap<S, V>>,
 }

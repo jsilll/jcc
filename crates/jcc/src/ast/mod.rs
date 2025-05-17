@@ -62,7 +62,22 @@ impl Ast {
 
     #[inline]
     pub fn root(&self) -> &[DeclRef] {
-        &self.root
+        self.root.as_slice()
+    }
+
+    #[inline]
+    pub fn decls(&self) -> &[Decl] {
+        &self.decls[1..]
+    }
+
+    #[inline]
+    pub fn stmts(&self) -> &[Stmt] {
+        &self.stmts[1..]
+    }
+
+    #[inline]
+    pub fn exprs(&self) -> &[Expr] {
+        &self.exprs[1..]
     }
 
     #[inline]

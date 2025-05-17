@@ -563,7 +563,7 @@ impl<'a> TackyFnDefBuilder<'a> {
             ast::Expr::Call { .. } => todo!("handle function calls"),
             ast::Expr::Const(c) => Value::Const(*c),
             ast::Expr::Grouped(expr) => self.build_from_expr(*expr),
-            ast::Expr::Var(_) => self.get_or_make_some_var(self.ctx.vars.get(&expr).cloned()),
+            ast::Expr::Var(_) => self.get_or_make_some_var(self.ctx.names.get(&expr).cloned()),
             ast::Expr::Unary { op, expr } => match op {
                 ast::UnaryOp::Neg => self.build_unary_op(UnaryOp::Neg, *expr, span),
                 ast::UnaryOp::BitNot => self.build_unary_op(UnaryOp::BitNot, *expr, span),

@@ -2,7 +2,7 @@ use crate::{
     ast::{
         Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
     },
-    sema::SemaCtx,
+    sema::{SemaCtx, Type},
 };
 
 use tacky::source_file::{diag::Diagnostic, SourceSpan};
@@ -75,6 +75,7 @@ impl<'ctx> TyperPass<'ctx> {
             Decl::Var { init, .. } => {
                 if let Some(init) = init {
                     self.analyze_expr(*init);
+                    *self.ctx.decl_type_mut(decl) = *self.ctx.expr_type(*init);
                 }
             }
         }
@@ -98,7 +99,7 @@ impl<'ctx> TyperPass<'ctx> {
             Stmt::DoWhile { body, cond } => {
                 self.analyze_stmt(*body);
                 self.analyze_expr(*cond);
-            }            
+            }
             Stmt::If {
                 cond,
                 then,
@@ -169,6 +170,7 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn analyze_expr(&mut self, expr: ExprRef) {
+        *self.ctx.expr_type_mut(expr) = Type::Int;
         match self.ast.expr(expr) {
             Expr::Call { .. } => todo!("handle function calls"),
             Expr::Var { .. } | Expr::Const(_) => {}

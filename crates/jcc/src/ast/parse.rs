@@ -61,7 +61,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(mut self) -> ParserResult {
-        while let Some(_) = self.iter.peek() {
+        while self.iter.peek().is_some() {
             match self.parse_func_decl() {
                 Some(decl) => self.result.ast.root.push(decl),
                 None => self.sync(TokenKind::Semi, TokenKind::KwInt),
@@ -369,7 +369,7 @@ impl<'a> Parser<'a> {
                     *span,
                 ))
             }
-            TokenKind::Identifier => match self.iter.clone().skip(1).next() {
+            TokenKind::Identifier => match self.iter.clone().nth(1) {
                 Some(Token {
                     kind: TokenKind::Colon,
                     ..

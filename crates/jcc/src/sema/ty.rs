@@ -71,7 +71,7 @@ impl<'ctx> TyperPass<'ctx> {
             });
             return false;
         }
-        return true;
+        true
     }
 
     fn visit_decl(&mut self, decl: DeclRef) {
@@ -94,7 +94,7 @@ impl<'ctx> TyperPass<'ctx> {
                     .iter()
                     .for_each(|param| self.visit_decl(*param));
 
-                let ty = Type::Func(params.len() as u32);
+                let ty = Type::Func(params.len());
                 *self.ctx.decl_type_mut(decl) = ty;
 
                 let entry = self
@@ -272,7 +272,7 @@ impl<'ctx> TyperPass<'ctx> {
                 let decl = self.ctx.names.get(&expr).expect("decl not found");
                 match self.ctx.decl_type(*decl) {
                     Type::Func(arity) => {
-                        if *arity != args.len() as u32 {
+                        if *arity != args.len() {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: *self.ast.expr_span(expr),
                                 kind: TyperDiagnosticKind::FunctionTypeMismatch,

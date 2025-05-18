@@ -81,27 +81,27 @@ fn try_main() -> Result<()> {
 
     // Lex file
     let mut interner = Interner::new();
-    let mut lexer_result = Lexer::new(&file).lex();
+    let mut lexer_result = Lexer::new(file).lex();
     if args.lex {
         lexer_result
             .diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
     }
     if args.lex {
         return Ok(());
     }
 
     // Parse tokens
-    let parser_result = Parser::new(&file, &mut interner, lexer_result.tokens.iter()).parse();
+    let parser_result = Parser::new(file, &mut interner, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.verbose {
@@ -127,17 +127,13 @@ fn try_main() -> Result<()> {
     let mut ctx = SemaCtx::new(&ast);
     let control_result = ControlPass::new(&mut ctx).check(&ast);
     if !control_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(
-            &file,
-            &mut std::io::stderr(),
-            &control_result.diagnostics,
-        )?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
     let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
     if !resolver_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
-            &file,
+            file,
             &mut std::io::stderr(),
             &resolver_result.diagnostics,
         )?;
@@ -145,7 +141,7 @@ fn try_main() -> Result<()> {
     }
     let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.verbose {
@@ -155,7 +151,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    let ssa = jcc::ssa::build(&ast, &mut ctx, interner);
+    let ssa = jcc::ssa::build(&ast, &ctx, interner);
     if args.verbose {
         println!("{}", ssa);
     }
@@ -199,7 +195,7 @@ fn try_main() -> Result<()> {
     }
     cmd.arg(&asm_path)
         .arg("-o")
-        .arg(&args.path.with_extension(extension));
+        .arg(args.path.with_extension(extension));
     let output = cmd.output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));

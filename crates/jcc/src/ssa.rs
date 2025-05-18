@@ -78,10 +78,9 @@ impl<'a> SSAFuncBuilder<'a> {
                         ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
                     });
                 let append_return = match self.ast.block_items(body).last() {
-                    Some(ast::BlockItem::Stmt(stmt)) => match self.ast.stmt(*stmt) {
-                        ast::Stmt::Return(_) => false,
-                        _ => true,
-                    },
+                    Some(ast::BlockItem::Stmt(stmt)) => {
+                        !matches!(self.ast.stmt(*stmt), ast::Stmt::Return(_))
+                    }
                     _ => true,
                 };
                 if append_return {
@@ -126,14 +125,11 @@ impl<'a> SSAFuncBuilder<'a> {
 
     #[inline]
     fn get_or_make_labeled_block(&mut self, label: Symbol, span: SourceSpan) -> ssa::BlockRef {
-        self.labeled_blocks
-            .entry(label)
-            .or_insert_with(|| {
-                let block = self.prog.new_block_with_span_interned(label, span);
-                self.prog.func_mut(self.func).blocks.push(block);
-                block
-            })
-            .clone()
+        *self.labeled_blocks.entry(label).or_insert_with(|| {
+            let block = self.prog.new_block_with_span_interned(label, span);
+            self.prog.func_mut(self.func).blocks.push(block);
+            block
+        })
     }
 
     fn visit_decl(&mut self, decl: ast::DeclRef) {
@@ -156,7 +152,7 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn visit_stmt(&mut self, stmt: ast::StmtRef) {
-        let span = self.ast.stmt_span(stmt).clone();
+        let span = *self.ast.stmt_span(stmt);
         match self.ast.stmt(stmt) {
             ast::Stmt::Empty => {}
             ast::Stmt::Expr(expr) => {
@@ -632,7 +628,7 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn visit_expr(&mut self, expr: ast::ExprRef, mode: ExprMode) -> ssa::InstRef {
-        let span = self.ast.expr_span(expr).clone();
+        let span = *self.ast.expr_span(expr);
         match self.ast.expr(expr) {
             ast::Expr::Call { .. } => todo!("handle function calls"),
             ast::Expr::Grouped(expr) => self.visit_expr(*expr, mode),

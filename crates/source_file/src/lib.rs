@@ -48,11 +48,11 @@ impl Add<u32> for SourceSpan {
     }
 }
 
-impl Into<Range<u32>> for SourceSpan {
-    fn into(self) -> Range<u32> {
+impl From<SourceSpan> for Range<u32> {
+    fn from(val: SourceSpan) -> Self {
         Range {
-            start: self.start,
-            end: self.end,
+            start: val.start,
+            end: val.end,
         }
     }
 }

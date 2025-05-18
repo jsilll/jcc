@@ -305,7 +305,7 @@ impl std::fmt::Display for Inst {
 
 impl std::fmt::Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(_) = &self.label {
+        if self.label.is_some() {
             write!(f, "<block with label>:")?;
         } else {
             write!(f, "<block without label>:")?;

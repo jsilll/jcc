@@ -53,30 +53,27 @@ impl<'a> AMD64FuncBuilder<'a> {
 
     #[inline]
     fn get_operand(&self, inst: &crate::InstRef) -> Operand {
-        self.operands
-            .get(&inst)
+        *self.operands
+            .get(inst)
             .expect("expected a variable")
-            .clone()
     }
 
     #[inline]
     fn get_or_make_operand(&mut self, inst: crate::InstRef) -> Operand {
-        self.operands
+        *self.operands
             .entry(inst)
             .or_insert_with(|| {
                 let tmp = Operand::Pseudo(self.pseudo_count);
                 self.pseudo_count += 1;
                 tmp
             })
-            .clone()
     }
 
     #[inline]
     fn get_or_make_block(&mut self, block: crate::BlockRef) -> BlockRef {
-        self.blocks
+        *self.blocks
             .entry(block)
             .or_insert_with(|| self.prog.0.push_block(Block::default()))
-            .clone()
     }
 
     #[inline]
@@ -105,12 +102,12 @@ impl<'a> AMD64FuncBuilder<'a> {
                 self.append_to_block(Inst::Jmp(block), span);
             }
             crate::InstKind::Identity(val) => {
-                self.operands.insert(i, self.get_operand(&val));
+                self.operands.insert(i, self.get_operand(val));
             }
             crate::InstKind::Ret(val) => {
                 self.append_to_block(
                     Inst::Mov {
-                        src: self.get_operand(&val),
+                        src: self.get_operand(val),
                         dst: Operand::Reg(Reg::Rax),
                     },
                     span,
@@ -122,7 +119,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                 self.operands.insert(i, dst);
                 self.append_to_block(
                     Inst::Mov {
-                        src: self.get_operand(&ptr),
+                        src: self.get_operand(ptr),
                         dst,
                     },
                     span,
@@ -131,8 +128,8 @@ impl<'a> AMD64FuncBuilder<'a> {
             crate::InstKind::Store { ptr, val } => {
                 self.append_to_block(
                     Inst::Mov {
-                        src: self.get_operand(&val),
-                        dst: self.get_operand(&ptr),
+                        src: self.get_operand(val),
+                        dst: self.get_operand(ptr),
                     },
                     span,
                 );
@@ -142,13 +139,13 @@ impl<'a> AMD64FuncBuilder<'a> {
                 self.append_to_block(
                     Inst::Mov {
                         dst,
-                        src: self.get_operand(&val),
+                        src: self.get_operand(val),
                     },
                     span,
                 );
             }
             crate::InstKind::Branch { cond, then, other } => {
-                let cond = self.get_operand(&cond);
+                let cond = self.get_operand(cond);
                 let then = self.get_or_make_block(*then);
                 let other = self.get_or_make_block(*other);
                 self.append_to_block(
@@ -172,7 +169,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                 default,
                 cases,
             } => {
-                let cond = self.get_operand(&cond);
+                let cond = self.get_operand(cond);
                 cases.iter().for_each(|(val, block)| {
                     let block = self.get_or_make_block(*block);
                     self.append_to_block(
@@ -196,7 +193,7 @@ impl<'a> AMD64FuncBuilder<'a> {
             crate::InstKind::Unary { op, val } => {
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
-                let src = self.get_operand(&val);
+                let src = self.get_operand(val);
                 match op {
                     crate::UnaryOp::Not => self.build_unary(UnaryOp::Not, src, dst, span),
                     crate::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, src, dst, span),
@@ -207,8 +204,8 @@ impl<'a> AMD64FuncBuilder<'a> {
             crate::InstKind::Binary { op, lhs, rhs } => {
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
-                let lhs = self.get_operand(&lhs);
-                let rhs = self.get_operand(&rhs);
+                let lhs = self.get_operand(lhs);
+                let rhs = self.get_operand(rhs);
                 match op {
                     crate::BinaryOp::Or => self.build_binary(BinaryOp::Or, lhs, rhs, dst, span),
                     crate::BinaryOp::And => self.build_binary(BinaryOp::And, lhs, rhs, dst, span),

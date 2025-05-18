@@ -399,6 +399,11 @@ impl<T> Slice<T> {
     pub fn len(&self) -> u32 {
         self.1 - self.0
     }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0 == self.1
+    }
 }
 
 impl<T> Default for Slice<T> {

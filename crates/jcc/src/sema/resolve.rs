@@ -95,9 +95,9 @@ impl<'a> ResolverPass<'a> {
                 });
             }
             Decl::Var { name, init } => {
-                if let Some(_) = self
+                if self
                     .symbols
-                    .insert(*name, SymbolEntry::without_linkage(decl))
+                    .insert(*name, SymbolEntry::without_linkage(decl)).is_some()
                 {
                     self.result.diagnostics.push(ResolverDiagnostic {
                         span: *self.ast.decl_span(decl),

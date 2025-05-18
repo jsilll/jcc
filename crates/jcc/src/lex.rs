@@ -60,7 +60,7 @@ impl<'a> Lexer<'a> {
             self.idx = idx;
             match c {
                 c if c.is_whitespace() => continue,
-                c if c.is_digit(10) => self.handle_number(),
+                c if c.is_ascii_digit() => self.handle_number(),
                 c if c.is_ascii_alphabetic() || c == '_' => self.handle_word(),
                 ';' => self.push_token(TokenKind::Semi, 1),
                 ',' => self.push_token(TokenKind::Comma, 1),
@@ -206,7 +206,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn handle_number(&mut self) {
-        let end = self.consume_while(|c| c.is_digit(10));
+        let end = self.consume_while(|c| c.is_ascii_digit());
         if let Some((_, c)) = self.chars.peek() {
             if c.is_ascii_alphabetic() {
                 self.result.diagnostics.push(LexerDiagnostic {
@@ -270,8 +270,7 @@ impl<'a> Lexer<'a> {
             self.chars.next();
         }
         self.chars
-            .peek()
-            .and_then(|(idx, _)| Some(*idx as u32))
+            .peek().map(|(idx, _)| *idx as u32)
             .unwrap_or(self.idx + 1)
     }
 }

@@ -188,13 +188,13 @@ impl Inst {
     }
 
     pub fn has_side_effects(&self) -> bool {
-        match self.kind {
+        matches!(
+            self.kind,
             InstKind::Ret(_)
-            | InstKind::Jump(_)
-            | InstKind::Branch { .. }
-            | InstKind::Switch { .. } => true,
-            _ => false,
-        }
+                | InstKind::Jump(_)
+                | InstKind::Branch { .. }
+                | InstKind::Switch { .. }
+        )
     }
 
     pub fn get_args(&self, args: &mut Vec<InstRef>) {
@@ -644,7 +644,7 @@ impl Program {
         for (idx, block) in self.blocks.iter().enumerate() {
             for succ in &block.succs {
                 pred.entry(*succ)
-                    .or_insert(Vec::new())
+                    .or_default()
                     .push(BlockRef(NonZeroU32::new(idx as u32).unwrap()));
             }
         }

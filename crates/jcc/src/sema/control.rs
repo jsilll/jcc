@@ -108,10 +108,10 @@ impl<'ctx> ControlPass<'ctx> {
                 self.tracked.pop();
             }
             Stmt::Goto(label) => {
-                if !self.defined_labels.contains(&label) {
+                if !self.defined_labels.contains(label) {
                     self.unresolved_labels
                         .entry(*label)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(*ast.stmt_span(stmt));
                 }
             }
@@ -130,7 +130,7 @@ impl<'ctx> ControlPass<'ctx> {
                         kind: ControlDiagnosticKind::RedeclaredLabel,
                     });
                 }
-                self.unresolved_labels.remove(&label);
+                self.unresolved_labels.remove(label);
                 self.visit_stmt(ast, *inner);
             }
             Stmt::Break => match self.tracked.last() {

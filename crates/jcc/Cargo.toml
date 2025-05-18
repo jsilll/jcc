@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ssa = { path = "../ssa" }
+
 anyhow = "1.0.93"
-thiserror = "2.0.3"
-peeking_take_while = "1.0.0"
 phf = { version = "0.11.2", features = ["macros"] }
 clap = { version = "4.5.20", features = ["derive"] }
-ssa = { path = "../ssa" }
-tacky = { path = "../tacky" }
+

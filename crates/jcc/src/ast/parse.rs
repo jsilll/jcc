@@ -6,7 +6,7 @@ use crate::{
     lex::{Token, TokenKind},
 };
 
-use tacky::{
+use ssa::{
     source_file::{diag::Diagnostic, SourceFile, SourceSpan},
     Interner, Symbol,
 };

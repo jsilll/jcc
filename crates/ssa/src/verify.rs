@@ -10,15 +10,6 @@ pub struct SSAVerifierResult {
 }
 
 // ---------------------------------------------------------------------------
-// SSAVerifierDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub enum SSAVerifierDiagnostic {
-    InvalidType(InstRef),
-}
-
-// ---------------------------------------------------------------------------
 // SSAVerifier
 // ---------------------------------------------------------------------------
 
@@ -139,4 +130,13 @@ impl<'a> SSAVerifier<'a> {
         }
         self.result
     }
+}
+
+// ---------------------------------------------------------------------------
+// SSAVerifierDiagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum SSAVerifierDiagnostic {
+    InvalidType(InstRef),
 }

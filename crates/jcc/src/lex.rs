@@ -1,6 +1,4 @@
-use tacky::source_file::{diag::Diagnostic, SourceFile, SourceSpan};
-
-use peeking_take_while::PeekableExt;
+use ssa::source_file::{diag::Diagnostic, SourceFile, SourceSpan};
 
 use std::{iter::Peekable, str::CharIndices};
 
@@ -207,6 +205,36 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn handle_number(&mut self) {
+        let end = self.consume_while(|c| c.is_digit(10));
+        if let Some((_, c)) = self.chars.peek() {
+            if c.is_ascii_alphabetic() {
+                self.result.diagnostics.push(LexerDiagnostic {
+                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
+                    span: self.file.span(self.idx..end).unwrap_or_default(),
+                });
+            }
+        }
+        self.result.tokens.push(Token {
+            kind: TokenKind::Number,
+            span: self.file.span(self.idx..end).unwrap_or_default(),
+        });
+    }
+
+    fn handle_word(&mut self) {
+        let end = self.consume_while(|c| c.is_ascii_alphanumeric() || c == '_');
+        let ident = self.file.slice(self.idx..end).unwrap_or_default();
+        let kind = KEYWORDS
+            .get(ident)
+            .copied()
+            .unwrap_or(TokenKind::Identifier);
+        self.result.tokens.push(Token {
+            kind,
+            span: self.file.span(self.idx..end).unwrap_or_default(),
+        });
+    }
+
+    #[inline]
     fn handle_nesting_open(&mut self, open: TokenKind, close: TokenKind) {
         self.nesting.push(close);
         self.push_token(open, 1);
@@ -230,46 +258,21 @@ impl<'a> Lexer<'a> {
         });
     }
 
-    fn handle_number(&mut self) {
-        let end = self
-            .chars
-            .peeking_take_while(|(_, c)| c.is_digit(10))
-            .last()
-            .map(|(end, _)| end as u32)
-            .unwrap_or_else(|| self.idx)
-            + 1;
-        if let Some((_, c)) = self.chars.peek() {
-            if c.is_ascii_alphabetic() {
-                self.result.diagnostics.push(LexerDiagnostic {
-                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
-                    span: self.file.span(self.idx..end).unwrap_or_default(),
-                });
+    #[inline]
+    fn consume_while<F>(&mut self, mut predicate: F) -> u32
+    where
+        F: FnMut(char) -> bool,
+    {
+        while let Some(&(_, c)) = self.chars.peek() {
+            if !predicate(c) {
+                break;
             }
+            self.chars.next();
         }
-        self.result.tokens.push(Token {
-            kind: TokenKind::Number,
-            span: self.file.span(self.idx..end).unwrap_or_default(),
-        });
-    }
-
-    fn handle_word(&mut self) {
-        let end = self
-            .chars
-            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
-            .last()
-            .map(|(end, _)| end as u32)
-            .unwrap_or_else(|| self.idx)
-            + 1;
-        let ident = self.file.slice(self.idx..end).unwrap_or_default();
-        let kind = KEYWORDS
-            .get(ident)
-            .copied()
-            .unwrap_or(TokenKind::Identifier);
-        // TODO: move this (self.interner.get_or_intern(ident)));
-        self.result.tokens.push(Token {
-            kind,
-            span: self.file.span(self.idx..end).unwrap_or_default(),
-        });
+        self.chars
+            .peek()
+            .and_then(|(idx, _)| Some(*idx as u32))
+            .unwrap_or(self.idx + 1)
     }
 }
 
@@ -505,15 +508,15 @@ impl From<LexerDiagnostic> for Diagnostic {
                 "unexpected character",
                 "expected a valid character",
             ),
-            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
-                diagnostic.span,
-                "identifier starts with digit",
-                "identifiers cannot start with a digit",
-            ),
             LexerDiagnosticKind::UnbalancedToken(token) => Diagnostic::error(
                 diagnostic.span,
                 "unbalanced token",
                 format!("expected a matching {token}"),
+            ),
+            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
+                diagnostic.span,
+                "identifier starts with digit",
+                "identifiers cannot start with a digit",
             ),
         }
     }

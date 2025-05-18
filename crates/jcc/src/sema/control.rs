@@ -3,7 +3,7 @@ use crate::{
     sema::SemaCtx,
 };
 
-use tacky::{
+use ssa::{
     source_file::{diag::Diagnostic, SourceSpan},
     Symbol,
 };
@@ -107,14 +107,6 @@ impl<'ctx> ControlPass<'ctx> {
                 self.visit_stmt(ast, *body);
                 self.tracked.pop();
             }
-            Stmt::Compound(stmt) => {
-                ast.block_items(*stmt)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
-                    });
-            }
             Stmt::Goto(label) => {
                 if !self.defined_labels.contains(&label) {
                     self.unresolved_labels
@@ -122,6 +114,14 @@ impl<'ctx> ControlPass<'ctx> {
                         .or_insert_with(Vec::new)
                         .push(*ast.stmt_span(stmt));
                 }
+            }
+            Stmt::Compound(stmt) => {
+                ast.block_items(*stmt)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(_) => {}
+                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
+                    });
             }
             Stmt::Label { label, stmt: inner } => {
                 if !self.defined_labels.insert(*label) {

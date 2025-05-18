@@ -5,7 +5,7 @@ use crate::{
     sema::{SemaCtx, Type},
 };
 
-use tacky::{
+use ssa::{
     source_file::{diag::Diagnostic, SourceSpan},
     Symbol,
 };

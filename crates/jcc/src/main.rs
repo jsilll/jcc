@@ -2,13 +2,12 @@ use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser},
     lex::{Lexer, LexerDiagnosticKind},
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
-    tacky::TackyBuilder,
 };
 
-use ssa::verify::SSAVerifier;
-use tacky::{
-    amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
+use ssa::{
+    amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
+    verify::SSAVerifier,
     Interner,
 };
 
@@ -34,9 +33,6 @@ struct Args {
     /// Run until the semantic analyzer and stop
     #[clap(long)]
     pub validate: bool,
-    /// Run until the SSA generator and stop
-    #[clap(long)]
-    pub ssa: bool,
     /// Run until the tacky generator and stop
     #[clap(long)]
     pub tacky: bool,
@@ -159,45 +155,20 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    let (mut amd64, interner) = match args.ssa {
-        true => {
-            // Generate SSA
-            let ssa = jcc::ssa::build(&ast, &mut ctx, interner);
-            if args.verbose {
-                println!("{}", ssa);
-            }
+    let ssa = jcc::ssa::build(&ast, &mut ctx, interner);
+    if args.verbose {
+        println!("{}", ssa);
+    }
 
-            let verifier_result = SSAVerifier::new(&ssa).verify();
-            if !verifier_result.diagnostics.is_empty() {
-                for diag in verifier_result.diagnostics {
-                    match diag {
-                        ssa::verify::SSAVerifierDiagnostic::InvalidType(i) => {
-                            eprintln!("error: invalid type for instruction {}", i);
-                        }
-                    }
-                }
-                return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
-            }
+    let verifier_result = SSAVerifier::new(&ssa).verify();
+    if !verifier_result.diagnostics.is_empty() {
+        // TODO: properly report ssa errors
+        return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+    }
 
-            // Generate AMD64
-            let amd64 = ssa::amd64::build(&ssa);
-            (amd64, ssa.take_interner())
-        }
-        false => {
-            // Generate Tacky
-            let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
-            if args.verbose {
-                println!("{:#?}", tacky);
-            }
-            if args.tacky {
-                return Ok(());
-            }
+    let mut amd64 = ssa::amd64::build(&ssa);
+    let interner = ssa.take_interner();
 
-            // Generate AMD64
-            let amd64 = AMD64Builder::new(&tacky).build();
-            (amd64, interner)
-        }
-    };
     if args.verbose {
         println!("{}", amd64);
     }

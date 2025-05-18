@@ -4,9 +4,22 @@ pub mod fix;
 
 pub mod emit;
 
+use crate::Symbol;
+use build::AMD64FuncBuilder;
+
 use source_file::SourceSpan;
 
-use crate::Symbol;
+// ---------------------------------------------------------------------------
+// Root function
+// ---------------------------------------------------------------------------
+
+pub fn build(ssa: &crate::Program) -> Program {
+    let mut prog = Program::default();
+    ssa.funcs_iter().for_each(|func| {
+        AMD64FuncBuilder::new(ssa, &mut prog, func).build();
+    });
+    prog
+}
 
 // ---------------------------------------------------------------------------
 // AMD64 IR

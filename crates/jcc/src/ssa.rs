@@ -1,6 +1,6 @@
 use crate::{ast, sema};
 
-use tacky::{source_file::SourceSpan, Interner, Symbol};
+use ssa::{source_file::SourceSpan, Interner, Symbol};
 
 use std::collections::HashMap;
 
@@ -95,19 +95,6 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     #[inline]
-    fn append_to_block(&mut self, instr: ssa::InstRef) {
-        self.prog.block_mut(self.block).insts.push(instr);
-    }
-
-    #[inline]
-    fn append_slice_to_block(&mut self, instrs: &[ssa::InstRef]) {
-        self.prog
-            .block_mut(self.block)
-            .insts
-            .extend_from_slice(instrs);
-    }
-
-    #[inline]
     fn get_var_ptr(&self, decl: ast::DeclRef) -> ssa::InstRef {
         self.vars
             .get(&decl)
@@ -122,6 +109,19 @@ impl<'a> SSAFuncBuilder<'a> {
             .get(&expr)
             .copied()
             .expect("expected a variable declaration")
+    }
+
+    #[inline]
+    fn append_to_block(&mut self, instr: ssa::InstRef) {
+        self.prog.block_mut(self.block).insts.push(instr);
+    }
+
+    #[inline]
+    fn append_slice_to_block(&mut self, instrs: &[ssa::InstRef]) {
+        self.prog
+            .block_mut(self.block)
+            .insts
+            .extend_from_slice(instrs);
     }
 
     #[inline]

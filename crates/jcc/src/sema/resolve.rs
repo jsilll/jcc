@@ -1,13 +1,14 @@
-use crate::ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
+use crate::{
+    ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef},
+    sema::SemaCtx,
+};
 
-use tacky::{
+use ssa::{
     source_file::{diag::Diagnostic, SourceSpan},
     Symbol,
 };
 
 use std::collections::HashMap;
-
-use super::SemaCtx;
 
 // ---------------------------------------------------------------------------
 // ResolverResult
@@ -70,11 +71,11 @@ impl<'a> ResolverPass<'a> {
                     self.ast
                         .params(*params)
                         .iter()
-                        .for_each(|param| self.visit_decl(*param));
+                        .for_each(|param| self.visit_local_decl(*param));
                     if let Some(body) = body {
                         self.ast.block_items(*body).iter().for_each(
                             |block_item| match block_item {
-                                BlockItem::Decl(decl) => self.visit_decl(*decl),
+                                BlockItem::Decl(decl) => self.visit_local_decl(*decl),
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                             },
                         );
@@ -85,7 +86,7 @@ impl<'a> ResolverPass<'a> {
         self.result
     }
 
-    fn visit_decl(&mut self, decl: DeclRef) {
+    fn visit_local_decl(&mut self, decl: DeclRef) {
         match self.ast.decl(decl) {
             Decl::Func { body: Some(_), .. } => {
                 self.result.diagnostics.push(ResolverDiagnostic {
@@ -125,7 +126,7 @@ impl<'a> ResolverPass<'a> {
                 self.ast
                     .params(*params)
                     .iter()
-                    .for_each(|param| self.visit_decl(*param));
+                    .for_each(|param| self.visit_local_decl(*param));
                 self.symbols.pop_scope();
             }
         }
@@ -171,7 +172,7 @@ impl<'a> ResolverPass<'a> {
                     .block_items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        BlockItem::Decl(decl) => self.visit_local_decl(*decl),
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
                 self.symbols.pop_scope();
@@ -186,7 +187,7 @@ impl<'a> ResolverPass<'a> {
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => self.visit_expr(*expr),
-                        ForInit::VarDecl(decl) => self.visit_decl(*decl),
+                        ForInit::VarDecl(decl) => self.visit_local_decl(*decl),
                     }
                 }
                 if let Some(cond) = cond {

@@ -2,7 +2,7 @@ use crate::ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, St
 
 use std::fmt::Write;
 
-use tacky::{Interner, Symbol};
+use ssa::{Interner, Symbol};
 
 pub struct AstGraphviz<'a> {
     ast: &'a Ast,
@@ -52,15 +52,15 @@ impl<'a> AstGraphviz<'a> {
     }
 
     #[inline]
+    fn get_symbol_name(&self, symbol: Symbol) -> &str {
+        self.interner.resolve(symbol).unwrap_or("UnknownSymbol")
+    }
+
+    #[inline]
     fn fresh_aux_node_id(&mut self, hint: &str) -> String {
         let id = self.node_counter;
         self.node_counter += 1;
         format!("aux_{hint}_{id}")
-    }
-
-    #[inline]
-    fn get_symbol_name(&self, symbol: Symbol) -> &str {
-        self.interner.resolve(symbol).unwrap_or("UnknownSymbol")
     }
 
     #[inline]

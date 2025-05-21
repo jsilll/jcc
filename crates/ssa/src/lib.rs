@@ -11,41 +11,13 @@ pub use source_file;
 use effects::{AbstractHeap, FastEffects};
 
 use source_file::SourceSpan;
-use string_interner::{backend::StringBackend, DefaultHashBuilder, StringInterner};
+pub use jcc_interner::{Interner, Symbol};
 
 use std::{
     collections::{HashMap, HashSet},
     fmt,
     num::NonZeroU32,
 };
-
-/// -------------------------------------------------------------------------------
-/// Interner
-/// -------------------------------------------------------------------------------
-
-pub type Interner = StringInterner<StringBackend<Symbol>, DefaultHashBuilder>;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Symbol(std::num::NonZeroU32);
-
-impl Default for Symbol {
-    #[inline]
-    fn default() -> Self {
-        unsafe { Self(std::num::NonZeroU32::new_unchecked(1)) }
-    }
-}
-
-impl string_interner::Symbol for Symbol {
-    #[inline]
-    fn try_from_usize(index: usize) -> Option<Self> {
-        std::num::NonZeroU32::new((index as u32).wrapping_add(1)).map(Self)
-    }
-
-    #[inline]
-    fn to_usize(self) -> usize {
-        self.0.get() as usize - 1
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Type
@@ -443,7 +415,7 @@ pub struct Program {
 
 impl Program {
     pub fn new(mut interner: Interner) -> Self {
-        let question_mark_symbol = interner.get_or_intern_static("?");
+        let question_mark_symbol = interner.intern("?");
         Self {
             interner,
             heaps: BaseHeaps::new(),
@@ -532,7 +504,7 @@ impl Program {
         let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
         self.blocks_span.push(Default::default());
-        self.blocks_name.push(self.interner.get_or_intern(name));
+        self.blocks_name.push(self.interner.intern(name));
         r
     }
 
@@ -540,7 +512,7 @@ impl Program {
         let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Default::default());
         self.funcs_span.push(Default::default());
-        self.funcs_name.push(self.interner.get_or_intern(name));
+        self.funcs_name.push(self.interner.intern(name));
         r
     }
 
@@ -571,7 +543,7 @@ impl Program {
         let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
         self.blocks_span.push(span);
-        self.blocks_name.push(self.interner.get_or_intern(name));
+        self.blocks_name.push(self.interner.intern(name));
         r
     }
 
@@ -579,7 +551,7 @@ impl Program {
         let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Default::default());
         self.funcs_span.push(span);
-        self.funcs_name.push(self.interner.get_or_intern(name));
+        self.funcs_name.push(self.interner.intern(name));
         r
     }
 
@@ -727,10 +699,10 @@ impl fmt::Display for InstKind {
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            write!(f, "define @{}", self.interner.resolve(*name).unwrap_or("?"))?;
+            write!(f, "define @{}", self.interner.get(*name).unwrap_or("?"))?;
             for block in &func.blocks {
                 let name = *self.block_name(*block);
-                write!(f, "\n{}:", self.interner.resolve(name).unwrap_or("?"))?;
+                write!(f, "\n{}:", self.interner.get(name).unwrap_or("?"))?;
                 for i in &self.block(*block).insts {
                     let inst = self.inst(*i);
                     // TODO: properly print the names of blocks instead of 'b<idx>'
@@ -743,7 +715,7 @@ impl fmt::Display for Program {
                         self.block(*block)
                             .succs
                             .iter()
-                            .map(|b| self.interner.resolve(*self.block_name(*b)).unwrap_or("?"))
+                            .map(|b| self.interner.get(*self.block_name(*b)).unwrap_or("?"))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )?;

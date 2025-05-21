@@ -53,7 +53,7 @@ impl<'a> AstGraphviz<'a> {
 
     #[inline]
     fn get_symbol_name(&self, symbol: Symbol) -> &str {
-        self.interner.resolve(symbol).unwrap_or("UnknownSymbol")
+        self.interner.get(symbol).unwrap_or("UnknownSymbol")
     }
 
     #[inline]

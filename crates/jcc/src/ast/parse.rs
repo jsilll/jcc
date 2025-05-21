@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
     #[inline]
     fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
         self.interner
-            .get_or_intern(self.file.slice(*span).expect("expected span to be valid"))
+            .intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 
     fn parse_decl(&mut self) -> Option<DeclRef> {

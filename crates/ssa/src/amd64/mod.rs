@@ -4,9 +4,22 @@ pub mod fix;
 
 pub mod emit;
 
+use crate::Symbol;
+use build::AMD64FuncBuilder;
+
 use source_file::SourceSpan;
 
-use crate::Symbol;
+// ---------------------------------------------------------------------------
+// Root function
+// ---------------------------------------------------------------------------
+
+pub fn build(ssa: &crate::Program) -> Program {
+    let mut prog = Program::default();
+    ssa.funcs_iter().for_each(|func| {
+        AMD64FuncBuilder::new(ssa, &mut prog, func).build();
+    });
+    prog
+}
 
 // ---------------------------------------------------------------------------
 // AMD64 IR
@@ -292,7 +305,7 @@ impl std::fmt::Display for Inst {
 
 impl std::fmt::Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(_) = &self.label {
+        if self.label.is_some() {
             write!(f, "<block with label>:")?;
         } else {
             write!(f, "<block without label>:")?;

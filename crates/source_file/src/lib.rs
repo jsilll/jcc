@@ -48,6 +48,15 @@ impl Add<u32> for SourceSpan {
     }
 }
 
+impl From<SourceSpan> for Range<u32> {
+    fn from(val: SourceSpan) -> Self {
+        Range {
+            start: val.start,
+            end: val.end,
+        }
+    }
+}
+
 impl Sub<u32> for SourceSpan {
     type Output = Self;
 

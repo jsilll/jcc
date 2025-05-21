@@ -20,6 +20,12 @@ pub struct HalfFastEffects {
     heaps: Vec<AbstractHeap>,
 }
 
+impl Default for HalfFastEffects {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HalfFastEffects {
     pub fn new() -> Self {
         HalfFastEffects { heaps: Vec::new() }
@@ -50,6 +56,12 @@ impl HalfFastEffects {
 pub struct FastEffects {
     pub reads: HalfFastEffects,
     pub writes: HalfFastEffects,
+}
+
+impl Default for FastEffects {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FastEffects {

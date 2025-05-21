@@ -1,14 +1,13 @@
 use jcc::{
+    ast::{graphviz::AstGraphviz, parse::Parser},
     lex::{Lexer, LexerDiagnosticKind},
-    parse::Parser,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
-    tacky::TackyBuilder,
 };
 
-use ssa::verify::SSAVerifier;
-use tacky::{
-    amd64::{build::AMD64Builder, emit::AMD64Emitter, fix::AMD64Fixer},
+use ssa::{
+    amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
     source_file::{self, SourceDb, SourceFile},
+    verify::SSAVerifier,
     Interner,
 };
 
@@ -28,18 +27,21 @@ struct Args {
     /// Run until the parser and stop
     #[clap(long)]
     pub parse: bool,
+    /// Emit AST as Graphviz DOT file and stop
+    #[clap(long)]
+    pub emit_ast_graphviz: bool,
     /// Run until the semantic analyzer and stop
     #[clap(long)]
     pub validate: bool,
-    /// Run until the SSA generator and stop
-    #[clap(long)]
-    pub ssa: bool,
     /// Run until the tacky generator and stop
     #[clap(long)]
     pub tacky: bool,
     /// Run until the codegen and stop
     #[clap(long)]
     pub codegen: bool,
+    /// Do not link the source files
+    #[clap(long, short = 'c')]
+    pub no_link: bool,
     /// Emit an assembly file but not an executable
     #[clap(long, short = 'S')]
     pub assembly: bool,
@@ -59,15 +61,16 @@ fn try_main() -> Result<()> {
 
     // Run the preprocessor with `gcc -E -P`
     let pp_path = args.path.with_extension("i");
-    let output = Command::new("gcc")
+    let pp_output = Command::new("gcc")
         .arg("-E")
         .arg("-P")
         .arg(&args.path)
         .arg("-o")
         .arg(&pp_path)
-        .output()?;
-    if !output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        .output()
+        .context("Failed to run preprocessor (gcc -E -P)")?;
+    if !pp_output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&pp_output.stderr));
         return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
     }
 
@@ -78,65 +81,67 @@ fn try_main() -> Result<()> {
 
     // Lex file
     let mut interner = Interner::new();
-    let mut lexer_result = Lexer::new(&file, &mut interner).lex();
+    let mut lexer_result = Lexer::new(file).lex();
     if args.lex {
         lexer_result
             .diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
     }
     if args.lex {
         return Ok(());
     }
 
     // Parse tokens
-    let parser_result = Parser::new(&file, &mut interner, lexer_result.tokens.iter()).parse();
+    let parser_result = Parser::new(file, &mut interner, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &parser_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.verbose {
         println!("{:#?}", parser_result.ast);
     }
+    if args.emit_ast_graphviz {
+        let dot_path = args.path.with_extension("dot");
+        let ast_graphviz = AstGraphviz::new(&parser_result.ast, &interner);
+        let dot = ast_graphviz.emit();
+        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
+    }
     if args.parse {
         return Ok(());
     }
-    if parser_result.ast.items().is_empty() {
-        eprintln!("Error: no items found in the source file");
-        return Err(anyhow::anyhow!("exiting due to no items found"));
+    if parser_result.ast.root().is_empty() {
+        eprintln!("Error: no declarations in the source file");
+        return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
 
     let ast = parser_result.ast;
 
     // Analyze the AST
-    let mut ctx = SemaCtx::default();
-    let control_result = ControlPass::new(&mut ctx).analyze(&ast);
+    let mut ctx = SemaCtx::new(&ast);
+    let control_result = ControlPass::new(&mut ctx).check(&ast);
     if !control_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(
-            &file,
-            &mut std::io::stderr(),
-            &control_result.diagnostics,
-        )?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let resolver_result = ResolverPass::new(&ast, &mut ctx).analyze();
+    let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
     if !resolver_result.diagnostics.is_empty() {
         source_file::diag::report_batch(
-            &file,
+            file,
             &mut std::io::stderr(),
             &resolver_result.diagnostics,
         )?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
-    let typer_result = TyperPass::new(&ast, &mut ctx).analyze();
+    let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(&file, &mut std::io::stderr(), &typer_result.diagnostics)?;
+        source_file::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.verbose {
@@ -146,45 +151,20 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    let (mut amd64, interner) = match args.ssa {
-        true => {
-            // Generate SSA
-            let ssa = jcc::ssa::build(&ast, &mut ctx, interner);
-            if args.verbose {
-                println!("{}", ssa);
-            }
+    let ssa = jcc::ssa::build(&ast, &ctx, interner);
+    if args.verbose {
+        println!("{}", ssa);
+    }
 
-            let verifier_result = SSAVerifier::new(&ssa).verify();
-            if !verifier_result.diagnostics.is_empty() {
-                for diag in verifier_result.diagnostics {
-                    match diag {
-                        ssa::verify::SSAVerifierDiagnostic::InvalidType(i) => {
-                            eprintln!("error: invalid type for instruction {}", i);
-                        }
-                    }
-                }
-                return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
-            }
+    let verifier_result = SSAVerifier::new(&ssa).verify();
+    if !verifier_result.diagnostics.is_empty() {
+        // TODO: properly report ssa errors
+        return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+    }
 
-            // Generate AMD64
-            let amd64 = ssa::amd64::build(&ssa);
-            (amd64, ssa.take_interner())
-        }
-        false => {
-            // Generate Tacky
-            let tacky = TackyBuilder::new(&ctx, &mut interner).build(&ast);
-            if args.verbose {
-                println!("{:#?}", tacky);
-            }
-            if args.tacky {
-                return Ok(());
-            }
+    let mut amd64 = ssa::amd64::build(&ssa);
+    let interner = ssa.take_interner();
 
-            // Generate AMD64
-            let amd64 = AMD64Builder::new(&tacky).build();
-            (amd64, interner)
-        }
-    };
     if args.verbose {
         println!("{}", amd64);
     }
@@ -207,11 +187,16 @@ fn try_main() -> Result<()> {
     }
 
     // Run the assembler and linker with `gcc`
-    let output = Command::new("gcc")
-        .arg(&asm_path)
+    let mut extension = "";
+    let mut cmd = Command::new("gcc");
+    if args.no_link {
+        cmd.arg("-c");
+        extension = "o";
+    }
+    cmd.arg(&asm_path)
         .arg("-o")
-        .arg(&args.path.with_extension(""))
-        .output()?;
+        .arg(args.path.with_extension(extension));
+    let output = cmd.output()?;
     if !output.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
         return Err(anyhow::anyhow!("exiting due to assembler errors"));

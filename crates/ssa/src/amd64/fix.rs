@@ -11,6 +11,12 @@ pub struct AMD64Fixer {
     offsets: HashMap<u32, u32>,
 }
 
+impl Default for AMD64Fixer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AMD64Fixer {
     pub fn new() -> Self {
         Self {

@@ -6,16 +6,46 @@ pub mod insertion;
 
 pub mod amd64;
 
+pub use source_file;
+
 use effects::{AbstractHeap, FastEffects};
 
 use source_file::SourceSpan;
-use tacky::{Interner, Symbol};
+use string_interner::{backend::StringBackend, DefaultHashBuilder, StringInterner};
 
 use std::{
     collections::{HashMap, HashSet},
     fmt,
     num::NonZeroU32,
 };
+
+/// -------------------------------------------------------------------------------
+/// Interner
+/// -------------------------------------------------------------------------------
+
+pub type Interner = StringInterner<StringBackend<Symbol>, DefaultHashBuilder>;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Symbol(std::num::NonZeroU32);
+
+impl Default for Symbol {
+    #[inline]
+    fn default() -> Self {
+        unsafe { Self(std::num::NonZeroU32::new_unchecked(1)) }
+    }
+}
+
+impl string_interner::Symbol for Symbol {
+    #[inline]
+    fn try_from_usize(index: usize) -> Option<Self> {
+        std::num::NonZeroU32::new((index as u32).wrapping_add(1)).map(Self)
+    }
+
+    #[inline]
+    fn to_usize(self) -> usize {
+        self.0.get() as usize - 1
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Type
@@ -158,13 +188,13 @@ impl Inst {
     }
 
     pub fn has_side_effects(&self) -> bool {
-        match self.kind {
+        matches!(
+            self.kind,
             InstKind::Ret(_)
-            | InstKind::Jump(_)
-            | InstKind::Branch { .. }
-            | InstKind::Switch { .. } => true,
-            _ => false,
-        }
+                | InstKind::Jump(_)
+                | InstKind::Branch { .. }
+                | InstKind::Switch { .. }
+        )
     }
 
     pub fn get_args(&self, args: &mut Vec<InstRef>) {
@@ -614,7 +644,7 @@ impl Program {
         for (idx, block) in self.blocks.iter().enumerate() {
             for succ in &block.succs {
                 pred.entry(*succ)
-                    .or_insert(Vec::new())
+                    .or_default()
                     .push(BlockRef(NonZeroU32::new(idx as u32).unwrap()));
             }
         }

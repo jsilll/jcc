@@ -1,9 +1,4 @@
-use tacky::{
-    source_file::{diag::Diagnostic, SourceFile, SourceSpan},
-    Interner, Symbol,
-};
-
-use peeking_take_while::PeekableExt;
+use ssa::source_file::{diag::Diagnostic, SourceFile, SourceSpan};
 
 use std::{iter::Peekable, str::CharIndices};
 
@@ -43,7 +38,6 @@ pub struct Token {
 
 pub struct Lexer<'a> {
     file: &'a SourceFile,
-    interner: &'a mut Interner,
     idx: u32,
     result: LexerResult,
     nesting: Vec<TokenKind>,
@@ -51,11 +45,10 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceFile, interner: &'a mut Interner) -> Self {
+    pub fn new(file: &'a SourceFile) -> Self {
         Self {
             file,
             idx: 0,
-            interner,
             result: LexerResult::default(),
             nesting: Vec::with_capacity(16),
             chars: file.data().char_indices().peekable(),
@@ -67,9 +60,10 @@ impl<'a> Lexer<'a> {
             self.idx = idx;
             match c {
                 c if c.is_whitespace() => continue,
-                c if c.is_digit(10) => self.handle_number(),
+                c if c.is_ascii_digit() => self.handle_number(),
                 c if c.is_ascii_alphabetic() || c == '_' => self.handle_word(),
                 ';' => self.push_token(TokenKind::Semi, 1),
+                ',' => self.push_token(TokenKind::Comma, 1),
                 ':' => self.push_token(TokenKind::Colon, 1),
                 '~' => self.push_token(TokenKind::Tilde, 1),
                 '?' => self.push_token(TokenKind::Question, 1),
@@ -131,6 +125,7 @@ impl<'a> Lexer<'a> {
         self.result
     }
 
+    #[inline]
     fn push_token(&mut self, kind: TokenKind, len: u32) {
         self.result.tokens.push(Token {
             kind,
@@ -210,6 +205,36 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn handle_number(&mut self) {
+        let end = self.consume_while(|c| c.is_ascii_digit());
+        if let Some((_, c)) = self.chars.peek() {
+            if c.is_ascii_alphabetic() {
+                self.result.diagnostics.push(LexerDiagnostic {
+                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
+                    span: self.file.span(self.idx..end).unwrap_or_default(),
+                });
+            }
+        }
+        self.result.tokens.push(Token {
+            kind: TokenKind::Number,
+            span: self.file.span(self.idx..end).unwrap_or_default(),
+        });
+    }
+
+    fn handle_word(&mut self) {
+        let end = self.consume_while(|c| c.is_ascii_alphanumeric() || c == '_');
+        let ident = self.file.slice(self.idx..end).unwrap_or_default();
+        let kind = KEYWORDS
+            .get(ident)
+            .copied()
+            .unwrap_or(TokenKind::Identifier);
+        self.result.tokens.push(Token {
+            kind,
+            span: self.file.span(self.idx..end).unwrap_or_default(),
+        });
+    }
+
+    #[inline]
     fn handle_nesting_open(&mut self, open: TokenKind, close: TokenKind) {
         self.nesting.push(close);
         self.push_token(open, 1);
@@ -233,47 +258,20 @@ impl<'a> Lexer<'a> {
         });
     }
 
-    fn handle_number(&mut self) {
-        let end = self
-            .chars
-            .peeking_take_while(|(_, c)| c.is_digit(10))
-            .last()
-            .map(|(end, _)| end as u32)
-            .unwrap_or_else(|| self.idx)
-            + 1;
-        let number = self.file.slice(self.idx..end).unwrap_or_default();
-        let number = number.parse().unwrap_or_default();
-        if let Some((_, c)) = self.chars.peek() {
-            if c.is_ascii_alphabetic() {
-                self.result.diagnostics.push(LexerDiagnostic {
-                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
-                    span: self.file.span(self.idx..end).unwrap_or_default(),
-                });
+    #[inline]
+    fn consume_while<F>(&mut self, mut predicate: F) -> u32
+    where
+        F: FnMut(char) -> bool,
+    {
+        while let Some(&(_, c)) = self.chars.peek() {
+            if !predicate(c) {
+                break;
             }
+            self.chars.next();
         }
-        self.result.tokens.push(Token {
-            kind: TokenKind::Number(number),
-            span: self.file.span(self.idx..end).unwrap_or_default(),
-        });
-    }
-
-    fn handle_word(&mut self) {
-        let end = self
-            .chars
-            .peeking_take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
-            .last()
-            .map(|(end, _)| end as u32)
-            .unwrap_or_else(|| self.idx)
-            + 1;
-        let ident = self.file.slice(self.idx..end).unwrap_or_default();
-        let kind = KEYWORDS
-            .get(ident)
-            .copied()
-            .unwrap_or(TokenKind::Identifier(self.interner.get_or_intern(ident)));
-        self.result.tokens.push(Token {
-            kind,
-            span: self.file.span(self.idx..end).unwrap_or_default(),
-        });
+        self.chars
+            .peek().map(|(idx, _)| *idx as u32)
+            .unwrap_or(self.idx + 1)
     }
 }
 
@@ -310,6 +308,8 @@ pub enum TokenKind {
     AmpAmp,
     /// The `&=` token.
     AmpEq,
+    /// The `,` token.
+    Comma,
     /// The `:` token.
     Colon,
     /// The `!` token.
@@ -417,9 +417,9 @@ pub enum TokenKind {
     /// The `while` keyword.
     KwWhile,
     /// A number.
-    Number(i64),
+    Number,
     /// An identifier.
-    Identifier(Symbol),
+    Identifier,
 }
 
 impl std::fmt::Display for TokenKind {
@@ -428,6 +428,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Amp => write!(f, "'&'"),
             TokenKind::AmpAmp => write!(f, "'&&'"),
             TokenKind::AmpEq => write!(f, "'&='"),
+            TokenKind::Comma => write!(f, "','"),
             TokenKind::Colon => write!(f, "':'"),
             TokenKind::Bang => write!(f, "'!'"),
             TokenKind::BangEq => write!(f, "'!='"),
@@ -481,8 +482,8 @@ impl std::fmt::Display for TokenKind {
             TokenKind::KwSwitch => write!(f, "'switch'"),
             TokenKind::KwVoid => write!(f, "'void'"),
             TokenKind::KwWhile => write!(f, "'while'"),
-            TokenKind::Number(_) => write!(f, "a number"),
-            TokenKind::Identifier(_) => write!(f, "an identifier"),
+            TokenKind::Number => write!(f, "a number"),
+            TokenKind::Identifier => write!(f, "an identifier"),
         }
     }
 }
@@ -506,15 +507,15 @@ impl From<LexerDiagnostic> for Diagnostic {
                 "unexpected character",
                 "expected a valid character",
             ),
-            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
-                diagnostic.span,
-                "identifier starts with digit",
-                "identifiers cannot start with a digit",
-            ),
             LexerDiagnosticKind::UnbalancedToken(token) => Diagnostic::error(
                 diagnostic.span,
                 "unbalanced token",
                 format!("expected a matching {token}"),
+            ),
+            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
+                diagnostic.span,
+                "identifier starts with digit",
+                "identifiers cannot start with a digit",
             ),
         }
     }

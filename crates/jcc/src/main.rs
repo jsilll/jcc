@@ -6,7 +6,7 @@ use jcc::{
 
 use ssa::{
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
-    source_file::{self, SourceDb, SourceFile},
+    sourcemap::{self, SourceDb, SourceMap},
     verify::SSAVerifier,
     Interner,
 };
@@ -76,7 +76,7 @@ fn try_main() -> Result<()> {
 
     // Add file to db
     let mut db = SourceDb::new();
-    db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
+    db.add(SourceMap::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
     // Lex file
@@ -88,11 +88,11 @@ fn try_main() -> Result<()> {
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
     }
     if args.lex {
         return Ok(());
@@ -101,7 +101,7 @@ fn try_main() -> Result<()> {
     // Parse tokens
     let parser_result = Parser::new(file, &mut interner, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.verbose {
@@ -127,12 +127,12 @@ fn try_main() -> Result<()> {
     let mut ctx = SemaCtx::new(&ast);
     let control_result = ControlPass::new(&mut ctx).check(&ast);
     if !control_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
     let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
     if !resolver_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(
+        sourcemap::diag::report_batch(
             file,
             &mut std::io::stderr(),
             &resolver_result.diagnostics,
@@ -141,7 +141,7 @@ fn try_main() -> Result<()> {
     }
     let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.verbose {

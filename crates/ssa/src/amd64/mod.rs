@@ -7,7 +7,7 @@ pub mod emit;
 use crate::Symbol;
 use build::AMD64FuncBuilder;
 
-use source_file::SourceSpan;
+use jcc_sourcemap::SourceSpan;
 
 // ---------------------------------------------------------------------------
 // Root function

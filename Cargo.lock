@@ -158,6 +158,13 @@ name = "jcc_interner"
 version = "0.1.0"
 
 [[package]]
+name = "jcc_sourcemap"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -270,18 +277,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
 
 [[package]]
-name = "source_file"
-version = "0.1.0"
-dependencies = [
- "tempfile",
-]
-
-[[package]]
 name = "ssa"
 version = "0.1.0"
 dependencies = [
  "jcc_interner",
- "source_file",
+ "jcc_sourcemap",
 ]
 
 [[package]]

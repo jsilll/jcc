@@ -4,7 +4,7 @@ use crate::{
 };
 
 use ssa::{
-    source_file::{diag::Diagnostic, SourceSpan},
+    sourcemap::{diag::Diagnostic, SourceSpan},
     Symbol,
 };
 

@@ -2,7 +2,7 @@ pub mod parse;
 
 pub mod graphviz;
 
-use ssa::{source_file::SourceSpan, Symbol};
+use ssa::{sourcemap::SourceSpan, Symbol};
 
 use std::num::NonZeroU32;
 

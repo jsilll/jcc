@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-source_file = { path = "../source_file" }
 jcc_interner = { path = "../jcc_interner" }
+jcc_sourcemap = { path = "../jcc_sourcemap" }

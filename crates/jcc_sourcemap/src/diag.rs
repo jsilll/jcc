@@ -1,4 +1,4 @@
-use crate::{SourceFile, SourceLocation, SourceSpan};
+use crate::{SourceMap, SourceLocation, SourceSpan};
 
 use std::{fmt::Display, io::Write};
 
@@ -11,7 +11,7 @@ use std::{fmt::Display, io::Write};
 /// The diagnostics must be from the same source file
 /// and must be sorted in ascending order by their spans.
 pub fn report_batch(
-    file: &SourceFile,
+    file: &SourceMap,
     buffer: &mut impl Write,
     diagnostics: &[impl Into<Diagnostic> + Clone],
 ) -> std::io::Result<()> {
@@ -61,14 +61,14 @@ impl Diagnostic {
         Diagnostic::new(span, title, message, DiagnosticLevel::Warning)
     }
 
-    pub fn report(&self, file: &SourceFile, buffer: &mut impl Write) -> std::io::Result<()> {
+    pub fn report(&self, file: &SourceMap, buffer: &mut impl Write) -> std::io::Result<()> {
         let location = file.locate(self.span).unwrap_or_default();
         self.report_internal(file, location, buffer)
     }
 
     pub fn report_hint(
         &self,
-        file: &SourceFile,
+        file: &SourceMap,
         hint: &mut usize,
         buffer: &mut impl Write,
     ) -> std::io::Result<()> {
@@ -79,7 +79,7 @@ impl Diagnostic {
 
     fn report_internal(
         &self,
-        file: &SourceFile,
+        file: &SourceMap,
         location: SourceLocation,
         buffer: &mut impl Write,
     ) -> std::io::Result<()> {

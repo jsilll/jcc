@@ -1,6 +1,6 @@
 use crate::{ast, sema};
 
-use ssa::{source_file::SourceSpan, Interner, Symbol};
+use ssa::{sourcemap::SourceSpan, Interner, Symbol};
 
 use std::collections::HashMap;
 

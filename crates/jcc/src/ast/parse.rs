@@ -7,7 +7,7 @@ use crate::{
 };
 
 use ssa::{
-    source_file::{diag::Diagnostic, SourceFile, SourceSpan},
+    sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
     Interner, Symbol,
 };
 
@@ -38,7 +38,7 @@ pub struct ParserDiagnostic {
 // ---------------------------------------------------------------------------
 
 pub struct Parser<'a> {
-    file: &'a SourceFile,
+    file: &'a SourceMap,
     interner: &'a mut Interner,
     iter: Peekable<Iter<'a, Token>>,
     result: ParserResult,
@@ -48,7 +48,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(file: &'a SourceFile, interner: &'a mut Interner, iter: Iter<'a, Token>) -> Self {
+    pub fn new(file: &'a SourceMap, interner: &'a mut Interner, iter: Iter<'a, Token>) -> Self {
         Self {
             file,
             interner,

@@ -8,7 +8,7 @@ use crate::{
 
 use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
-    Interner, Symbol,
+    interner::{Interner, Symbol},
 };
 
 use std::{iter::Peekable, slice::Iter};

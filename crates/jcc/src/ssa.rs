@@ -1,6 +1,6 @@
 use crate::{ast, sema};
 
-use jcc_ssa::{self as ssa, sourcemap::SourceSpan, Interner, Symbol};
+use jcc_ssa::{self as ssa, sourcemap::SourceSpan, interner::{Interner, Symbol}};
 
 use std::collections::HashMap;
 

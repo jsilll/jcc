@@ -5,7 +5,7 @@ use crate::{
 
 use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceSpan},
-    Symbol,
+    interner::Symbol,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -205,7 +205,7 @@ impl<'ctx> ControlPass<'ctx> {
 }
 
 // ---------------------------------------------------------------------------
-// TrackedStmt
+// Auxiliary structures
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]

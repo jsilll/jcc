@@ -9,7 +9,7 @@ use jcc_ssa::{
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
     sourcemap::{self, SourceDb, SourceMap},
     verify::SSAVerifier,
-    Interner,
+    interner::Interner,
 };
 
 use anyhow::{Context, Result};

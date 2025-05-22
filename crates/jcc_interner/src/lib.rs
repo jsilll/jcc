@@ -1,4 +1,8 @@
+mod symtab;
+
 use std::{collections::HashMap, num::NonZeroU32};
+
+pub type SymbolTable<V> = symtab::SymbolTable<Symbol, V>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Symbol(NonZeroU32);

@@ -6,12 +6,15 @@ pub mod insertion;
 
 pub mod amd64;
 
+pub use jcc_interner as interner;
 pub use jcc_sourcemap as sourcemap;
+
+// ---------------------------------------------------------------------------
 
 use effects::{AbstractHeap, FastEffects};
 
-pub use jcc_interner::{Interner, Symbol};
-use sourcemap::SourceSpan;
+use jcc_sourcemap::{SourceSpan};
+use jcc_interner::{Symbol, Interner};
 
 use std::{
     collections::{HashMap, HashSet},

@@ -1,6 +1,6 @@
 use crate::ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
-use jcc_ssa::Interner;
+use jcc_ssa::interner::{Interner};
 
 use std::fmt::Write;
 

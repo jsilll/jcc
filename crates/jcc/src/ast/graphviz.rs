@@ -1,8 +1,8 @@
 use crate::ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
-use std::fmt::Write;
+use jcc_ssa::Interner;
 
-use ssa::Interner;
+use std::fmt::Write;
 
 pub struct AstGraphviz<'a> {
     ast: &'a Ast,

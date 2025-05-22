@@ -4,7 +4,8 @@ use jcc::{
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
 };
 
-use ssa::{
+use jcc_ssa::{
+    self as ssa,
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
     sourcemap::{self, SourceDb, SourceMap},
     verify::SSAVerifier,

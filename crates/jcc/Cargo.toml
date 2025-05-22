@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ssa = { path = "../ssa" }
+jcc_ssa = { path = "../jcc_ssa" }
 
 anyhow = "1.0.93"
 phf = { version = "0.11.2", features = ["macros"] }

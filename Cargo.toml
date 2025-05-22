@@ -1,3 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/jcc", "crates/jcc_sourcemap", "crates/ssa", "crates/jcc_interner"]
+members = [
+    "crates/jcc", 
+    "crates/jcc_interner",
+    "crates/jcc_sourcemap", 
+    "crates/jcc_ssa"
+]

@@ -149,8 +149,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "jcc_ssa",
  "phf",
- "ssa",
 ]
 
 [[package]]
@@ -162,6 +162,14 @@ name = "jcc_sourcemap"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "jcc_ssa"
+version = "0.1.0"
+dependencies = [
+ "jcc_interner",
+ "jcc_sourcemap",
 ]
 
 [[package]]
@@ -275,14 +283,6 @@ name = "siphasher"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
-
-[[package]]
-name = "ssa"
-version = "0.1.0"
-dependencies = [
- "jcc_interner",
- "jcc_sourcemap",
-]
 
 [[package]]
 name = "strsim"

@@ -1,4 +1,4 @@
-use ssa::sourcemap::{diag::Diagnostic, SourceMap, SourceSpan};
+use jcc_ssa::sourcemap::{diag::Diagnostic, SourceMap, SourceSpan};
 
 use std::{iter::Peekable, str::CharIndices};
 

@@ -3,7 +3,7 @@ use crate::{
     sema::SemaCtx,
 };
 
-use ssa::{
+use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceSpan},
     Symbol,
 };

@@ -6,7 +6,7 @@ use crate::{
     lex::{Token, TokenKind},
 };
 
-use ssa::{
+use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
     Interner, Symbol,
 };

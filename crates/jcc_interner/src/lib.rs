@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn with_capacity_interner_is_empty() {
+    fn with_capacity_is_empty() {
         let interner = Interner::with_capacity(100);
         assert_eq!(interner.len(), 0);
         assert!(interner.is_empty());

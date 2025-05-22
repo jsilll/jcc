@@ -43,7 +43,7 @@ impl<'a> AMD64Emitter<'a> {
         fn_def.blocks.iter().enumerate().for_each(|(idx, block)| {
             if let Some(label) = block.label {
                 // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
-                let label = self.interner.get(label).unwrap_or("invalid_label");
+                let label = self.interner.lookup(label);
                 self.writeln(&format!(".L{label}{idx}:"));
             }
             self.with_indent(|emitter| {
@@ -76,7 +76,7 @@ impl<'a> AMD64Emitter<'a> {
                 let block = self.program.0.get_block(*target);
                 match block.label {
                     Some(label) => {
-                        let label = self.interner.get(label).unwrap_or("invalid_label");
+                        let label = self.interner.lookup(label);
                         self.writeln(&format!("jmp .L{label}{target}"));
                     }
                     None => {
@@ -108,7 +108,7 @@ impl<'a> AMD64Emitter<'a> {
                 let block = self.program.0.get_block(*target);
                 match block.label {
                     Some(label) => {
-                        let label = self.interner.get(label).unwrap_or("invalid_label");
+                        let label = self.interner.lookup(label);
                         let cond_code = self.emit_cond_code(*cond_code);
                         self.writeln(&format!("j{cond_code} .L{label}{target}"));
                     }

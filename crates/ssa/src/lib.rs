@@ -10,8 +10,8 @@ pub use source_file;
 
 use effects::{AbstractHeap, FastEffects};
 
-use source_file::SourceSpan;
 pub use jcc_interner::{Interner, Symbol};
+use source_file::SourceSpan;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -699,10 +699,10 @@ impl fmt::Display for InstKind {
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            write!(f, "define @{}", self.interner.get(*name).unwrap_or("?"))?;
+            write!(f, "define @{}", self.interner.lookup(*name))?;
             for block in &func.blocks {
                 let name = *self.block_name(*block);
-                write!(f, "\n{}:", self.interner.get(name).unwrap_or("?"))?;
+                write!(f, "\n{}:", self.interner.lookup(name))?;
                 for i in &self.block(*block).insts {
                     let inst = self.inst(*i);
                     // TODO: properly print the names of blocks instead of 'b<idx>'
@@ -715,7 +715,7 @@ impl fmt::Display for Program {
                         self.block(*block)
                             .succs
                             .iter()
-                            .map(|b| self.interner.get(*self.block_name(*b)).unwrap_or("?"))
+                            .map(|b| self.interner.lookup(*self.block_name(*b)))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )?;

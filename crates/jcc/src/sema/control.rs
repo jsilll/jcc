@@ -4,8 +4,8 @@ use crate::{
 };
 
 use jcc_ssa::{
-    sourcemap::{diag::Diagnostic, SourceSpan},
     interner::Symbol,
+    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 use std::collections::{HashMap, HashSet};
@@ -115,14 +115,6 @@ impl<'ctx> ControlPass<'ctx> {
                         .push(*ast.stmt_span(stmt));
                 }
             }
-            Stmt::Compound(stmt) => {
-                ast.block_items(*stmt)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
-                    });
-            }
             Stmt::Label { label, stmt: inner } => {
                 if !self.defined_labels.insert(*label) {
                     self.result.diagnostics.push(ControlDiagnostic {
@@ -132,6 +124,14 @@ impl<'ctx> ControlPass<'ctx> {
                 }
                 self.unresolved_labels.remove(label);
                 self.visit_stmt(ast, *inner);
+            }
+            Stmt::Compound(stmt) => {
+                ast.block_items(*stmt)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(_) => {}
+                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
+                    });
             }
             Stmt::Break => match self.tracked.last() {
                 Some(TrackedStmt::Loop(loop_stmt)) => {

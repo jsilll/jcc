@@ -41,6 +41,16 @@ impl AMD64Fixer {
         }
     }
 
+    #[inline]
+    fn fix_operand(&mut self, oper: &mut Operand) {
+        if let Operand::Pseudo(id) = oper {
+            *oper = Operand::Stack(*self.offsets.entry(*id).or_insert_with(|| {
+                self.offset += 4;
+                self.offset
+            }));
+        }
+    }
+
     fn fix_instr(&mut self, block: &mut Block, idx: &mut usize) {
         let instr = &mut block.instrs[*idx];
         match instr {
@@ -284,15 +294,6 @@ impl AMD64Fixer {
                     }
                 }
             }
-        }
-    }
-
-    fn fix_operand(&mut self, oper: &mut Operand) {
-        if let Operand::Pseudo(id) = oper {
-            *oper = Operand::Stack(*self.offsets.entry(*id).or_insert_with(|| {
-                self.offset += 4;
-                self.offset
-            }));
         }
     }
 }

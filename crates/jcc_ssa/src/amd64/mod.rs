@@ -35,14 +35,17 @@ pub struct FnDef {
 }
 
 impl FnDef {
+    #[inline]
     pub fn get_block(&self, block_ref: BlockRef) -> &Block {
         &self.blocks[block_ref.0 as usize]
     }
 
+    #[inline]
     pub fn get_block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
         &mut self.blocks[block_ref.0 as usize]
     }
 
+    #[inline]
     pub fn push_block(&mut self, block: Block) -> BlockRef {
         self.blocks.push(block);
         BlockRef((self.blocks.len() - 1) as u32)

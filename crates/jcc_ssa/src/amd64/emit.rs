@@ -29,6 +29,25 @@ impl<'a> AMD64Emitter<'a> {
         self.output
     }
 
+    #[inline]
+    fn with_indent<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        self.indent_level += 1;
+        f(self);
+        self.indent_level -= 1;
+    }
+
+    #[inline]
+    fn writeln(&mut self, s: &str) {
+        if !s.is_empty() {
+            self.output.push_str(&"    ".repeat(self.indent_level));
+            self.output.push_str(s);
+        }
+        self.output.push('\n');
+    }
+
     fn emit_fn_def(&mut self, fn_def: &FnDef) {
         // TODO: Use interner data for function names
         // If in macOS, use .globl _name instead of .globl name
@@ -184,22 +203,5 @@ impl<'a> AMD64Emitter<'a> {
             CondCode::GreaterThan => "g".to_string(),
             CondCode::GreaterEqual => "ge".to_string(),
         }
-    }
-
-    fn with_indent<F>(&mut self, f: F)
-    where
-        F: FnOnce(&mut Self),
-    {
-        self.indent_level += 1;
-        f(self);
-        self.indent_level -= 1;
-    }
-
-    fn writeln(&mut self, s: &str) {
-        if !s.is_empty() {
-            self.output.push_str(&"    ".repeat(self.indent_level));
-            self.output.push_str(s);
-        }
-        self.output.push('\n');
     }
 }

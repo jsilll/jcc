@@ -20,6 +20,12 @@ pub struct Interner {
     map: HashMap<&'static str, Symbol>,
 }
 
+impl Default for Interner {
+    fn default() -> Self {
+        Self::with_capacity(1024)
+    }
+}
+
 impl Interner {
     pub fn new() -> Self {
         Self::with_capacity(1024)

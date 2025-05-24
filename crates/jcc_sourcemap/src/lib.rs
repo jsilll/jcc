@@ -1,7 +1,6 @@
 pub mod diag;
 
 use std::{
-    io,
     ops::{Add, Range, Sub},
     path::{Path, PathBuf},
 };
@@ -95,7 +94,7 @@ impl SourceSpan {
 }
 
 // ---------------------------------------------------------------------------
-// SourceFile
+// SourceMap
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,7 +106,7 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
-    pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
+    pub fn new(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let data = std::fs::read_to_string(path.as_ref())?;
 
         let estimated = data.len() / 80;

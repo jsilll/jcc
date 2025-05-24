@@ -1,4 +1,4 @@
-use crate::{SourceMap, SourceLocation, SourceSpan};
+use crate::{SourceLocation, SourceMap, SourceSpan};
 
 use std::{fmt::Display, io::Write};
 
@@ -89,10 +89,9 @@ impl Diagnostic {
         fn count_leading_spaces(s: &str) -> usize {
             let mut spaces = 0;
             for c in s.chars() {
-                if c == ' ' {
-                    spaces += 1;
-                } else {
-                    break;
+                match c {
+                    ' ' => spaces += 1,
+                    _ => break,
                 }
             }
             spaces

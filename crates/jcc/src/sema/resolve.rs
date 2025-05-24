@@ -4,7 +4,8 @@ use crate::{
 };
 
 use jcc_ssa::{
-    interner::{SymbolTable}, sourcemap::{diag::Diagnostic, SourceSpan}
+    interner::SymbolTable,
+    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 // ---------------------------------------------------------------------------
@@ -42,8 +43,8 @@ impl<'a> ResolverPass<'a> {
         Self {
             ast,
             ctx,
-            result: ResolverResult::default(),
             symbols: SymbolTable::new(),
+            result: ResolverResult::default(),
         }
     }
 
@@ -94,7 +95,8 @@ impl<'a> ResolverPass<'a> {
             Decl::Var { name, init } => {
                 if self
                     .symbols
-                    .insert(*name, SymbolEntry::without_linkage(decl)).is_some()
+                    .insert(*name, SymbolEntry::without_linkage(decl))
+                    .is_some()
                 {
                     self.result.diagnostics.push(ResolverDiagnostic {
                         span: *self.ast.decl_span(decl),
@@ -257,6 +259,7 @@ struct SymbolEntry {
 }
 
 impl SymbolEntry {
+    #[inline]
     fn with_linkage(decl: DeclRef) -> Self {
         Self {
             decl,
@@ -264,6 +267,7 @@ impl SymbolEntry {
         }
     }
 
+    #[inline]
     fn without_linkage(decl: DeclRef) -> Self {
         Self {
             decl,

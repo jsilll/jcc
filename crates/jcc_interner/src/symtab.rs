@@ -4,8 +4,7 @@ use std::collections::HashMap;
 // Symbol Table
 // ---------------------------------------------------------------------------
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct SymbolTable<S, V> {
     global: HashMap<S, V>,
     scopes: Vec<HashMap<S, V>>,
@@ -13,20 +12,18 @@ pub struct SymbolTable<S, V> {
 
 impl<S, V> SymbolTable<S, V> {
     #[inline]
-    pub fn new() -> SymbolTable<S, V> {
+    pub fn new() -> Self {
         SymbolTable {
             scopes: Vec::new(),
             global: HashMap::new(),
         }
     }
 
-
     #[inline]
     pub fn clear(&mut self) {
         self.scopes.clear();
         self.global.clear();
     }
-
 
     #[inline]
     pub fn clear_scope(&mut self) {
@@ -36,12 +33,10 @@ impl<S, V> SymbolTable<S, V> {
         }
     }
 
-
     #[inline]
     pub fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
-
 
     #[inline]
     pub fn pop_scope(&mut self) -> Option<HashMap<S, V>> {
@@ -72,7 +67,6 @@ where
         }
         self.global.get_mut(key)
     }
-
 
     #[inline]
     pub fn insert(&mut self, key: S, value: V) -> Option<V> {

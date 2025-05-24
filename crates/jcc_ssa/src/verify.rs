@@ -34,6 +34,7 @@ impl<'a> SSAVerifier<'a> {
         // TODO: this will iterate over deleted/invalidated instructions, fix it
         for (i, inst) in self.ssa.insts_iter2() {
             match inst.kind {
+                InstKind::Call { .. } => todo!("check call instruction"),
                 InstKind::Nop | InstKind::Phi | InstKind::Arg => {}
                 InstKind::Alloca => {
                     if inst.ty != Type::IntPtr {

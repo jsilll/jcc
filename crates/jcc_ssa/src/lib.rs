@@ -153,6 +153,10 @@ impl Inst {
         )
     }
 
+    pub fn call(func: FuncRef, args: Vec<InstRef>) -> Self {
+        Self::new(Type::Void, InstKind::Call { func, args })
+    }
+
     pub fn is_const(&self, val: i64) -> bool {
         match self.kind {
             InstKind::Const(v) => v == val,
@@ -172,6 +176,12 @@ impl Inst {
 
     pub fn get_args(&self, args: &mut Vec<InstRef>) {
         match &self.kind {
+            InstKind::Nop
+            | InstKind::Phi
+            | InstKind::Arg
+            | InstKind::Alloca
+            | InstKind::Jump(_)
+            | InstKind::Const(_) => {}
             InstKind::Ret(val)
             | InstKind::Load(val)
             | InstKind::Identity(val)
@@ -182,12 +192,7 @@ impl Inst {
             InstKind::Store { ptr, val } => args.extend([*ptr, *val]),
             InstKind::Upsilon { phi, val } => args.extend([*phi, *val]),
             InstKind::Binary { lhs, rhs, .. } => args.extend([*lhs, *rhs]),
-            InstKind::Nop
-            | InstKind::Phi
-            | InstKind::Arg
-            | InstKind::Alloca
-            | InstKind::Jump(_)
-            | InstKind::Const(_) => {}
+            InstKind::Call { args: vals, .. } => args.extend(vals),
         }
     }
 
@@ -257,11 +262,20 @@ pub enum InstKind {
     /// An identity instruction.
     Identity(InstRef),
     /// A store instruction.
-    Store { ptr: InstRef, val: InstRef },
+    Store {
+        ptr: InstRef,
+        val: InstRef,
+    },
     /// An upsilon instruction.
-    Upsilon { phi: InstRef, val: InstRef },
+    Upsilon {
+        phi: InstRef,
+        val: InstRef,
+    },
     /// A unary instruction.
-    Unary { op: UnaryOp, val: InstRef },
+    Unary {
+        op: UnaryOp,
+        val: InstRef,
+    },
     /// A binary instruction.
     Binary {
         op: BinaryOp,
@@ -285,6 +299,11 @@ pub enum InstKind {
         cond: InstRef,
         default: BlockRef,
         cases: Vec<(i64, BlockRef)>,
+    },
+    /// A function call instruction.
+    Call {
+        func: FuncRef,
+        args: Vec<InstRef>,
     },
 }
 
@@ -692,6 +711,9 @@ impl fmt::Display for InstKind {
                     "Switch {{ cond: {}, default: {}, cases: {:?} }}",
                     cond, default, cases
                 )
+            }
+            InstKind::Call { func, args } => {
+                write!(f, "Call {{ func: {}, args: {:?} }}", func, args)
             }
         }
     }

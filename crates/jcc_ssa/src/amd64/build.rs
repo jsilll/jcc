@@ -88,6 +88,7 @@ impl<'a> AMD64FuncBuilder<'a> {
         let span = *self.ssa.inst_span(i);
         match &inst.kind {
             crate::InstKind::Arg => todo!("handle args"),
+            crate::InstKind::Call { .. } => todo!("handle call"),
             crate::InstKind::Select { .. } => todo!("handle select"),
             crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Alloca => {

@@ -152,6 +152,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
+    // Generate SSA
     let ssa = jcc::ssa::build(&ast, &ctx, interner);
     if args.verbose {
         println!("{}", ssa);
@@ -161,6 +162,9 @@ fn try_main() -> Result<()> {
     if !verifier_result.diagnostics.is_empty() {
         // TODO: properly report ssa errors
         return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+    }
+    if args.tacky {
+        return Ok(());
     }
 
     let mut amd64 = ssa::amd64::build(&ssa);
@@ -179,7 +183,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Emit assembly
+    // Emit amd64 assembly
     let asm_path = args.path.with_extension("s");
     let asm = AMD64Emitter::new(&amd64, &interner).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;

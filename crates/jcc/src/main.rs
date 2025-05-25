@@ -7,9 +7,9 @@ use jcc::{
 use jcc_ssa::{
     self as ssa,
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
+    interner::Interner,
     sourcemap::{self, SourceDb, SourceMap},
     verify::SSAVerifier,
-    interner::Interner,
 };
 
 use anyhow::{Context, Result};
@@ -133,11 +133,7 @@ fn try_main() -> Result<()> {
     }
     let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
     if !resolver_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(
-            file,
-            &mut std::io::stderr(),
-            &resolver_result.diagnostics,
-        )?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
     let typer_result = TyperPass::new(&ast, &mut ctx).check();

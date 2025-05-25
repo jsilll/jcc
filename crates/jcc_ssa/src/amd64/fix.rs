@@ -7,8 +7,8 @@ use super::{BinaryOp, Block, Inst, Operand, Program, Reg};
 // ---------------------------------------------------------------------------
 
 pub struct AMD64Fixer {
-    offset: u32,
-    offsets: HashMap<u32, u32>,
+    offset: i32,
+    offsets: HashMap<u32, i32>,
 }
 
 impl Default for AMD64Fixer {
@@ -26,19 +26,22 @@ impl AMD64Fixer {
     }
 
     pub fn fix(mut self, program: &mut Program) {
-        let mut idx = 0;
-        program.0.blocks.iter_mut().for_each(|block| {
-            while idx < block.instrs.len() {
-                self.fix_instr(block, &mut idx);
-                idx += 1;
+        program.funcs.iter_mut().for_each(|func| {
+            let mut idx = 0;
+            func.blocks.iter_mut().for_each(|block| {
+                while idx < block.instrs.len() {
+                    self.fix_instr(block, &mut idx);
+                    idx += 1;
+                }
+                idx = 0;
+            });
+            if let Some(block) = func.blocks.first_mut() {
+                if let Some(Inst::Alloca(size)) = block.instrs.first_mut() {
+                    self.offset = (self.offset + 15) & !15;
+                    *size = self.offset;
+                }
             }
-            idx = 0;
         });
-        if let Some(block) = program.0.blocks.first_mut() {
-            if let Some(Inst::Alloca(size)) = block.instrs.first_mut() {
-                *size = self.offset;
-            }
-        }
     }
 
     #[inline]
@@ -46,7 +49,7 @@ impl AMD64Fixer {
         if let Operand::Pseudo(id) = oper {
             *oper = Operand::Stack(*self.offsets.entry(*id).or_insert_with(|| {
                 self.offset += 4;
-                self.offset
+                -self.offset
             }));
         }
     }
@@ -54,7 +57,16 @@ impl AMD64Fixer {
     fn fix_instr(&mut self, block: &mut Block, idx: &mut usize) {
         let instr = &mut block.instrs[*idx];
         match instr {
-            &mut Inst::Ret | Inst::Cdq | Inst::Jmp(_) | Inst::Alloca(_) | Inst::JmpCC { .. } => {}
+            Inst::Ret
+            | Inst::Cdq
+            | Inst::Jmp(_)
+            | Inst::Alloca(_)
+            | Inst::Call(_)
+            | Inst::Dealloca(_)
+            | Inst::JmpCC { .. } => {}
+            Inst::Push(oper) => {
+                self.fix_operand(oper);
+            }
             Inst::Idiv(oper) => {
                 self.fix_operand(oper);
                 if let Operand::Imm(_) = oper {

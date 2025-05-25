@@ -9,6 +9,7 @@ use super::{BinaryOp, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
 pub struct AMD64Emitter<'a> {
     output: String,
     indent_level: usize,
+    fn_def: &'a FnDef,
     program: &'a Program,
     interner: &'a Interner,
 }
@@ -20,11 +21,18 @@ impl<'a> AMD64Emitter<'a> {
             interner,
             indent_level: 0,
             output: String::with_capacity(1024),
+            fn_def: program
+                .funcs
+                .first()
+                .expect("No function definitions found"),
         }
     }
 
     pub fn emit(mut self) -> String {
-        self.emit_fn_def(&self.program.0);
+        self.program.funcs.iter().for_each(|fn_def| {
+            self.fn_def = fn_def;
+            self.emit_fn_def(fn_def);
+        });
         self.with_indent(|emitter| emitter.writeln(".section .note.GNU-stack,\"\",@progbits"));
         self.output
     }
@@ -76,6 +84,9 @@ impl<'a> AMD64Emitter<'a> {
 
     fn emit_instr(&mut self, instr: &Inst) {
         match instr {
+            Inst::Push(_) => todo!("handle push instruction"),
+            Inst::Call(_) => todo!("handle call instructions"),
+            Inst::Dealloca(_) => todo!("handle dealloca instructions"),
             Inst::Ret => {
                 self.writeln("movq %rbp, %rsp");
                 self.writeln("popq %rbp");
@@ -92,7 +103,7 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln(&format!("idivl {oper}"));
             }
             Inst::Jmp(target) => {
-                let block = self.program.0.get_block(*target);
+                let block = self.fn_def.get_block(*target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
@@ -124,7 +135,7 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln(&format!("testl {src}, {dst}"));
             }
             Inst::JmpCC { cond_code, target } => {
-                let block = self.program.0.get_block(*target);
+                let block = self.fn_def.get_block(*target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
@@ -169,12 +180,17 @@ impl<'a> AMD64Emitter<'a> {
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%al".to_string(),
+                Reg::Rbx => "%bl".to_string(),
                 Reg::Rcx => "%cl".to_string(),
                 Reg::Rdx => "%dl".to_string(),
+                Reg::Rdi => "%dil".to_string(),
+                Reg::Rsi => "%sil".to_string(),
+                Reg::R8 => "%r8b".to_string(),
+                Reg::R9 => "%r9b".to_string(),
                 Reg::Rg10 => "%r10b".to_string(),
                 Reg::Rg11 => "%r11b".to_string(),
             },
-            Operand::Stack(offset) => format!("-{}(%rbp)", offset),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
             Operand::Pseudo(id) => format!("pseudo({})", id),
         }
     }
@@ -184,12 +200,17 @@ impl<'a> AMD64Emitter<'a> {
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%eax".to_string(),
+                Reg::Rbx => "%ebx".to_string(),
                 Reg::Rcx => "%ecx".to_string(),
+                Reg::Rdi => "%edi".to_string(),
                 Reg::Rdx => "%edx".to_string(),
+                Reg::Rsi => "%esi".to_string(),
+                Reg::R8 => "%r8d".to_string(),
+                Reg::R9 => "%r9d".to_string(),
                 Reg::Rg10 => "%r10d".to_string(),
                 Reg::Rg11 => "%r11d".to_string(),
             },
-            Operand::Stack(offset) => format!("-{}(%rbp)", offset),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
             Operand::Pseudo(id) => format!("pseudo({})", id),
         }
     }

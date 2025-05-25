@@ -13,17 +13,23 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 
 pub fn build<'a>(ast: &'a ast::Ast, ctx: &'a sema::SemaCtx, interner: Interner) -> ssa::Program {
-    let mut functions = HashMap::new();
+    let mut funcs = HashMap::new();
     let mut prog = ssa::Program::new(interner);
     ast.root().iter().for_each(|decl| match ast.decl(*decl) {
         ast::Decl::Var { .. } => todo!("handle global variable declarations"),
-        ast::Decl::Func { name, .. } => {
+        ast::Decl::Func { name, body, .. } => {
             let span = *ast.decl_span(*decl);
-            let func = prog.new_func_with_span_interned(*name, span);
+            let func = funcs
+                .entry(*name)
+                .or_insert(prog.new_func_with_span_interned(*name, span))
+                .clone();
+            if body.is_none() {
+                // Skip function declarations without bodies
+                return;
+            }
             let block = prog.new_block_with_span("entry", span);
             prog.func_mut(func).blocks.push(block);
-            functions.insert(*name, func);
-            SSAFuncBuilder::new(ast, ctx, &mut prog, &functions, *decl, func, block).build();
+            SSAFuncBuilder::new(ast, ctx, &mut prog, &mut funcs, *decl, func, block).build();
         }
     });
     prog
@@ -37,7 +43,7 @@ struct SSAFuncBuilder<'a> {
     ast: &'a ast::Ast,
     ctx: &'a sema::SemaCtx,
     prog: &'a mut ssa::Program,
-    funcs: &'a HashMap<Symbol, ssa::FuncRef>,
+    funcs: &'a mut HashMap<Symbol, ssa::FuncRef>,
     decl: ast::DeclRef,
     func: ssa::FuncRef,
     block: ssa::BlockRef,
@@ -53,7 +59,7 @@ impl<'a> SSAFuncBuilder<'a> {
         ast: &'a ast::Ast,
         ctx: &'a sema::SemaCtx,
         prog: &'a mut ssa::Program,
-        funcs: &'a HashMap<Symbol, ssa::FuncRef>,
+        funcs: &'a mut HashMap<Symbol, ssa::FuncRef>,
         decl: ast::DeclRef,
         func: ssa::FuncRef,
         entry: ssa::BlockRef,
@@ -75,7 +81,16 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn build(mut self) {
-        if let ast::Decl::Func { body, .. } = self.ast.decl(self.decl) {
+        if let ast::Decl::Func { params, body, .. } = self.ast.decl(self.decl) {
+            self.ast.params(*params).iter().for_each(|param| {
+                let span = *self.ast.decl_span(*param);
+                let arg = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::arg(ssa::Type::Int32), span);
+                self.vars.insert(*param, arg);
+                self.append_to_block(arg);
+            });
+
             let body = body.expect("expected a function body");
             self.ast
                 .block_items(body)
@@ -109,7 +124,7 @@ impl<'a> SSAFuncBuilder<'a> {
         self.vars
             .get(&decl)
             .copied()
-            .expect("expected a pointer to a variable")
+            .expect(format!("expected a variable declaration for {decl:?}").as_str())
     }
 
     #[inline]
@@ -646,9 +661,14 @@ impl<'a> SSAFuncBuilder<'a> {
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
-                let inst = self
-                    .prog
-                    .new_inst_with_span(ssa::Inst::call(self.funcs[name], args), span);
+                let call = ssa::Inst::call(
+                    self.funcs
+                        .entry(*name)
+                        .or_insert(self.prog.new_func_with_span_interned(*name, span))
+                        .clone(),
+                    args,
+                );
+                let inst = self.prog.new_inst_with_span(call, span);
                 self.append_to_block(inst);
                 inst
             }

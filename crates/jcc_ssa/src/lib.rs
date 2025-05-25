@@ -79,7 +79,7 @@ impl Inst {
         Self::new(ty, InstKind::Phi)
     }
 
-    pub fn get_arg(ty: Type) -> Self {
+    pub fn arg(ty: Type) -> Self {
         Self::new(ty, InstKind::Arg)
     }
 

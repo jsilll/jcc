@@ -1,6 +1,24 @@
-use super::{BinaryOp, Block, BlockRef, CondCode, Inst, Operand, Program, Reg, UnaryOp};
+use super::{BinaryOp, Block, BlockRef, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
 
 use std::collections::HashMap;
+
+const ARG_REGS: [Reg; 6] = [Reg::Rdi, Reg::Rsi, Reg::Rdx, Reg::Rcx, Reg::R8, Reg::R9];
+
+// ---------------------------------------------------------------------------
+// Root function
+// ---------------------------------------------------------------------------
+
+pub fn build(ssa: &crate::Program) -> Program {
+    let mut prog = Program::default();
+    ssa.funcs_iter().for_each(|func| {
+        if ssa.func(func).blocks.is_empty() {
+            // Skip empty functions
+            return;
+        }
+        prog.funcs.push(AMD64FuncBuilder::new(ssa, func).build());
+    });
+    prog
+}
 
 // ---------------------------------------------------------------------------
 // AMD64Builder
@@ -8,40 +26,44 @@ use std::collections::HashMap;
 
 pub struct AMD64FuncBuilder<'a> {
     ssa: &'a crate::Program,
-    prog: &'a mut Program,
-    pseudo_count: u32,
     func: crate::FuncRef,
+    fn_def: FnDef,
     block: BlockRef,
+    arg_count: u32,
+    pseudo_count: u32,
     blocks: HashMap<crate::BlockRef, BlockRef>,
     operands: HashMap<crate::InstRef, Operand>,
 }
 
 impl<'a> AMD64FuncBuilder<'a> {
-    pub fn new(ssa: &'a crate::Program, prog: &'a mut Program, func: crate::FuncRef) -> Self {
+    pub fn new(ssa: &'a crate::Program, func: crate::FuncRef) -> Self {
         let mut blocks = HashMap::new();
-        let block = prog.0.push_block(Block::default());
+        let mut fn_def = FnDef::default();
+        let block = fn_def.push_block(Block::default());
         blocks.insert(ssa.func(func).blocks[0], block);
         Self {
             ssa,
-            prog,
             func,
             block,
             blocks,
+            fn_def,
+            arg_count: 0,
             pseudo_count: 0,
             operands: HashMap::new(),
         }
     }
 
-    pub fn build(mut self) {
+    pub fn build(mut self) -> FnDef {
         let span = *self.ssa.func_span(self.func);
         self.append_to_block(Inst::Alloca(0), span);
         self.ssa.func(self.func).blocks.iter().for_each(|b| {
             self.block = self.get_or_make_block(*b);
-            self.prog.0.get_block_mut(self.block).label = Some(*self.ssa.block_name(*b));
+            self.fn_def.get_block_mut(self.block).label = Some(*self.ssa.block_name(*b));
             self.ssa.block(*b).insts.iter().for_each(|inst| {
                 self.visit_inst(*inst);
             });
         });
+        self.fn_def
     }
 
     #[inline]
@@ -53,32 +75,29 @@ impl<'a> AMD64FuncBuilder<'a> {
 
     #[inline]
     fn get_operand(&self, inst: &crate::InstRef) -> Operand {
-        *self.operands
-            .get(inst)
-            .expect("expected a variable")
+        *self.operands.get(inst).expect("expected a variable")
     }
 
     #[inline]
     fn get_or_make_operand(&mut self, inst: crate::InstRef) -> Operand {
-        *self.operands
-            .entry(inst)
-            .or_insert_with(|| {
-                let tmp = Operand::Pseudo(self.pseudo_count);
-                self.pseudo_count += 1;
-                tmp
-            })
+        *self.operands.entry(inst).or_insert_with(|| {
+            let tmp = Operand::Pseudo(self.pseudo_count);
+            self.pseudo_count += 1;
+            tmp
+        })
     }
 
     #[inline]
     fn get_or_make_block(&mut self, block: crate::BlockRef) -> BlockRef {
-        *self.blocks
+        *self
+            .blocks
             .entry(block)
-            .or_insert_with(|| self.prog.0.push_block(Block::default()))
+            .or_insert_with(|| self.fn_def.push_block(Block::default()))
     }
 
     #[inline]
     fn append_to_block(&mut self, instr: Inst, span: crate::SourceSpan) {
-        let block = self.prog.0.get_block_mut(self.block);
+        let block = self.fn_def.get_block_mut(self.block);
         block.instrs.push(instr);
         block.spans.push(span);
     }
@@ -87,8 +106,6 @@ impl<'a> AMD64FuncBuilder<'a> {
         let inst = self.ssa.inst(i);
         let span = *self.ssa.inst_span(i);
         match &inst.kind {
-            crate::InstKind::Arg => todo!("handle args"),
-            crate::InstKind::Call { .. } => todo!("handle call"),
             crate::InstKind::Select { .. } => todo!("handle select"),
             crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Alloca => {
@@ -237,6 +254,83 @@ impl<'a> AMD64FuncBuilder<'a> {
                     crate::BinaryOp::Div => self.build_div_or_rem(true, lhs, rhs, dst, span),
                     crate::BinaryOp::Rem => self.build_div_or_rem(false, lhs, rhs, dst, span),
                 }
+            }
+            crate::InstKind::Arg => {
+                let dst = self.make_pseudo();
+                self.operands.insert(i, dst);
+                match ARG_REGS.get(self.arg_count as usize) {
+                    Some(&reg) => {
+                        self.append_to_block(
+                            Inst::Mov {
+                                src: Operand::Reg(reg),
+                                dst,
+                            },
+                            span,
+                        );
+                    }
+                    None => {
+                        let offset = (self.arg_count - ARG_REGS.len() as u32) * 8;
+                        self.append_to_block(
+                            Inst::Mov {
+                                src: Operand::Stack(offset as i32),
+                                dst,
+                            },
+                            span,
+                        );
+                    }
+                }
+                self.arg_count += 1;
+            }
+            crate::InstKind::Call { func, args } => {
+                let mut stack_padding = 0;
+                let stack_args = args.len().saturating_sub(ARG_REGS.len());
+                if stack_args % 2 != 0 {
+                    stack_padding = 8;
+                    self.append_to_block(Inst::Alloca(stack_padding), span);
+                }
+                for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
+                    let src = self.get_operand(arg);
+                    self.append_to_block(
+                        Inst::Mov {
+                            src,
+                            dst: Operand::Reg(*reg),
+                        },
+                        span,
+                    );
+                }
+                for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
+                    let arg = self.get_operand(arg);
+                    match arg {
+                        Operand::Imm(_) | Operand::Reg(_) => {
+                            self.append_to_block(Inst::Push(arg), span);
+                        }
+                        _ => {
+                            self.append_to_block(
+                                Inst::Mov {
+                                    src: arg,
+                                    dst: Operand::Reg(Reg::Rax),
+                                },
+                                span,
+                            );
+                            self.append_to_block(Inst::Push(Operand::Reg(Reg::Rax)), span);
+                        }
+                    }
+                }
+                let name = self.ssa.func_name(*func);
+                self.append_to_block(Inst::Call(*name), span);
+                let stack_size = args.len() as i32 * 8 + stack_padding;
+                if stack_size > 0 {
+                    self.append_to_block(Inst::Dealloca(stack_size), span);
+                }
+                let dst = self.make_pseudo();
+                self.operands.insert(i, dst);
+                self.append_to_block(
+                    Inst::Mov {
+                        src: Operand::Reg(Reg::Rax),
+                        dst,
+                    },
+                    span,
+                );
             }
         }
     }

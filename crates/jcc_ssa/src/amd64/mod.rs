@@ -4,29 +4,20 @@ pub mod fix;
 
 pub mod emit;
 
+pub use build::{build, AMD64FuncBuilder};
+
 use crate::Symbol;
-use build::AMD64FuncBuilder;
 
 use jcc_sourcemap::SourceSpan;
-
-// ---------------------------------------------------------------------------
-// Root function
-// ---------------------------------------------------------------------------
-
-pub fn build(ssa: &crate::Program) -> Program {
-    let mut prog = Program::default();
-    ssa.funcs_iter().for_each(|func| {
-        AMD64FuncBuilder::new(ssa, &mut prog, func).build();
-    });
-    prog
-}
 
 // ---------------------------------------------------------------------------
 // AMD64 IR
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Program(pub FnDef);
+pub struct Program {
+    funcs: Vec<FnDef>,
+}
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct FnDef {
@@ -101,7 +92,13 @@ pub enum Inst {
     /// A `cdq` instruction.
     Cdq,
     /// Stack allocation instruction.
-    Alloca(u32),
+    Alloca(i32),
+    /// Stack deallocation instruction.
+    Dealloca(i32),
+    /// A call instruction.
+    Call(Symbol),
+    /// A push to stack instruction.
+    Push(Operand),
     /// An `idiv` instruction.
     Idiv(Operand),
     /// A `jmp` instruction.
@@ -136,7 +133,7 @@ pub enum Operand {
     /// A register.
     Reg(Reg),
     /// A stack operand.
-    Stack(u32),
+    Stack(i32),
     /// Pseudo register.
     Pseudo(u32),
 }
@@ -145,13 +142,23 @@ pub enum Operand {
 pub enum Reg {
     /// The RAX register.
     Rax,
+    /// The RBX register.
+    Rbx,
     /// The RCX register.
     Rcx,
     /// The RDX register.
     Rdx,
+    /// The RDI register.
+    Rdi,
+    /// The RSI register.
+    Rsi,
+    /// The R8 register.
+    R8,
+    /// The R9 register.
+    R9,
     /// The R10 register.
     Rg10,
-    /// The R10 register.
+    /// The R11 register.
     Rg11,
 }
 
@@ -227,8 +234,13 @@ impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Reg::Rax => write!(f, "rax"),
+            Reg::Rbx => write!(f, "rbx"),
             Reg::Rcx => write!(f, "rcx"),
+            Reg::Rdi => write!(f, "rdi"),
             Reg::Rdx => write!(f, "rdx"),
+            Reg::Rsi => write!(f, "rsi"),
+            Reg::R8 => write!(f, "r8"),
+            Reg::R9 => write!(f, "r9"),
             Reg::Rg10 => write!(f, "r10"),
             Reg::Rg11 => write!(f, "r11"),
         }
@@ -290,7 +302,10 @@ impl std::fmt::Display for Inst {
         match self {
             Inst::Ret => write!(f, "ret"),
             Inst::Cdq => write!(f, "cdq"),
+            Inst::Call(_) => write!(f, "call <symbol>"),
+            Inst::Push(operand) => write!(f, "push {}", operand),
             Inst::Alloca(size) => write!(f, "alloca {}", size),
+            Inst::Dealloca(size) => write!(f, "dealloca {}", size),
             Inst::Idiv(operand) => write!(f, "idiv {}", operand),
             Inst::Jmp(block_ref) => write!(f, "jmp {}", block_ref),
             Inst::Mov { src, dst } => write!(f, "mov {}, {}", src, dst),
@@ -335,6 +350,10 @@ impl std::fmt::Display for FnDef {
 
 impl std::fmt::Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        self.funcs.iter().try_for_each(|func| {
+            write!(f, "Function:\n{}", func)?;
+            Ok(())
+        })?;
+        Ok(())
     }
 }

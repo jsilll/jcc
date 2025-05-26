@@ -19,13 +19,22 @@ pub struct Program {
     funcs: Vec<FnDef>,
 }
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct FnDef {
+    name: Symbol,
     blocks: Vec<Block>,
     pub span: SourceSpan,
 }
 
 impl FnDef {
+    pub fn new(name: Symbol, span: SourceSpan) -> Self {
+        FnDef {
+            name,
+            span,
+            blocks: Vec::new(),
+        }
+    }
+
     #[inline]
     pub fn get_block(&self, block_ref: BlockRef) -> &Block {
         &self.blocks[block_ref.0 as usize]

@@ -38,7 +38,10 @@ pub struct AMD64FuncBuilder<'a> {
 impl<'a> AMD64FuncBuilder<'a> {
     pub fn new(ssa: &'a crate::Program, func: crate::FuncRef) -> Self {
         let mut blocks = HashMap::new();
-        let mut fn_def = FnDef::default();
+        let mut fn_def = FnDef::new(
+            *ssa.func_name(func),
+            *ssa.func_span(func),
+        );
         let block = fn_def.push_block(Block::default());
         blocks.insert(ssa.func(func).blocks[0], block);
         Self {
@@ -269,7 +272,8 @@ impl<'a> AMD64FuncBuilder<'a> {
                         );
                     }
                     None => {
-                        let offset = (self.arg_count - ARG_REGS.len() as u32) * 8;
+                        let n_stack_arg = self.arg_count - ARG_REGS.len() as u32;
+                        let offset = 16 + n_stack_arg * 8;
                         self.append_to_block(
                             Inst::Mov {
                                 src: Operand::Stack(offset as i32),
@@ -282,12 +286,15 @@ impl<'a> AMD64FuncBuilder<'a> {
                 self.arg_count += 1;
             }
             crate::InstKind::Call { func, args } => {
-                let mut stack_padding = 0;
                 let stack_args = args.len().saturating_sub(ARG_REGS.len());
-                if stack_args % 2 != 0 {
-                    stack_padding = 8;
-                    self.append_to_block(Inst::Alloca(stack_padding), span);
-                }
+                let stack_padding = match stack_args % 2 {
+                    0 => 0,
+                    1 => {
+                        self.append_to_block(Inst::Alloca(8), span);
+                        8
+                    }
+                    _ => unreachable!(),
+                };
                 for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
                     let src = self.get_operand(arg);
                     self.append_to_block(
@@ -318,7 +325,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                 }
                 let name = self.ssa.func_name(*func);
                 self.append_to_block(Inst::Call(*name), span);
-                let stack_size = args.len() as i32 * 8 + stack_padding;
+                let stack_size = stack_args as i32 * 8 + stack_padding;
                 if stack_size > 0 {
                     self.append_to_block(Inst::Dealloca(stack_size), span);
                 }

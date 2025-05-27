@@ -62,16 +62,21 @@ impl<'ctx> ControlPass<'ctx> {
                             self.visit_stmt(ast, *stmt)
                         }
                     });
+
+                    self.unresolved_labels.values().for_each(|spans| {
+                        spans.iter().for_each(|span| {
+                            self.result.diagnostics.push(ControlDiagnostic {
+                                span: *span,
+                                kind: ControlDiagnosticKind::UndefinedLabel,
+                            });
+                        });
+                    });
+
+                    self.tracked.clear();
+                    self.defined_labels.clear();
+                    self.unresolved_labels.clear();
                 }
             }
-        });
-        self.unresolved_labels.values().for_each(|spans| {
-            spans.iter().for_each(|span| {
-                self.result.diagnostics.push(ControlDiagnostic {
-                    span: *span,
-                    kind: ControlDiagnosticKind::UndefinedLabel,
-                });
-            });
         });
         self.result
     }

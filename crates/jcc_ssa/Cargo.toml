@@ -1,0 +1,8 @@
+[package]
+name = "jcc_ssa"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jcc_interner = { path = "../jcc_interner" }
+jcc_sourcemap = { path = "../jcc_sourcemap" }

@@ -4,11 +4,12 @@ use jcc::{
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
 };
 
-use ssa::{
+use jcc_ssa::{
+    self as ssa,
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
-    source_file::{self, SourceDb, SourceFile},
+    interner::Interner,
+    sourcemap::{self, SourceDb, SourceMap},
     verify::SSAVerifier,
-    Interner,
 };
 
 use anyhow::{Context, Result};
@@ -76,7 +77,7 @@ fn try_main() -> Result<()> {
 
     // Add file to db
     let mut db = SourceDb::new();
-    db.add(SourceFile::new(&pp_path).context("Failed to read file")?);
+    db.add(SourceMap::new(&pp_path).context("Failed to read file")?);
     let file = db.files().last().context("Failed to store file in db")?;
 
     // Lex file
@@ -88,11 +89,11 @@ fn try_main() -> Result<()> {
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !lexer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
     }
     if args.lex {
         return Ok(());
@@ -101,7 +102,7 @@ fn try_main() -> Result<()> {
     // Parse tokens
     let parser_result = Parser::new(file, &mut interner, lexer_result.tokens.iter()).parse();
     if !parser_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.verbose {
@@ -127,21 +128,17 @@ fn try_main() -> Result<()> {
     let mut ctx = SemaCtx::new(&ast);
     let control_result = ControlPass::new(&mut ctx).check(&ast);
     if !control_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
     let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
     if !resolver_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(
-            file,
-            &mut std::io::stderr(),
-            &resolver_result.diagnostics,
-        )?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
     let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {
-        source_file::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.verbose {
@@ -151,6 +148,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
+    // Generate SSA
     let ssa = jcc::ssa::build(&ast, &ctx, interner);
     if args.verbose {
         println!("{}", ssa);
@@ -160,6 +158,9 @@ fn try_main() -> Result<()> {
     if !verifier_result.diagnostics.is_empty() {
         // TODO: properly report ssa errors
         return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
+    }
+    if args.tacky {
+        return Ok(());
     }
 
     let mut amd64 = ssa::amd64::build(&ssa);
@@ -178,7 +179,7 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    // Emit assembly
+    // Emit amd64 assembly
     let asm_path = args.path.with_extension("s");
     let asm = AMD64Emitter::new(&amd64, &interner).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;

@@ -1,7 +1,6 @@
 pub mod diag;
 
 use std::{
-    io,
     ops::{Add, Range, Sub},
     path::{Path, PathBuf},
 };
@@ -95,19 +94,19 @@ impl SourceSpan {
 }
 
 // ---------------------------------------------------------------------------
-// SourceFile
+// SourceMap
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceFile {
+pub struct SourceMap {
     offset: u32,
     data: String,
     path: PathBuf,
     lines: Vec<u32>,
 }
 
-impl SourceFile {
-    pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
+impl SourceMap {
+    pub fn new(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let data = std::fs::read_to_string(path.as_ref())?;
 
         let estimated = data.len() / 80;
@@ -130,14 +129,17 @@ impl SourceFile {
         })
     }
 
+    #[inline]
     pub fn data(&self) -> &str {
         &self.data
     }
 
+    #[inline]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[inline]
     pub fn end_span(&self) -> SourceSpan {
         let end = self.offset + self.data.len() as u32;
         SourceSpan {
@@ -146,11 +148,13 @@ impl SourceFile {
         }
     }
 
+    #[inline]
     pub fn slice(&self, range: impl Into<Range<u32>>) -> Option<&str> {
         let range = range.into();
         self.data.get(range.start as usize..range.end as usize)
     }
 
+    #[inline]
     pub fn span(&self, range: impl Into<Range<u32>>) -> Option<SourceSpan> {
         SourceSpan::new(range).map(|span| span + self.offset)
     }
@@ -216,7 +220,7 @@ impl SourceFile {
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct SourceDb {
-    files: Vec<SourceFile>,
+    files: Vec<SourceMap>,
 }
 
 impl SourceDb {
@@ -224,11 +228,12 @@ impl SourceDb {
         Self::default()
     }
 
-    pub fn files(&self) -> &[SourceFile] {
+    #[inline]
+    pub fn files(&self) -> &[SourceMap] {
         self.files.as_slice()
     }
 
-    pub fn add(&mut self, mut file: SourceFile) {
+    pub fn add(&mut self, mut file: SourceMap) {
         file.offset = self
             .files
             .last()
@@ -276,7 +281,7 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         write(temp.path(), "Hello\nWorld\n").unwrap();
 
-        let source = SourceFile::new(temp.path()).unwrap();
+        let source = SourceMap::new(temp.path()).unwrap();
 
         let span = source.span(0..5).unwrap();
         let location = source.locate(span).unwrap();
@@ -300,8 +305,8 @@ mod tests {
         write(temp2.path(), "Rust\nForever\n").unwrap();
 
         let mut db = SourceDb::new();
-        db.add(SourceFile::new(temp1.path()).unwrap());
-        db.add(SourceFile::new(temp2.path()).unwrap());
+        db.add(SourceMap::new(temp1.path()).unwrap());
+        db.add(SourceMap::new(temp2.path()).unwrap());
 
         let source = db.files().first().unwrap();
 

@@ -2,7 +2,7 @@ pub mod parse;
 
 pub mod graphviz;
 
-use ssa::{source_file::SourceSpan, Symbol};
+use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};
 
 use std::num::NonZeroU32;
 
@@ -387,6 +387,22 @@ pub enum BinaryOp {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum BlockItem {
+    /// A declaration.
+    Decl(DeclRef),
+    /// A statement.
+    Stmt(StmtRef),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ForInit {
+    /// An expression.
+    Expr(ExprRef),
+    /// A variable declaration.
+    VarDecl(DeclRef),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Slice<T>(u32, u32, std::marker::PhantomData<T>);
 
 impl<T> Slice<T> {
@@ -410,20 +426,4 @@ impl<T> Default for Slice<T> {
     fn default() -> Self {
         Slice(0, 0, std::marker::PhantomData)
     }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum BlockItem {
-    /// A declaration.
-    Decl(DeclRef),
-    /// A statement.
-    Stmt(StmtRef),
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ForInit {
-    /// An expression.
-    Expr(ExprRef),
-    /// A variable declaration.
-    VarDecl(DeclRef),
 }

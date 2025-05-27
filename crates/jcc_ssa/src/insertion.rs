@@ -1,6 +1,6 @@
 use crate::{BlockRef, Inst, InstIdx, InstKind, Program, Type};
 
-use source_file::SourceSpan;
+use jcc_sourcemap::SourceSpan;
 
 #[derive(Debug)]
 struct Insertion {

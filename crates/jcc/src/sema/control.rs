@@ -3,9 +3,9 @@ use crate::{
     sema::SemaCtx,
 };
 
-use ssa::{
-    source_file::{diag::Diagnostic, SourceSpan},
-    Symbol,
+use jcc_ssa::{
+    interner::Symbol,
+    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 use std::collections::{HashMap, HashSet};
@@ -62,16 +62,21 @@ impl<'ctx> ControlPass<'ctx> {
                             self.visit_stmt(ast, *stmt)
                         }
                     });
+
+                    self.unresolved_labels.values().for_each(|spans| {
+                        spans.iter().for_each(|span| {
+                            self.result.diagnostics.push(ControlDiagnostic {
+                                span: *span,
+                                kind: ControlDiagnosticKind::UndefinedLabel,
+                            });
+                        });
+                    });
+
+                    self.tracked.clear();
+                    self.defined_labels.clear();
+                    self.unresolved_labels.clear();
                 }
             }
-        });
-        self.unresolved_labels.values().for_each(|spans| {
-            spans.iter().for_each(|span| {
-                self.result.diagnostics.push(ControlDiagnostic {
-                    span: *span,
-                    kind: ControlDiagnosticKind::UndefinedLabel,
-                });
-            });
         });
         self.result
     }
@@ -115,14 +120,6 @@ impl<'ctx> ControlPass<'ctx> {
                         .push(*ast.stmt_span(stmt));
                 }
             }
-            Stmt::Compound(stmt) => {
-                ast.block_items(*stmt)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
-                    });
-            }
             Stmt::Label { label, stmt: inner } => {
                 if !self.defined_labels.insert(*label) {
                     self.result.diagnostics.push(ControlDiagnostic {
@@ -132,6 +129,14 @@ impl<'ctx> ControlPass<'ctx> {
                 }
                 self.unresolved_labels.remove(label);
                 self.visit_stmt(ast, *inner);
+            }
+            Stmt::Compound(stmt) => {
+                ast.block_items(*stmt)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(_) => {}
+                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
+                    });
             }
             Stmt::Break => match self.tracked.last() {
                 Some(TrackedStmt::Loop(loop_stmt)) => {
@@ -205,7 +210,7 @@ impl<'ctx> ControlPass<'ctx> {
 }
 
 // ---------------------------------------------------------------------------
-// TrackedStmt
+// Auxiliary structures
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]

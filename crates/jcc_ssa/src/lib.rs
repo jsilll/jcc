@@ -6,12 +6,13 @@ pub mod insertion;
 
 pub mod amd64;
 
-pub use source_file;
+pub use jcc_interner as interner;
+pub use jcc_sourcemap as sourcemap;
 
 use effects::{AbstractHeap, FastEffects};
 
-use source_file::SourceSpan;
-pub use jcc_interner::{Interner, Symbol};
+use jcc_interner::{Interner, Symbol};
+use jcc_sourcemap::SourceSpan;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -78,7 +79,7 @@ impl Inst {
         Self::new(ty, InstKind::Phi)
     }
 
-    pub fn get_arg(ty: Type) -> Self {
+    pub fn arg(ty: Type) -> Self {
         Self::new(ty, InstKind::Arg)
     }
 
@@ -152,6 +153,10 @@ impl Inst {
         )
     }
 
+    pub fn call(func: FuncRef, args: Vec<InstRef>) -> Self {
+        Self::new(Type::Void, InstKind::Call { func, args })
+    }
+
     pub fn is_const(&self, val: i64) -> bool {
         match self.kind {
             InstKind::Const(v) => v == val,
@@ -171,6 +176,12 @@ impl Inst {
 
     pub fn get_args(&self, args: &mut Vec<InstRef>) {
         match &self.kind {
+            InstKind::Nop
+            | InstKind::Phi
+            | InstKind::Arg
+            | InstKind::Alloca
+            | InstKind::Jump(_)
+            | InstKind::Const(_) => {}
             InstKind::Ret(val)
             | InstKind::Load(val)
             | InstKind::Identity(val)
@@ -181,12 +192,7 @@ impl Inst {
             InstKind::Store { ptr, val } => args.extend([*ptr, *val]),
             InstKind::Upsilon { phi, val } => args.extend([*phi, *val]),
             InstKind::Binary { lhs, rhs, .. } => args.extend([*lhs, *rhs]),
-            InstKind::Nop
-            | InstKind::Phi
-            | InstKind::Arg
-            | InstKind::Alloca
-            | InstKind::Jump(_)
-            | InstKind::Const(_) => {}
+            InstKind::Call { args: vals, .. } => args.extend(vals),
         }
     }
 
@@ -256,11 +262,20 @@ pub enum InstKind {
     /// An identity instruction.
     Identity(InstRef),
     /// A store instruction.
-    Store { ptr: InstRef, val: InstRef },
+    Store {
+        ptr: InstRef,
+        val: InstRef,
+    },
     /// An upsilon instruction.
-    Upsilon { phi: InstRef, val: InstRef },
+    Upsilon {
+        phi: InstRef,
+        val: InstRef,
+    },
     /// A unary instruction.
-    Unary { op: UnaryOp, val: InstRef },
+    Unary {
+        op: UnaryOp,
+        val: InstRef,
+    },
     /// A binary instruction.
     Binary {
         op: BinaryOp,
@@ -284,6 +299,11 @@ pub enum InstKind {
         cond: InstRef,
         default: BlockRef,
         cases: Vec<(i64, BlockRef)>,
+    },
+    /// A function call instruction.
+    Call {
+        func: FuncRef,
+        args: Vec<InstRef>,
     },
 }
 
@@ -692,6 +712,9 @@ impl fmt::Display for InstKind {
                     cond, default, cases
                 )
             }
+            InstKind::Call { func, args } => {
+                write!(f, "Call {{ func: {}, args: {:?} }}", func, args)
+            }
         }
     }
 }
@@ -699,10 +722,10 @@ impl fmt::Display for InstKind {
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
-            write!(f, "define @{}", self.interner.get(*name).unwrap_or("?"))?;
+            write!(f, "define @{}", self.interner.lookup(*name))?;
             for block in &func.blocks {
                 let name = *self.block_name(*block);
-                write!(f, "\n{}:", self.interner.get(name).unwrap_or("?"))?;
+                write!(f, "\n{}:", self.interner.lookup(name))?;
                 for i in &self.block(*block).insts {
                     let inst = self.inst(*i);
                     // TODO: properly print the names of blocks instead of 'b<idx>'
@@ -715,7 +738,7 @@ impl fmt::Display for Program {
                         self.block(*block)
                             .succs
                             .iter()
-                            .map(|b| self.interner.get(*self.block_name(*b)).unwrap_or("?"))
+                            .map(|b| self.interner.lookup(*self.block_name(*b)))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )?;

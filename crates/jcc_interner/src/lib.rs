@@ -1,4 +1,8 @@
+mod symtab;
+
 use std::{collections::HashMap, num::NonZeroU32};
+
+pub type SymbolTable<V> = symtab::SymbolTable<Symbol, V>;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Symbol(NonZeroU32);
@@ -14,6 +18,12 @@ pub struct Interner {
     full: Vec<String>,
     vec: Vec<&'static str>,
     map: HashMap<&'static str, Symbol>,
+}
+
+impl Default for Interner {
+    fn default() -> Self {
+        Self::with_capacity(1024)
+    }
 }
 
 impl Interner {
@@ -88,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn with_capacity_interner_is_empty() {
+    fn with_capacity_is_empty() {
         let interner = Interner::with_capacity(100);
         assert_eq!(interner.len(), 0);
         assert!(interner.is_empty());

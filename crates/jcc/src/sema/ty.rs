@@ -5,9 +5,9 @@ use crate::{
     sema::{SemaCtx, Type},
 };
 
-use ssa::{
-    source_file::{diag::Diagnostic, SourceSpan},
-    Symbol,
+use jcc_ssa::{
+    interner::Symbol,
+    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 use std::collections::{HashMap, HashSet};
@@ -296,6 +296,52 @@ impl<'ctx> TyperPass<'ctx> {
 }
 
 // ---------------------------------------------------------------------------
+// Auxiliary structures
+// ---------------------------------------------------------------------------
+
+struct FuncEntry {
+    ty: Type,
+    is_defined: bool,
+}
+
+impl FuncEntry {
+    fn without_definition(ty: Type) -> Self {
+        Self {
+            ty,
+            is_defined: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Auxiliary functions
+// ---------------------------------------------------------------------------
+
+fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
+    match ast.expr(expr) {
+        Expr::Var { .. } => true,
+        Expr::Grouped(expr) => is_lvalue(ast, *expr),
+        Expr::Const(_)
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Ternary { .. }
+        | Expr::Call { .. } => false,
+    }
+}
+
+fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
+    match ast.expr(expr) {
+        Expr::Const(_) => true,
+        Expr::Grouped(expr) => is_constant(ast, *expr),
+        Expr::Var { .. }
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Ternary { .. }
+        | Expr::Call { .. } => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TyperDiagnosticKind
 // ---------------------------------------------------------------------------
 
@@ -355,51 +401,5 @@ impl From<TyperDiagnostic> for Diagnostic {
                 "this variable is being used as a function",
             ),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Auxiliary structures
-// ---------------------------------------------------------------------------
-
-struct FuncEntry {
-    ty: Type,
-    is_defined: bool,
-}
-
-impl FuncEntry {
-    fn without_definition(ty: Type) -> Self {
-        Self {
-            ty,
-            is_defined: false,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Auxiliary functions
-// ---------------------------------------------------------------------------
-
-fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.expr(expr) {
-        Expr::Var { .. } => true,
-        Expr::Grouped(expr) => is_lvalue(ast, *expr),
-        Expr::Const(_)
-        | Expr::Unary { .. }
-        | Expr::Binary { .. }
-        | Expr::Ternary { .. }
-        | Expr::Call { .. } => false,
-    }
-}
-
-fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.expr(expr) {
-        Expr::Const(_) => true,
-        Expr::Grouped(expr) => is_constant(ast, *expr),
-        Expr::Var { .. }
-        | Expr::Unary { .. }
-        | Expr::Binary { .. }
-        | Expr::Ternary { .. }
-        | Expr::Call { .. } => false,
     }
 }

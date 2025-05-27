@@ -6,9 +6,9 @@ use crate::{
     lex::{Token, TokenKind},
 };
 
-use ssa::{
-    source_file::{diag::Diagnostic, SourceFile, SourceSpan},
-    Interner, Symbol,
+use jcc_ssa::{
+    interner::{Interner, Symbol},
+    sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
 };
 
 use std::{iter::Peekable, slice::Iter};
@@ -38,7 +38,7 @@ pub struct ParserDiagnostic {
 // ---------------------------------------------------------------------------
 
 pub struct Parser<'a> {
-    file: &'a SourceFile,
+    file: &'a SourceMap,
     interner: &'a mut Interner,
     iter: Peekable<Iter<'a, Token>>,
     result: ParserResult,
@@ -48,7 +48,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(file: &'a SourceFile, interner: &'a mut Interner, iter: Iter<'a, Token>) -> Self {
+    pub fn new(file: &'a SourceMap, interner: &'a mut Interner, iter: Iter<'a, Token>) -> Self {
         Self {
             file,
             interner,
@@ -100,18 +100,20 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => {
                 let params = self.parse_params();
                 self.eat(TokenKind::RParen)?;
-                let body = if let Some(Token {
-                    kind: TokenKind::Semi,
-                    ..
-                }) = self.iter.peek()
-                {
-                    self.iter.next();
-                    None
-                } else {
-                    self.eat(TokenKind::LBrace)?;
-                    let body = self.parse_body();
-                    self.eat(TokenKind::RBrace)?;
-                    Some(body)
+                let body = match self.iter.peek() {
+                    Some(Token {
+                        kind: TokenKind::Semi,
+                        ..
+                    }) => {
+                        self.iter.next();
+                        None
+                    }
+                    _ => {
+                        self.eat(TokenKind::LBrace)?;
+                        let body = self.parse_body();
+                        self.eat(TokenKind::RBrace)?;
+                        Some(body)
+                    }
                 };
                 Some(
                     self.result
@@ -153,18 +155,20 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::LParen)?;
         let params = self.parse_params();
         self.eat(TokenKind::RParen)?;
-        let body = if let Some(Token {
-            kind: TokenKind::Semi,
-            ..
-        }) = self.iter.peek()
-        {
-            self.iter.next();
-            None
-        } else {
-            self.eat(TokenKind::LBrace)?;
-            let body = self.parse_body();
-            self.eat(TokenKind::RBrace)?;
-            Some(body)
+        let body = match self.iter.peek() {
+            Some(Token {
+                kind: TokenKind::Semi,
+                ..
+            }) => {
+                self.iter.next();
+                None
+            }
+            _ => {
+                self.eat(TokenKind::LBrace)?;
+                let body = self.parse_body();
+                self.eat(TokenKind::RBrace)?;
+                Some(body)
+            }
         };
         Some(
             self.result

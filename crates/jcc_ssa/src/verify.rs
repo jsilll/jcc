@@ -126,6 +126,7 @@ impl<'a> SSAVerifier<'a> {
                             .push(SSAVerifierDiagnostic::InvalidType(i));
                     }
                 }
+                InstKind::Call { .. } => {}
             }
         }
         self.result

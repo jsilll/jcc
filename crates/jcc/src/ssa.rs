@@ -1,6 +1,10 @@
 use crate::{ast, sema};
 
-use ssa::{source_file::SourceSpan, Interner, Symbol};
+use jcc_ssa::{
+    self as ssa,
+    interner::{Interner, Symbol},
+    sourcemap::SourceSpan,
+};
 
 use std::collections::HashMap;
 
@@ -9,9 +13,24 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 
 pub fn build<'a>(ast: &'a ast::Ast, ctx: &'a sema::SemaCtx, interner: Interner) -> ssa::Program {
+    let mut funcs = HashMap::new();
     let mut prog = ssa::Program::new(interner);
-    ast.root().iter().for_each(|decl| {
-        SSAFuncBuilder::new(ast, ctx, &mut prog, *decl).build();
+    ast.root().iter().for_each(|decl| match ast.decl(*decl) {
+        ast::Decl::Var { .. } => todo!("handle global variable declarations"),
+        ast::Decl::Func { name, body, .. } => {
+            let span = *ast.decl_span(*decl);
+            let func = funcs
+                .entry(*name)
+                .or_insert(prog.new_func_with_span_interned(*name, span))
+                .clone();
+            if body.is_none() {
+                // Skip function declarations without bodies
+                return;
+            }
+            let block = prog.new_block_with_span("entry", span);
+            prog.func_mut(func).blocks.push(block);
+            SSAFuncBuilder::new(ast, ctx, &mut prog, &mut funcs, *decl, func, block).build();
+        }
     });
     prog
 }
@@ -24,9 +43,10 @@ struct SSAFuncBuilder<'a> {
     ast: &'a ast::Ast,
     ctx: &'a sema::SemaCtx,
     prog: &'a mut ssa::Program,
+    funcs: &'a mut HashMap<Symbol, ssa::FuncRef>,
+    decl: ast::DeclRef,
     func: ssa::FuncRef,
     block: ssa::BlockRef,
-    decl: ast::DeclRef,
     vars: HashMap<ast::DeclRef, ssa::InstRef>,
     labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
     case_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
@@ -39,58 +59,64 @@ impl<'a> SSAFuncBuilder<'a> {
         ast: &'a ast::Ast,
         ctx: &'a sema::SemaCtx,
         prog: &'a mut ssa::Program,
+        funcs: &'a mut HashMap<Symbol, ssa::FuncRef>,
         decl: ast::DeclRef,
+        func: ssa::FuncRef,
+        entry: ssa::BlockRef,
     ) -> Self {
-        let span = *ast.decl_span(decl);
-        match ast.decl(decl) {
-            ast::Decl::Var { .. } => todo!("handle variable declarations"),
-            ast::Decl::Func { name, .. } => {
-                let block = prog.new_block_with_span("entry", span);
-                let func = prog.new_func_with_span_interned(*name, span);
-                prog.func_mut(func).blocks.push(block);
-                Self {
-                    ast,
-                    ctx,
-                    prog,
-                    func,
-                    decl,
-                    block,
-                    vars: HashMap::new(),
-                    case_blocks: HashMap::new(),
-                    break_blocks: HashMap::new(),
-                    labeled_blocks: HashMap::new(),
-                    continue_blocks: HashMap::new(),
-                }
-            }
+        Self {
+            ast,
+            ctx,
+            prog,
+            func,
+            decl,
+            funcs,
+            block: entry,
+            vars: HashMap::new(),
+            case_blocks: HashMap::new(),
+            break_blocks: HashMap::new(),
+            labeled_blocks: HashMap::new(),
+            continue_blocks: HashMap::new(),
         }
     }
 
     fn build(mut self) {
-        match self.ast.decl(self.decl) {
-            ast::Decl::Var { .. } => todo!("handle variable declarations"),
-            ast::Decl::Func { body, .. } => {
-                let body = body.expect("expected a function body");
-                self.ast
-                    .block_items(body)
-                    .iter()
-                    .for_each(|item| match item {
-                        ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                        ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                    });
-                let append_return = match self.ast.block_items(body).last() {
-                    Some(ast::BlockItem::Stmt(stmt)) => {
-                        !matches!(self.ast.stmt(*stmt), ast::Stmt::Return(_))
-                    }
-                    _ => true,
-                };
-                if append_return {
-                    let span = *self.ast.decl_span(self.decl);
-                    let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
-                    let ret = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
-                    self.append_slice_to_block(&[val, ret]);
+        if let ast::Decl::Func { params, body, .. } = self.ast.decl(self.decl) {
+            self.ast.params(*params).iter().for_each(|param| {
+                let span = *self.ast.decl_span(*param);
+                let arg = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::arg(ssa::Type::Int32), span);
+                self.vars.insert(*param, arg);
+                self.append_to_block(arg);
+            });
+
+            let body = body.expect("expected a function body");
+            self.ast
+                .block_items(body)
+                .iter()
+                .for_each(|item| match item {
+                    ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                });
+            let append_return = match self.ast.block_items(body).last() {
+                Some(ast::BlockItem::Stmt(stmt)) => {
+                    !matches!(self.ast.stmt(*stmt), ast::Stmt::Return(_))
                 }
+                _ => true,
+            };
+            if append_return {
+                let span = *self.ast.decl_span(self.decl);
+                let val = self.prog.new_inst_with_span(ssa::Inst::const_i32(0), span);
+                let ret = self.prog.new_inst_with_span(ssa::Inst::ret(val), span);
+                self.append_slice_to_block(&[val, ret]);
             }
         }
+    }
+
+    #[inline]
+    fn append_to_block(&mut self, instr: ssa::InstRef) {
+        self.prog.block_mut(self.block).insts.push(instr);
     }
 
     #[inline]
@@ -98,7 +124,7 @@ impl<'a> SSAFuncBuilder<'a> {
         self.vars
             .get(&decl)
             .copied()
-            .expect("expected a pointer to a variable")
+            .expect(format!("expected a variable declaration for {decl:?}").as_str())
     }
 
     #[inline]
@@ -108,11 +134,6 @@ impl<'a> SSAFuncBuilder<'a> {
             .get(&expr)
             .copied()
             .expect("expected a variable declaration")
-    }
-
-    #[inline]
-    fn append_to_block(&mut self, instr: ssa::InstRef) {
-        self.prog.block_mut(self.block).insts.push(instr);
     }
 
     #[inline]
@@ -133,20 +154,17 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn visit_decl(&mut self, decl: ast::DeclRef) {
-        let span = *self.ast.decl_span(decl);
-        match self.ast.decl(decl) {
-            ast::Decl::Func { .. } => todo!("handle function declarations"),
-            ast::Decl::Var { init, .. } => {
-                let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
-                self.append_to_block(alloca);
-                self.vars.insert(decl, alloca);
-                if let Some(init) = init {
-                    let val = self.visit_expr(*init, ExprMode::RightValue);
-                    let store = self
-                        .prog
-                        .new_inst_with_span(ssa::Inst::store(alloca, val), span);
-                    self.append_to_block(store);
-                }
+        if let ast::Decl::Var { init, .. } = self.ast.decl(decl) {
+            let span = *self.ast.decl_span(decl);
+            let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
+            self.append_to_block(alloca);
+            self.vars.insert(decl, alloca);
+            if let Some(init) = init {
+                let val = self.visit_expr(*init, ExprMode::RightValue);
+                let store = self
+                    .prog
+                    .new_inst_with_span(ssa::Inst::store(alloca, val), span);
+                self.append_to_block(store);
             }
         }
     }
@@ -630,10 +648,27 @@ impl<'a> SSAFuncBuilder<'a> {
     fn visit_expr(&mut self, expr: ast::ExprRef, mode: ExprMode) -> ssa::InstRef {
         let span = *self.ast.expr_span(expr);
         match self.ast.expr(expr) {
-            ast::Expr::Call { .. } => todo!("handle function calls"),
             ast::Expr::Grouped(expr) => self.visit_expr(*expr, mode),
             ast::Expr::Const(c) => {
                 let inst = self.prog.new_inst_with_span(ssa::Inst::const_i32(*c), span);
+                self.append_to_block(inst);
+                inst
+            }
+            ast::Expr::Call { name, args } => {
+                let args = self
+                    .ast
+                    .args(*args)
+                    .iter()
+                    .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
+                    .collect::<Vec<_>>();
+                let call = ssa::Inst::call(
+                    self.funcs
+                        .entry(*name)
+                        .or_insert(self.prog.new_func_with_span_interned(*name, span))
+                        .clone(),
+                    args,
+                );
+                let inst = self.prog.new_inst_with_span(call, span);
                 self.append_to_block(inst);
                 inst
             }

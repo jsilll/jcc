@@ -1,4 +1,4 @@
-use ssa::source_file::{diag::Diagnostic, SourceFile, SourceSpan};
+use jcc_ssa::sourcemap::{diag::Diagnostic, SourceMap, SourceSpan};
 
 use std::{iter::Peekable, str::CharIndices};
 
@@ -37,7 +37,7 @@ pub struct Token {
 // ---------------------------------------------------------------------------
 
 pub struct Lexer<'a> {
-    file: &'a SourceFile,
+    file: &'a SourceMap,
     idx: u32,
     result: LexerResult,
     nesting: Vec<TokenKind>,
@@ -45,7 +45,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceFile) -> Self {
+    pub fn new(file: &'a SourceMap) -> Self {
         Self {
             file,
             idx: 0,

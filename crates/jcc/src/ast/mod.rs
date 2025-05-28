@@ -57,7 +57,35 @@ impl std::fmt::Debug for Ast {
 
 impl Ast {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_capacity(128)
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
+        let mut decls = Vec::with_capacity(capacity);
+        let mut stmts = Vec::with_capacity(capacity);
+        let mut exprs = Vec::with_capacity(capacity);
+        let mut decls_span = Vec::with_capacity(capacity);
+        let mut stmts_span = Vec::with_capacity(capacity);
+        let mut exprs_span = Vec::with_capacity(capacity);
+        decls.push(Default::default());
+        stmts.push(Default::default());
+        exprs.push(Default::default());
+        decls_span.push(Default::default());
+        stmts_span.push(Default::default());
+        exprs_span.push(Default::default());
+        Ast {
+            decls,
+            stmts,
+            exprs,
+            decls_span,
+            stmts_span,
+            exprs_span,
+            root: Vec::with_capacity(capacity),
+            sliced_args: Vec::with_capacity(capacity),
+            sliced_params: Vec::with_capacity(capacity),
+            sliced_block_items: Vec::with_capacity(capacity),
+        }
     }
 
     #[inline]
@@ -66,18 +94,18 @@ impl Ast {
     }
 
     #[inline]
-    pub fn decls(&self) -> &[Decl] {
-        &self.decls[1..]
+    pub fn decls_len(&self) -> usize {
+        &self.decls.len() - 1
     }
 
     #[inline]
-    pub fn stmts(&self) -> &[Stmt] {
-        &self.stmts[1..]
+    pub fn stmts_len(&self) -> usize {
+        &self.stmts.len() - 1
     }
 
     #[inline]
-    pub fn exprs(&self) -> &[Expr] {
-        &self.exprs[1..]
+    pub fn exprs_len(&self) -> usize {
+        &self.exprs.len() - 1
     }
 
     #[inline]

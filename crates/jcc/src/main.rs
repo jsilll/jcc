@@ -1,7 +1,7 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser},
-    lex::{Lexer, LexerDiagnosticKind},
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
+    tok::lex::{Lexer, LexerDiagnosticKind},
 };
 
 use jcc_ssa::{
@@ -77,8 +77,14 @@ fn try_main() -> Result<()> {
 
     // Add file to db
     let mut db = SourceDb::new();
-    db.add(SourceMap::new(&pp_path).context("Failed to read file")?);
-    let file = db.files().last().context("Failed to store file in db")?;
+    db.add(SourceMap::new(&pp_path).context(format!(
+        "Failed to create source map for {}",
+        pp_path.display()
+    ))?);
+    let file = db.files().last().context(format!(
+        "No source files found in the database for {}",
+        pp_path.display()
+    ))?;
 
     // Lex file
     let mut interner = Interner::new();

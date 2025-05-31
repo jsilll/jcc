@@ -3,7 +3,7 @@ use crate::{
         Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt, StmtRef,
         UnaryOp,
     },
-    lex::{Token, TokenKind},
+    tok::{Token, TokenKind},
 };
 
 use jcc_ssa::{

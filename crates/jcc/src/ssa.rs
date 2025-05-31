@@ -9,29 +9,40 @@ use jcc_ssa::{
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// Root function
+// Building SSA from AST
 // ---------------------------------------------------------------------------
 
-pub fn build<'a>(ast: &'a ast::Ast, ctx: &'a sema::SemaCtx, interner: Interner) -> ssa::Program {
-    let mut funcs = HashMap::new();
+pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::Program {
     let mut prog = ssa::Program::new(interner);
-    ast.root().iter().for_each(|decl| match ast.decl(*decl) {
-        ast::Decl::Var { .. } => todo!("handle global variable declarations"),
-        ast::Decl::Func { name, body, .. } => {
-            let span = *ast.decl_span(*decl);
-            let func = funcs
-                .entry(*name)
-                .or_insert(prog.new_func_with_span_interned(*name, span))
-                .clone();
-            if body.is_none() {
-                // Skip function declarations without bodies
-                return;
+
+    // Bootstrap the builder with the first function declaration
+    let mut builder = None;
+    for decl in ast.root() {
+        match ast.decl(*decl) {
+            ast::Decl::Var { .. } => continue,
+            ast::Decl::Func { body: None, .. } => continue,
+            ast::Decl::Func {
+                name,
+                body: Some(_),
+                ..
+            } => {
+                builder = Some(SSAFuncBuilder::new(ast, sema, &mut prog, *decl, *name));
+                break;
             }
-            let block = prog.new_block_with_span("entry", span);
-            prog.func_mut(func).blocks.push(block);
-            SSAFuncBuilder::new(ast, ctx, &mut prog, &mut funcs, *decl, func, block).build();
         }
-    });
+    }
+
+    if let Some(mut builder) = builder {
+        for decl in ast.root() {
+            match ast.decl(*decl) {
+                ast::Decl::Var { .. } => todo!("handle global variable declarations"),
+                ast::Decl::Func { name, params, body } => {
+                    builder.build_func(*decl, *name, *params, *body);
+                }
+            }
+        }
+    }
+
     prog
 }
 
@@ -41,12 +52,12 @@ pub fn build<'a>(ast: &'a ast::Ast, ctx: &'a sema::SemaCtx, interner: Interner) 
 
 struct SSAFuncBuilder<'a> {
     ast: &'a ast::Ast,
-    ctx: &'a sema::SemaCtx,
+    sema: &'a sema::SemaCtx,
     prog: &'a mut ssa::Program,
-    funcs: &'a mut HashMap<Symbol, ssa::FuncRef>,
     decl: ast::DeclRef,
     func: ssa::FuncRef,
     block: ssa::BlockRef,
+    funcs: HashMap<Symbol, ssa::FuncRef>,
     vars: HashMap<ast::DeclRef, ssa::InstRef>,
     labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
     case_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
@@ -57,21 +68,24 @@ struct SSAFuncBuilder<'a> {
 impl<'a> SSAFuncBuilder<'a> {
     fn new(
         ast: &'a ast::Ast,
-        ctx: &'a sema::SemaCtx,
+        sema: &'a sema::SemaCtx,
         prog: &'a mut ssa::Program,
-        funcs: &'a mut HashMap<Symbol, ssa::FuncRef>,
-        decl: ast::DeclRef,
-        func: ssa::FuncRef,
-        entry: ssa::BlockRef,
+        default_decl: ast::DeclRef,
+        default_name: Symbol,
     ) -> Self {
+        let span = *ast.decl_span(default_decl);
+        let func = prog.new_func_with_span_interned(default_name, span);
+        let block = prog.new_block_with_span("entry", span);
+        prog.func_mut(func).blocks.push(block);
+        let funcs = HashMap::from([(default_name, func)]);
         Self {
             ast,
-            ctx,
+            sema,
             prog,
             func,
-            decl,
             funcs,
-            block: entry,
+            block,
+            decl: default_decl,
             vars: HashMap::new(),
             case_blocks: HashMap::new(),
             break_blocks: HashMap::new(),
@@ -80,9 +94,41 @@ impl<'a> SSAFuncBuilder<'a> {
         }
     }
 
-    fn build(mut self) {
-        if let ast::Decl::Func { params, body, .. } = self.ast.decl(self.decl) {
-            self.ast.params(*params).iter().for_each(|param| {
+    #[inline]
+    fn clear(&mut self) {
+        self.vars.clear();
+        self.case_blocks.clear();
+        self.break_blocks.clear();
+        self.labeled_blocks.clear();
+        self.continue_blocks.clear();
+    }
+
+    fn build_func(
+        &mut self,
+        decl: ast::DeclRef,
+        name: Symbol,
+        params: ast::Slice<ast::DeclRef>,
+        body: Option<ast::Slice<ast::BlockItem>>,
+    ) {
+        // If the function declaration has changed, we need to update the function reference
+        if self.decl != decl {
+            self.decl = decl;
+            let span = *self.ast.decl_span(decl);
+            self.func = self
+                .funcs
+                .entry(name)
+                .or_insert(self.prog.new_func_with_span_interned(name, span))
+                .clone();
+            if !body.is_none() {
+                // Also create a new entry block for the function
+                self.block = self.prog.new_block_with_span("entry", span);
+                self.prog.func_mut(self.func).blocks.push(self.block);
+            }
+        }
+
+        if let Some(body) = body {
+            self.clear();
+            self.ast.params(params).iter().for_each(|param| {
                 let span = *self.ast.decl_span(*param);
                 let arg = self
                     .prog
@@ -91,7 +137,6 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.append_to_block(arg);
             });
 
-            let body = body.expect("expected a function body");
             self.ast
                 .block_items(body)
                 .iter()
@@ -129,7 +174,7 @@ impl<'a> SSAFuncBuilder<'a> {
 
     #[inline]
     fn get_var_decl(&self, expr: ast::ExprRef) -> ast::DeclRef {
-        self.ctx
+        self.sema
             .names
             .get(&expr)
             .copied()
@@ -173,16 +218,16 @@ impl<'a> SSAFuncBuilder<'a> {
         let span = *self.ast.stmt_span(stmt);
         match self.ast.stmt(stmt) {
             ast::Stmt::Empty => {}
+            ast::Stmt::Break => {
+                let block = self
+                    .break_blocks
+                    .get(self.sema.breaks.get(&stmt).expect("expected a break block"))
+                    .expect("expected a break block");
+                let jump = self.prog.new_inst_with_span(ssa::Inst::jump(*block), span);
+                self.append_to_block(jump);
+            }
             ast::Stmt::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
-            }
-            ast::Stmt::Default(inner) => {
-                let block = self
-                    .case_blocks
-                    .remove(&stmt)
-                    .expect("expected a case block");
-                self.block = block;
-                self.visit_stmt(*inner);
             }
             ast::Stmt::Return(expr) => {
                 let val = self.visit_expr(*expr, ExprMode::RightValue);
@@ -193,14 +238,6 @@ impl<'a> SSAFuncBuilder<'a> {
                 let block = self.get_or_make_labeled_block(*label, span);
                 let inst = self.prog.new_inst_with_span(ssa::Inst::jump(block), span);
                 self.append_to_block(inst);
-            }
-            ast::Stmt::Break => {
-                let block = self
-                    .break_blocks
-                    .get(self.ctx.breaks.get(&stmt).expect("expected a break block"))
-                    .expect("expected a break block");
-                let jump = self.prog.new_inst_with_span(ssa::Inst::jump(*block), span);
-                self.append_to_block(jump);
             }
             ast::Stmt::Label { label, stmt } => {
                 let block = self.get_or_make_labeled_block(*label, span);
@@ -220,6 +257,16 @@ impl<'a> SSAFuncBuilder<'a> {
                         ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
             }
+            ast::Stmt::Default(inner) => {
+                let block = self
+                    .case_blocks
+                    .remove(&stmt)
+                    .expect("expected a case block");
+
+                // === Default Block ===
+                self.block = block;
+                self.visit_stmt(*inner);
+            }
             ast::Stmt::Case { stmt: inner, .. } => {
                 let block = self
                     .case_blocks
@@ -238,7 +285,7 @@ impl<'a> SSAFuncBuilder<'a> {
                 let block = self
                     .continue_blocks
                     .get(
-                        self.ctx
+                        self.sema
                             .continues
                             .get(&stmt)
                             .expect("expected a continue block"),
@@ -600,7 +647,7 @@ impl<'a> SSAFuncBuilder<'a> {
             ast::Stmt::Switch { cond, body } => {
                 let mut cases = Vec::new();
                 let mut default_block = None;
-                if let Some(switch) = self.ctx.switches.get(&stmt) {
+                if let Some(switch) = self.sema.switches.get(&stmt) {
                     cases.reserve(switch.cases.len());
                     switch.cases.iter().for_each(|stmt| {
                         if let ast::Stmt::Case { expr, .. } = self.ast.stmt(*stmt) {

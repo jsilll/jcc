@@ -110,12 +110,7 @@ impl<'ctx> TyperPass<'ctx> {
                 }
 
                 if let Some(body) = body {
-                    if entry.is_defined {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: *self.ast.decl_span(decl),
-                            kind: TyperDiagnosticKind::FunctionAlreadyDefined,
-                        });
-                    }
+                    assert!(!entry.is_defined, "function already defined");
                     entry.is_defined = true;
                     self.ast
                         .block_items(*body)
@@ -136,15 +131,6 @@ impl<'ctx> TyperPass<'ctx> {
             Stmt::Return(expr) => self.visit_expr(*expr),
             Stmt::Default(stmt) => self.visit_stmt(*stmt),
             Stmt::Label { stmt, .. } => self.visit_stmt(*stmt),
-            Stmt::Compound(items) => {
-                self.ast
-                    .block_items(*items)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.visit_decl(*decl),
-                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    });
-            }
             Stmt::Case { expr, stmt } => {
                 self.visit_expr(*expr);
                 self.visit_stmt(*stmt);
@@ -167,6 +153,15 @@ impl<'ctx> TyperPass<'ctx> {
                 if let Some(otherwise) = otherwise {
                     self.visit_stmt(*otherwise);
                 }
+            }
+            Stmt::Compound(items) => {
+                self.ast
+                    .block_items(*items)
+                    .iter()
+                    .for_each(|item| match item {
+                        BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    });
             }
             Stmt::For {
                 init,
@@ -231,13 +226,6 @@ impl<'ctx> TyperPass<'ctx> {
                     });
                 }
             }
-            Expr::Unary { op, expr } => match op {
-                UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    self.assert_is_lvalue(*expr);
-                    self.visit_expr(*expr);
-                }
-                _ => self.visit_expr(*expr),
-            },
             Expr::Ternary {
                 cond,
                 then,
@@ -247,6 +235,13 @@ impl<'ctx> TyperPass<'ctx> {
                 self.visit_expr(*then);
                 self.visit_expr(*otherwise);
             }
+            Expr::Unary { op, expr } => match op {
+                UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
+                    self.assert_is_lvalue(*expr);
+                    self.visit_expr(*expr);
+                }
+                _ => self.visit_expr(*expr),
+            },
             Expr::Binary { op, lhs, rhs } => match op {
                 BinaryOp::Assign
                 | BinaryOp::AddAssign
@@ -351,10 +346,9 @@ pub enum TyperDiagnosticKind {
     InvalidLValue,
     DuplicateSwitchCase,
     FunctionTypeMismatch,
-    FunctionAlreadyDefined,
     FunctionUsedAsVariable,
-    InitializerTypeMismatch,
     VariableUsedAsFunction,
+    InitializerTypeMismatch,
 }
 
 impl From<TyperDiagnostic> for Diagnostic {
@@ -380,25 +374,20 @@ impl From<TyperDiagnostic> for Diagnostic {
                 "function type mismatch",
                 "this function has a different type than expected",
             ),
-            TyperDiagnosticKind::FunctionAlreadyDefined => Diagnostic::error(
-                diagnostic.span,
-                "function already defined",
-                "this function has already been defined",
-            ),
             TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error(
                 diagnostic.span,
                 "function used as variable",
                 "this function is being used as a variable",
             ),
-            TyperDiagnosticKind::InitializerTypeMismatch => Diagnostic::error(
-                diagnostic.span,
-                "initializer type mismatch",
-                "this initializer has a different type than expected",
-            ),
             TyperDiagnosticKind::VariableUsedAsFunction => Diagnostic::error(
                 diagnostic.span,
                 "variable used as function",
                 "this variable is being used as a function",
+            ),
+            TyperDiagnosticKind::InitializerTypeMismatch => Diagnostic::error(
+                diagnostic.span,
+                "initializer type mismatch",
+                "this initializer has a different type than expected",
             ),
         }
     }

@@ -41,9 +41,9 @@ impl SemaCtx {
             breaks: HashMap::new(),
             switches: HashMap::new(),
             continues: HashMap::new(),
-            decls_type: vec![Default::default(); ast.decls().len() + 1],
-            exprs_type: vec![Default::default(); ast.exprs().len() + 1],
-        }
+            decls_type: vec![Default::default(); ast.decls_len() + 1],
+            exprs_type: vec![Default::default(); ast.exprs_len() + 1],
+        }                                                              
     }
 
     #[inline]

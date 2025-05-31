@@ -55,14 +55,23 @@ impl<'a> ResolverPass<'a> {
             .for_each(|decl| match self.ast.decl(*decl) {
                 Decl::Var { .. } => todo!("handle variable declarations"),
                 Decl::Func { name, body, params } => {
-                    if let Some(entry) =
-                        self.symbols.insert(*name, SymbolEntry::with_linkage(*decl))
+                    if let Some(prev) = self.symbols.insert(*name, SymbolEntry::with_linkage(*decl))
                     {
-                        if !entry.has_linkage {
-                            self.result.diagnostics.push(ResolverDiagnostic {
-                                span: *self.ast.decl_span(*decl),
-                                kind: ResolverDiagnosticKind::RedeclaredFunction,
-                            });
+                        match self.ast.decl(prev.decl) {
+                            Decl::Var { .. } => {
+                                self.result.diagnostics.push(ResolverDiagnostic {
+                                    span: *self.ast.decl_span(prev.decl),
+                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
+                                });
+                            }
+                            Decl::Func { body: prev_body, .. } => {
+                                if prev_body.is_some() && body.is_some() {
+                                    self.result.diagnostics.push(ResolverDiagnostic {
+                                        span: *self.ast.decl_span(*decl),
+                                        kind: ResolverDiagnosticKind::RedefinedFunction,
+                                    });
+                                }
+                            }
                         }
                     }
                     self.symbols.push_scope();
@@ -71,12 +80,13 @@ impl<'a> ResolverPass<'a> {
                         .iter()
                         .for_each(|param| self.visit_local_decl(*param));
                     if let Some(body) = body {
-                        self.ast.block_items(*body).iter().for_each(
-                            |block_item| match block_item {
-                                BlockItem::Decl(decl) => self.visit_local_decl(*decl),
+                        self.ast
+                            .block_items(*body)
+                            .iter()
+                            .for_each(|item| match item {
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                            },
-                        );
+                                BlockItem::Decl(decl) => self.visit_local_decl(*decl),
+                            });
                     }
                     self.symbols.pop_scope();
                 }
@@ -117,7 +127,7 @@ impl<'a> ResolverPass<'a> {
                     if !entry.has_linkage {
                         self.result.diagnostics.push(ResolverDiagnostic {
                             span: *self.ast.decl_span(decl),
-                            kind: ResolverDiagnosticKind::RedeclaredFunction,
+                            kind: ResolverDiagnosticKind::ConflictingSymbol,
                         });
                     }
                 }
@@ -225,7 +235,7 @@ impl<'a> ResolverPass<'a> {
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: *self.ast.expr_span(expr),
-                    kind: ResolverDiagnosticKind::UndefinedVariable,
+                    kind: ResolverDiagnosticKind::UndeclaredVariable,
                 }),
             },
             Expr::Call { name, args } => {
@@ -236,7 +246,7 @@ impl<'a> ResolverPass<'a> {
                     None => {
                         self.result.diagnostics.push(ResolverDiagnostic {
                             span: *self.ast.expr_span(expr),
-                            kind: ResolverDiagnosticKind::UndefinedFunction,
+                            kind: ResolverDiagnosticKind::UndeclaredFunction,
                         });
                     }
                 }
@@ -282,35 +292,41 @@ impl SymbolEntry {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum ResolverDiagnosticKind {
-    UndefinedVariable,
-    UndefinedFunction,
+    ConflictingSymbol,
+    RedefinedFunction,
     RedeclaredVariable,
-    RedeclaredFunction,
+    UndeclaredVariable,
+    UndeclaredFunction,
     IllegalLocalFunctionDefinition,
 }
 
 impl From<ResolverDiagnostic> for Diagnostic {
     fn from(diagnostic: ResolverDiagnostic) -> Self {
         match diagnostic.kind {
-            ResolverDiagnosticKind::UndefinedVariable => Diagnostic::error(
+            ResolverDiagnosticKind::ConflictingSymbol => Diagnostic::error(
                 diagnostic.span,
-                "undefined variable",
-                "this variable is not declared",
+                "conflicting symbol",
+                "this symbol conflicts with another declaration",
             ),
-            ResolverDiagnosticKind::UndefinedFunction => Diagnostic::error(
+            ResolverDiagnosticKind::RedefinedFunction => Diagnostic::error(
                 diagnostic.span,
-                "undefined function",
-                "this function is not declared",
+                "redefined function",
+                "this function is already defined",
             ),
             ResolverDiagnosticKind::RedeclaredVariable => Diagnostic::error(
                 diagnostic.span,
                 "redeclared variable",
                 "this variable is already declared",
             ),
-            ResolverDiagnosticKind::RedeclaredFunction => Diagnostic::error(
+            ResolverDiagnosticKind::UndeclaredVariable => Diagnostic::error(
                 diagnostic.span,
-                "redeclared function",
-                "this function is already declared",
+                "undeclared variable",
+                "this variable is not declared in the current scope",
+            ),
+            ResolverDiagnosticKind::UndeclaredFunction => Diagnostic::error(
+                diagnostic.span,
+                "undeclared function",
+                "this function is not declared in the current scope",
             ),
             ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error(
                 diagnostic.span,

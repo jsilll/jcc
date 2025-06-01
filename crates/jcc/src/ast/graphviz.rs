@@ -108,18 +108,33 @@ impl<'a> AstGraphviz<'a> {
     fn visit_decl(&mut self, decl: DeclRef) -> String {
         let decl_id = format!("decl_{}", decl.0.get());
         match self.ast.decl(decl) {
-            Decl::Var { name, init } => {
+            Decl::Var {
+                name,
+                init,
+                storage,
+            } => {
                 let name = self.interner.lookup(*name).escape_default();
-                let label = format!("VarDecl\\nname: {}\\n(int assumed)", name);
+                let label = format!(
+                    "VarDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}",
+                    name, storage
+                );
                 self.define_node(&decl_id, &label, "lightgoldenrodyellow");
                 if let Some(init) = init {
                     let init_id = self.visit_expr(*init);
                     self.define_edge(&decl_id, &init_id, Some("initializer"));
                 }
             }
-            Decl::Func { name, params, body } => {
+            Decl::Func {
+                name,
+                params,
+                body,
+                storage,
+            } => {
                 let name = self.interner.lookup(*name).escape_default();
-                let label = format!("FuncDecl\\nname: {}\\n(int assumed)", name);
+                let label = format!(
+                    "FuncDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}",
+                    name, storage
+                );
                 self.define_node(&decl_id, &label, "palegreen");
 
                 let params = self.ast.params(*params);

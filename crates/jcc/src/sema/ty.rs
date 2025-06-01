@@ -88,7 +88,9 @@ impl<'ctx> TyperPass<'ctx> {
                     }
                 }
             }
-            Decl::Func { name, params, body } => {
+            Decl::Func {
+                name, params, body, ..
+            } => {
                 self.ast
                     .params(*params)
                     .iter()

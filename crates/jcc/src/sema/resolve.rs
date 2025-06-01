@@ -54,7 +54,9 @@ impl<'a> ResolverPass<'a> {
             .iter()
             .for_each(|decl| match self.ast.decl(*decl) {
                 Decl::Var { .. } => todo!("handle variable declarations"),
-                Decl::Func { name, body, params } => {
+                Decl::Func {
+                    name, body, params, ..
+                } => {
                     if let Some(prev) = self.symbols.insert(*name, SymbolEntry::with_linkage(*decl))
                     {
                         match self.ast.decl(prev.decl) {
@@ -104,7 +106,7 @@ impl<'a> ResolverPass<'a> {
                     kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
                 });
             }
-            Decl::Var { name, init } => {
+            Decl::Var { name, init, .. } => {
                 if self
                     .symbols
                     .insert(*name, SymbolEntry::without_linkage(decl))

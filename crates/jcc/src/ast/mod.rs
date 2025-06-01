@@ -230,18 +230,24 @@ pub struct DeclRef(pub(crate) NonZeroU32);
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Decl {
     /// A variable declaration.
-    Var { name: Symbol, init: Option<ExprRef> },
+    Var {
+        name: Symbol,
+        init: Option<ExprRef>,
+        storage: Option<StorageClass>,
+    },
     /// A function declaration.
     Func {
         name: Symbol,
         params: Slice<DeclRef>,
         body: Option<Slice<BlockItem>>,
+        storage: Option<StorageClass>,
     },
 }
 
 impl Default for Decl {
     fn default() -> Self {
         Self::Var {
+            storage: None,
             name: Default::default(),
             init: Default::default(),
         }
@@ -328,6 +334,14 @@ impl Default for Expr {
     fn default() -> Self {
         Self::Const(0)
     }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum StorageClass {
+    /// Extern storage class.
+    Extern,
+    /// Static storage class.
+    Static,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

@@ -36,7 +36,7 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
         for decl in ast.root() {
             match ast.decl(*decl) {
                 ast::Decl::Var { .. } => todo!("handle global variable declarations"),
-                ast::Decl::Func { name, params, body } => {
+                ast::Decl::Func { name, params, body, .. } => {
                     builder.build_func(*decl, *name, *params, *body);
                 }
             }

@@ -81,11 +81,14 @@ impl<'a> Parser<'a> {
         let (span, name) = self.eat_identifier()?;
         let token = self.eat_some()?;
         match token.kind {
-            TokenKind::Semi => Some(
-                self.result
-                    .ast
-                    .new_decl(Decl::Var { name, init: None }, span),
-            ),
+            TokenKind::Semi => Some(self.result.ast.new_decl(
+                Decl::Var {
+                    name,
+                    init: None,
+                    storage: None,
+                },
+                span,
+            )),
             TokenKind::Eq => {
                 let init = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
@@ -93,6 +96,7 @@ impl<'a> Parser<'a> {
                     Decl::Var {
                         name,
                         init: Some(init),
+                        storage: None,
                     },
                     span,
                 ))
@@ -115,11 +119,15 @@ impl<'a> Parser<'a> {
                         Some(body)
                     }
                 };
-                Some(
-                    self.result
-                        .ast
-                        .new_decl(Decl::Func { name, params, body }, span),
-                )
+                Some(self.result.ast.new_decl(
+                    Decl::Func {
+                        name,
+                        params,
+                        body,
+                        storage: None,
+                    },
+                    span,
+                ))
             }
             _ => {
                 let diagnostic = ParserDiagnostic {
@@ -146,7 +154,14 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         self.eat(TokenKind::Semi)?;
-        Some(self.result.ast.new_decl(Decl::Var { name, init }, span))
+        Some(self.result.ast.new_decl(
+            Decl::Var {
+                name,
+                init,
+                storage: None,
+            },
+            span,
+        ))
     }
 
     fn parse_func_decl(&mut self) -> Option<DeclRef> {
@@ -170,11 +185,15 @@ impl<'a> Parser<'a> {
                 Some(body)
             }
         };
-        Some(
-            self.result
-                .ast
-                .new_decl(Decl::Func { name, params, body }, span),
-        )
+        Some(self.result.ast.new_decl(
+            Decl::Func {
+                name,
+                params,
+                body,
+                storage: None,
+            },
+            span,
+        ))
     }
 
     fn parse_params(&mut self) -> Slice<DeclRef> {
@@ -218,11 +237,14 @@ impl<'a> Parser<'a> {
     fn parse_param(&mut self) -> Option<DeclRef> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
-        Some(
-            self.result
-                .ast
-                .new_decl(Decl::Var { name, init: None }, span),
-        )
+        Some(self.result.ast.new_decl(
+            Decl::Var {
+                name,
+                init: None,
+                storage: None,
+            },
+            span,
+        ))
     }
 
     fn parse_body(&mut self) -> Slice<BlockItem> {

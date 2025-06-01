@@ -691,171 +691,89 @@ struct Precedence {
     assoc: Associativity,
 }
 
+impl Precedence {
+    const fn ternary(prec: u8) -> Self {
+        Self {
+            prec,
+            token: InfixToken::Ternary,
+            assoc: Associativity::Right,
+        }
+    }
+
+    const fn binary_left(prec: u8, op: BinaryOp) -> Self {
+        Self {
+            prec,
+            assoc: Associativity::Left,
+            token: InfixToken::Binary(op),
+        }
+    }
+
+    const fn binary_right(prec: u8, op: BinaryOp) -> Self {
+        Self {
+            prec,
+            assoc: Associativity::Right,
+            token: InfixToken::Binary(op),
+        }
+    }
+}
+
 impl From<TokenKind> for Option<Precedence> {
     fn from(token: TokenKind) -> Self {
         match token {
             // Group: Right-to-left Associativity
-            TokenKind::Eq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::Assign),
-            }),
-            TokenKind::PlusEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::AddAssign),
-            }),
-            TokenKind::MinusEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::SubAssign),
-            }),
-            TokenKind::StarEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::MulAssign),
-            }),
-            TokenKind::SlashEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::DivAssign),
-            }),
-            TokenKind::PercentEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::RemAssign),
-            }),
-            TokenKind::AmpEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitAndAssign),
-            }),
-            TokenKind::PipeEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitOrAssign),
-            }),
-            TokenKind::CaretEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitXorAssign),
-            }),
-            TokenKind::LtLtEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitShlAssign),
-            }),
-            TokenKind::GtGtEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitShrAssign),
-            }),
+            TokenKind::Eq => Some(Precedence::binary_right(0, BinaryOp::Assign)),
+            TokenKind::PlusEq => Some(Precedence::binary_right(0, BinaryOp::AddAssign)),
+            TokenKind::MinusEq => Some(Precedence::binary_right(0, BinaryOp::SubAssign)),
+            TokenKind::StarEq => Some(Precedence::binary_right(0, BinaryOp::MulAssign)),
+            TokenKind::SlashEq => Some(Precedence::binary_right(0, BinaryOp::DivAssign)),
+            TokenKind::PercentEq => Some(Precedence::binary_right(0, BinaryOp::RemAssign)),
+            TokenKind::AmpEq => Some(Precedence::binary_right(0, BinaryOp::BitAndAssign)),
+            TokenKind::PipeEq => Some(Precedence::binary_right(0, BinaryOp::BitOrAssign)),
+            TokenKind::CaretEq => Some(Precedence::binary_right(0, BinaryOp::BitXorAssign)),
+            TokenKind::LtLtEq => Some(Precedence::binary_right(0, BinaryOp::BitShlAssign)),
+            TokenKind::GtGtEq => Some(Precedence::binary_right(0, BinaryOp::BitShrAssign)),
+
             // Group: Right-to-left Associativity
-            TokenKind::Question => Some(Precedence {
-                prec: 1,
-                token: InfixToken::Ternary,
-                assoc: Associativity::Right,
-            }),
+            TokenKind::Question => Some(Precedence::ternary(1)),
+
             // Group: Left-to-right Associativity
-            TokenKind::PipePipe => Some(Precedence {
-                prec: 2,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LogicalOr),
-            }),
+            TokenKind::PipePipe => Some(Precedence::binary_left(2, BinaryOp::LogicalOr)),
+
             // Group: Left-to-right Associativity
-            TokenKind::AmpAmp => Some(Precedence {
-                prec: 3,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LogicalAnd),
-            }),
+            TokenKind::AmpAmp => Some(Precedence::binary_left(3, BinaryOp::LogicalAnd)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Pipe => Some(Precedence {
-                prec: 4,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitOr),
-            }),
+            TokenKind::Pipe => Some(Precedence::binary_left(4, BinaryOp::BitOr)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Caret => Some(Precedence {
-                prec: 5,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitXor),
-            }),
+            TokenKind::Caret => Some(Precedence::binary_left(5, BinaryOp::BitXor)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Amp => Some(Precedence {
-                prec: 6,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitAnd),
-            }),
+            TokenKind::Amp => Some(Precedence::binary_left(6, BinaryOp::BitAnd)),
+
             // Group: Left-to-right Associativity
-            TokenKind::EqEq => Some(Precedence {
-                prec: 7,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Equal),
-            }),
-            TokenKind::BangEq => Some(Precedence {
-                prec: 7,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::NotEqual),
-            }),
+            TokenKind::EqEq => Some(Precedence::binary_left(7, BinaryOp::Equal)),
+            TokenKind::BangEq => Some(Precedence::binary_left(7, BinaryOp::NotEqual)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Lt => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LessThan),
-            }),
-            TokenKind::Gt => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::GreaterThan),
-            }),
-            TokenKind::LtEq => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LessEqual),
-            }),
-            TokenKind::GtEq => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::GreaterEqual),
-            }),
+            TokenKind::Lt => Some(Precedence::binary_left(8, BinaryOp::LessThan)),
+            TokenKind::Gt => Some(Precedence::binary_left(8, BinaryOp::GreaterThan)),
+            TokenKind::LtEq => Some(Precedence::binary_left(8, BinaryOp::LessEqual)),
+            TokenKind::GtEq => Some(Precedence::binary_left(8, BinaryOp::GreaterEqual)),
+
             // Group: Left-to-right Associativity
-            TokenKind::LtLt => Some(Precedence {
-                prec: 9,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitShl),
-            }),
-            TokenKind::GtGt => Some(Precedence {
-                prec: 9,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitShr),
-            }),
+            TokenKind::LtLt => Some(Precedence::binary_left(9, BinaryOp::BitShl)),
+            TokenKind::GtGt => Some(Precedence::binary_left(9, BinaryOp::BitShr)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Plus => Some(Precedence {
-                prec: 10,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Add),
-            }),
-            TokenKind::Minus => Some(Precedence {
-                prec: 10,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Sub),
-            }),
+            TokenKind::Plus => Some(Precedence::binary_left(10, BinaryOp::Add)),
+            TokenKind::Minus => Some(Precedence::binary_left(10, BinaryOp::Sub)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Star => Some(Precedence {
-                prec: 11,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Mul),
-            }),
-            TokenKind::Slash => Some(Precedence {
-                prec: 11,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Div),
-            }),
-            TokenKind::Percent => Some(Precedence {
-                prec: 11,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Rem),
-            }),
+            TokenKind::Star => Some(Precedence::binary_left(11, BinaryOp::Mul)),
+            TokenKind::Slash => Some(Precedence::binary_left(11, BinaryOp::Div)),
+            TokenKind::Percent => Some(Precedence::binary_left(11, BinaryOp::Rem)),
+
             _ => None,
         }
     }

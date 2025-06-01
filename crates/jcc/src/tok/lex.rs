@@ -214,6 +214,24 @@ impl<'a> Lexer<'a> {
     }
 
     fn handle_word(&mut self) {
+        static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
+            "break" => TokenKind::KwBreak,
+            "case" => TokenKind::KwCase,
+            "continue" => TokenKind::KwContinue,
+            "default" => TokenKind::KwDefault,
+            "do" => TokenKind::KwDo,
+            "else" => TokenKind::KwElse,
+            "extern" => TokenKind::KwExtern,
+            "for" => TokenKind::KwFor,
+            "goto" => TokenKind::KwGoto,
+            "if" => TokenKind::KwIf,
+            "int" => TokenKind::KwInt,
+            "return" => TokenKind::KwReturn,
+            "static" => TokenKind::KwStatic,
+            "switch" => TokenKind::KwSwitch,
+            "void" => TokenKind::KwVoid,
+            "while" => TokenKind::KwWhile,
+        };
         let end = self.consume_while(|c| c.is_ascii_alphanumeric() || c == '_');
         let ident = self.file.slice(self.idx..end).unwrap_or_default();
         let kind = KEYWORDS
@@ -267,29 +285,6 @@ impl<'a> Lexer<'a> {
             .unwrap_or(self.idx + 1)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Keywords
-// ---------------------------------------------------------------------------
-
-static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
-    "break" => TokenKind::KwBreak,
-    "case" => TokenKind::KwCase,
-    "continue" => TokenKind::KwContinue,
-    "default" => TokenKind::KwDefault,
-    "do" => TokenKind::KwDo,
-    "else" => TokenKind::KwElse,
-    "extern" => TokenKind::KwExtern,
-    "for" => TokenKind::KwFor,
-    "goto" => TokenKind::KwGoto,
-    "if" => TokenKind::KwIf,
-    "int" => TokenKind::KwInt,
-    "return" => TokenKind::KwReturn,
-    "static" => TokenKind::KwStatic,
-    "switch" => TokenKind::KwSwitch,
-    "void" => TokenKind::KwVoid,
-    "while" => TokenKind::KwWhile,
-};
 
 // ---------------------------------------------------------------------------
 // LexerDiagnosticKind

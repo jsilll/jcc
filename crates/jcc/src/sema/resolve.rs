@@ -64,7 +64,9 @@ impl<'a> ResolverPass<'a> {
                                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                                 });
                             }
-                            Decl::Func { body: prev_body, .. } => {
+                            Decl::Func {
+                                body: prev_body, ..
+                            } => {
                                 if prev_body.is_some() && body.is_some() {
                                     self.result.diagnostics.push(ResolverDiagnostic {
                                         span: *self.ast.decl_span(*decl),

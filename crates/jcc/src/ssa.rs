@@ -114,12 +114,11 @@ impl<'a> SSAFuncBuilder<'a> {
         if self.decl != decl {
             self.decl = decl;
             let span = *self.ast.decl_span(decl);
-            self.func = self
+            self.func = *self
                 .funcs
                 .entry(name)
-                .or_insert(self.prog.new_func_with_span_interned(name, span))
-                .clone();
-            if !body.is_none() {
+                .or_insert(self.prog.new_func_with_span_interned(name, span));
+            if body.is_some() {
                 // Also create a new entry block for the function
                 self.block = self.prog.new_block_with_span("entry", span);
                 self.prog.func_mut(self.func).blocks.push(self.block);
@@ -169,7 +168,7 @@ impl<'a> SSAFuncBuilder<'a> {
         self.vars
             .get(&decl)
             .copied()
-            .expect(format!("expected a variable declaration for {decl:?}").as_str())
+            .unwrap_or_else(|| panic!("expected a variable declaration for {decl:?}"))
     }
 
     #[inline]
@@ -709,10 +708,10 @@ impl<'a> SSAFuncBuilder<'a> {
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
                 let call = ssa::Inst::call(
-                    self.funcs
+                    *self
+                        .funcs
                         .entry(*name)
-                        .or_insert(self.prog.new_func_with_span_interned(*name, span))
-                        .clone(),
+                        .or_insert(self.prog.new_func_with_span_interned(*name, span)),
                     args,
                 );
                 let inst = self.prog.new_inst_with_span(call, span);

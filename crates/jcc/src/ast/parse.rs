@@ -1,8 +1,9 @@
 use crate::{
     ast::{
         Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt, StmtRef,
-        UnaryOp,
+        StorageClass, UnaryOp,
     },
+    sema::Type,
     tok::{Token, TokenKind},
 };
 
@@ -62,7 +63,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(mut self) -> ParserResult {
         while self.iter.peek().is_some() {
-            match self.parse_func_decl() {
+            match self.parse_decl() {
                 Some(decl) => self.result.ast.root.push(decl),
                 None => self.sync(TokenKind::Semi, TokenKind::KwInt),
             }
@@ -76,16 +77,93 @@ impl<'a> Parser<'a> {
             .intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 
+    fn parse_specifiers(&mut self) -> Option<(Type, Option<StorageClass>)> {
+        let mut ty = Type::default();
+        let mut storage_class = None;
+
+        let mut n_types = 0;
+        let mut n_storage_classes = 0;
+        while let Some(token) = self.iter.peek() {
+            match token.kind {
+                TokenKind::KwInt => {
+                    ty = Type::Int;
+                    n_types += 1;
+                }
+                TokenKind::KwVoid => {
+                    ty = Type::Void;
+                    n_types += 1;
+                }
+                TokenKind::KwStatic => {
+                    storage_class = Some(StorageClass::Static);
+                    n_storage_classes += 1;
+                }
+                TokenKind::KwExtern => {
+                    storage_class = Some(StorageClass::Extern);
+                    n_storage_classes += 1;
+                }
+                _ => break,
+            }
+            self.iter.next();
+        }
+
+        if n_types == 0 {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::MissingTypeSpecifier,
+            });
+        }
+
+        if n_types > 1 {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::MultipleTypeSpecifiers,
+            });
+        }
+
+        if n_storage_classes > 1 {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::MultipleStorageClasses,
+            });
+        }
+
+        Some((ty, storage_class))
+    }
+
+    fn parse_var_decl(&mut self) -> Option<DeclRef> {
+        let (_, storage) = self.parse_specifiers()?;
+        let (span, name) = self.eat_identifier()?;
+        let init = match self.iter.peek() {
+            Some(Token {
+                kind: TokenKind::Eq,
+                ..
+            }) => {
+                self.iter.next();
+                Some(self.parse_expr(0)?)
+            }
+            _ => None,
+        };
+        self.eat(TokenKind::Semi)?;
+        Some(self.result.ast.new_decl(
+            Decl::Var {
+                name,
+                init,
+                storage,
+            },
+            span,
+        ))
+    }
+
     fn parse_decl(&mut self) -> Option<DeclRef> {
-        self.eat(TokenKind::KwInt)?;
+        let (_, storage) = self.parse_specifiers()?;
         let (span, name) = self.eat_identifier()?;
         let token = self.eat_some()?;
         match token.kind {
             TokenKind::Semi => Some(self.result.ast.new_decl(
                 Decl::Var {
                     name,
+                    storage,
                     init: None,
-                    storage: None,
                 },
                 span,
             )),
@@ -95,8 +173,8 @@ impl<'a> Parser<'a> {
                 Some(self.result.ast.new_decl(
                     Decl::Var {
                         name,
+                        storage,
                         init: Some(init),
-                        storage: None,
                     },
                     span,
                 ))
@@ -124,7 +202,7 @@ impl<'a> Parser<'a> {
                         name,
                         params,
                         body,
-                        storage: None,
+                        storage,
                     },
                     span,
                 ))
@@ -140,56 +218,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_var_decl(&mut self) -> Option<DeclRef> {
+    fn parse_param(&mut self) -> Option<DeclRef> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
-        let init = match self.iter.peek() {
-            Some(Token {
-                kind: TokenKind::Eq,
-                ..
-            }) => {
-                self.iter.next();
-                Some(self.parse_expr(0)?)
-            }
-            _ => None,
-        };
-        self.eat(TokenKind::Semi)?;
         Some(self.result.ast.new_decl(
             Decl::Var {
                 name,
-                init,
-                storage: None,
-            },
-            span,
-        ))
-    }
-
-    fn parse_func_decl(&mut self) -> Option<DeclRef> {
-        self.eat(TokenKind::KwInt)?;
-        let (span, name) = self.eat_identifier()?;
-        self.eat(TokenKind::LParen)?;
-        let params = self.parse_params();
-        self.eat(TokenKind::RParen)?;
-        let body = match self.iter.peek() {
-            Some(Token {
-                kind: TokenKind::Semi,
-                ..
-            }) => {
-                self.iter.next();
-                None
-            }
-            _ => {
-                self.eat(TokenKind::LBrace)?;
-                let body = self.parse_body();
-                self.eat(TokenKind::RBrace)?;
-                Some(body)
-            }
-        };
-        Some(self.result.ast.new_decl(
-            Decl::Func {
-                name,
-                params,
-                body,
+                init: None,
                 storage: None,
             },
             span,
@@ -234,25 +269,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_param(&mut self) -> Option<DeclRef> {
-        self.eat(TokenKind::KwInt)?;
-        let (span, name) = self.eat_identifier()?;
-        Some(self.result.ast.new_decl(
-            Decl::Var {
-                name,
-                init: None,
-                storage: None,
-            },
-            span,
-        ))
-    }
-
     fn parse_body(&mut self) -> Slice<BlockItem> {
         let base = self.block_items_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
-                TokenKind::KwInt => match self.parse_decl() {
+                TokenKind::KwInt
+                | TokenKind::KwVoid
+                | TokenKind::KwStatic
+                | TokenKind::KwExtern => match self.parse_decl() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
                     Some(decl) => self.block_items_stack.push(BlockItem::Decl(decl)),
                 },
@@ -373,14 +398,15 @@ impl<'a> Parser<'a> {
             TokenKind::KwFor => {
                 self.iter.next();
                 self.eat(TokenKind::LParen)?;
-                let init = if let Some(Token {
-                    kind: TokenKind::KwInt,
-                    ..
-                }) = self.iter.peek()
-                {
-                    Some(ForInit::VarDecl(self.parse_var_decl()?))
-                } else {
-                    self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr)
+                let init = match self.iter.peek() {
+                    None => None,
+                    Some(Token { kind, .. }) => match kind {
+                        TokenKind::KwInt
+                        | TokenKind::KwVoid
+                        | TokenKind::KwStatic
+                        | TokenKind::KwExtern => Some(ForInit::VarDecl(self.parse_var_decl()?)),
+                        _ => self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr),
+                    },
                 };
                 let cond = self.parse_optional_expr(TokenKind::Semi);
                 let step = self.parse_optional_expr(TokenKind::RParen);
@@ -583,19 +609,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
-        while let Some(token) = self.iter.peek() {
-            if token.kind == eat {
-                self.iter.next();
-                break;
-            }
-            if token.kind == stop {
-                break;
-            }
-            self.iter.next();
-        }
-    }
-
+    #[inline]
     fn peek_some(&mut self) -> Option<&&Token> {
         self.iter.peek().or_else(|| {
             self.result.diagnostics.push(ParserDiagnostic {
@@ -606,6 +620,7 @@ impl<'a> Parser<'a> {
         })
     }
 
+    #[inline]
     fn eat_some(&mut self) -> Option<&Token> {
         self.iter.next().or_else(|| {
             self.result.diagnostics.push(ParserDiagnostic {
@@ -657,6 +672,19 @@ impl<'a> Parser<'a> {
                 });
                 None
             }
+        }
+    }
+
+    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
+        while let Some(token) = self.iter.peek() {
+            if token.kind == eat {
+                self.iter.next();
+                break;
+            }
+            if token.kind == stop {
+                break;
+            }
+            self.iter.next();
         }
     }
 }
@@ -787,6 +815,9 @@ impl From<TokenKind> for Option<Precedence> {
 pub enum ParserDiagnosticKind {
     UnexpectedEof,
     UnexpectedToken,
+    MissingTypeSpecifier,
+    MultipleTypeSpecifiers,
+    MultipleStorageClasses,
     ExpectedToken(TokenKind),
 }
 
@@ -802,6 +833,21 @@ impl From<ParserDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "unexpected token",
                 "expected a different token",
+            ),
+            ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error(
+                diagnostic.span,
+                "missing type specifier",
+                "expected a type specifier like 'int'",
+            ),
+            ParserDiagnosticKind::MultipleTypeSpecifiers => Diagnostic::error(
+                diagnostic.span,
+                "multiple type specifiers",
+                "only one type specifier is allowed",
+            ),
+            ParserDiagnosticKind::MultipleStorageClasses => Diagnostic::error(
+                diagnostic.span,
+                "multiple storage classes",
+                "only one storage class is allowed",
             ),
             ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
                 diagnostic.span,

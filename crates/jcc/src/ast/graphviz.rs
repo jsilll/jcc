@@ -1,4 +1,4 @@
-use crate::ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
+use crate::ast::{Ast, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
 
 use jcc_ssa::interner::Interner;
 
@@ -105,39 +105,31 @@ impl<'a> AstGraphviz<'a> {
         self.output
     }
 
-    fn visit_decl(&mut self, decl: DeclRef) -> String {
-        let decl_id = format!("decl_{}", decl.0.get());
-        match self.ast.decl(decl) {
-            Decl::Var {
-                name,
-                init,
-                storage,
-            } => {
-                let name = self.interner.lookup(*name).escape_default();
+    fn visit_decl(&mut self, decl_ref: DeclRef) -> String {
+        let decl_id = format!("decl_{}", decl_ref.0.get());
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Var(init) => {
+                let name = self.interner.lookup(decl.name).escape_default();
                 let label = format!(
                     "VarDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}",
-                    name, storage
+                    name, decl.storage
                 );
                 self.define_node(&decl_id, &label, "lightgoldenrodyellow");
                 if let Some(init) = init {
-                    let init_id = self.visit_expr(*init);
+                    let init_id = self.visit_expr(init);
                     self.define_edge(&decl_id, &init_id, Some("initializer"));
                 }
             }
-            Decl::Func {
-                name,
-                params,
-                body,
-                storage,
-            } => {
-                let name = self.interner.lookup(*name).escape_default();
+            DeclKind::Func { params, body } => {
+                let name = self.interner.lookup(decl.name).escape_default();
                 let label = format!(
                     "FuncDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}",
-                    name, storage
+                    name, decl.storage
                 );
                 self.define_node(&decl_id, &label, "palegreen");
 
-                let params = self.ast.params(*params);
+                let params = self.ast.params(params);
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
                     self.define_node(&params_id, "Parameters", "aliceblue");
@@ -161,7 +153,7 @@ impl<'a> AstGraphviz<'a> {
                         let body_id = self.fresh_aux_node_id("func_body");
                         self.define_node(&body_id, "Function Body", "whitesmoke");
                         self.define_edge(&decl_id, &body_id, Some("body"));
-                        for (idx, item) in self.ast.block_items(*body).iter().enumerate() {
+                        for (idx, item) in self.ast.block_items(body).iter().enumerate() {
                             let item_id = match item {
                                 BlockItem::Decl(decl) => self.visit_decl(*decl),
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),

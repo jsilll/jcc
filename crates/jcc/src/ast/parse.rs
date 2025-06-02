@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt, StmtRef,
-        StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt,
+        StmtRef, StorageClass, UnaryOp,
     },
     sema::Type,
     tok::{Token, TokenKind},
@@ -145,10 +145,10 @@ impl<'a> Parser<'a> {
         };
         self.eat(TokenKind::Semi)?;
         Some(self.result.ast.new_decl(
-            Decl::Var {
+            Decl {
                 name,
-                init,
                 storage,
+                kind: DeclKind::Var(init),
             },
             span,
         ))
@@ -160,10 +160,10 @@ impl<'a> Parser<'a> {
         let token = self.eat_some()?;
         match token.kind {
             TokenKind::Semi => Some(self.result.ast.new_decl(
-                Decl::Var {
+                Decl {
                     name,
                     storage,
-                    init: None,
+                    kind: DeclKind::Var(None),
                 },
                 span,
             )),
@@ -171,10 +171,10 @@ impl<'a> Parser<'a> {
                 let init = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_decl(
-                    Decl::Var {
+                    Decl {
                         name,
                         storage,
-                        init: Some(init),
+                        kind: DeclKind::Var(Some(init)),
                     },
                     span,
                 ))
@@ -198,11 +198,10 @@ impl<'a> Parser<'a> {
                     }
                 };
                 Some(self.result.ast.new_decl(
-                    Decl::Func {
+                    Decl {
                         name,
-                        params,
-                        body,
                         storage,
+                        kind: DeclKind::Func { params, body },
                     },
                     span,
                 ))
@@ -222,10 +221,10 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
         Some(self.result.ast.new_decl(
-            Decl::Var {
+            Decl {
                 name,
-                init: None,
                 storage: None,
+                kind: DeclKind::Var(None),
             },
             span,
         ))

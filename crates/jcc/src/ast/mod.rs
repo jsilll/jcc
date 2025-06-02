@@ -228,28 +228,29 @@ impl Ast {
 pub struct DeclRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum Decl {
+pub struct Decl {
+    pub name: Symbol,
+    pub kind: DeclKind,
+    pub storage: Option<StorageClass>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum DeclKind {
     /// A variable declaration.
-    Var {
-        name: Symbol,
-        init: Option<ExprRef>,
-        storage: Option<StorageClass>,
-    },
+    Var(Option<ExprRef>),
     /// A function declaration.
     Func {
-        name: Symbol,
         params: Slice<DeclRef>,
         body: Option<Slice<BlockItem>>,
-        storage: Option<StorageClass>,
     },
 }
 
 impl Default for Decl {
     fn default() -> Self {
-        Self::Var {
+        Decl {
             storage: None,
-            name: Default::default(),
-            init: Default::default(),
+            name: Symbol::default(),
+            kind: DeclKind::Var(None),
         }
     }
 }

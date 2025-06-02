@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
+        Ast, BinaryOp, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
     },
     sema::{SemaCtx, Type},
 };
@@ -74,39 +74,38 @@ impl<'ctx> TyperPass<'ctx> {
         true
     }
 
-    fn visit_decl(&mut self, decl: DeclRef) {
-        match self.ast.decl(decl) {
-            Decl::Var { init, .. } => {
-                *self.ctx.decl_type_mut(decl) = Type::Int;
+    fn visit_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Var(init) => {
+                *self.ctx.decl_type_mut(decl_ref) = Type::Int;
                 if let Some(init) = init {
-                    self.visit_expr(*init);
-                    if self.ctx.decl_type(decl) != self.ctx.expr_type(*init) {
+                    self.visit_expr(init);
+                    if self.ctx.decl_type(decl_ref) != self.ctx.expr_type(init) {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: *self.ast.expr_span(*init),
+                            span: *self.ast.expr_span(init),
                             kind: TyperDiagnosticKind::InitializerTypeMismatch,
                         });
                     }
                 }
             }
-            Decl::Func {
-                name, params, body, ..
-            } => {
+            DeclKind::Func { params, body, .. } => {
                 self.ast
-                    .params(*params)
+                    .params(params)
                     .iter()
                     .for_each(|param| self.visit_decl(*param));
 
                 let ty = Type::Func(params.len());
-                *self.ctx.decl_type_mut(decl) = ty;
+                *self.ctx.decl_type_mut(decl_ref) = ty;
 
                 let entry = self
                     .functions
-                    .entry(*name)
+                    .entry(decl.name)
                     .or_insert_with(|| FuncEntry::without_definition(ty));
 
                 if entry.ty != ty {
                     self.result.diagnostics.push(TyperDiagnostic {
-                        span: *self.ast.decl_span(decl),
+                        span: *self.ast.decl_span(decl_ref),
                         kind: TyperDiagnosticKind::FunctionTypeMismatch,
                     });
                 }
@@ -115,7 +114,7 @@ impl<'ctx> TyperPass<'ctx> {
                     assert!(!entry.is_defined, "function already defined");
                     entry.is_defined = true;
                     self.ast
-                        .block_items(*body)
+                        .block_items(body)
                         .iter()
                         .for_each(|item| match item {
                             BlockItem::Decl(decl) => self.visit_decl(*decl),

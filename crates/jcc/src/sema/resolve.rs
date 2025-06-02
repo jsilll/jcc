@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef},
+    ast::{Ast, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, StorageClass},
     sema::SemaCtx,
 };
 
@@ -49,43 +49,27 @@ impl<'a> ResolverPass<'a> {
     }
 
     pub fn check(mut self) -> ResolverResult {
-        self.ast
-            .root()
-            .iter()
-            .for_each(|decl| match self.ast.decl(*decl) {
-                Decl::Var { .. } => todo!("handle variable declarations"),
-                Decl::Func {
-                    name, body, params, ..
-                } => {
-                    if let Some(prev) = self.symbols.insert(*name, SymbolEntry::with_linkage(*decl))
-                    {
-                        match self.ast.decl(prev.decl) {
-                            Decl::Var { .. } => {
-                                self.result.diagnostics.push(ResolverDiagnostic {
-                                    span: *self.ast.decl_span(prev.decl),
-                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
-                                });
-                            }
-                            Decl::Func {
-                                body: prev_body, ..
-                            } => {
-                                if prev_body.is_some() && body.is_some() {
-                                    self.result.diagnostics.push(ResolverDiagnostic {
-                                        span: *self.ast.decl_span(*decl),
-                                        kind: ResolverDiagnosticKind::RedefinedFunction,
-                                    });
-                                }
-                            }
-                        }
+        self.ast.root().iter().for_each(|decl_ref| {
+            let decl = self.ast.decl(*decl_ref);
+            match decl.kind {
+                DeclKind::Var(init) => {
+                    self.symbols
+                        .insert(decl.name, SymbolEntry::with_linkage(*decl_ref));
+                    if let Some(expr) = init {
+                        self.visit_expr(expr);
                     }
+                }
+                DeclKind::Func { body, params, .. } => {
+                    self.symbols
+                        .insert(decl.name, SymbolEntry::with_linkage(*decl_ref));
                     self.symbols.push_scope();
                     self.ast
-                        .params(*params)
+                        .params(params)
                         .iter()
                         .for_each(|param| self.visit_local_decl(*param));
                     if let Some(body) = body {
                         self.ast
-                            .block_items(*body)
+                            .block_items(body)
                             .iter()
                             .for_each(|item| match item {
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -94,50 +78,69 @@ impl<'a> ResolverPass<'a> {
                     }
                     self.symbols.pop_scope();
                 }
-            });
+            }
+        });
         self.result
     }
 
-    fn visit_local_decl(&mut self, decl: DeclRef) {
-        match self.ast.decl(decl) {
-            Decl::Func { body: Some(_), .. } => {
+    fn visit_local_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Func { body: Some(_), .. } => {
                 self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *self.ast.decl_span(decl),
+                    span: *self.ast.decl_span(decl_ref),
                     kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
                 });
             }
-            Decl::Var { name, init, .. } => {
+            DeclKind::Var(init) => {
+                match decl.storage {
+                    Some(StorageClass::Extern) => {
+                        match self
+                            .symbols
+                            .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
+                        {
+                            //Some(entry) if !entry.has_linkage || self.ast.decl(entry.decl)
+                            //    self.result.diagnostics.push(ResolverDiagnostic {
+                            //        span: *self.ast.decl_span(decl),
+                            //        kind: ResolverDiagnosticKind::ConflictingSymbol,
+                            //    });
+                            //}
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                };
                 if self
                     .symbols
-                    .insert(*name, SymbolEntry::without_linkage(decl))
+                    .insert(decl.name, SymbolEntry::without_linkage(decl_ref))
                     .is_some()
                 {
                     self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *self.ast.decl_span(decl),
+                        span: *self.ast.decl_span(decl_ref),
                         kind: ResolverDiagnosticKind::RedeclaredVariable,
                     });
                 }
                 if let Some(expr) = init {
-                    self.visit_expr(*expr);
+                    self.visit_expr(expr);
                 }
             }
-            Decl::Func {
-                name,
-                params,
-                body: None,
-                ..
+            DeclKind::Func {
+                params, body: None, ..
             } => {
-                if let Some(entry) = self.symbols.insert(*name, SymbolEntry::with_linkage(decl)) {
+                if let Some(entry) = self
+                    .symbols
+                    .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
+                {
                     if !entry.has_linkage {
                         self.result.diagnostics.push(ResolverDiagnostic {
-                            span: *self.ast.decl_span(decl),
+                            span: *self.ast.decl_span(decl_ref),
                             kind: ResolverDiagnosticKind::ConflictingSymbol,
                         });
                     }
                 }
                 self.symbols.push_scope();
                 self.ast
-                    .params(*params)
+                    .params(params)
                     .iter()
                     .for_each(|param| self.visit_local_decl(*param));
                 self.symbols.pop_scope();

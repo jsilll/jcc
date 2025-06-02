@@ -17,27 +17,27 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
 
     // Bootstrap the builder with the first function declaration
     let mut builder = None;
-    for decl in ast.root() {
-        match ast.decl(*decl) {
-            ast::Decl::Var { .. } => continue,
-            ast::Decl::Func { body: None, .. } => continue,
-            ast::Decl::Func {
-                name,
-                body: Some(_),
-                ..
-            } => {
-                builder = Some(SSAFuncBuilder::new(ast, sema, &mut prog, *decl, *name));
+    for decl_ref in ast.root() {
+        let decl = ast.decl(*decl_ref);
+        match decl.kind {
+            ast::DeclKind::Var(_) => continue,
+            ast::DeclKind::Func { body: None, .. } => continue,
+            ast::DeclKind::Func { body: Some(_), .. } => {
+                builder = Some(SSAFuncBuilder::new(
+                    ast, sema, &mut prog, *decl_ref, decl.name,
+                ));
                 break;
             }
         }
     }
 
     if let Some(mut builder) = builder {
-        for decl in ast.root() {
-            match ast.decl(*decl) {
-                ast::Decl::Var { .. } => todo!("handle global variable declarations"),
-                ast::Decl::Func { name, params, body, .. } => {
-                    builder.build_func(*decl, *name, *params, *body);
+        for decl_ref in ast.root() {
+            let decl = ast.decl(*decl_ref);
+            match decl.kind {
+                ast::DeclKind::Var(_) => todo!("handle global variable declarations"),
+                ast::DeclKind::Func { params, body, .. } => {
+                    builder.build_func(*decl_ref, decl.name, params, body);
                 }
             }
         }
@@ -198,13 +198,13 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn visit_decl(&mut self, decl: ast::DeclRef) {
-        if let ast::Decl::Var { init, .. } = self.ast.decl(decl) {
+        if let ast::DeclKind::Var(init) = self.ast.decl(decl).kind {
             let span = *self.ast.decl_span(decl);
             let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
             self.append_to_block(alloca);
             self.vars.insert(decl, alloca);
             if let Some(init) = init {
-                let val = self.visit_expr(*init, ExprMode::RightValue);
+                let val = self.visit_expr(init, ExprMode::RightValue);
                 let store = self
                     .prog
                     .new_inst_with_span(ssa::Inst::store(alloca, val), span);

@@ -104,7 +104,7 @@ impl<'a> ResolverPass<'a> {
                 if let Some(StorageClass::Static) = decl.storage {
                     self.result.diagnostics.push(ResolverDiagnostic {
                         span: *self.ast.decl_span(decl_ref),
-                        kind: ResolverDiagnosticKind::IllegalStaticFunction,
+                        kind: ResolverDiagnosticKind::IllegalLocalStaticFunction,
                     });
                 }
                 match body {
@@ -228,7 +228,7 @@ impl<'a> ResolverPass<'a> {
             }
             Expr::Var(name) => match self.symbols.get(name) {
                 Some(entry) => {
-                    self.ctx.names.insert(expr, entry.decl);
+                    self.ctx.vars.insert(expr, entry.decl);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: *self.ast.expr_span(expr),
@@ -238,7 +238,7 @@ impl<'a> ResolverPass<'a> {
             Expr::Call { name, args } => {
                 match self.symbols.get(name) {
                     Some(entry) => {
-                        self.ctx.names.insert(expr, entry.decl);
+                        self.ctx.vars.insert(expr, entry.decl);
                     }
                     None => {
                         self.result.diagnostics.push(ResolverDiagnostic {
@@ -292,7 +292,7 @@ pub enum ResolverDiagnosticKind {
     RedeclaredVariable,
     UndeclaredVariable,
     UndeclaredFunction,
-    IllegalStaticFunction,
+    IllegalLocalStaticFunction,
     IllegalLocalFunctionDefinition,
 }
 
@@ -324,10 +324,10 @@ impl From<ResolverDiagnostic> for Diagnostic {
                 "undeclared function",
                 "this function is not declared in the current scope",
             ),
-            ResolverDiagnosticKind::IllegalStaticFunction => Diagnostic::error(
+            ResolverDiagnosticKind::IllegalLocalStaticFunction => Diagnostic::error(
                 diagnostic.span,
-                "illegal static function",
-                "static functions cannot be defined in this context",
+                "illegal local static function",
+                "local static function are not allowed",
             ),
             ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error(
                 diagnostic.span,

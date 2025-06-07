@@ -86,56 +86,46 @@ impl<'a> ResolverPass<'a> {
     fn visit_local_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
-            DeclKind::Func { body: Some(_), .. } => {
-                self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *self.ast.decl_span(decl_ref),
-                    kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
-                });
-            }
             DeclKind::Var(init) => {
-                match decl.storage {
-                    Some(StorageClass::Extern) => {
-                        match self
-                            .symbols
-                            .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
-                        {
-                            //Some(entry) if !entry.has_linkage || self.ast.decl(entry.decl)
-                            //    self.result.diagnostics.push(ResolverDiagnostic {
-                            //        span: *self.ast.decl_span(decl),
-                            //        kind: ResolverDiagnosticKind::ConflictingSymbol,
-                            //    });
-                            //}
-                            _ => {}
-                        }
+                let entry = SymbolEntry::new(decl_ref, Some(StorageClass::Extern) == decl.storage);
+                if let Some(prev) = self.symbols.insert(decl.name, entry) {
+                    if !(entry.has_linkage && prev.has_linkage) {
+                        self.result.diagnostics.push(ResolverDiagnostic {
+                            span: *self.ast.decl_span(decl_ref),
+                            kind: ResolverDiagnosticKind::ConflictingSymbol,
+                        });
                     }
-                    _ => {}
-                };
-                if self
-                    .symbols
-                    .insert(decl.name, SymbolEntry::without_linkage(decl_ref))
-                    .is_some()
-                {
-                    self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *self.ast.decl_span(decl_ref),
-                        kind: ResolverDiagnosticKind::RedeclaredVariable,
-                    });
                 }
                 if let Some(expr) = init {
                     self.visit_expr(expr);
                 }
             }
-            DeclKind::Func {
-                params, body: None, ..
-            } => {
-                if let Some(entry) = self
-                    .symbols
-                    .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
-                {
-                    if !entry.has_linkage {
+            DeclKind::Func { params, body, .. } => {
+                if let Some(StorageClass::Static) = decl.storage {
+                    self.result.diagnostics.push(ResolverDiagnostic {
+                        span: *self.ast.decl_span(decl_ref),
+                        kind: ResolverDiagnosticKind::IllegalStaticFunction,
+                    });
+                }
+                match body {
+                    Some(_) => {
                         self.result.diagnostics.push(ResolverDiagnostic {
                             span: *self.ast.decl_span(decl_ref),
-                            kind: ResolverDiagnosticKind::ConflictingSymbol,
+                            kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
                         });
+                    }
+                    None => {
+                        if let Some(entry) = self
+                            .symbols
+                            .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
+                        {
+                            if !entry.has_linkage {
+                                self.result.diagnostics.push(ResolverDiagnostic {
+                                    span: *self.ast.decl_span(decl_ref),
+                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
+                                });
+                            }
+                        }
                     }
                 }
                 self.symbols.push_scope();
@@ -270,6 +260,7 @@ impl<'a> ResolverPass<'a> {
 // Auxiliary structures
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SymbolEntry {
     pub decl: DeclRef,
     pub has_linkage: bool,
@@ -277,18 +268,15 @@ struct SymbolEntry {
 
 impl SymbolEntry {
     #[inline]
+    fn new(decl: DeclRef, has_linkage: bool) -> Self {
+        Self { decl, has_linkage }
+    }
+
+    #[inline]
     fn with_linkage(decl: DeclRef) -> Self {
         Self {
             decl,
             has_linkage: true,
-        }
-    }
-
-    #[inline]
-    fn without_linkage(decl: DeclRef) -> Self {
-        Self {
-            decl,
-            has_linkage: false,
         }
     }
 }
@@ -304,6 +292,7 @@ pub enum ResolverDiagnosticKind {
     RedeclaredVariable,
     UndeclaredVariable,
     UndeclaredFunction,
+    IllegalStaticFunction,
     IllegalLocalFunctionDefinition,
 }
 
@@ -334,6 +323,11 @@ impl From<ResolverDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "undeclared function",
                 "this function is not declared in the current scope",
+            ),
+            ResolverDiagnosticKind::IllegalStaticFunction => Diagnostic::error(
+                diagnostic.span,
+                "illegal static function",
+                "static functions cannot be defined in this context",
             ),
             ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error(
                 diagnostic.span,

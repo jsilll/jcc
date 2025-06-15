@@ -1,5 +1,7 @@
 pub mod parse;
 
+pub mod mermaid;
+
 pub mod graphviz;
 
 use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};

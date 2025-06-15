@@ -9,18 +9,6 @@ use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// Type
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Type {
-    #[default]
-    Void,
-    Int,
-    Func(u32),
-}
-
-// ---------------------------------------------------------------------------
 // SemaCtx
 // ---------------------------------------------------------------------------
 
@@ -28,7 +16,7 @@ pub enum Type {
 pub struct SemaCtx {
     decls_type: Vec<Type>,
     exprs_type: Vec<Type>,
-    pub names: HashMap<ExprRef, DeclRef>,
+    pub vars: HashMap<ExprRef, DeclRef>,
     pub breaks: HashMap<StmtRef, StmtRef>,
     pub continues: HashMap<StmtRef, StmtRef>,
     pub switches: HashMap<StmtRef, SwitchCases>,
@@ -37,7 +25,7 @@ pub struct SemaCtx {
 impl SemaCtx {
     pub fn new(ast: &Ast) -> Self {
         Self {
-            names: HashMap::new(),
+            vars: HashMap::new(),
             breaks: HashMap::new(),
             switches: HashMap::new(),
             continues: HashMap::new(),
@@ -66,6 +54,22 @@ impl SemaCtx {
         &mut self.exprs_type[expr.0.get() as usize]
     }
 }
+
+// ---------------------------------------------------------------------------
+// Type
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Type {
+    #[default]
+    Void,
+    Int,
+    Func(u32),
+}
+
+// ---------------------------------------------------------------------------
+// SwitchCases
+// ---------------------------------------------------------------------------
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct SwitchCases {

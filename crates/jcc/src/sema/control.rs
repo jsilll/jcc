@@ -56,7 +56,7 @@ impl<'ctx> ControlPass<'ctx> {
         ast.root()
             .iter()
             .for_each(|decl| match ast.decl(*decl).kind {
-                DeclKind::Var(_) => todo!("handle variable declarations"),
+                DeclKind::Var(_) => {}
                 DeclKind::Func { body, .. } => {
                     if let Some(body) = body {
                         ast.block_items(body).iter().for_each(|block_item| {

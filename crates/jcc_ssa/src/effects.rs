@@ -78,7 +78,7 @@ impl FastEffects {
     }
 
     pub fn is_empty(&self) -> bool {
-       self.reads.is_empty() && self.writes.is_empty() 
+        self.reads.is_empty() && self.writes.is_empty()
     }
 
     pub fn interferes_with(&self, other: &Self) -> bool {

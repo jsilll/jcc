@@ -262,20 +262,11 @@ pub enum InstKind {
     /// An identity instruction.
     Identity(InstRef),
     /// A store instruction.
-    Store {
-        ptr: InstRef,
-        val: InstRef,
-    },
+    Store { ptr: InstRef, val: InstRef },
     /// An upsilon instruction.
-    Upsilon {
-        phi: InstRef,
-        val: InstRef,
-    },
+    Upsilon { phi: InstRef, val: InstRef },
     /// A unary instruction.
-    Unary {
-        op: UnaryOp,
-        val: InstRef,
-    },
+    Unary { op: UnaryOp, val: InstRef },
     /// A binary instruction.
     Binary {
         op: BinaryOp,
@@ -301,10 +292,7 @@ pub enum InstKind {
         cases: Vec<(i64, BlockRef)>,
     },
     /// A function call instruction.
-    Call {
-        func: FuncRef,
-        args: Vec<InstRef>,
-    },
+    Call { func: FuncRef, args: Vec<InstRef> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

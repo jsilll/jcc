@@ -64,7 +64,7 @@ impl<'a> AMD64Emitter<'a> {
         if name == "main" {
             // If the function is `main`, we don't need to prefix it with `_`
             // on macOS, but we do on Linux.
-            self.with_indent(|emitter| emitter.writeln(&format!(".globl main")));
+            self.with_indent(|emitter| emitter.writeln(".globl main"));
         }
         self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
         self.writeln(&format!("{name}:"));

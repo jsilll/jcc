@@ -1,9 +1,10 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt, StmtRef,
-        UnaryOp,
+        Ast, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt,
+        StmtRef, StorageClass, UnaryOp,
     },
-    lex::{Token, TokenKind},
+    sema::Type,
+    tok::{Token, TokenKind},
 };
 
 use jcc_ssa::{
@@ -62,7 +63,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(mut self) -> ParserResult {
         while self.iter.peek().is_some() {
-            match self.parse_func_decl() {
+            match self.parse_decl() {
                 Some(decl) => self.result.ast.root.push(decl),
                 None => self.sync(TokenKind::Semi, TokenKind::KwInt),
             }
@@ -76,23 +77,104 @@ impl<'a> Parser<'a> {
             .intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 
+    fn parse_specifiers(&mut self) -> Option<(Type, Option<StorageClass>)> {
+        let mut ty = Type::default();
+        let mut storage_class = None;
+
+        let mut n_types = 0;
+        let mut n_storage_classes = 0;
+        while let Some(token) = self.iter.peek() {
+            match token.kind {
+                TokenKind::KwInt => {
+                    ty = Type::Int;
+                    n_types += 1;
+                }
+                TokenKind::KwVoid => {
+                    ty = Type::Void;
+                    n_types += 1;
+                }
+                TokenKind::KwStatic => {
+                    storage_class = Some(StorageClass::Static);
+                    n_storage_classes += 1;
+                }
+                TokenKind::KwExtern => {
+                    storage_class = Some(StorageClass::Extern);
+                    n_storage_classes += 1;
+                }
+                _ => break,
+            }
+            self.iter.next();
+        }
+
+        if n_types == 0 {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::MissingTypeSpecifier,
+            });
+        }
+
+        if n_types > 1 {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::MultipleTypeSpecifiers,
+            });
+        }
+
+        if n_storage_classes > 1 {
+            self.result.diagnostics.push(ParserDiagnostic {
+                span: self.file.end_span(),
+                kind: ParserDiagnosticKind::MultipleStorageClasses,
+            });
+        }
+
+        Some((ty, storage_class))
+    }
+
+    fn parse_var_decl(&mut self) -> Option<DeclRef> {
+        let (_, storage) = self.parse_specifiers()?;
+        let (span, name) = self.eat_identifier()?;
+        let init = match self.iter.peek() {
+            Some(Token {
+                kind: TokenKind::Eq,
+                ..
+            }) => {
+                self.iter.next();
+                Some(self.parse_expr(0)?)
+            }
+            _ => None,
+        };
+        self.eat(TokenKind::Semi)?;
+        Some(self.result.ast.new_decl(
+            Decl {
+                name,
+                storage,
+                kind: DeclKind::Var(init),
+            },
+            span,
+        ))
+    }
+
     fn parse_decl(&mut self) -> Option<DeclRef> {
-        self.eat(TokenKind::KwInt)?;
+        let (_, storage) = self.parse_specifiers()?;
         let (span, name) = self.eat_identifier()?;
         let token = self.eat_some()?;
         match token.kind {
-            TokenKind::Semi => Some(
-                self.result
-                    .ast
-                    .new_decl(Decl::Var { name, init: None }, span),
-            ),
+            TokenKind::Semi => Some(self.result.ast.new_decl(
+                Decl {
+                    name,
+                    storage,
+                    kind: DeclKind::Var(None),
+                },
+                span,
+            )),
             TokenKind::Eq => {
                 let init = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_decl(
-                    Decl::Var {
+                    Decl {
                         name,
-                        init: Some(init),
+                        storage,
+                        kind: DeclKind::Var(Some(init)),
                     },
                     span,
                 ))
@@ -115,11 +197,14 @@ impl<'a> Parser<'a> {
                         Some(body)
                     }
                 };
-                Some(
-                    self.result
-                        .ast
-                        .new_decl(Decl::Func { name, params, body }, span),
-                )
+                Some(self.result.ast.new_decl(
+                    Decl {
+                        name,
+                        storage,
+                        kind: DeclKind::Func { params, body },
+                    },
+                    span,
+                ))
             }
             _ => {
                 let diagnostic = ParserDiagnostic {
@@ -132,49 +217,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_var_decl(&mut self) -> Option<DeclRef> {
+    fn parse_param(&mut self) -> Option<DeclRef> {
         self.eat(TokenKind::KwInt)?;
         let (span, name) = self.eat_identifier()?;
-        let init = match self.iter.peek() {
-            Some(Token {
-                kind: TokenKind::Eq,
-                ..
-            }) => {
-                self.iter.next();
-                Some(self.parse_expr(0)?)
-            }
-            _ => None,
-        };
-        self.eat(TokenKind::Semi)?;
-        Some(self.result.ast.new_decl(Decl::Var { name, init }, span))
-    }
-
-    fn parse_func_decl(&mut self) -> Option<DeclRef> {
-        self.eat(TokenKind::KwInt)?;
-        let (span, name) = self.eat_identifier()?;
-        self.eat(TokenKind::LParen)?;
-        let params = self.parse_params();
-        self.eat(TokenKind::RParen)?;
-        let body = match self.iter.peek() {
-            Some(Token {
-                kind: TokenKind::Semi,
-                ..
-            }) => {
-                self.iter.next();
-                None
-            }
-            _ => {
-                self.eat(TokenKind::LBrace)?;
-                let body = self.parse_body();
-                self.eat(TokenKind::RBrace)?;
-                Some(body)
-            }
-        };
-        Some(
-            self.result
-                .ast
-                .new_decl(Decl::Func { name, params, body }, span),
-        )
+        Some(self.result.ast.new_decl(
+            Decl {
+                name,
+                storage: None,
+                kind: DeclKind::Var(None),
+            },
+            span,
+        ))
     }
 
     fn parse_params(&mut self) -> Slice<DeclRef> {
@@ -215,22 +268,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_param(&mut self) -> Option<DeclRef> {
-        self.eat(TokenKind::KwInt)?;
-        let (span, name) = self.eat_identifier()?;
-        Some(
-            self.result
-                .ast
-                .new_decl(Decl::Var { name, init: None }, span),
-        )
-    }
-
     fn parse_body(&mut self) -> Slice<BlockItem> {
         let base = self.block_items_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
-                TokenKind::KwInt => match self.parse_decl() {
+                TokenKind::KwInt
+                | TokenKind::KwVoid
+                | TokenKind::KwStatic
+                | TokenKind::KwExtern => match self.parse_decl() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
                     Some(decl) => self.block_items_stack.push(BlockItem::Decl(decl)),
                 },
@@ -351,14 +397,15 @@ impl<'a> Parser<'a> {
             TokenKind::KwFor => {
                 self.iter.next();
                 self.eat(TokenKind::LParen)?;
-                let init = if let Some(Token {
-                    kind: TokenKind::KwInt,
-                    ..
-                }) = self.iter.peek()
-                {
-                    Some(ForInit::VarDecl(self.parse_var_decl()?))
-                } else {
-                    self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr)
+                let init = match self.iter.peek() {
+                    None => None,
+                    Some(Token { kind, .. }) => match kind {
+                        TokenKind::KwInt
+                        | TokenKind::KwVoid
+                        | TokenKind::KwStatic
+                        | TokenKind::KwExtern => Some(ForInit::VarDecl(self.parse_var_decl()?)),
+                        _ => self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr),
+                    },
                 };
                 let cond = self.parse_optional_expr(TokenKind::Semi);
                 let step = self.parse_optional_expr(TokenKind::RParen);
@@ -561,19 +608,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
-        while let Some(token) = self.iter.peek() {
-            if token.kind == eat {
-                self.iter.next();
-                break;
-            }
-            if token.kind == stop {
-                break;
-            }
-            self.iter.next();
-        }
-    }
-
+    #[inline]
     fn peek_some(&mut self) -> Option<&&Token> {
         self.iter.peek().or_else(|| {
             self.result.diagnostics.push(ParserDiagnostic {
@@ -584,6 +619,7 @@ impl<'a> Parser<'a> {
         })
     }
 
+    #[inline]
     fn eat_some(&mut self) -> Option<&Token> {
         self.iter.next().or_else(|| {
             self.result.diagnostics.push(ParserDiagnostic {
@@ -637,6 +673,19 @@ impl<'a> Parser<'a> {
             }
         }
     }
+
+    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
+        while let Some(token) = self.iter.peek() {
+            if token.kind == eat {
+                self.iter.next();
+                break;
+            }
+            if token.kind == stop {
+                break;
+            }
+            self.iter.next();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -669,171 +718,89 @@ struct Precedence {
     assoc: Associativity,
 }
 
+impl Precedence {
+    const fn ternary(prec: u8) -> Self {
+        Self {
+            prec,
+            token: InfixToken::Ternary,
+            assoc: Associativity::Right,
+        }
+    }
+
+    const fn binary_left(prec: u8, op: BinaryOp) -> Self {
+        Self {
+            prec,
+            assoc: Associativity::Left,
+            token: InfixToken::Binary(op),
+        }
+    }
+
+    const fn binary_right(prec: u8, op: BinaryOp) -> Self {
+        Self {
+            prec,
+            assoc: Associativity::Right,
+            token: InfixToken::Binary(op),
+        }
+    }
+}
+
 impl From<TokenKind> for Option<Precedence> {
     fn from(token: TokenKind) -> Self {
         match token {
             // Group: Right-to-left Associativity
-            TokenKind::Eq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::Assign),
-            }),
-            TokenKind::PlusEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::AddAssign),
-            }),
-            TokenKind::MinusEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::SubAssign),
-            }),
-            TokenKind::StarEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::MulAssign),
-            }),
-            TokenKind::SlashEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::DivAssign),
-            }),
-            TokenKind::PercentEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::RemAssign),
-            }),
-            TokenKind::AmpEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitAndAssign),
-            }),
-            TokenKind::PipeEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitOrAssign),
-            }),
-            TokenKind::CaretEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitXorAssign),
-            }),
-            TokenKind::LtLtEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitShlAssign),
-            }),
-            TokenKind::GtGtEq => Some(Precedence {
-                prec: 0,
-                assoc: Associativity::Right,
-                token: InfixToken::Binary(BinaryOp::BitShrAssign),
-            }),
+            TokenKind::Eq => Some(Precedence::binary_right(0, BinaryOp::Assign)),
+            TokenKind::PlusEq => Some(Precedence::binary_right(0, BinaryOp::AddAssign)),
+            TokenKind::MinusEq => Some(Precedence::binary_right(0, BinaryOp::SubAssign)),
+            TokenKind::StarEq => Some(Precedence::binary_right(0, BinaryOp::MulAssign)),
+            TokenKind::SlashEq => Some(Precedence::binary_right(0, BinaryOp::DivAssign)),
+            TokenKind::PercentEq => Some(Precedence::binary_right(0, BinaryOp::RemAssign)),
+            TokenKind::AmpEq => Some(Precedence::binary_right(0, BinaryOp::BitAndAssign)),
+            TokenKind::PipeEq => Some(Precedence::binary_right(0, BinaryOp::BitOrAssign)),
+            TokenKind::CaretEq => Some(Precedence::binary_right(0, BinaryOp::BitXorAssign)),
+            TokenKind::LtLtEq => Some(Precedence::binary_right(0, BinaryOp::BitShlAssign)),
+            TokenKind::GtGtEq => Some(Precedence::binary_right(0, BinaryOp::BitShrAssign)),
+
             // Group: Right-to-left Associativity
-            TokenKind::Question => Some(Precedence {
-                prec: 1,
-                token: InfixToken::Ternary,
-                assoc: Associativity::Right,
-            }),
+            TokenKind::Question => Some(Precedence::ternary(1)),
+
             // Group: Left-to-right Associativity
-            TokenKind::PipePipe => Some(Precedence {
-                prec: 2,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LogicalOr),
-            }),
+            TokenKind::PipePipe => Some(Precedence::binary_left(2, BinaryOp::LogicalOr)),
+
             // Group: Left-to-right Associativity
-            TokenKind::AmpAmp => Some(Precedence {
-                prec: 3,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LogicalAnd),
-            }),
+            TokenKind::AmpAmp => Some(Precedence::binary_left(3, BinaryOp::LogicalAnd)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Pipe => Some(Precedence {
-                prec: 4,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitOr),
-            }),
+            TokenKind::Pipe => Some(Precedence::binary_left(4, BinaryOp::BitOr)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Caret => Some(Precedence {
-                prec: 5,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitXor),
-            }),
+            TokenKind::Caret => Some(Precedence::binary_left(5, BinaryOp::BitXor)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Amp => Some(Precedence {
-                prec: 6,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitAnd),
-            }),
+            TokenKind::Amp => Some(Precedence::binary_left(6, BinaryOp::BitAnd)),
+
             // Group: Left-to-right Associativity
-            TokenKind::EqEq => Some(Precedence {
-                prec: 7,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Equal),
-            }),
-            TokenKind::BangEq => Some(Precedence {
-                prec: 7,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::NotEqual),
-            }),
+            TokenKind::EqEq => Some(Precedence::binary_left(7, BinaryOp::Equal)),
+            TokenKind::BangEq => Some(Precedence::binary_left(7, BinaryOp::NotEqual)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Lt => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LessThan),
-            }),
-            TokenKind::Gt => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::GreaterThan),
-            }),
-            TokenKind::LtEq => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::LessEqual),
-            }),
-            TokenKind::GtEq => Some(Precedence {
-                prec: 8,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::GreaterEqual),
-            }),
+            TokenKind::Lt => Some(Precedence::binary_left(8, BinaryOp::LessThan)),
+            TokenKind::Gt => Some(Precedence::binary_left(8, BinaryOp::GreaterThan)),
+            TokenKind::LtEq => Some(Precedence::binary_left(8, BinaryOp::LessEqual)),
+            TokenKind::GtEq => Some(Precedence::binary_left(8, BinaryOp::GreaterEqual)),
+
             // Group: Left-to-right Associativity
-            TokenKind::LtLt => Some(Precedence {
-                prec: 9,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitShl),
-            }),
-            TokenKind::GtGt => Some(Precedence {
-                prec: 9,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::BitShr),
-            }),
+            TokenKind::LtLt => Some(Precedence::binary_left(9, BinaryOp::BitShl)),
+            TokenKind::GtGt => Some(Precedence::binary_left(9, BinaryOp::BitShr)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Plus => Some(Precedence {
-                prec: 10,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Add),
-            }),
-            TokenKind::Minus => Some(Precedence {
-                prec: 10,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Sub),
-            }),
+            TokenKind::Plus => Some(Precedence::binary_left(10, BinaryOp::Add)),
+            TokenKind::Minus => Some(Precedence::binary_left(10, BinaryOp::Sub)),
+
             // Group: Left-to-right Associativity
-            TokenKind::Star => Some(Precedence {
-                prec: 11,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Mul),
-            }),
-            TokenKind::Slash => Some(Precedence {
-                prec: 11,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Div),
-            }),
-            TokenKind::Percent => Some(Precedence {
-                prec: 11,
-                assoc: Associativity::Left,
-                token: InfixToken::Binary(BinaryOp::Rem),
-            }),
+            TokenKind::Star => Some(Precedence::binary_left(11, BinaryOp::Mul)),
+            TokenKind::Slash => Some(Precedence::binary_left(11, BinaryOp::Div)),
+            TokenKind::Percent => Some(Precedence::binary_left(11, BinaryOp::Rem)),
+
             _ => None,
         }
     }
@@ -847,6 +814,9 @@ impl From<TokenKind> for Option<Precedence> {
 pub enum ParserDiagnosticKind {
     UnexpectedEof,
     UnexpectedToken,
+    MissingTypeSpecifier,
+    MultipleTypeSpecifiers,
+    MultipleStorageClasses,
     ExpectedToken(TokenKind),
 }
 
@@ -862,6 +832,21 @@ impl From<ParserDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "unexpected token",
                 "expected a different token",
+            ),
+            ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error(
+                diagnostic.span,
+                "missing type specifier",
+                "expected a type specifier like 'int'",
+            ),
+            ParserDiagnosticKind::MultipleTypeSpecifiers => Diagnostic::error(
+                diagnostic.span,
+                "multiple type specifiers",
+                "only one type specifier is allowed",
+            ),
+            ParserDiagnosticKind::MultipleStorageClasses => Diagnostic::error(
+                diagnostic.span,
+                "multiple storage classes",
+                "only one storage class is allowed",
             ),
             ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
                 diagnostic.span,

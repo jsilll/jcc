@@ -38,10 +38,7 @@ pub struct AMD64FuncBuilder<'a> {
 impl<'a> AMD64FuncBuilder<'a> {
     pub fn new(ssa: &'a crate::Program, func: crate::FuncRef) -> Self {
         let mut blocks = HashMap::new();
-        let mut fn_def = FnDef::new(
-            *ssa.func_name(func),
-            *ssa.func_span(func),
-        );
+        let mut fn_def = FnDef::new(*ssa.func_name(func), *ssa.func_span(func));
         let block = fn_def.push_block(Block::default());
         blocks.insert(ssa.func(func).blocks[0], block);
         Self {

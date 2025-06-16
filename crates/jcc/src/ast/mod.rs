@@ -1,5 +1,7 @@
 pub mod parse;
 
+pub mod mermaid;
+
 pub mod graphviz;
 
 use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};
@@ -228,12 +230,18 @@ impl Ast {
 pub struct DeclRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum Decl {
+pub struct Decl {
+    pub name: Symbol,
+    pub kind: DeclKind,
+    pub storage: Option<StorageClass>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum DeclKind {
     /// A variable declaration.
-    Var { name: Symbol, init: Option<ExprRef> },
+    Var(Option<ExprRef>),
     /// A function declaration.
     Func {
-        name: Symbol,
         params: Slice<DeclRef>,
         body: Option<Slice<BlockItem>>,
     },
@@ -241,9 +249,10 @@ pub enum Decl {
 
 impl Default for Decl {
     fn default() -> Self {
-        Self::Var {
-            name: Default::default(),
-            init: Default::default(),
+        Decl {
+            storage: None,
+            name: Symbol::default(),
+            kind: DeclKind::Var(None),
         }
     }
 }
@@ -328,6 +337,14 @@ impl Default for Expr {
     fn default() -> Self {
         Self::Const(0)
     }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum StorageClass {
+    /// Extern storage class.
+    Extern,
+    /// Static storage class.
+    Static,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

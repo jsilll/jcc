@@ -1,16 +1,17 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, UnaryOp,
+        Ast, BinaryOp, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef,
+        StorageClass, UnaryOp,
     },
     sema::{SemaCtx, Type},
 };
 
 use jcc_ssa::{
-    interner::Symbol,
+    interner::SymbolTable,
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashSet};
 
 // ---------------------------------------------------------------------------
 // TyperResult
@@ -40,7 +41,7 @@ pub struct TyperPass<'ctx> {
     ctx: &'ctx mut SemaCtx,
     result: TyperResult,
     switch_cases: HashSet<Expr>,
-    functions: HashMap<Symbol, FuncEntry>,
+    symbols: SymbolTable<SymbolEntry>,
 }
 
 impl<'ctx> TyperPass<'ctx> {
@@ -48,7 +49,7 @@ impl<'ctx> TyperPass<'ctx> {
         Self {
             ast,
             ctx,
-            functions: HashMap::new(),
+            symbols: SymbolTable::new(),
             switch_cases: HashSet::new(),
             result: TyperResult::default(),
         }
@@ -58,7 +59,7 @@ impl<'ctx> TyperPass<'ctx> {
         self.ast
             .root()
             .iter()
-            .for_each(|decl| self.visit_decl(*decl));
+            .for_each(|decl| self.visit_file_scope_decl(*decl));
         self.result
     }
 
@@ -74,52 +75,200 @@ impl<'ctx> TyperPass<'ctx> {
         true
     }
 
-    fn visit_decl(&mut self, decl: DeclRef) {
-        match self.ast.decl(decl) {
-            Decl::Var { init, .. } => {
-                *self.ctx.decl_type_mut(decl) = Type::Int;
-                if let Some(init) = init {
-                    self.visit_expr(*init);
-                    if self.ctx.decl_type(decl) != self.ctx.expr_type(*init) {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: *self.ast.expr_span(*init),
-                            kind: TyperDiagnosticKind::InitializerTypeMismatch,
-                        });
+    fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
+            DeclKind::Var(init) => {
+                let ty = Type::Int;
+                *self.ctx.decl_type_mut(decl_ref) = ty;
+                let decl_is_global = decl.storage != Some(StorageClass::Static);
+                let decl_init = match init {
+                    None => match decl.storage {
+                        Some(StorageClass::Extern) => StaticValue::NoInitializer,
+                        _ => StaticValue::Tentative,
+                    },
+                    Some(init) => {
+                        self.visit_expr(init);
+                        if self.ctx.decl_type(decl_ref) != self.ctx.expr_type(init) {
+                            self.result.diagnostics.push(TyperDiagnostic {
+                                span: *self.ast.expr_span(init),
+                                kind: TyperDiagnosticKind::InitializerTypeMismatch,
+                            });
+                        }
+                        match eval_constant(self.ast, init) {
+                            Some(value) => StaticValue::Initialized(value),
+                            None => {
+                                self.result.diagnostics.push(TyperDiagnostic {
+                                    span: *self.ast.expr_span(init),
+                                    kind: TyperDiagnosticKind::NotConstant,
+                                });
+                                StaticValue::NoInitializer
+                            }
+                        }
                     }
-                }
-            }
-            Decl::Func { name, params, body } => {
-                self.ast
-                    .params(*params)
-                    .iter()
-                    .for_each(|param| self.visit_decl(*param));
+                };
 
-                let ty = Type::Func(params.len());
-                *self.ctx.decl_type_mut(decl) = ty;
-
-                let entry = self
-                    .functions
-                    .entry(*name)
-                    .or_insert_with(|| FuncEntry::without_definition(ty));
+                let entry = self.symbols.entry(decl.name);
+                let occupied = matches!(entry, Entry::Occupied(_));
+                let entry = entry.or_insert(SymbolEntry::static_(ty, decl_is_global, decl_init));
 
                 if entry.ty != ty {
                     self.result.diagnostics.push(TyperDiagnostic {
-                        span: *self.ast.decl_span(decl),
-                        kind: TyperDiagnosticKind::FunctionTypeMismatch,
+                        span: *self.ast.decl_span(decl_ref),
+                        kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                     });
                 }
 
-                if let Some(body) = body {
-                    assert!(!entry.is_defined, "function already defined");
-                    entry.is_defined = true;
-                    self.ast
-                        .block_items(*body)
-                        .iter()
-                        .for_each(|item| match item {
-                            BlockItem::Decl(decl) => self.visit_decl(*decl),
-                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                if let Attribute::Static {
+                    is_global,
+                    ref mut init,
+                } = entry.attr
+                {
+                    if decl.storage != Some(StorageClass::Extern) && (is_global != decl_is_global) {
+                        self.result.diagnostics.push(TyperDiagnostic {
+                            span: *self.ast.decl_span(decl_ref),
+                            kind: TyperDiagnosticKind::FunctionVisibilityMismatch,
                         });
+                    }
+                    match init {
+                        StaticValue::NoInitializer => *init = decl_init,
+                        StaticValue::Tentative => {
+                            if matches!(decl_init, StaticValue::Initialized(_)) {
+                                *init = decl_init
+                            }
+                        }
+                        StaticValue::Initialized(_) => {
+                            if occupied && matches!(decl_init, StaticValue::Initialized(_)) {
+                                self.result.diagnostics.push(TyperDiagnostic {
+                                    span: *self.ast.decl_span(decl_ref),
+                                    kind: TyperDiagnosticKind::MultipleInitializers,
+                                });
+                            }
+                        }
+                    }
                 }
+            }
+        }
+    }
+
+    fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
+            DeclKind::Var(init) => {
+                let ty = Type::Int;
+                *self.ctx.decl_type_mut(decl_ref) = ty;
+                match decl.storage {
+                    None => {
+                        self.symbols.insert(decl.name, SymbolEntry::local(ty));
+                        if let Some(init) = init {
+                            self.visit_expr(init);
+                        }
+                    }
+                    Some(StorageClass::Extern) => match init {
+                        Some(init) => {
+                            self.result.diagnostics.push(TyperDiagnostic {
+                                span: *self.ast.expr_span(init),
+                                kind: TyperDiagnosticKind::ExternLocalInitialized,
+                            });
+                        }
+                        None => {
+                            let entry = self.symbols.entry_global(decl.name).or_insert(
+                                SymbolEntry::static_(ty, true, StaticValue::NoInitializer),
+                            );
+                            if entry.ty != ty {
+                                self.result.diagnostics.push(TyperDiagnostic {
+                                    span: *self.ast.decl_span(decl_ref),
+                                    kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                                });
+                            }
+                        }
+                    },
+                    Some(StorageClass::Static) => {
+                        let decl_init = match init {
+                            None => StaticValue::Initialized(0),
+                            Some(init) => {
+                                self.visit_expr(init);
+                                if self.ctx.decl_type(decl_ref) != self.ctx.expr_type(init) {
+                                    self.result.diagnostics.push(TyperDiagnostic {
+                                        span: *self.ast.expr_span(init),
+                                        kind: TyperDiagnosticKind::InitializerTypeMismatch,
+                                    });
+                                }
+                                match eval_constant(self.ast, init) {
+                                    Some(value) => StaticValue::Initialized(value),
+                                    None => {
+                                        self.result.diagnostics.push(TyperDiagnostic {
+                                            span: *self.ast.expr_span(init),
+                                            kind: TyperDiagnosticKind::NotConstant,
+                                        });
+                                        StaticValue::Initialized(0)
+                                    }
+                                }
+                            }
+                        };
+                        self.symbols
+                            .insert_global(decl.name, SymbolEntry::static_(ty, false, decl_init));
+                    }
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn visit_func_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        if let DeclKind::Func { params, body } = decl.kind {
+            let ty = Type::Func(params.len());
+            *self.ctx.decl_type_mut(decl_ref) = ty;
+            let decl_is_global = decl.storage != Some(StorageClass::Static);
+
+            let entry = self
+                .symbols
+                .entry_global(decl.name)
+                .or_insert(SymbolEntry::function(ty, decl_is_global, false));
+
+            if entry.ty != ty {
+                self.result.diagnostics.push(TyperDiagnostic {
+                    span: *self.ast.decl_span(decl_ref),
+                    kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                });
+            }
+
+            if let Attribute::Function {
+                is_global,
+                ref mut is_defined,
+            } = entry.attr
+            {
+                if is_global && !decl_is_global {
+                    self.result.diagnostics.push(TyperDiagnostic {
+                        span: *self.ast.decl_span(decl_ref),
+                        kind: TyperDiagnosticKind::FunctionVisibilityMismatch,
+                    });
+                }
+                if body.is_some() {
+                    assert!(!*is_defined, "function already defined");
+                    *is_defined = true;
+                }
+                self.symbols.push_scope();
+                self.ast.params(params).iter().for_each(|param| {
+                    if let Some(_) = self.ast.decl(*param).storage {
+                        self.result.diagnostics.push(TyperDiagnostic {
+                            span: *self.ast.decl_span(*param),
+                            kind: TyperDiagnosticKind::StorageClassesDisallowed,
+                        });
+                    }
+                    self.visit_block_scope_decl(*param)
+                });
+                self.ast
+                    .block_items(body.unwrap_or_default())
+                    .iter()
+                    .for_each(|item| match item {
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                    });
+                self.symbols.pop_scope();
             }
         }
     }
@@ -155,13 +304,15 @@ impl<'ctx> TyperPass<'ctx> {
                 }
             }
             Stmt::Compound(items) => {
+                self.symbols.push_scope();
                 self.ast
                     .block_items(*items)
                     .iter()
                     .for_each(|item| match item {
-                        BlockItem::Decl(decl) => self.visit_decl(*decl),
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
+                self.symbols.pop_scope();
             }
             Stmt::For {
                 init,
@@ -169,10 +320,19 @@ impl<'ctx> TyperPass<'ctx> {
                 step,
                 body,
             } => {
+                self.symbols.push_scope();
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => self.visit_expr(*expr),
-                        ForInit::VarDecl(decl) => self.visit_decl(*decl),
+                        ForInit::VarDecl(decl) => {
+                            if let Some(_) = self.ast.decl(*decl).storage {
+                                self.result.diagnostics.push(TyperDiagnostic {
+                                    span: *self.ast.decl_span(*decl),
+                                    kind: TyperDiagnosticKind::StorageClassesDisallowed,
+                                });
+                            }
+                            self.visit_block_scope_decl(*decl);
+                        }
                     }
                 }
                 if let Some(cond) = cond {
@@ -182,6 +342,7 @@ impl<'ctx> TyperPass<'ctx> {
                     self.visit_expr(*step);
                 }
                 self.visit_stmt(*body);
+                self.symbols.pop_scope();
             }
             Stmt::Switch { cond, body } => {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
@@ -218,7 +379,7 @@ impl<'ctx> TyperPass<'ctx> {
             Expr::Const(_) => {}
             Expr::Grouped(expr) => self.visit_expr(*expr),
             Expr::Var(_) => {
-                let decl = self.ctx.names.get(&expr).expect("decl not found");
+                let decl = self.ctx.vars.get(&expr).expect("decl not found");
                 if let Type::Func(_) = self.ctx.decl_type(*decl) {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: *self.ast.expr_span(expr),
@@ -264,13 +425,13 @@ impl<'ctx> TyperPass<'ctx> {
                 }
             },
             Expr::Call { args, .. } => {
-                let decl = self.ctx.names.get(&expr).expect("decl not found");
+                let decl = self.ctx.vars.get(&expr).expect("decl not found");
                 match self.ctx.decl_type(*decl) {
                     Type::Func(arity) => {
                         if *arity != args.len() {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: *self.ast.expr_span(expr),
-                                kind: TyperDiagnosticKind::FunctionTypeMismatch,
+                                kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                             });
                         }
                         self.ast
@@ -294,18 +455,61 @@ impl<'ctx> TyperPass<'ctx> {
 // Auxiliary structures
 // ---------------------------------------------------------------------------
 
-struct FuncEntry {
+#[derive(Debug)]
+struct SymbolEntry {
     ty: Type,
-    is_defined: bool,
+    attr: Attribute,
 }
 
-impl FuncEntry {
-    fn without_definition(ty: Type) -> Self {
+impl SymbolEntry {
+    #[inline]
+    fn local(ty: Type) -> Self {
         Self {
             ty,
-            is_defined: false,
+            attr: Attribute::Local,
         }
     }
+
+    #[inline]
+    fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
+        Self {
+            ty,
+            attr: Attribute::Function {
+                is_global,
+                is_defined,
+            },
+        }
+    }
+
+    #[inline]
+    fn static_(ty: Type, is_global: bool, init: StaticValue) -> Self {
+        Self {
+            ty,
+            attr: Attribute::Static { is_global, init },
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Attribute {
+    #[default]
+    Local,
+    Function {
+        is_global: bool,
+        is_defined: bool,
+    },
+    Static {
+        is_global: bool,
+        init: StaticValue,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum StaticValue {
+    #[default]
+    NoInitializer,
+    Tentative,
+    Initialized(i64),
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +540,18 @@ fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
     }
 }
 
+fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<i64> {
+    match ast.expr(expr) {
+        Expr::Const(value) => Some(*value),
+        Expr::Grouped(expr) => eval_constant(ast, *expr),
+        Expr::Var { .. }
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::Ternary { .. }
+        | Expr::Call { .. } => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TyperDiagnosticKind
 // ---------------------------------------------------------------------------
@@ -345,10 +561,14 @@ pub enum TyperDiagnosticKind {
     NotConstant,
     InvalidLValue,
     DuplicateSwitchCase,
-    FunctionTypeMismatch,
-    FunctionUsedAsVariable,
+    MultipleInitializers,
+    ExternLocalInitialized,
     VariableUsedAsFunction,
     InitializerTypeMismatch,
+    DeclarationTypeMismatch,
+    FunctionUsedAsVariable,
+    StorageClassesDisallowed,
+    FunctionVisibilityMismatch,
 }
 
 impl From<TyperDiagnostic> for Diagnostic {
@@ -369,10 +589,20 @@ impl From<TyperDiagnostic> for Diagnostic {
                 "duplicate switch case",
                 "this case value is already defined",
             ),
-            TyperDiagnosticKind::FunctionTypeMismatch => Diagnostic::error(
+            TyperDiagnosticKind::MultipleInitializers => Diagnostic::error(
                 diagnostic.span,
-                "function type mismatch",
-                "this function has a different type than expected",
+                "multiple initializers",
+                "this variable is already initialized",
+            ),
+            TyperDiagnosticKind::ExternLocalInitialized => Diagnostic::error(
+                diagnostic.span,
+                "local extern variable initialized",
+                "local extern variable cannot have an initializer",
+            ),
+            TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error(
+                diagnostic.span,
+                "declaration type mismatch",
+                "this declaration has a different type than expected",
             ),
             TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error(
                 diagnostic.span,
@@ -388,6 +618,16 @@ impl From<TyperDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "initializer type mismatch",
                 "this initializer has a different type than expected",
+            ),
+            TyperDiagnosticKind::StorageClassesDisallowed => Diagnostic::error(
+                diagnostic.span,
+                "storage classes disallowed",
+                "storage classes are disallowed in this context",
+            ),
+            TyperDiagnosticKind::FunctionVisibilityMismatch => Diagnostic::error(
+                diagnostic.span,
+                "function visibility mismatch",
+                "this function has a different visibility than expected",
             ),
         }
     }

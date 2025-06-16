@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Ast, BlockItem, Decl, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef},
+    ast::{Ast, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, StorageClass},
     sema::SemaCtx,
 };
 
@@ -52,90 +52,90 @@ impl<'a> ResolverPass<'a> {
         self.ast
             .root()
             .iter()
-            .for_each(|decl| match self.ast.decl(*decl) {
-                Decl::Var { .. } => todo!("handle variable declarations"),
-                Decl::Func { name, body, params } => {
-                    if let Some(prev) = self.symbols.insert(*name, SymbolEntry::with_linkage(*decl))
-                    {
-                        match self.ast.decl(prev.decl) {
-                            Decl::Var { .. } => {
-                                self.result.diagnostics.push(ResolverDiagnostic {
-                                    span: *self.ast.decl_span(prev.decl),
-                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
-                                });
-                            }
-                            Decl::Func { body: prev_body, .. } => {
-                                if prev_body.is_some() && body.is_some() {
-                                    self.result.diagnostics.push(ResolverDiagnostic {
-                                        span: *self.ast.decl_span(*decl),
-                                        kind: ResolverDiagnosticKind::RedefinedFunction,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    self.symbols.push_scope();
-                    self.ast
-                        .params(*params)
-                        .iter()
-                        .for_each(|param| self.visit_local_decl(*param));
-                    if let Some(body) = body {
-                        self.ast
-                            .block_items(*body)
-                            .iter()
-                            .for_each(|item| match item {
-                                BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                                BlockItem::Decl(decl) => self.visit_local_decl(*decl),
-                            });
-                    }
-                    self.symbols.pop_scope();
-                }
-            });
+            .for_each(|decl| self.visit_file_scope_decl(*decl));
         self.result
     }
 
-    fn visit_local_decl(&mut self, decl: DeclRef) {
-        match self.ast.decl(decl) {
-            Decl::Func { body: Some(_), .. } => {
-                self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *self.ast.decl_span(decl),
-                    kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
-                });
-            }
-            Decl::Var { name, init } => {
-                if self
-                    .symbols
-                    .insert(*name, SymbolEntry::without_linkage(decl))
-                    .is_some()
-                {
-                    self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *self.ast.decl_span(decl),
-                        kind: ResolverDiagnosticKind::RedeclaredVariable,
-                    });
-                }
+    fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Var(init) => {
+                self.symbols
+                    .insert(decl.name, SymbolEntry::with_linkage(decl_ref));
                 if let Some(expr) = init {
-                    self.visit_expr(*expr);
+                    self.visit_expr(expr);
                 }
             }
-            Decl::Func {
-                name,
-                params,
-                body: None,
-                ..
-            } => {
-                if let Some(entry) = self.symbols.insert(*name, SymbolEntry::with_linkage(decl)) {
-                    if !entry.has_linkage {
+            DeclKind::Func { body, params, .. } => {
+                self.symbols
+                    .insert(decl.name, SymbolEntry::with_linkage(decl_ref));
+                self.symbols.push_scope();
+                self.ast
+                    .params(params)
+                    .iter()
+                    .for_each(|param| self.visit_block_scope_decl(*param));
+                self.ast
+                    .block_items(body.unwrap_or_default())
+                    .iter()
+                    .for_each(|item| match item {
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                    });
+                self.symbols.pop_scope();
+            }
+        }
+    }
+
+    fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            DeclKind::Var(init) => {
+                let entry = SymbolEntry::new(decl_ref, Some(StorageClass::Extern) == decl.storage);
+                if let Some(prev) = self.symbols.insert(decl.name, entry) {
+                    if !(entry.has_linkage && prev.has_linkage) {
                         self.result.diagnostics.push(ResolverDiagnostic {
-                            span: *self.ast.decl_span(decl),
+                            span: *self.ast.decl_span(decl_ref),
                             kind: ResolverDiagnosticKind::ConflictingSymbol,
                         });
                     }
                 }
+                if let Some(expr) = init {
+                    self.visit_expr(expr);
+                }
+            }
+            DeclKind::Func { params, body, .. } => {
+                if let Some(StorageClass::Static) = decl.storage {
+                    self.result.diagnostics.push(ResolverDiagnostic {
+                        span: *self.ast.decl_span(decl_ref),
+                        kind: ResolverDiagnosticKind::IllegalLocalStaticFunction,
+                    });
+                }
+                match body {
+                    Some(_) => {
+                        self.result.diagnostics.push(ResolverDiagnostic {
+                            span: *self.ast.decl_span(decl_ref),
+                            kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
+                        });
+                    }
+                    None => {
+                        if let Some(entry) = self
+                            .symbols
+                            .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
+                        {
+                            if !entry.has_linkage {
+                                self.result.diagnostics.push(ResolverDiagnostic {
+                                    span: *self.ast.decl_span(decl_ref),
+                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
+                                });
+                            }
+                        }
+                    }
+                }
                 self.symbols.push_scope();
                 self.ast
-                    .params(*params)
+                    .params(params)
                     .iter()
-                    .for_each(|param| self.visit_local_decl(*param));
+                    .for_each(|param| self.visit_block_scope_decl(*param));
                 self.symbols.pop_scope();
             }
         }
@@ -181,7 +181,7 @@ impl<'a> ResolverPass<'a> {
                     .block_items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.visit_local_decl(*decl),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
                 self.symbols.pop_scope();
@@ -196,7 +196,7 @@ impl<'a> ResolverPass<'a> {
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => self.visit_expr(*expr),
-                        ForInit::VarDecl(decl) => self.visit_local_decl(*decl),
+                        ForInit::VarDecl(decl) => self.visit_block_scope_decl(*decl),
                     }
                 }
                 if let Some(cond) = cond {
@@ -231,7 +231,7 @@ impl<'a> ResolverPass<'a> {
             }
             Expr::Var(name) => match self.symbols.get(name) {
                 Some(entry) => {
-                    self.ctx.names.insert(expr, entry.decl);
+                    self.ctx.vars.insert(expr, entry.decl);
                 }
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: *self.ast.expr_span(expr),
@@ -241,7 +241,7 @@ impl<'a> ResolverPass<'a> {
             Expr::Call { name, args } => {
                 match self.symbols.get(name) {
                     Some(entry) => {
-                        self.ctx.names.insert(expr, entry.decl);
+                        self.ctx.vars.insert(expr, entry.decl);
                     }
                     None => {
                         self.result.diagnostics.push(ResolverDiagnostic {
@@ -263,6 +263,7 @@ impl<'a> ResolverPass<'a> {
 // Auxiliary structures
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SymbolEntry {
     pub decl: DeclRef,
     pub has_linkage: bool,
@@ -270,18 +271,15 @@ struct SymbolEntry {
 
 impl SymbolEntry {
     #[inline]
+    fn new(decl: DeclRef, has_linkage: bool) -> Self {
+        Self { decl, has_linkage }
+    }
+
+    #[inline]
     fn with_linkage(decl: DeclRef) -> Self {
         Self {
             decl,
             has_linkage: true,
-        }
-    }
-
-    #[inline]
-    fn without_linkage(decl: DeclRef) -> Self {
-        Self {
-            decl,
-            has_linkage: false,
         }
     }
 }
@@ -297,6 +295,7 @@ pub enum ResolverDiagnosticKind {
     RedeclaredVariable,
     UndeclaredVariable,
     UndeclaredFunction,
+    IllegalLocalStaticFunction,
     IllegalLocalFunctionDefinition,
 }
 
@@ -327,6 +326,11 @@ impl From<ResolverDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "undeclared function",
                 "this function is not declared in the current scope",
+            ),
+            ResolverDiagnosticKind::IllegalLocalStaticFunction => Diagnostic::error(
+                diagnostic.span,
+                "illegal local static function",
+                "local static functions are not allowed",
             ),
             ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error(
                 diagnostic.span,

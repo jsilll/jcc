@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Ast, BlockItem, Decl, Stmt, StmtRef},
+    ast::{Ast, BlockItem, DeclKind, Stmt, StmtRef},
     sema::SemaCtx,
 };
 
@@ -53,31 +53,33 @@ impl<'ctx> ControlPass<'ctx> {
     }
 
     pub fn check(mut self, ast: &Ast) -> ControlResult {
-        ast.root().iter().for_each(|decl| match ast.decl(*decl) {
-            Decl::Var { .. } => todo!("handle variable declarations"),
-            Decl::Func { body, .. } => {
-                if let Some(body) = body {
-                    ast.block_items(*body).iter().for_each(|block_item| {
-                        if let BlockItem::Stmt(stmt) = block_item {
-                            self.visit_stmt(ast, *stmt)
-                        }
-                    });
+        ast.root()
+            .iter()
+            .for_each(|decl| match ast.decl(*decl).kind {
+                DeclKind::Var(_) => {}
+                DeclKind::Func { body, .. } => {
+                    if let Some(body) = body {
+                        ast.block_items(body).iter().for_each(|block_item| {
+                            if let BlockItem::Stmt(stmt) = block_item {
+                                self.visit_stmt(ast, *stmt)
+                            }
+                        });
 
-                    self.unresolved_labels.values().for_each(|spans| {
-                        spans.iter().for_each(|span| {
-                            self.result.diagnostics.push(ControlDiagnostic {
-                                span: *span,
-                                kind: ControlDiagnosticKind::UndefinedLabel,
+                        self.unresolved_labels.values().for_each(|spans| {
+                            spans.iter().for_each(|span| {
+                                self.result.diagnostics.push(ControlDiagnostic {
+                                    span: *span,
+                                    kind: ControlDiagnosticKind::UndefinedLabel,
+                                });
                             });
                         });
-                    });
 
-                    self.tracked.clear();
-                    self.defined_labels.clear();
-                    self.unresolved_labels.clear();
+                        self.tracked.clear();
+                        self.defined_labels.clear();
+                        self.unresolved_labels.clear();
+                    }
                 }
-            }
-        });
+            });
         self.result
     }
 

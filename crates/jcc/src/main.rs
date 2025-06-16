@@ -1,7 +1,7 @@
 use jcc::{
-    ast::{graphviz::AstGraphviz, parse::Parser},
-    lex::{Lexer, LexerDiagnosticKind},
+    ast::{graphviz::AstGraphviz, mermaid::AstMermaid, parse::Parser},
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
+    tok::lex::{Lexer, LexerDiagnosticKind},
 };
 
 use jcc_ssa::{
@@ -28,6 +28,9 @@ struct Args {
     /// Run until the parser and stop
     #[clap(long)]
     pub parse: bool,
+    /// Emit AST as Mermaid file and stop
+    #[clap(long)]
+    pub emit_ast_mermaid: bool,
     /// Emit AST as Graphviz DOT file and stop
     #[clap(long)]
     pub emit_ast_graphviz: bool,
@@ -77,8 +80,14 @@ fn try_main() -> Result<()> {
 
     // Add file to db
     let mut db = SourceDb::new();
-    db.add(SourceMap::new(&pp_path).context("Failed to read file")?);
-    let file = db.files().last().context("Failed to store file in db")?;
+    db.add(SourceMap::new(&pp_path).context(format!(
+        "Failed to create source map for {}",
+        pp_path.display()
+    ))?);
+    let file = db.files().last().context(format!(
+        "No source files found in the database for {}",
+        pp_path.display()
+    ))?;
 
     // Lex file
     let mut interner = Interner::new();
@@ -107,6 +116,12 @@ fn try_main() -> Result<()> {
     }
     if args.verbose {
         println!("{:#?}", parser_result.ast);
+    }
+    if args.emit_ast_mermaid {
+        let mmd_path = args.path.with_extension("mmd");
+        let ast_mermaid = AstMermaid::new(&parser_result.ast, &interner);
+        let dot = ast_mermaid.emit();
+        std::fs::write(&mmd_path, &dot).context("Failed to write Mermaid file")?;
     }
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");

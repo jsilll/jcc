@@ -31,7 +31,13 @@ impl InsertionSet {
         })
     }
 
-    pub fn insert_before_with_span(&mut self, inst: &Inst, ty: Type, kind: InstKind, span: SourceSpan) {
+    pub fn insert_before_with_span(
+        &mut self,
+        inst: &Inst,
+        ty: Type,
+        kind: InstKind,
+        span: SourceSpan,
+    ) {
         self.insertions.push(Insertion {
             ty,
             kind,
@@ -70,6 +76,5 @@ impl InsertionSet {
         p.block_mut(b).insts = insts;
 
         self.insertions.clear();
-
     }
 }

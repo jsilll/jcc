@@ -17,27 +17,27 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
 
     // Bootstrap the builder with the first function declaration
     let mut builder = None;
-    for decl in ast.root() {
-        match ast.decl(*decl) {
-            ast::Decl::Var { .. } => continue,
-            ast::Decl::Func { body: None, .. } => continue,
-            ast::Decl::Func {
-                name,
-                body: Some(_),
-                ..
-            } => {
-                builder = Some(SSAFuncBuilder::new(ast, sema, &mut prog, *decl, *name));
+    for decl_ref in ast.root() {
+        let decl = ast.decl(*decl_ref);
+        match decl.kind {
+            ast::DeclKind::Var(_) => continue,
+            ast::DeclKind::Func { body: None, .. } => continue,
+            ast::DeclKind::Func { body: Some(_), .. } => {
+                builder = Some(SSAFuncBuilder::new(
+                    ast, sema, &mut prog, *decl_ref, decl.name,
+                ));
                 break;
             }
         }
     }
 
     if let Some(mut builder) = builder {
-        for decl in ast.root() {
-            match ast.decl(*decl) {
-                ast::Decl::Var { .. } => todo!("handle global variable declarations"),
-                ast::Decl::Func { name, params, body } => {
-                    builder.build_func(*decl, *name, *params, *body);
+        for decl_ref in ast.root() {
+            let decl = ast.decl(*decl_ref);
+            match decl.kind {
+                ast::DeclKind::Var(_) => todo!("handle global variable declarations"),
+                ast::DeclKind::Func { params, body, .. } => {
+                    builder.build_func(*decl_ref, decl.name, params, body);
                 }
             }
         }
@@ -114,12 +114,11 @@ impl<'a> SSAFuncBuilder<'a> {
         if self.decl != decl {
             self.decl = decl;
             let span = *self.ast.decl_span(decl);
-            self.func = self
+            self.func = *self
                 .funcs
                 .entry(name)
-                .or_insert(self.prog.new_func_with_span_interned(name, span))
-                .clone();
-            if !body.is_none() {
+                .or_insert(self.prog.new_func_with_span_interned(name, span));
+            if body.is_some() {
                 // Also create a new entry block for the function
                 self.block = self.prog.new_block_with_span("entry", span);
                 self.prog.func_mut(self.func).blocks.push(self.block);
@@ -169,13 +168,13 @@ impl<'a> SSAFuncBuilder<'a> {
         self.vars
             .get(&decl)
             .copied()
-            .expect(format!("expected a variable declaration for {decl:?}").as_str())
+            .unwrap_or_else(|| panic!("expected a variable declaration for {decl:?}"))
     }
 
     #[inline]
     fn get_var_decl(&self, expr: ast::ExprRef) -> ast::DeclRef {
         self.sema
-            .names
+            .vars
             .get(&expr)
             .copied()
             .expect("expected a variable declaration")
@@ -199,13 +198,13 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     fn visit_decl(&mut self, decl: ast::DeclRef) {
-        if let ast::Decl::Var { init, .. } = self.ast.decl(decl) {
+        if let ast::DeclKind::Var(init) = self.ast.decl(decl).kind {
             let span = *self.ast.decl_span(decl);
             let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
             self.append_to_block(alloca);
             self.vars.insert(decl, alloca);
             if let Some(init) = init {
-                let val = self.visit_expr(*init, ExprMode::RightValue);
+                let val = self.visit_expr(init, ExprMode::RightValue);
                 let store = self
                     .prog
                     .new_inst_with_span(ssa::Inst::store(alloca, val), span);
@@ -709,10 +708,10 @@ impl<'a> SSAFuncBuilder<'a> {
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
                 let call = ssa::Inst::call(
-                    self.funcs
+                    *self
+                        .funcs
                         .entry(*name)
-                        .or_insert(self.prog.new_func_with_span_interned(*name, span))
-                        .clone(),
+                        .or_insert(self.prog.new_func_with_span_interned(*name, span)),
                     args,
                 );
                 let inst = self.prog.new_inst_with_span(call, span);

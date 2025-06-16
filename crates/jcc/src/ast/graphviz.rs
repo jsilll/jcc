@@ -33,6 +33,7 @@ impl<'a> AstGraphviz<'a> {
         self.indent_level -= 1;
     }
 
+    #[inline]
     fn writeln(&mut self, s: &str) {
         for _ in 0..self.indent_level {
             self.output.push_str("  ");
@@ -41,6 +42,7 @@ impl<'a> AstGraphviz<'a> {
         self.output.push('\n');
     }
 
+    #[inline]
     fn writeln_fmt(&mut self, args: std::fmt::Arguments) {
         for _ in 0..self.indent_level {
             self.output.push_str("  ");

@@ -17,10 +17,17 @@ impl<'a> AstMermaid<'a> {
             ast,
             interner,
             node_counter: 0,
-            output: String::from("graph TD;\n"),
+            output: String::with_capacity(1024),
         }
     }
 
+    #[inline]
+    fn writeln(&mut self, s: &str) {
+        self.output.push_str(s);
+        self.output.push('\n');
+    }
+
+    #[inline]
     fn writeln_fmt(&mut self, args: std::fmt::Arguments) {
         self.output
             .write_fmt(args)
@@ -69,6 +76,7 @@ impl<'a> AstMermaid<'a> {
     }
 
     pub fn emit(mut self) -> String {
+        self.writeln("graph TD");
         self.define_node("ast_root", "ProgramRoot");
         self.ast.root().iter().for_each(|decl_ref| {
             let id = self.visit_decl(*decl_ref);

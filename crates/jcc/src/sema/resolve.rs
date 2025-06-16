@@ -74,15 +74,13 @@ impl<'a> ResolverPass<'a> {
                     .params(params)
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
-                if let Some(body) = body {
-                    self.ast
-                        .block_items(body)
-                        .iter()
-                        .for_each(|item| match item {
-                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                            BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                        });
-                }
+                self.ast
+                    .block_items(body.unwrap_or_default())
+                    .iter()
+                    .for_each(|item| match item {
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                    });
                 self.symbols.pop_scope();
             }
         }

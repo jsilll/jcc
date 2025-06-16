@@ -7,11 +7,11 @@ use crate::{
 };
 
 use jcc_ssa::{
-    interner::Symbol,
+    interner::SymbolTable,
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashSet};
 
 // ---------------------------------------------------------------------------
 // TyperResult
@@ -41,7 +41,7 @@ pub struct TyperPass<'ctx> {
     ctx: &'ctx mut SemaCtx,
     result: TyperResult,
     switch_cases: HashSet<Expr>,
-    symbols: HashMap<Symbol, SymbolEntry>,
+    symbols: SymbolTable<SymbolEntry>,
 }
 
 impl<'ctx> TyperPass<'ctx> {
@@ -49,7 +49,7 @@ impl<'ctx> TyperPass<'ctx> {
         Self {
             ast,
             ctx,
-            symbols: HashMap::new(),
+            symbols: SymbolTable::new(),
             switch_cases: HashSet::new(),
             result: TyperResult::default(),
         }
@@ -78,57 +78,7 @@ impl<'ctx> TyperPass<'ctx> {
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
-            DeclKind::Func { params, body, .. } => {
-                self.ast.params(params).iter().for_each(|param| {
-                    if let Some(_) = self.ast.decl(*param).storage {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: *self.ast.decl_span(*param),
-                            kind: TyperDiagnosticKind::StorageClassesDisallowed,
-                        });
-                    }
-                    self.visit_block_scope_decl(*param)
-                });
-
-                let ty = Type::Func(params.len());
-                *self.ctx.decl_type_mut(decl_ref) = ty;
-                let decl_is_global = decl.storage != Some(StorageClass::Static);
-
-                let entry = self
-                    .symbols
-                    .entry(decl.name)
-                    .or_insert(SymbolEntry::function(ty, decl_is_global, false));
-
-                if entry.ty != ty {
-                    self.result.diagnostics.push(TyperDiagnostic {
-                        span: *self.ast.decl_span(decl_ref),
-                        kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                    });
-                }
-
-                if let Attribute::Function {
-                    is_global,
-                    ref mut is_defined,
-                } = entry.attr
-                {
-                    if is_global && !decl_is_global {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: *self.ast.decl_span(decl_ref),
-                            kind: TyperDiagnosticKind::FunctionVisibilityMismatch,
-                        });
-                    }
-                    if let Some(body) = body {
-                        assert!(!*is_defined, "function already defined");
-                        *is_defined = true;
-                        self.ast
-                            .block_items(body)
-                            .iter()
-                            .for_each(|item| match item {
-                                BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                                BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                            });
-                    }
-                }
-            }
+            DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
             DeclKind::Var(init) => {
                 let ty = Type::Int;
                 *self.ctx.decl_type_mut(decl_ref) = ty;
@@ -159,10 +109,9 @@ impl<'ctx> TyperPass<'ctx> {
                     }
                 };
 
-                let entry = self
-                    .symbols
-                    .entry(decl.name)
-                    .or_insert(SymbolEntry::static_(ty, decl_is_global, decl_init));
+                let entry = self.symbols.entry(decl.name);
+                let occupied = matches!(entry, Entry::Occupied(_));
+                let entry = entry.or_insert(SymbolEntry::static_(ty, decl_is_global, decl_init));
 
                 if entry.ty != ty {
                     self.result.diagnostics.push(TyperDiagnostic {
@@ -190,7 +139,7 @@ impl<'ctx> TyperPass<'ctx> {
                             }
                         }
                         StaticValue::Initialized(_) => {
-                            if matches!(decl_init, StaticValue::Initialized(_)) {
+                            if occupied && matches!(decl_init, StaticValue::Initialized(_)) {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: *self.ast.decl_span(decl_ref),
                                     kind: TyperDiagnosticKind::MultipleInitializers,
@@ -206,7 +155,7 @@ impl<'ctx> TyperPass<'ctx> {
     fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
-            DeclKind::Func { .. } => {}
+            DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
             DeclKind::Var(init) => {
                 let ty = Type::Int;
                 *self.ctx.decl_type_mut(decl_ref) = ty;
@@ -225,14 +174,9 @@ impl<'ctx> TyperPass<'ctx> {
                             });
                         }
                         None => {
-                            let entry =
-                                self.symbols
-                                    .entry(decl.name)
-                                    .or_insert(SymbolEntry::static_(
-                                        ty,
-                                        true,
-                                        StaticValue::NoInitializer,
-                                    ));
+                            let entry = self.symbols.entry_global(decl.name).or_insert(
+                                SymbolEntry::static_(ty, true, StaticValue::NoInitializer),
+                            );
                             if entry.ty != ty {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: *self.ast.decl_span(decl_ref),
@@ -265,9 +209,66 @@ impl<'ctx> TyperPass<'ctx> {
                             }
                         };
                         self.symbols
-                            .insert(decl.name, SymbolEntry::static_(ty, false, decl_init));
+                            .insert_global(decl.name, SymbolEntry::static_(ty, false, decl_init));
                     }
                 }
+            }
+        }
+    }
+
+    #[inline]
+    fn visit_func_decl(&mut self, decl_ref: DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        if let DeclKind::Func { params, body } = decl.kind {
+            let ty = Type::Func(params.len());
+            *self.ctx.decl_type_mut(decl_ref) = ty;
+            let decl_is_global = decl.storage != Some(StorageClass::Static);
+
+            let entry = self
+                .symbols
+                .entry_global(decl.name)
+                .or_insert(SymbolEntry::function(ty, decl_is_global, false));
+
+            if entry.ty != ty {
+                self.result.diagnostics.push(TyperDiagnostic {
+                    span: *self.ast.decl_span(decl_ref),
+                    kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                });
+            }
+
+            if let Attribute::Function {
+                is_global,
+                ref mut is_defined,
+            } = entry.attr
+            {
+                if is_global && !decl_is_global {
+                    self.result.diagnostics.push(TyperDiagnostic {
+                        span: *self.ast.decl_span(decl_ref),
+                        kind: TyperDiagnosticKind::FunctionVisibilityMismatch,
+                    });
+                }
+                if body.is_some() {
+                    assert!(!*is_defined, "function already defined");
+                    *is_defined = true;
+                }
+                self.symbols.push_scope();
+                self.ast.params(params).iter().for_each(|param| {
+                    if let Some(_) = self.ast.decl(*param).storage {
+                        self.result.diagnostics.push(TyperDiagnostic {
+                            span: *self.ast.decl_span(*param),
+                            kind: TyperDiagnosticKind::StorageClassesDisallowed,
+                        });
+                    }
+                    self.visit_block_scope_decl(*param)
+                });
+                self.ast
+                    .block_items(body.unwrap_or_default())
+                    .iter()
+                    .for_each(|item| match item {
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                    });
+                self.symbols.pop_scope();
             }
         }
     }
@@ -303,6 +304,7 @@ impl<'ctx> TyperPass<'ctx> {
                 }
             }
             Stmt::Compound(items) => {
+                self.symbols.push_scope();
                 self.ast
                     .block_items(*items)
                     .iter()
@@ -310,6 +312,7 @@ impl<'ctx> TyperPass<'ctx> {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
+                self.symbols.pop_scope();
             }
             Stmt::For {
                 init,
@@ -317,6 +320,7 @@ impl<'ctx> TyperPass<'ctx> {
                 step,
                 body,
             } => {
+                self.symbols.push_scope();
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => self.visit_expr(*expr),
@@ -338,6 +342,7 @@ impl<'ctx> TyperPass<'ctx> {
                     self.visit_expr(*step);
                 }
                 self.visit_stmt(*body);
+                self.symbols.pop_scope();
             }
             Stmt::Switch { cond, body } => {
                 if let Some(switch) = self.ctx.switches.get(&stmt) {
@@ -450,6 +455,7 @@ impl<'ctx> TyperPass<'ctx> {
 // Auxiliary structures
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 struct SymbolEntry {
     ty: Type,
     attr: Attribute,
@@ -595,8 +601,8 @@ impl From<TyperDiagnostic> for Diagnostic {
             ),
             TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error(
                 diagnostic.span,
-                "function type mismatch",
-                "this function has a different type than expected",
+                "declaration type mismatch",
+                "this declaration has a different type than expected",
             ),
             TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error(
                 diagnostic.span,

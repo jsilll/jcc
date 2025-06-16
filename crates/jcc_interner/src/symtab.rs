@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 /// A `SymbolTable` is a data structure that manages symbols and their associated values.
 /// It supports scoped symbol management, allowing for nested scopes and global symbols.
@@ -134,6 +134,23 @@ where
         }
     }
 
+    /// Inserts a key-value pair directly into the global table.
+    ///
+    /// This method ignores any active scopes and inserts the symbol globally.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert.
+    /// * `value` - The value to associate with the key.
+    ///
+    /// # Returns
+    ///
+    /// The previous value associated with the key in the global table, if it existed.
+    #[inline]
+    pub fn insert_global(&mut self, key: S, value: V) -> Option<V> {
+        self.global.insert(key, value)
+    }
+
     /// Removes a key-value pair from the current scope or the global table.
     ///
     /// # Arguments
@@ -152,5 +169,65 @@ where
             None => self.global.remove(key),
             Some(scope) => scope.remove(key),
         }
+    }
+
+    /// Removes a key-value pair directly from the global table.
+    ///
+    /// This method ignores any active scopes and removes the symbol from the global table.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to remove.
+    ///
+    /// # Returns
+    ///
+    /// The value associated with the key in the global table, if it existed.
+    #[inline]
+    pub fn remove_global(&mut self, key: &S) -> Option<V> {
+        self.global.remove(key)
+    }
+
+    /// Returns an entry for the given key in the current scope or global table.
+    ///
+    /// This provides in-place manipulation of the value corresponding to the key,
+    /// using the standard `Entry` API from Rust's `HashMap`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to access or modify.
+    ///
+    /// # Returns
+    ///
+    /// A an entry corresponding to the key in the current
+    /// scope (if one exists) or in the global table.
+    ///
+    /// # Notes
+    ///
+    /// If a scope is active, the entry is created in the most recent scope.
+    /// Otherwise, it is created in the global table.
+    #[inline]
+    pub fn entry(&mut self, key: S) -> Entry<'_, S, V> {
+        match self.scopes.last_mut() {
+            None => self.global.entry(key),
+            Some(scope) => scope.entry(key),
+        }
+    }
+
+    /// Returns an entry for the given key directly in the global table.
+    ///
+    /// This provides in-place manipulation of the value corresponding to the key,
+    /// using the standard `Entry` API from Rust's `HashMap`. This method ignores
+    /// any active scopes.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to access or modify.
+    ///
+    /// # Returns
+    ///
+    /// An entry corresponding to the key in the global table.
+    #[inline]
+    pub fn entry_global(&mut self, key: S) -> Entry<'_, S, V> {
+        self.global.entry(key)
     }
 }

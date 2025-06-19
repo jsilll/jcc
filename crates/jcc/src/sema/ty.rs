@@ -455,7 +455,7 @@ impl<'ctx> TyperPass<'ctx> {
 // Auxiliary structures
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SymbolEntry {
     ty: Type,
     attr: Attribute,

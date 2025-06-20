@@ -11,7 +11,7 @@ use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
-use std::collections::{hash_map::Entry, HashSet};
+use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // TyperResult
@@ -109,9 +109,10 @@ impl<'ctx> TyperPass<'ctx> {
                     }
                 };
 
-                let entry = self.symbols.entry(decl.name);
-                let occupied = matches!(entry, Entry::Occupied(_));
-                let entry = entry.or_insert(SymbolEntry::static_(ty, decl_is_global, decl_init));
+                let entry = self.symbols.get(&decl.name).cloned();
+                let occupied = entry.is_some();
+                let mut entry =
+                    entry.unwrap_or(SymbolEntry::static_(ty, decl_is_global, decl_init));
 
                 if entry.ty != ty {
                     self.result.diagnostics.push(TyperDiagnostic {
@@ -148,6 +149,8 @@ impl<'ctx> TyperPass<'ctx> {
                         }
                     }
                 }
+
+                self.symbols.insert(decl.name, entry);
             }
         }
     }

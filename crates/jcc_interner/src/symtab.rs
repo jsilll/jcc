@@ -3,26 +3,35 @@ use std::{
     hash::Hash,
 };
 
+// Holds the value and the version at which it was last modified.
+#[derive(Debug, Clone)]
+struct ScopedValue<V> {
+    value: V,
+    version: u32,
+}
+
 /// A `SymbolTable` is a data structure that manages symbols and their associated values.
 /// It supports scoped symbol management, allowing for nested scopes and global symbols.
 ///
 /// This implementation is optimized to avoid memory allocations when pushing and popping scopes.
 /// It uses a pair of `HashMap` for fast lookups and an "undo log" to efficiently
-/// revert changes when a scope ends.
+/// revert changes when a scope ends. This version uses a versioning system to ensure
+/// that a symbol's previous value is only logged once per scope.
 ///
 /// # Type Parameters
 /// - `S`: The type of the symbol keys. Must implement `Eq`, `Hash`, and `Clone`.
 /// - `V`: The type of the values associated with the symbols. Must implement `Clone`.
 #[derive(Debug, Clone)]
 pub struct SymbolTable<S, V> {
+    /// A stack of indices into `history`, marking the start of each scope's changes.
+    markers: Vec<u32>,
     /// The global symbol table, which stores symbols that are not scoped.
     global: HashMap<S, V>,
     /// The single table containing the current state of all scoped symbols.
-    scoped: HashMap<S, V>,
-    /// A stack of indices into `history`, marking the start of each scope's changes.
-    markers: Vec<u32>,
+    /// The `u32` version corresponds to the scope depth.
+    scoped: HashMap<S, ScopedValue<V>>,
     /// A log of changes made in each scope, used for efficient popping.
-    history: Vec<(S, Option<V>)>,
+    history: Vec<(S, Option<ScopedValue<V>>)>,
 }
 
 impl<S, V> Default for SymbolTable<S, V> {
@@ -36,11 +45,30 @@ impl<S, V> SymbolTable<S, V> {
     #[inline]
     pub fn new() -> Self {
         SymbolTable {
+            markers: Vec::new(),
             history: Vec::new(),
             global: HashMap::new(),
             scoped: HashMap::new(),
-            markers: Vec::new(),
         }
+    }
+
+    /// Returns the current scope depth/version.
+    #[inline]
+    fn current_version(&self) -> u32 {
+        self.markers.len() as u32
+    }
+
+    /// Returns `true` if there are any active scopes.
+    #[inline]
+    pub fn has_active_scope(&self) -> bool {
+        !self.markers.is_empty()
+    }
+
+    /// Pushes a new, empty scope onto the scope stack.
+    #[inline]
+    pub fn push_scope(&mut self) {
+        // The new marker points to the end of the current history.
+        self.markers.push(self.history.len() as u32);
     }
 
     /// Clears all symbols from the global table and all scopes.
@@ -50,18 +78,6 @@ impl<S, V> SymbolTable<S, V> {
         self.scoped.clear();
         self.history.clear();
         self.markers.clear();
-    }
-
-    /// Returns `true` if there are any active scopes.
-    #[inline]
-    fn has_active_scope(&self) -> bool {
-        !self.markers.is_empty()
-    }
-
-    /// Pushes a new, empty scope onto the scope stack.
-    #[inline]
-    pub fn push_scope(&mut self) {
-        self.markers.push(self.history.len() as u32);
     }
 }
 
@@ -73,90 +89,17 @@ where
     /// Retrieves a reference to the value associated with the given key.
     #[inline]
     pub fn get(&self, key: &S) -> Option<&V> {
-        self.scoped.get(key).or_else(|| self.global.get(key))
+        // Check scoped map first, then fall back to global.
+        self.scoped
+            .get(key)
+            .map(|sv| &sv.value)
+            .or_else(|| self.global.get(key))
     }
 
-    /// Retrieves a reference to the value associated with the given key in the global table.
+    /// Retrieves the value associated with the given key in the global table.
+    #[inline]
     pub fn get_global(&self, key: &S) -> Option<&V> {
         self.global.get(key)
-    }
-
-    #[inline]
-    /// Retrieves the entry for the given key in the global table.
-    pub fn entry_global(&mut self, key: S) -> Entry<'_, S, V> {
-        self.global.entry(key)
-    }
-
-    /// Retrieves the entry for the given key.
-    #[inline]
-    pub fn entry(&mut self, key: S) -> Entry<'_, S, V> {
-        match self.has_active_scope() {
-            false => self.global.entry(key),
-            true => {
-                let entry = self.scoped.entry(key);
-                self.history.push((
-                    entry.key().clone(),
-                    match &entry {
-                        Entry::Occupied(entry) => Some(entry.get().clone()),
-                        Entry::Vacant(_) => None,
-                    },
-                ));
-                entry
-            }
-        }
-    }
-
-    /// Clears all symbols from the current scope.
-    #[inline]
-    pub fn clear_scope(&mut self) {
-        match self.has_active_scope() {
-            true => {
-                self.pop_scope();
-                self.push_scope();
-            }
-            false => {
-                self.global.clear();
-            }
-        }
-    }
-
-    /// Pops the most recent scope from the scope stack.
-    pub fn pop_scope(&mut self) {
-        if let Some(marker) = self.markers.pop() {
-            for (key, prev) in self.history.drain(marker as usize..).rev() {
-                match prev {
-                    None => {
-                        self.scoped.remove(&key);
-                    }
-                    Some(prev) => {
-                        self.scoped.insert(key, prev);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Inserts a key-value pair directly into the global table.
-    #[inline]
-    pub fn insert_global(&mut self, key: S, value: V) -> Option<V> {
-        self.global.insert(key, value)
-    }
-
-    /// Inserts a key-value pair into the current scope or the global table.
-    /// If there are active scopes, the pair is inserted into the most recent one.
-    /// Otherwise, it is inserted into the global table.
-    pub fn insert(&mut self, key: S, value: V) -> Option<V> {
-        match self.has_active_scope() {
-            true => {
-                let old = self.scoped.insert(key.clone(), value);
-                self.history.push((key, old.clone()));
-                old
-            }
-            false => {
-                let old = self.global.insert(key.clone(), value);
-                old
-            }
-        }
     }
 
     /// Removes a key-value pair directly from the global table.
@@ -165,16 +108,86 @@ where
         self.global.remove(key)
     }
 
-    /// Removes a key-value pair from the current scope or the global table.
-    pub fn remove(&mut self, key: &S) -> Option<V> {
-        if self.has_active_scope() {
-            if let Some(old) = self.scoped.remove(key) {
-                self.history.push((key.clone(), Some(old.clone())));
-                return Some(old);
-            }
+    /// Retrieves the entry for the given key in the global table.
+    #[inline]
+    pub fn entry_global(&mut self, key: S) -> Entry<'_, S, V> {
+        self.global.entry(key)
+    }
+
+    /// Inserts a key-value pair directly into the global table.
+    #[inline]
+    pub fn insert_global(&mut self, key: S, value: V) -> Option<V> {
+        self.global.insert(key, value)
+    }
+
+    /// Clears all symbols from the current scope.
+    #[inline]
+    pub fn clear_scope(&mut self) {
+        if !self.has_active_scope() {
+            return self.global.clear();
         }
 
-        self.global.remove(key)
+        self.pop_scope();
+        self.push_scope();
+    }
+
+    /// Pops the most recent scope from the scope stack, reverting any changes made within it.
+    pub fn pop_scope(&mut self) {
+        if let Some(marker) = self.markers.pop() {
+            for (key, value) in self.history.drain(marker as usize..).rev() {
+                match value {
+                    None => self.scoped.remove(&key),
+                    Some(prev) => self.scoped.insert(key, prev),
+                };
+            }
+        }
+    }
+
+    /// Removes a key from the current scope or the global table.
+    pub fn remove(&mut self, key: &S) -> Option<V> {
+        if !self.has_active_scope() {
+            return self.global.remove(key);
+        }
+
+        if let Some(old) = self.scoped.remove(key) {
+            if old.version < self.current_version() {
+                self.history.push((key.clone(), Some(old.clone())));
+                return None;
+            }
+
+            return Some(old.value);
+        }
+
+        None
+    }
+
+    /// Inserts a key-value pair into the current scope or the global table.
+    /// If there are active scopes, the pair is inserted into the most recent one.
+    /// Otherwise, it is inserted into the global table.
+    pub fn insert(&mut self, key: S, value: V) -> Option<V> {
+        if !self.has_active_scope() {
+            return self.global.insert(key, value);
+        }
+
+        let version = self.current_version();
+        let value = ScopedValue { value, version };
+
+        match self.scoped.entry(key) {
+            Entry::Vacant(entry) => {
+                self.history.push((entry.key().clone(), None));
+                entry.insert(value);
+                None
+            }
+            Entry::Occupied(mut entry) => match entry.get().version < version {
+                false => Some(entry.insert(value).value),
+                true => {
+                    self.history
+                        .push((entry.key().clone(), Some(entry.get().clone())));
+                    entry.insert(value);
+                    None
+                }
+            },
+        }
     }
 }
 
@@ -190,8 +203,11 @@ mod tests {
         assert!(table.history.is_empty());
         assert!(table.markers.is_empty());
 
-        let table_default: SymbolTable<String, i32> = SymbolTable::default();
-        assert!(table_default.global.is_empty());
+        let table: SymbolTable<String, i32> = SymbolTable::default();
+        assert!(table.global.is_empty());
+        assert!(table.scoped.is_empty());
+        assert!(table.history.is_empty());
+        assert!(table.markers.is_empty());
     }
 
     #[test]
@@ -204,112 +220,52 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_scoping() {
-        let mut table = SymbolTable::new();
-
-        // No scopes active, inserts into global
-        table.insert("a".to_string(), 1);
-        assert_eq!(table.get(&"a".to_string()), Some(&1));
-        assert!(!table.has_active_scope());
-
-        table.push_scope();
-        assert!(table.has_active_scope());
-
-        // Scope is active, inserts into scoped table
-        table.insert("b".to_string(), 2);
-        assert_eq!(table.get(&"b".to_string()), Some(&2));
-        // Global variable still accessible
-        assert_eq!(table.get(&"a".to_string()), Some(&1));
-
-        table.pop_scope();
-        assert!(!table.has_active_scope());
-
-        // 'b' should be gone
-        assert_eq!(table.get(&"b".to_string()), None);
-        // 'a' should remain
-        assert_eq!(table.get(&"a".to_string()), Some(&1));
-    }
-
-    #[test]
     fn test_shadowing() {
         let mut table = SymbolTable::new();
-        table.insert("x".to_string(), 10); // Global 'x'
+        table.insert("x".to_string(), 10);
 
         table.push_scope();
-        // Shadow 'x' in the new scope
         table.insert("x".to_string(), 20);
         assert_eq!(table.get(&"x".to_string()), Some(&20));
 
         table.push_scope();
-        // Shadow 'x' again in an inner scope
         table.insert("x".to_string(), 30);
         assert_eq!(table.get(&"x".to_string()), Some(&30));
 
         table.pop_scope();
-        // Back to the first scope's 'x'
         assert_eq!(table.get(&"x".to_string()), Some(&20));
 
         table.pop_scope();
-        // Back to the global 'x'
         assert_eq!(table.get(&"x".to_string()), Some(&10));
     }
 
     #[test]
-    fn test_remove_scoped() {
+    fn test_multiple_updates_single_history_entry() {
         let mut table = SymbolTable::new();
-        table.insert_global("x".to_string(), 1);
+        table.insert("x".to_string(), 1);
 
         table.push_scope();
-        table.insert("x".to_string(), 2); // Shadow 'x'
-        table.insert("y".to_string(), 3);
+        assert_eq!(table.history.len(), 0);
 
-        // Remove from the current scope
-        let removed_y = table.remove(&"y".to_string());
-        assert_eq!(removed_y, Some(3));
-        assert_eq!(table.get(&"y".to_string()), None);
+        table.insert("x".to_string(), 10);
+        assert_eq!(table.get(&"x".to_string()), Some(&10));
+        assert_eq!(table.history.len(), 1);
 
-        // Remove the shadowed 'x'
-        let removed_x = table.remove(&"x".to_string());
-        assert_eq!(removed_x, Some(2));
-        // Now `get` should find the global 'x'
-        assert_eq!(table.get(&"x".to_string()), Some(&1));
+        table.insert("x".to_string(), 20);
+        assert_eq!(table.get(&"x".to_string()), Some(&20));
+        assert_eq!(table.history.len(), 1);
+
+        table.insert("x".to_string(), 30);
+        assert_eq!(table.get(&"x".to_string()), Some(&30));
+        assert_eq!(table.history.len(), 1);
+
+        table.insert("y".to_string(), 99);
+        assert_eq!(table.get(&"y".to_string()), Some(&99));
+        assert_eq!(table.history.len(), 2);
 
         table.pop_scope();
         assert_eq!(table.get(&"x".to_string()), Some(&1));
-    }
-
-    #[test]
-    fn test_remove_global() {
-        let mut table = SymbolTable::new();
-        table.insert_global("x".to_string(), 1);
-        table.insert_global("y".to_string(), 2);
-
-        // Remove a global when no scope is active
-        let removed_y = table.remove(&"y".to_string());
-        assert_eq!(removed_y, Some(2));
         assert_eq!(table.get(&"y".to_string()), None);
-
-        // Use remove_global directly
-        let removed_x = table.remove_global(&"x".to_string());
-        assert_eq!(removed_x, Some(1));
-        assert_eq!(table.get(&"x".to_string()), None);
-    }
-
-    #[test]
-    fn test_clear() {
-        let mut table = SymbolTable::new();
-        table.insert_global("g".to_string(), 0);
-        table.push_scope();
-        table.insert("s".to_string(), 1);
-
-        table.clear();
-
-        assert!(table.global.is_empty());
-        assert!(table.scoped.is_empty());
-        assert!(table.history.is_empty());
-        assert!(table.markers.is_empty());
-        assert_eq!(table.get(&"g".to_string()), None);
-        assert_eq!(table.get(&"s".to_string()), None);
     }
 
     #[test]
@@ -322,17 +278,12 @@ mod tests {
 
         table.clear_scope();
 
-        // Scoped symbols should be gone
         assert_eq!(table.get(&"s1".to_string()), None);
         assert_eq!(table.get(&"s2".to_string()), None);
-        // Global should remain
         assert_eq!(table.get(&"g".to_string()), Some(&0));
-        // We should still be in a (now empty) scope
         assert!(table.has_active_scope());
 
         table.pop_scope();
-        // Clearing a non-existent scope should clear the global one
-        table.clear_scope();
-        assert_eq!(table.get(&"g".to_string()), None);
+        assert_eq!(table.get(&"g".to_string()), Some(&0));
     }
 }

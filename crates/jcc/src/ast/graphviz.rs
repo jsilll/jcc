@@ -318,9 +318,9 @@ impl<'a> AstGraphviz<'a> {
                 let inner_id = self.visit_expr(*inner);
                 self.define_edge(&expr_id, &inner_id, None);
             }
-            Expr::Var(symbol) => {
-                let symbol = self.interner.lookup(*symbol).escape_default();
-                let label = format!("VarRef\\nname: {}", symbol);
+            Expr::Var { name, .. } => {
+                let name = self.interner.lookup(*name).escape_default();
+                let label = format!("VarRef\\nname: {}", name);
                 self.define_node(&expr_id, &label, "olivedrab1");
             }
             Expr::Unary { op, expr: inner } => {
@@ -350,7 +350,7 @@ impl<'a> AstGraphviz<'a> {
                 let otherwise_id = self.visit_expr(*otherwise);
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
-            Expr::Call { name, args } => {
+            Expr::Call { name, args, .. } => {
                 let name = self.interner.lookup(*name).escape_default();
                 let label = format!("FunctionCall\\nname: {}", name);
                 self.define_node(&expr_id, &label, "deepskyblue");

@@ -531,7 +531,13 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);
-                let expr = self.result.ast.new_expr(Expr::Var(name), *span);
+                let expr = self.result.ast.new_expr(
+                    Expr::Var {
+                        name,
+                        resolved: None,
+                    },
+                    *span,
+                );
                 match self.iter.peek() {
                     Some(Token {
                         kind: TokenKind::LParen,
@@ -540,7 +546,14 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let args = self.parse_args();
                         self.eat(TokenKind::RParen)?;
-                        Some(self.result.ast.new_expr(Expr::Call { name, args }, *span))
+                        Some(self.result.ast.new_expr(
+                            Expr::Call {
+                                name,
+                                args,
+                                resolved: None,
+                            },
+                            *span,
+                        ))
                     }
                     _ => Some(self.parse_expr_postfix(expr)),
                 }

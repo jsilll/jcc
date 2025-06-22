@@ -40,7 +40,7 @@ pub struct TyperPass<'ctx> {
     ast: &'ctx Ast,
     ctx: &'ctx mut SemaCtx,
     result: TyperResult,
-    switch_cases: HashSet<Expr>,
+    switch_cases: HashSet<i64>,
     symbols: SymbolTable<SymbolEntry>,
 }
 
@@ -353,19 +353,22 @@ impl<'ctx> TyperPass<'ctx> {
                         .cases
                         .iter()
                         .for_each(|stmt| match self.ast.stmt(*stmt) {
-                            Stmt::Case { expr, .. } => {
-                                if !is_constant(self.ast, *expr) {
+                            Stmt::Case { expr, .. } => match eval_constant(self.ast, *expr) {
+                                None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
                                         span: *self.ast.expr_span(*expr),
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
-                                } else if !self.switch_cases.insert(*self.ast.expr(*expr)) {
-                                    self.result.diagnostics.push(TyperDiagnostic {
-                                        span: *self.ast.expr_span(*expr),
-                                        kind: TyperDiagnosticKind::DuplicateSwitchCase,
-                                    });
                                 }
-                            }
+                                Some(value) => {
+                                    if !self.switch_cases.insert(value) {
+                                        self.result.diagnostics.push(TyperDiagnostic {
+                                            span: *self.ast.expr_span(*expr),
+                                            kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                        });
+                                    }
+                                }
+                            },
                             _ => panic!("unexpected statement in switch case"),
                         });
                 }
@@ -379,9 +382,9 @@ impl<'ctx> TyperPass<'ctx> {
     fn visit_expr(&mut self, expr: ExprRef) {
         *self.ctx.expr_type_mut(expr) = Type::Int;
         match self.ast.expr(expr) {
-            Expr::Const(_) => {}
             Expr::Grouped(expr) => self.visit_expr(*expr),
-            Expr::Var(_) => {
+            Expr::Const(_) => {}
+            Expr::Var { .. } => {
                 let decl = self.ctx.vars.get(&expr).expect("decl not found");
                 if let Type::Func(_) = self.ctx.decl_type(*decl) {
                     self.result.diagnostics.push(TyperDiagnostic {
@@ -524,18 +527,6 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
         Expr::Var { .. } => true,
         Expr::Grouped(expr) => is_lvalue(ast, *expr),
         Expr::Const(_)
-        | Expr::Unary { .. }
-        | Expr::Binary { .. }
-        | Expr::Ternary { .. }
-        | Expr::Call { .. } => false,
-    }
-}
-
-fn is_constant(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.expr(expr) {
-        Expr::Const(_) => true,
-        Expr::Grouped(expr) => is_constant(ast, *expr),
-        Expr::Var { .. }
         | Expr::Unary { .. }
         | Expr::Binary { .. }
         | Expr::Ternary { .. }

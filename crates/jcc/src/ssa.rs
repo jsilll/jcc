@@ -700,7 +700,7 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.append_to_block(inst);
                 inst
             }
-            ast::Expr::Call { name, args } => {
+            ast::Expr::Call { name, args, .. } => {
                 let args = self
                     .ast
                     .args(*args)
@@ -718,7 +718,7 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.append_to_block(inst);
                 inst
             }
-            ast::Expr::Var(_) => {
+            ast::Expr::Var { .. } => {
                 let decl = self.get_var_decl(expr);
                 let ptr = self.get_var_ptr(decl);
                 match mode {

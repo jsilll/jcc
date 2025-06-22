@@ -78,19 +78,20 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
     }
 
-    // Add file to db
+    // Initialize source database and interner
     let mut db = SourceDb::new();
+    let mut interner = Interner::new();
     db.add(SourceMap::new(&pp_path).context(format!(
         "Failed to create source map for {}",
         pp_path.display()
     ))?);
+
     let file = db.files().last().context(format!(
         "No source files found in the database for {}",
         pp_path.display()
     ))?;
 
     // Lex file
-    let mut interner = Interner::new();
     let mut lexer_result = Lexer::new(file).lex();
     if args.lex {
         lexer_result
@@ -137,9 +138,8 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
 
-    let ast = parser_result.ast;
-
     // Analyze the AST
+    let ast = parser_result.ast;
     let mut ctx = SemaCtx::new(&ast);
     let control_result = ControlPass::new(&mut ctx).check(&ast);
     if !control_result.diagnostics.is_empty() {

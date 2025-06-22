@@ -111,6 +111,10 @@ impl Inst {
         Self::new(Type::Void, InstKind::Jump(block))
     }
 
+    pub fn static_addr(var: StaticVarRef) -> Self {
+        Self::new(Type::IntPtr, InstKind::StaticAddr(var))
+    }
+
     pub fn store(ptr: InstRef, val: InstRef) -> Self {
         Self::new(Type::Void, InstKind::Store { ptr, val })
     }
@@ -181,7 +185,8 @@ impl Inst {
             | InstKind::Arg
             | InstKind::Alloca
             | InstKind::Jump(_)
-            | InstKind::Const(_) => {}
+            | InstKind::Const(_)
+            | InstKind::StaticAddr(_) => {}
             InstKind::Ret(val)
             | InstKind::Load(val)
             | InstKind::Identity(val)
@@ -261,6 +266,8 @@ pub enum InstKind {
     Load(InstRef),
     /// An identity instruction.
     Identity(InstRef),
+    /// Get the address of a static variable.
+    StaticAddr(StaticVarRef),
     /// A store instruction.
     Store { ptr: InstRef, val: InstRef },
     /// An upsilon instruction.
@@ -373,6 +380,19 @@ pub struct Func {
 }
 
 // ---------------------------------------------------------------------------
+// StaticVariable
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StaticVarRef(NonZeroU32);
+
+#[derive(Debug, Default, Clone)]
+pub struct StaticVar {
+    pub global: bool,
+    pub init: Option<i64>,
+}
+
+// ---------------------------------------------------------------------------
 // BaseHeaps
 // ---------------------------------------------------------------------------
 
@@ -408,17 +428,25 @@ impl BaseHeaps {
 pub struct Program {
     heaps: BaseHeaps,
     interner: Interner,
+
     insts: Vec<Inst>,
     insts_span: Vec<SourceSpan>,
     insts_free: HashSet<InstRef>,
+
     blocks: Vec<Block>,
     blocks_name: Vec<Symbol>,
     blocks_span: Vec<SourceSpan>,
     blocks_free: HashSet<BlockRef>,
+
     funcs: Vec<Func>,
     funcs_name: Vec<Symbol>,
     funcs_span: Vec<SourceSpan>,
     funcs_free: HashSet<FuncRef>,
+
+    static_vars: Vec<StaticVar>,
+    static_vars_name: Vec<Symbol>,
+    static_vars_span: Vec<SourceSpan>,
+    static_vars_free: HashSet<StaticVarRef>,
 }
 
 impl Program {
@@ -427,17 +455,25 @@ impl Program {
         Self {
             interner,
             heaps: BaseHeaps::new(),
+
             insts_free: HashSet::new(),
-            funcs_free: HashSet::new(),
-            blocks_free: HashSet::new(),
             insts: vec![Default::default()],
-            funcs: vec![Default::default()],
-            blocks: vec![Default::default()],
             insts_span: vec![Default::default()],
+
+            funcs_free: HashSet::new(),
+            funcs: vec![Default::default()],
             funcs_span: vec![Default::default()],
-            blocks_span: vec![Default::default()],
             funcs_name: vec![question_mark_symbol],
+
+            blocks_free: HashSet::new(),
+            blocks: vec![Default::default()],
+            blocks_span: vec![Default::default()],
             blocks_name: vec![question_mark_symbol],
+
+            static_vars_free: HashSet::new(),
+            static_vars: vec![Default::default()],
+            static_vars_span: vec![Default::default()],
+            static_vars_name: vec![question_mark_symbol],
         }
     }
 
@@ -457,6 +493,10 @@ impl Program {
         &self.funcs[func.0.get() as usize]
     }
 
+    pub fn static_var(&self, var: StaticVarRef) -> &StaticVar {
+        &self.static_vars[var.0.get() as usize]
+    }
+
     pub fn inst_span(&self, inst: InstRef) -> &SourceSpan {
         &self.insts_span[inst.0.get() as usize]
     }
@@ -467,6 +507,10 @@ impl Program {
 
     pub fn func_span(&self, func: FuncRef) -> &SourceSpan {
         &self.funcs_span[func.0.get() as usize]
+    }
+
+    pub fn static_var_span(&self, var: StaticVarRef) -> &SourceSpan {
+        &self.static_vars_span[var.0.get() as usize]
     }
 
     pub fn block_name(&self, block: BlockRef) -> &Symbol {
@@ -489,6 +533,14 @@ impl Program {
         &mut self.funcs[func.0.get() as usize]
     }
 
+    pub fn static_var_mut(&mut self, var: StaticVarRef) -> &mut StaticVar {
+        &mut self.static_vars[var.0.get() as usize]
+    }
+
+    pub fn static_var_name(&self, var: StaticVarRef) -> &Symbol {
+        &self.static_vars_name[var.0.get() as usize]
+    }
+
     pub fn delete_inst(&mut self, inst: InstRef) {
         self.insts_free.insert(inst);
     }
@@ -499,6 +551,10 @@ impl Program {
 
     pub fn delete_func(&mut self, func: FuncRef) {
         self.funcs_free.insert(func);
+    }
+
+    pub fn delete_static_var(&mut self, var: StaticVarRef) {
+        self.static_vars_free.insert(var);
     }
 
     pub fn new_inst(&mut self, inst: Inst) -> InstRef {
@@ -521,6 +577,14 @@ impl Program {
         self.funcs.push(Default::default());
         self.funcs_span.push(Default::default());
         self.funcs_name.push(self.interner.intern(name));
+        r
+    }
+
+    pub fn new_static_var(&mut self, name: &str, global: bool, init: Option<i64>) -> StaticVarRef {
+        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
+        self.static_vars.push(StaticVar { global, init });
+        self.static_vars_span.push(Default::default());
+        self.static_vars_name.push(self.interner.intern(name));
         r
     }
 
@@ -563,6 +627,20 @@ impl Program {
         r
     }
 
+    pub fn new_static_var_with_span(
+        &mut self,
+        name: &str,
+        global: bool,
+        init: Option<i64>,
+        span: SourceSpan,
+    ) -> StaticVarRef {
+        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
+        self.static_vars.push(StaticVar { global, init });
+        self.static_vars_span.push(span);
+        self.static_vars_name.push(self.interner.intern(name));
+        r
+    }
+
     pub fn new_block_with_span_interned(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
         let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(Default::default());
@@ -594,6 +672,13 @@ impl Program {
         unsafe { (1..self.funcs.len()).map(|i| FuncRef(NonZeroU32::new_unchecked(i as u32))) }
     }
 
+    pub fn static_vars_iter(&self) -> impl Iterator<Item = StaticVarRef> {
+        // TODO: Skip deleted vars
+        unsafe {
+            (1..self.static_vars.len()).map(|i| StaticVarRef(NonZeroU32::new_unchecked(i as u32)))
+        }
+    }
+
     pub fn insts_iter2(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
         // TODO: Skip deleted insts
         self.insts_iter().zip(self.insts.iter().skip(1))
@@ -607,6 +692,11 @@ impl Program {
     pub fn funcs_iter2(&self) -> impl Iterator<Item = (FuncRef, &Func)> {
         // TODO: Skip deleted funcs
         self.funcs_iter().zip(self.funcs.iter().skip(1))
+    }
+
+    pub fn static_vars_iter2(&self) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> {
+        // TODO: Skip deleted vars
+        self.static_vars_iter().zip(self.static_vars.iter().skip(1))
     }
 
     pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
@@ -653,6 +743,12 @@ impl fmt::Display for FuncRef {
     }
 }
 
+impl fmt::Display for StaticVarRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "@{}", self.0.get())
+    }
+}
+
 impl fmt::Display for InstKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -665,6 +761,7 @@ impl fmt::Display for InstKind {
             InstKind::Const(i) => write!(f, "Const({})", i),
             InstKind::Load(ptr) => write!(f, "Load({})", ptr),
             InstKind::Identity(i) => write!(f, "Identity({})", i),
+            InstKind::StaticAddr(var) => write!(f, "StaticAddr({})", var),
             InstKind::Store { val, ptr } => write!(f, "Store {{ ptr: {}, val: {} }}", ptr, val),
             InstKind::Upsilon { phi, val } => {
                 write!(f, "Upsilon {{ phi: {}, val: {} }}", phi, val)
@@ -709,6 +806,19 @@ impl fmt::Display for InstKind {
 
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (r, var) in self.static_vars_iter2() {
+            let name = self.interner.lookup(*self.static_var_name(r));
+            let linkage = if var.global { "global" } else { "static" };
+            write!(f, "{} {} = ", linkage, name)?;
+            if let Some(init) = var.init {
+                writeln!(f, "{}", init)?;
+            } else {
+                writeln!(f, "zeroinit")?;
+            }
+        }
+        if !self.static_vars.is_empty() {
+            writeln!(f, "")?;
+        }
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
             write!(f, "define @{}", self.interner.lookup(*name))?;
             for block in &func.blocks {

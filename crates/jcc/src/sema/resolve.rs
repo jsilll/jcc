@@ -229,7 +229,7 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*then);
                 self.visit_expr(*otherwise);
             }
-            Expr::Var(name) => match self.symbols.get(name) {
+            Expr::Var { name, .. } => match self.symbols.get(name) {
                 Some(entry) => {
                     self.ctx.vars.insert(expr, entry.decl);
                 }
@@ -238,7 +238,7 @@ impl<'a> ResolverPass<'a> {
                     kind: ResolverDiagnosticKind::UndeclaredVariable,
                 }),
             },
-            Expr::Call { name, args } => {
+            Expr::Call { name, args, .. } => {
                 match self.symbols.get(name) {
                     Some(entry) => {
                         self.ctx.vars.insert(expr, entry.decl);

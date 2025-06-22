@@ -6,7 +6,9 @@ pub mod graphviz;
 
 use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};
 
-use std::num::NonZeroU32;
+use std::{cell::Cell, num::NonZeroU32};
+
+use crate::sema::ResolvedSymbol;
 
 // ---------------------------------------------------------------------------
 // Ast
@@ -307,12 +309,10 @@ pub enum Stmt {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ExprRef(pub(crate) NonZeroU32);
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     /// A constant integer value.
     Const(i64),
-    /// A variable reference.
-    Var(Symbol),
     /// A grouped expression.
     Grouped(ExprRef),
     /// An unary expression.
@@ -329,8 +329,17 @@ pub enum Expr {
         then: ExprRef,
         otherwise: ExprRef,
     },
+    /// A variable reference.
+    Var {
+        name: Symbol,
+        resolved: Option<Cell<ResolvedSymbol>>,
+    },
     /// A function call expression.
-    Call { name: Symbol, args: Slice<ExprRef> },
+    Call {
+        name: Symbol,
+        args: Slice<ExprRef>,
+        resolved: Option<Cell<ResolvedSymbol>>,
+    },
 }
 
 impl Default for Expr {

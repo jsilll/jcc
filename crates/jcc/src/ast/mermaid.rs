@@ -292,8 +292,8 @@ impl<'a> AstMermaid<'a> {
                 let inner_id = self.visit_expr(*inner);
                 self.define_edge(&expr_id, &inner_id, None);
             }
-            Expr::Var(symbol) => {
-                let name = self.interner.lookup(*symbol);
+            Expr::Var{ name, .. } => {
+                let name = self.interner.lookup(*name);
                 let label = format!("VarRef\nname: {}", name);
                 self.define_node(&expr_id, &label);
             }
@@ -324,7 +324,7 @@ impl<'a> AstMermaid<'a> {
                 let otherwise_id = self.visit_expr(*otherwise);
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
-            Expr::Call { name, args } => {
+            Expr::Call { name, args, .. } => {
                 let name = self.interner.lookup(*name);
                 let label = format!("FunctionCall\nname: {}", name);
                 self.define_node(&expr_id, &label);

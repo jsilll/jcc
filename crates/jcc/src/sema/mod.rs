@@ -55,6 +55,10 @@ impl SemaCtx {
     }
 }
 
+// A unique, non-reused ID for each symbol definition
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ResolvedSymbol(u32);
+
 // ---------------------------------------------------------------------------
 // Type
 // ---------------------------------------------------------------------------

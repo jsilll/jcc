@@ -12,7 +12,7 @@ use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
 };
 
-use std::{cell::Cell, iter::Peekable, slice::Iter};
+use std::{iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // ParserResult

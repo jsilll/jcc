@@ -1,10 +1,13 @@
 use crate::{
-    ast::{Ast, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, StorageClass},
-    sema::{SemaCtx, SemaSymbol},
+    ast::{
+        Ast, AstName, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef,
+        StorageClass,
+    },
+    sema::SemaSymbol,
 };
 
 use jcc_ssa::{
-    interner::{Symbol, SymbolTable},
+    interner::SymbolTable,
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
@@ -35,20 +38,18 @@ pub struct ResolverDiagnostic {
 
 pub struct ResolverPass<'a> {
     ast: &'a Ast,
-    ctx: &'a mut SemaCtx,
     result: ResolverResult,
-    resolved_counter: NonZeroU32,
+    symbol_counter: NonZeroU32,
     symbols: SymbolTable<SymbolEntry>,
 }
 
 impl<'a> ResolverPass<'a> {
-    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
+    pub fn new(ast: &'a Ast) -> Self {
         Self {
             ast,
-            ctx,
             symbols: SymbolTable::new(),
             result: ResolverResult::default(),
-            resolved_counter: NonZeroU32::new(1).unwrap(),
+            symbol_counter: NonZeroU32::new(1).unwrap(),
         }
     }
 
@@ -61,16 +62,16 @@ impl<'a> ResolverPass<'a> {
     }
 
     #[inline]
-    fn new_sema_symbol(&mut self) -> SemaSymbol {
-        let symbol = SemaSymbol(self.resolved_counter);
-        self.resolved_counter = self.resolved_counter.saturating_add(1);
+    fn new_sema_symbol(&mut self, name: &AstName) -> SemaSymbol {
+        let symbol = SemaSymbol(self.symbol_counter);
+        self.symbol_counter = self.symbol_counter.saturating_add(1);
+        name.sema.set(Some(symbol));
         symbol
     }
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
-        let entry = SymbolEntry::with_linkage(self.new_sema_symbol());
-        decl.name.sema.set(Some(entry.symbol));
+        let entry = SymbolEntry::with_linkage(self.new_sema_symbol(&decl.name));
         match decl.kind {
             DeclKind::Var(init) => {
                 self.symbols.insert(decl.name.raw, entry);
@@ -102,10 +103,9 @@ impl<'a> ResolverPass<'a> {
         match decl.kind {
             DeclKind::Var(init) => {
                 let entry = SymbolEntry::new(
-                    self.new_sema_symbol(),
+                    self.new_sema_symbol(&decl.name),
                     Some(StorageClass::Extern) == decl.storage,
                 );
-                decl.name.sema.set(Some(entry.symbol));
                 if let Some(prev) = self.symbols.insert(decl.name.raw, entry) {
                     if !(entry.has_linkage && prev.has_linkage) {
                         self.result.diagnostics.push(ResolverDiagnostic {
@@ -133,8 +133,7 @@ impl<'a> ResolverPass<'a> {
                         });
                     }
                     None => {
-                        let sema = self.new_sema_symbol();
-                        self.ast.decl(decl_ref).name.sema.set(Some(sema));
+                        let sema = self.new_sema_symbol(&decl.name);
                         if let Some(entry) = self
                             .symbols
                             .insert(decl.name.raw, SymbolEntry::with_linkage(sema))

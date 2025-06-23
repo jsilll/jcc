@@ -138,15 +138,9 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
 
-    // Analyze the AST
+    // Resolve the AST
     let ast = parser_result.ast;
-    let mut ctx = SemaCtx::new(&ast);
-    let control_result = ControlPass::new(&mut ctx).check(&ast);
-    if !control_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
-        return Err(anyhow::anyhow!("exiting due to control errors"));
-    }
-    let resolver_result = ResolverPass::new(&ast, &mut ctx).check();
+    let resolver_result = ResolverPass::new(&ast).check();
     if !resolver_result.diagnostics.is_empty() {
         sourcemap::diag::report_batch(file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
@@ -162,6 +156,14 @@ fn try_main() -> Result<()> {
         let ast_graphviz = AstGraphviz::new(&ast, &interner);
         let dot = ast_graphviz.emit();
         std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
+    }
+
+    // Analyze the AST
+    let mut ctx = SemaCtx::new(&ast);
+    let control_result = ControlPass::new(&mut ctx).check(&ast);
+    if !control_result.diagnostics.is_empty() {
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
+        return Err(anyhow::anyhow!("exiting due to control errors"));
     }
     let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {

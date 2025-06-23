@@ -24,7 +24,11 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
             ast::DeclKind::Func { body: None, .. } => continue,
             ast::DeclKind::Func { body: Some(_), .. } => {
                 builder = Some(SSAFuncBuilder::new(
-                    ast, sema, &mut prog, *decl_ref, decl.name,
+                    ast,
+                    sema,
+                    &mut prog,
+                    *decl_ref,
+                    decl.name.raw,
                 ));
                 break;
             }
@@ -37,7 +41,7 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
             match decl.kind {
                 ast::DeclKind::Var(_) => todo!("handle global variable declarations"),
                 ast::DeclKind::Func { params, body, .. } => {
-                    builder.build_func(*decl_ref, decl.name, params, body);
+                    builder.build_func(*decl_ref, decl.name.raw, params, body);
                 }
             }
         }
@@ -172,12 +176,14 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     #[inline]
-    fn get_var_decl(&self, expr: ast::ExprRef) -> ast::DeclRef {
-        self.sema
-            .vars
-            .get(&expr)
-            .copied()
-            .expect("expected a variable declaration")
+    fn get_var_decl(&self, _expr: ast::ExprRef) -> ast::DeclRef {
+        // TODO: Uncomment this when we have a way to map expressions
+        // self.sema
+        //     .vars
+        //     .get(&expr)
+        //     .copied()
+        //     .expect("expected a variable declaration")
+        self.decl
     }
 
     #[inline]
@@ -710,8 +716,8 @@ impl<'a> SSAFuncBuilder<'a> {
                 let call = ssa::Inst::call(
                     *self
                         .funcs
-                        .entry(*name)
-                        .or_insert(self.prog.new_func_with_span_interned(*name, span)),
+                        .entry(name.raw)
+                        .or_insert(self.prog.new_func_with_span_interned(name.raw, span)),
                     args,
                 );
                 let inst = self.prog.new_inst_with_span(call, span);

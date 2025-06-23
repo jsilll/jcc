@@ -6,7 +6,14 @@ pub mod resolve;
 
 use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU32};
+
+// ---------------------------------------------------------------------------
+// ResolvedSymbol
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SemaSymbol(NonZeroU32);
 
 // ---------------------------------------------------------------------------
 // SemaCtx
@@ -16,7 +23,7 @@ use std::collections::HashMap;
 pub struct SemaCtx {
     decls_type: Vec<Type>,
     exprs_type: Vec<Type>,
-    pub vars: HashMap<ExprRef, DeclRef>,
+    symbols: Vec<SymbolInfo>,
     pub breaks: HashMap<StmtRef, StmtRef>,
     pub continues: HashMap<StmtRef, StmtRef>,
     pub switches: HashMap<StmtRef, SwitchCases>,
@@ -25,7 +32,7 @@ pub struct SemaCtx {
 impl SemaCtx {
     pub fn new(ast: &Ast) -> Self {
         Self {
-            vars: HashMap::new(),
+            symbols: Vec::new(),
             breaks: HashMap::new(),
             switches: HashMap::new(),
             continues: HashMap::new(),
@@ -55,10 +62,6 @@ impl SemaCtx {
     }
 }
 
-// A unique, non-reused ID for each symbol definition
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ResolvedSymbol(u32);
-
 // ---------------------------------------------------------------------------
 // Type
 // ---------------------------------------------------------------------------
@@ -79,4 +82,65 @@ pub enum Type {
 pub struct SwitchCases {
     pub cases: Vec<StmtRef>,
     pub default: Option<StmtRef>,
+}
+
+// ---------------------------------------------------------------------------
+// SymbolInfo
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SymbolInfo {
+    ty: Type,
+    attr: Attribute,
+}
+
+impl SymbolInfo {
+    #[inline]
+    fn local(ty: Type) -> Self {
+        Self {
+            ty,
+            attr: Attribute::Local,
+        }
+    }
+
+    #[inline]
+    fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
+        Self {
+            ty,
+            attr: Attribute::Function {
+                is_global,
+                is_defined,
+            },
+        }
+    }
+
+    #[inline]
+    fn static_(ty: Type, is_global: bool, init: StaticValue) -> Self {
+        Self {
+            ty,
+            attr: Attribute::Static { is_global, init },
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Attribute {
+    #[default]
+    Local,
+    Function {
+        is_global: bool,
+        is_defined: bool,
+    },
+    Static {
+        is_global: bool,
+        init: StaticValue,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StaticValue {
+    #[default]
+    NoInitializer,
+    Tentative,
+    Initialized(i64),
 }

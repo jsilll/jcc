@@ -1,12 +1,14 @@
 use crate::{
     ast::{Ast, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef, StorageClass},
-    sema::SemaCtx,
+    sema::{SemaCtx, SemaSymbol},
 };
 
 use jcc_ssa::{
-    interner::SymbolTable,
+    interner::{Symbol, SymbolTable},
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
+
+use std::num::NonZeroU32;
 
 // ---------------------------------------------------------------------------
 // ResolverResult
@@ -35,6 +37,7 @@ pub struct ResolverPass<'a> {
     ast: &'a Ast,
     ctx: &'a mut SemaCtx,
     result: ResolverResult,
+    resolved_counter: NonZeroU32,
     symbols: SymbolTable<SymbolEntry>,
 }
 
@@ -45,6 +48,7 @@ impl<'a> ResolverPass<'a> {
             ctx,
             symbols: SymbolTable::new(),
             result: ResolverResult::default(),
+            resolved_counter: NonZeroU32::new(1).unwrap(),
         }
     }
 
@@ -56,19 +60,26 @@ impl<'a> ResolverPass<'a> {
         self.result
     }
 
+    #[inline]
+    fn new_sema_symbol(&mut self) -> SemaSymbol {
+        let symbol = SemaSymbol(self.resolved_counter);
+        self.resolved_counter = self.resolved_counter.saturating_add(1);
+        symbol
+    }
+
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
+        let entry = SymbolEntry::with_linkage(self.new_sema_symbol());
+        decl.name.sema.set(Some(entry.symbol));
         match decl.kind {
             DeclKind::Var(init) => {
-                self.symbols
-                    .insert(decl.name, SymbolEntry::with_linkage(decl_ref));
+                self.symbols.insert(decl.name.raw, entry);
                 if let Some(expr) = init {
                     self.visit_expr(expr);
                 }
             }
             DeclKind::Func { body, params, .. } => {
-                self.symbols
-                    .insert(decl.name, SymbolEntry::with_linkage(decl_ref));
+                self.symbols.insert(decl.name.raw, entry);
                 self.symbols.push_scope();
                 self.ast
                     .params(params)
@@ -90,8 +101,12 @@ impl<'a> ResolverPass<'a> {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
             DeclKind::Var(init) => {
-                let entry = SymbolEntry::new(decl_ref, Some(StorageClass::Extern) == decl.storage);
-                if let Some(prev) = self.symbols.insert(decl.name, entry) {
+                let entry = SymbolEntry::new(
+                    self.new_sema_symbol(),
+                    Some(StorageClass::Extern) == decl.storage,
+                );
+                decl.name.sema.set(Some(entry.symbol));
+                if let Some(prev) = self.symbols.insert(decl.name.raw, entry) {
                     if !(entry.has_linkage && prev.has_linkage) {
                         self.result.diagnostics.push(ResolverDiagnostic {
                             span: *self.ast.decl_span(decl_ref),
@@ -118,9 +133,11 @@ impl<'a> ResolverPass<'a> {
                         });
                     }
                     None => {
+                        let sema = self.new_sema_symbol();
+                        self.ast.decl(decl_ref).name.sema.set(Some(sema));
                         if let Some(entry) = self
                             .symbols
-                            .insert(decl.name, SymbolEntry::with_linkage(decl_ref))
+                            .insert(decl.name.raw, SymbolEntry::with_linkage(sema))
                         {
                             if !entry.has_linkage {
                                 self.result.diagnostics.push(ResolverDiagnostic {
@@ -229,26 +246,20 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*then);
                 self.visit_expr(*otherwise);
             }
-            Expr::Var { name, .. } => match self.symbols.get(name) {
-                Some(entry) => {
-                    self.ctx.vars.insert(expr, entry.decl);
-                }
+            Expr::Var(name) => match self.symbols.get(&name.raw) {
+                Some(entry) => name.sema.set(Some(entry.symbol)),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: *self.ast.expr_span(expr),
                     kind: ResolverDiagnosticKind::UndeclaredVariable,
                 }),
             },
-            Expr::Call { name, args, .. } => {
-                match self.symbols.get(name) {
-                    Some(entry) => {
-                        self.ctx.vars.insert(expr, entry.decl);
-                    }
-                    None => {
-                        self.result.diagnostics.push(ResolverDiagnostic {
-                            span: *self.ast.expr_span(expr),
-                            kind: ResolverDiagnosticKind::UndeclaredFunction,
-                        });
-                    }
+            Expr::Call { name, args } => {
+                match self.symbols.get(&name.raw) {
+                    Some(entry) => name.sema.set(Some(entry.symbol)),
+                    None => self.result.diagnostics.push(ResolverDiagnostic {
+                        span: *self.ast.expr_span(expr),
+                        kind: ResolverDiagnosticKind::UndeclaredFunction,
+                    }),
                 }
                 self.ast
                     .args(*args)
@@ -265,20 +276,23 @@ impl<'a> ResolverPass<'a> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SymbolEntry {
-    pub decl: DeclRef,
     pub has_linkage: bool,
+    pub symbol: SemaSymbol,
 }
 
 impl SymbolEntry {
     #[inline]
-    fn new(decl: DeclRef, has_linkage: bool) -> Self {
-        Self { decl, has_linkage }
+    fn new(symbol: SemaSymbol, has_linkage: bool) -> Self {
+        Self {
+            symbol,
+            has_linkage,
+        }
     }
 
     #[inline]
-    fn with_linkage(decl: DeclRef) -> Self {
+    fn with_linkage(symbol: SemaSymbol) -> Self {
         Self {
-            decl,
+            symbol,
             has_linkage: true,
         }
     }

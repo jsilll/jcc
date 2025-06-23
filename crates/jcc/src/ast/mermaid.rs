@@ -77,7 +77,7 @@ impl<'a> AstMermaid<'a> {
 
     pub fn emit(mut self) -> String {
         self.writeln("graph TD");
-        self.define_node("ast_root", "ProgramRoot");
+        self.define_node("ast_root", "ASTRoot");
         self.ast.root().iter().for_each(|decl_ref| {
             let id = self.visit_decl(*decl_ref);
             self.define_edge("ast_root", &id, None);
@@ -90,10 +90,12 @@ impl<'a> AstMermaid<'a> {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
             DeclKind::Var(init) => {
-                let name = self.interner.lookup(decl.name);
+                let name = self.interner.lookup(decl.name.raw);
                 let label = format!(
-                    "VarDecl\nname: {}\n(int assumed)\nstorage: {:?}",
-                    name, decl.storage
+                    "VarDecl\nname: {}\n(int assumed)\nstorage: {:?}\nsema: {:?}",
+                    name,
+                    decl.storage,
+                    decl.name.sema.get()
                 );
                 self.define_node(&decl_id, &label);
                 if let Some(init) = init {
@@ -102,10 +104,12 @@ impl<'a> AstMermaid<'a> {
                 }
             }
             DeclKind::Func { params, body } => {
-                let name = self.interner.lookup(decl.name);
+                let name = self.interner.lookup(decl.name.raw);
                 let label = format!(
-                    "FuncDecl\nname: {}\n(int assumed)\nstorage: {:?}",
-                    name, decl.storage
+                    "FuncDecl\nname: {}\n(int assumed)\nstorage: {:?}\nsema: {:?}",
+                    name,
+                    decl.storage,
+                    decl.name.sema.get()
                 );
                 self.define_node(&decl_id, &label);
 
@@ -292,9 +296,9 @@ impl<'a> AstMermaid<'a> {
                 let inner_id = self.visit_expr(*inner);
                 self.define_edge(&expr_id, &inner_id, None);
             }
-            Expr::Var{ name, .. } => {
-                let name = self.interner.lookup(*name);
-                let label = format!("VarRef\nname: {}", name);
+            Expr::Var(name) => {
+                let n = self.interner.lookup(name.raw);
+                let label = format!("VarRef\nname: {}\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label);
             }
             Expr::Unary { op, expr: inner } => {
@@ -324,9 +328,9 @@ impl<'a> AstMermaid<'a> {
                 let otherwise_id = self.visit_expr(*otherwise);
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
-            Expr::Call { name, args, .. } => {
-                let name = self.interner.lookup(*name);
-                let label = format!("FunctionCall\nname: {}", name);
+            Expr::Call { name, args } => {
+                let n = self.interner.lookup(name.raw);
+                let label = format!("FunctionCall\nname: {}\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label);
 
                 let args = self.ast.args(*args);

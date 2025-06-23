@@ -3,7 +3,7 @@ use crate::{
         Ast, BinaryOp, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef,
         StorageClass, UnaryOp,
     },
-    sema::{SemaCtx, Type},
+    sema::{Attribute, SemaCtx, StaticValue, SymbolInfo, Type},
 };
 
 use jcc_ssa::{
@@ -41,7 +41,7 @@ pub struct TyperPass<'ctx> {
     ctx: &'ctx mut SemaCtx,
     result: TyperResult,
     switch_cases: HashSet<i64>,
-    symbols: SymbolTable<SymbolEntry>,
+    symbols: SymbolTable<SymbolInfo>,
 }
 
 impl<'ctx> TyperPass<'ctx> {
@@ -109,10 +109,9 @@ impl<'ctx> TyperPass<'ctx> {
                     }
                 };
 
-                let entry = self.symbols.get(&decl.name).cloned();
+                let entry = self.symbols.get(&decl.name.raw).cloned();
                 let occupied = entry.is_some();
-                let mut entry =
-                    entry.unwrap_or(SymbolEntry::static_(ty, decl_is_global, decl_init));
+                let mut entry = entry.unwrap_or(SymbolInfo::static_(ty, decl_is_global, decl_init));
 
                 if entry.ty != ty {
                     self.result.diagnostics.push(TyperDiagnostic {
@@ -150,7 +149,7 @@ impl<'ctx> TyperPass<'ctx> {
                     }
                 }
 
-                self.symbols.insert(decl.name, entry);
+                self.symbols.insert(decl.name.raw, entry);
             }
         }
     }
@@ -164,7 +163,7 @@ impl<'ctx> TyperPass<'ctx> {
                 *self.ctx.decl_type_mut(decl_ref) = ty;
                 match decl.storage {
                     None => {
-                        self.symbols.insert(decl.name, SymbolEntry::local(ty));
+                        self.symbols.insert(decl.name.raw, SymbolInfo::local(ty));
                         if let Some(init) = init {
                             self.visit_expr(init);
                         }
@@ -177,8 +176,8 @@ impl<'ctx> TyperPass<'ctx> {
                             });
                         }
                         None => {
-                            let entry = self.symbols.entry_global(decl.name).or_insert(
-                                SymbolEntry::static_(ty, true, StaticValue::NoInitializer),
+                            let entry = self.symbols.entry_global(decl.name.raw).or_insert(
+                                SymbolInfo::static_(ty, true, StaticValue::NoInitializer),
                             );
                             if entry.ty != ty {
                                 self.result.diagnostics.push(TyperDiagnostic {
@@ -211,8 +210,10 @@ impl<'ctx> TyperPass<'ctx> {
                                 }
                             }
                         };
-                        self.symbols
-                            .insert_global(decl.name, SymbolEntry::static_(ty, false, decl_init));
+                        self.symbols.insert_global(
+                            decl.name.raw,
+                            SymbolInfo::static_(ty, false, decl_init),
+                        );
                     }
                 }
             }
@@ -229,8 +230,8 @@ impl<'ctx> TyperPass<'ctx> {
 
             let entry = self
                 .symbols
-                .entry_global(decl.name)
-                .or_insert(SymbolEntry::function(ty, decl_is_global, false));
+                .entry_global(decl.name.raw)
+                .or_insert(SymbolInfo::function(ty, decl_is_global, false));
 
             if entry.ty != ty {
                 self.result.diagnostics.push(TyperDiagnostic {
@@ -385,13 +386,14 @@ impl<'ctx> TyperPass<'ctx> {
             Expr::Grouped(expr) => self.visit_expr(*expr),
             Expr::Const(_) => {}
             Expr::Var { .. } => {
-                let decl = self.ctx.vars.get(&expr).expect("decl not found");
-                if let Type::Func(_) = self.ctx.decl_type(*decl) {
-                    self.result.diagnostics.push(TyperDiagnostic {
-                        span: *self.ast.expr_span(expr),
-                        kind: TyperDiagnosticKind::FunctionUsedAsVariable,
-                    });
-                }
+                // TODO: Uncomment and implement variable type checking
+                // let decl = self.ctx.vars.get(&expr).expect("decl not found");
+                // if let Type::Func(_) = self.ctx.decl_type(*decl) {
+                //     self.result.diagnostics.push(TyperDiagnostic {
+                //         span: *self.ast.expr_span(expr),
+                //         kind: TyperDiagnosticKind::FunctionUsedAsVariable,
+                //     });
+                // }
             }
             Expr::Ternary {
                 cond,
@@ -430,92 +432,32 @@ impl<'ctx> TyperPass<'ctx> {
                     self.visit_expr(*rhs);
                 }
             },
-            Expr::Call { args, .. } => {
-                let decl = self.ctx.vars.get(&expr).expect("decl not found");
-                match self.ctx.decl_type(*decl) {
-                    Type::Func(arity) => {
-                        if *arity != args.len() {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                span: *self.ast.expr_span(expr),
-                                kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                            });
-                        }
-                        self.ast
-                            .args(*args)
-                            .iter()
-                            .for_each(|arg| self.visit_expr(*arg));
-                    }
-                    _ => {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: *self.ast.expr_span(expr),
-                            kind: TyperDiagnosticKind::VariableUsedAsFunction,
-                        });
-                    }
-                }
+            Expr::Call { .. } => {
+                // TODO: Uncomment and implement function call type checking
+                // let decl = self.ctx.vars.get(&expr).expect("decl not found");
+                // match self.ctx.decl_type(*decl) {
+                //     Type::Func(arity) => {
+                //         if *arity != args.len() {
+                //             self.result.diagnostics.push(TyperDiagnostic {
+                //                 span: *self.ast.expr_span(expr),
+                //                 kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                //             });
+                //         }
+                //         self.ast
+                //             .args(*args)
+                //             .iter()
+                //             .for_each(|arg| self.visit_expr(*arg));
+                //     }
+                //     _ => {
+                //         self.result.diagnostics.push(TyperDiagnostic {
+                //             span: *self.ast.expr_span(expr),
+                //             kind: TyperDiagnosticKind::VariableUsedAsFunction,
+                //         });
+                //     }
+                // }
             }
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Auxiliary structures
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-struct SymbolEntry {
-    ty: Type,
-    attr: Attribute,
-}
-
-impl SymbolEntry {
-    #[inline]
-    fn local(ty: Type) -> Self {
-        Self {
-            ty,
-            attr: Attribute::Local,
-        }
-    }
-
-    #[inline]
-    fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
-        Self {
-            ty,
-            attr: Attribute::Function {
-                is_global,
-                is_defined,
-            },
-        }
-    }
-
-    #[inline]
-    fn static_(ty: Type, is_global: bool, init: StaticValue) -> Self {
-        Self {
-            ty,
-            attr: Attribute::Static { is_global, init },
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum Attribute {
-    #[default]
-    Local,
-    Function {
-        is_global: bool,
-        is_defined: bool,
-    },
-    Static {
-        is_global: bool,
-        init: StaticValue,
-    },
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum StaticValue {
-    #[default]
-    NoInitializer,
-    Tentative,
-    Initialized(i64),
 }
 
 // ---------------------------------------------------------------------------

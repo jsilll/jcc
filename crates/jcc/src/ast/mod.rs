@@ -4,11 +4,11 @@ pub mod mermaid;
 
 pub mod graphviz;
 
+use crate::sema::SemaSymbol;
+
 use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};
 
 use std::{cell::Cell, num::NonZeroU32};
-
-use crate::sema::ResolvedSymbol;
 
 // ---------------------------------------------------------------------------
 // Ast
@@ -231,9 +231,9 @@ impl Ast {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DeclRef(pub(crate) NonZeroU32);
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Decl {
-    pub name: Symbol,
+    pub name: AstName,
     pub kind: DeclKind,
     pub storage: Option<StorageClass>,
 }
@@ -249,13 +249,9 @@ pub enum DeclKind {
     },
 }
 
-impl Default for Decl {
+impl Default for DeclKind {
     fn default() -> Self {
-        Decl {
-            storage: None,
-            name: Symbol::default(),
-            kind: DeclKind::Var(None),
-        }
+        DeclKind::Var(None)
     }
 }
 
@@ -313,6 +309,8 @@ pub struct ExprRef(pub(crate) NonZeroU32);
 pub enum Expr {
     /// A constant integer value.
     Const(i64),
+    /// A variable reference.
+    Var(AstName),
     /// A grouped expression.
     Grouped(ExprRef),
     /// An unary expression.
@@ -329,17 +327,8 @@ pub enum Expr {
         then: ExprRef,
         otherwise: ExprRef,
     },
-    /// A variable reference.
-    Var {
-        name: Symbol,
-        resolved: Option<Cell<ResolvedSymbol>>,
-    },
     /// A function call expression.
-    Call {
-        name: Symbol,
-        args: Slice<ExprRef>,
-        resolved: Option<Cell<ResolvedSymbol>>,
-    },
+    Call { name: AstName, args: Slice<ExprRef> },
 }
 
 impl Default for Expr {
@@ -439,6 +428,21 @@ pub enum BinaryOp {
 // ---------------------------------------------------------------------------
 // Auxiliary structures
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct AstName {
+    pub raw: Symbol,
+    pub sema: Cell<Option<SemaSymbol>>,
+}
+
+impl AstName {
+    pub fn new(name: Symbol) -> Self {
+        AstName {
+            raw: name,
+            sema: Cell::new(None),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BlockItem {

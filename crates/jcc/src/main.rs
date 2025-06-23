@@ -151,6 +151,18 @@ fn try_main() -> Result<()> {
         sourcemap::diag::report_batch(file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
+    if args.emit_ast_mermaid {
+        let mmd_path = args.path.with_extension("mmd");
+        let ast_mermaid = AstMermaid::new(&ast, &interner);
+        let dot = ast_mermaid.emit();
+        std::fs::write(&mmd_path, &dot).context("Failed to write Mermaid file")?;
+    }
+    if args.emit_ast_graphviz {
+        let dot_path = args.path.with_extension("dot");
+        let ast_graphviz = AstGraphviz::new(&ast, &interner);
+        let dot = ast_graphviz.emit();
+        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
+    }
     let typer_result = TyperPass::new(&ast, &mut ctx).check();
     if !typer_result.diagnostics.is_empty() {
         sourcemap::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;

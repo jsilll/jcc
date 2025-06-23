@@ -97,7 +97,7 @@ impl<'a> AstGraphviz<'a> {
                 "node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10];",
             );
             s.writeln("edge [fontname=\"Helvetica\", fontsize=9];");
-            s.define_node("ast_root", "ProgramRoot", "lightblue");
+            s.define_node("ast_root", "ASTRoot", "lightblue");
             s.ast.root().iter().for_each(|decl_ref| {
                 let id = s.visit_decl(*decl_ref);
                 s.define_edge("ast_root", &id, None);
@@ -112,10 +112,12 @@ impl<'a> AstGraphviz<'a> {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
             DeclKind::Var(init) => {
-                let name = self.interner.lookup(decl.name).escape_default();
+                let name = self.interner.lookup(decl.name.raw).escape_default();
                 let label = format!(
-                    "VarDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}",
-                    name, decl.storage
+                    "VarDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}\\nsema: {:?}",
+                    name,
+                    decl.storage,
+                    decl.name.sema.get()
                 );
                 self.define_node(&decl_id, &label, "lightgoldenrodyellow");
                 if let Some(init) = init {
@@ -124,10 +126,12 @@ impl<'a> AstGraphviz<'a> {
                 }
             }
             DeclKind::Func { params, body } => {
-                let name = self.interner.lookup(decl.name).escape_default();
+                let name = self.interner.lookup(decl.name.raw).escape_default();
                 let label = format!(
-                    "FuncDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}",
-                    name, decl.storage
+                    "FuncDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}\\nsema: {:?}",
+                    name,
+                    decl.storage,
+                    decl.name.sema.get()
                 );
                 self.define_node(&decl_id, &label, "palegreen");
 
@@ -318,9 +322,9 @@ impl<'a> AstGraphviz<'a> {
                 let inner_id = self.visit_expr(*inner);
                 self.define_edge(&expr_id, &inner_id, None);
             }
-            Expr::Var { name, .. } => {
-                let name = self.interner.lookup(*name).escape_default();
-                let label = format!("VarRef\\nname: {}", name);
+            Expr::Var(name) => {
+                let n = self.interner.lookup(name.raw).escape_default();
+                let label = format!("VarRef\\nname: {}\\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label, "olivedrab1");
             }
             Expr::Unary { op, expr: inner } => {
@@ -350,9 +354,9 @@ impl<'a> AstGraphviz<'a> {
                 let otherwise_id = self.visit_expr(*otherwise);
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
-            Expr::Call { name, args, .. } => {
-                let name = self.interner.lookup(*name).escape_default();
-                let label = format!("FunctionCall\\nname: {}", name);
+            Expr::Call { name, args } => {
+                let n = self.interner.lookup(name.raw).escape_default();
+                let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label, "deepskyblue");
 
                 let args = self.ast.args(*args);

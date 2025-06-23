@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, Expr, ExprRef, ForInit, Slice, Stmt,
-        StmtRef, StorageClass, UnaryOp,
+        Ast, AstName, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, Expr, ExprRef, ForInit, Slice,
+        Stmt, StmtRef, StorageClass, UnaryOp,
     },
     sema::Type,
     tok::{Token, TokenKind},
@@ -12,7 +12,7 @@ use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
 };
 
-use std::{iter::Peekable, slice::Iter};
+use std::{cell::Cell, iter::Peekable, slice::Iter};
 
 // ---------------------------------------------------------------------------
 // ParserResult
@@ -146,8 +146,8 @@ impl<'a> Parser<'a> {
         self.eat(TokenKind::Semi)?;
         Some(self.result.ast.new_decl(
             Decl {
-                name,
                 storage,
+                name: AstName::new(name),
                 kind: DeclKind::Var(init),
             },
             span,
@@ -161,9 +161,9 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::Semi => Some(self.result.ast.new_decl(
                 Decl {
-                    name,
                     storage,
-                    kind: DeclKind::Var(None),
+                    name: AstName::new(name),
+                    ..Default::default()
                 },
                 span,
             )),
@@ -172,8 +172,8 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_decl(
                     Decl {
-                        name,
                         storage,
+                        name: AstName::new(name),
                         kind: DeclKind::Var(Some(init)),
                     },
                     span,
@@ -199,8 +199,8 @@ impl<'a> Parser<'a> {
                 };
                 Some(self.result.ast.new_decl(
                     Decl {
-                        name,
                         storage,
+                        name: AstName::new(name),
                         kind: DeclKind::Func { params, body },
                     },
                     span,
@@ -222,9 +222,8 @@ impl<'a> Parser<'a> {
         let (span, name) = self.eat_identifier()?;
         Some(self.result.ast.new_decl(
             Decl {
-                name,
-                storage: None,
-                kind: DeclKind::Var(None),
+                name: AstName::new(name),
+                ..Default::default()
             },
             span,
         ))
@@ -531,13 +530,10 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);
-                let expr = self.result.ast.new_expr(
-                    Expr::Var {
-                        name,
-                        resolved: None,
-                    },
-                    *span,
-                );
+                let expr = self
+                    .result
+                    .ast
+                    .new_expr(Expr::Var(AstName::new(name)), *span);
                 match self.iter.peek() {
                     Some(Token {
                         kind: TokenKind::LParen,
@@ -548,9 +544,8 @@ impl<'a> Parser<'a> {
                         self.eat(TokenKind::RParen)?;
                         Some(self.result.ast.new_expr(
                             Expr::Call {
-                                name,
                                 args,
-                                resolved: None,
+                                name: AstName::new(name),
                             },
                             *span,
                         ))

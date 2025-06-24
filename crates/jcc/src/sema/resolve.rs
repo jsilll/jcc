@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        Ast, AstName, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef,
+        Ast, AstSymbol, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef,
         StorageClass,
     },
     sema::SemaSymbol,
@@ -58,11 +58,12 @@ impl<'a> ResolverPass<'a> {
             .root()
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
+        self.ast.set_last_symbol(self.symbol_counter);
         self.result
     }
 
     #[inline]
-    fn new_sema_symbol(&mut self, name: &AstName) -> SemaSymbol {
+    fn new_sema_symbol(&mut self, name: &AstSymbol) -> SemaSymbol {
         let symbol = SemaSymbol(self.symbol_counter);
         self.symbol_counter = self.symbol_counter.saturating_add(1);
         name.sema.set(Some(symbol));

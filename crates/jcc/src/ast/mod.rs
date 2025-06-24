@@ -26,6 +26,7 @@ pub struct Ast {
     sliced_args: Vec<ExprRef>,
     sliced_params: Vec<DeclRef>,
     sliced_block_items: Vec<BlockItem>,
+    last_symbol: Cell<Option<NonZeroU32>>,
 }
 
 impl Default for Ast {
@@ -41,6 +42,7 @@ impl Default for Ast {
             sliced_args: Default::default(),
             sliced_params: Default::default(),
             sliced_block_items: Default::default(),
+            last_symbol: Cell::new(None),
         }
     }
 }
@@ -89,6 +91,7 @@ impl Ast {
             sliced_args: Vec::with_capacity(capacity),
             sliced_params: Vec::with_capacity(capacity),
             sliced_block_items: Vec::with_capacity(capacity),
+            last_symbol: Cell::new(None),
         }
     }
 
@@ -110,6 +113,11 @@ impl Ast {
     #[inline]
     pub fn exprs_len(&self) -> usize {
         &self.exprs.len() - 1
+    }
+
+    #[inline]
+    pub fn symbols_len(&self) -> usize {
+        self.last_symbol.get().map_or(1, |s| s.get() as usize) - 1
     }
 
     #[inline]
@@ -222,6 +230,11 @@ impl Ast {
         let end = self.sliced_block_items.len() as u32;
         Slice::new(begin, end)
     }
+
+    #[inline]
+    pub fn set_last_symbol(&self, count: NonZeroU32) {
+        self.last_symbol.set(Some(count));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +246,7 @@ pub struct DeclRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Decl {
-    pub name: AstName,
+    pub name: AstSymbol,
     pub kind: DeclKind,
     pub storage: Option<StorageClass>,
 }
@@ -310,7 +323,7 @@ pub enum Expr {
     /// A constant integer value.
     Const(i64),
     /// A variable reference.
-    Var(AstName),
+    Var(AstSymbol),
     /// A grouped expression.
     Grouped(ExprRef),
     /// An unary expression.
@@ -328,7 +341,10 @@ pub enum Expr {
         otherwise: ExprRef,
     },
     /// A function call expression.
-    Call { name: AstName, args: Slice<ExprRef> },
+    Call {
+        name: AstSymbol,
+        args: Slice<ExprRef>,
+    },
 }
 
 impl Default for Expr {
@@ -430,14 +446,14 @@ pub enum BinaryOp {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct AstName {
+pub struct AstSymbol {
     pub raw: Symbol,
     pub sema: Cell<Option<SemaSymbol>>,
 }
 
-impl AstName {
+impl AstSymbol {
     pub fn new(name: Symbol) -> Self {
-        AstName {
+        AstSymbol {
             raw: name,
             sema: Cell::new(None),
         }

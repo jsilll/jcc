@@ -6,7 +6,7 @@ pub mod resolve;
 
 use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{cell::Cell, collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
 // ResolvedSymbol
@@ -23,7 +23,7 @@ pub struct SemaSymbol(NonZeroU32);
 pub struct SemaCtx {
     decls_type: Vec<Type>,
     exprs_type: Vec<Type>,
-    symbols: Vec<SymbolInfo>,
+    symbols: Vec<Option<SymbolInfo>>,
     pub breaks: HashMap<StmtRef, StmtRef>,
     pub continues: HashMap<StmtRef, StmtRef>,
     pub switches: HashMap<StmtRef, SwitchCases>,
@@ -32,10 +32,10 @@ pub struct SemaCtx {
 impl SemaCtx {
     pub fn new(ast: &Ast) -> Self {
         Self {
-            symbols: Vec::new(),
             breaks: HashMap::new(),
             switches: HashMap::new(),
             continues: HashMap::new(),
+            symbols: vec![Default::default(); ast.symbols_len() + 1],
             decls_type: vec![Default::default(); ast.decls_len() + 1],
             exprs_type: vec![Default::default(); ast.exprs_len() + 1],
         }
@@ -59,6 +59,16 @@ impl SemaCtx {
     #[inline]
     pub fn expr_type_mut(&mut self, expr: ExprRef) -> &mut Type {
         &mut self.exprs_type[expr.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn symbol(&self, sym: &Cell<Option<SemaSymbol>>) -> &Option<SymbolInfo> {
+        &self.symbols[sym.get().expect("SemaSymbol should be set").0.get() as usize]
+    }
+
+    #[inline]
+    pub fn symbol_mut(&mut self, sym: &Cell<Option<SemaSymbol>>) -> &mut Option<SymbolInfo> {
+        &mut self.symbols[sym.get().expect("SemaSymbol should be set").0.get() as usize]
     }
 }
 
@@ -88,15 +98,15 @@ pub struct SwitchCases {
 // SymbolInfo
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SymbolInfo {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SymbolInfo {
     ty: Type,
     attr: Attribute,
 }
 
 impl SymbolInfo {
     #[inline]
-    fn local(ty: Type) -> Self {
+    pub fn local(ty: Type) -> Self {
         Self {
             ty,
             attr: Attribute::Local,
@@ -104,7 +114,7 @@ impl SymbolInfo {
     }
 
     #[inline]
-    fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
+    pub fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
         Self {
             ty,
             attr: Attribute::Function {
@@ -115,13 +125,17 @@ impl SymbolInfo {
     }
 
     #[inline]
-    fn static_(ty: Type, is_global: bool, init: StaticValue) -> Self {
+    pub fn static_(ty: Type, is_global: bool, init: StaticValue) -> Self {
         Self {
             ty,
             attr: Attribute::Static { is_global, init },
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Attribute
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Attribute {
@@ -136,6 +150,10 @@ pub enum Attribute {
         init: StaticValue,
     },
 }
+
+// ---------------------------------------------------------------------------
+// StaticValue
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StaticValue {

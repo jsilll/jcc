@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        Ast, AstName, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, Expr, ExprRef, ForInit, Slice,
+        Ast, AstSymbol, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, Expr, ExprRef, ForInit, Slice,
         Stmt, StmtRef, StorageClass, UnaryOp,
     },
     sema::Type,
@@ -147,7 +147,7 @@ impl<'a> Parser<'a> {
         Some(self.result.ast.new_decl(
             Decl {
                 storage,
-                name: AstName::new(name),
+                name: AstSymbol::new(name),
                 kind: DeclKind::Var(init),
             },
             span,
@@ -162,7 +162,7 @@ impl<'a> Parser<'a> {
             TokenKind::Semi => Some(self.result.ast.new_decl(
                 Decl {
                     storage,
-                    name: AstName::new(name),
+                    name: AstSymbol::new(name),
                     ..Default::default()
                 },
                 span,
@@ -173,7 +173,7 @@ impl<'a> Parser<'a> {
                 Some(self.result.ast.new_decl(
                     Decl {
                         storage,
-                        name: AstName::new(name),
+                        name: AstSymbol::new(name),
                         kind: DeclKind::Var(Some(init)),
                     },
                     span,
@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
                 Some(self.result.ast.new_decl(
                     Decl {
                         storage,
-                        name: AstName::new(name),
+                        name: AstSymbol::new(name),
                         kind: DeclKind::Func { params, body },
                     },
                     span,
@@ -222,7 +222,7 @@ impl<'a> Parser<'a> {
         let (span, name) = self.eat_identifier()?;
         Some(self.result.ast.new_decl(
             Decl {
-                name: AstName::new(name),
+                name: AstSymbol::new(name),
                 ..Default::default()
             },
             span,
@@ -533,7 +533,7 @@ impl<'a> Parser<'a> {
                 let expr = self
                     .result
                     .ast
-                    .new_expr(Expr::Var(AstName::new(name)), *span);
+                    .new_expr(Expr::Var(AstSymbol::new(name)), *span);
                 match self.iter.peek() {
                     Some(Token {
                         kind: TokenKind::LParen,
@@ -545,7 +545,7 @@ impl<'a> Parser<'a> {
                         Some(self.result.ast.new_expr(
                             Expr::Call {
                                 args,
-                                name: AstName::new(name),
+                                name: AstSymbol::new(name),
                             },
                             *span,
                         ))

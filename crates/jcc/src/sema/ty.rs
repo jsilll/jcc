@@ -370,15 +370,14 @@ impl<'ctx> TyperPass<'ctx> {
         match self.ast.expr(expr) {
             Expr::Grouped(expr) => self.visit_expr(*expr),
             Expr::Const(_) => {}
-            Expr::Var { .. } => {
-                // TODO: Uncomment and implement variable type checking
-                // let decl = self.ctx.vars.get(&expr).expect("decl not found");
-                // if let Type::Func(_) = self.ctx.decl_type(*decl) {
-                //     self.result.diagnostics.push(TyperDiagnostic {
-                //         span: *self.ast.expr_span(expr),
-                //         kind: TyperDiagnosticKind::FunctionUsedAsVariable,
-                //     });
-                // }
+            Expr::Var(name) => {
+                let info = self.ctx.symbol(&name.sema).expect("symbol info not found");
+                if let Type::Func(_) = info.ty {
+                    self.result.diagnostics.push(TyperDiagnostic {
+                        span: *self.ast.expr_span(expr),
+                        kind: TyperDiagnosticKind::FunctionUsedAsVariable,
+                    });
+                }
             }
             Expr::Ternary {
                 cond,
@@ -417,29 +416,28 @@ impl<'ctx> TyperPass<'ctx> {
                     self.visit_expr(*rhs);
                 }
             },
-            Expr::Call { .. } => {
-                // TODO: Uncomment and implement function call type checking
-                // let decl = self.ctx.vars.get(&expr).expect("decl not found");
-                // match self.ctx.decl_type(*decl) {
-                //     Type::Func(arity) => {
-                //         if *arity != args.len() {
-                //             self.result.diagnostics.push(TyperDiagnostic {
-                //                 span: *self.ast.expr_span(expr),
-                //                 kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                //             });
-                //         }
-                //         self.ast
-                //             .args(*args)
-                //             .iter()
-                //             .for_each(|arg| self.visit_expr(*arg));
-                //     }
-                //     _ => {
-                //         self.result.diagnostics.push(TyperDiagnostic {
-                //             span: *self.ast.expr_span(expr),
-                //             kind: TyperDiagnosticKind::VariableUsedAsFunction,
-                //         });
-                //     }
-                // }
+            Expr::Call { name, args } => {
+                let info = self.ctx.symbol(&name.sema).expect("symbol info not found");
+                match info.ty {
+                    Type::Func(arity) => {
+                        if arity != args.len() {
+                            self.result.diagnostics.push(TyperDiagnostic {
+                                span: *self.ast.expr_span(expr),
+                                kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                            });
+                        }
+                        self.ast
+                            .args(*args)
+                            .iter()
+                            .for_each(|arg| self.visit_expr(*arg));
+                    }
+                    _ => {
+                        self.result.diagnostics.push(TyperDiagnostic {
+                            span: *self.ast.expr_span(expr),
+                            kind: TyperDiagnosticKind::VariableUsedAsFunction,
+                        });
+                    }
+                }
             }
         }
     }

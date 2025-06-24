@@ -72,16 +72,24 @@ impl<'a> ResolverPass<'a> {
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
-        let entry = SymbolEntry::with_linkage(self.new_sema_symbol(&decl.name));
+        let symbol = self
+            .symbols
+            .get(&decl.name.raw)
+            .map(|entry| entry.symbol)
+            .unwrap_or_else(|| {
+                let symbol = self.new_sema_symbol(&decl.name);
+                self.symbols
+                    .insert(decl.name.raw, SymbolEntry::with_linkage(symbol));
+                symbol
+            });
+        decl.name.sema.set(Some(symbol));
         match decl.kind {
             DeclKind::Var(init) => {
-                self.symbols.insert(decl.name.raw, entry);
                 if let Some(expr) = init {
                     self.visit_expr(expr);
                 }
             }
             DeclKind::Func { body, params, .. } => {
-                self.symbols.insert(decl.name.raw, entry);
                 self.symbols.push_scope();
                 self.ast
                     .params(params)
@@ -134,17 +142,22 @@ impl<'a> ResolverPass<'a> {
                         });
                     }
                     None => {
-                        let sema = self.new_sema_symbol(&decl.name);
-                        if let Some(entry) = self
-                            .symbols
-                            .insert(decl.name.raw, SymbolEntry::with_linkage(sema))
-                        {
-                            if !entry.has_linkage {
-                                self.result.diagnostics.push(ResolverDiagnostic {
-                                    span: *self.ast.decl_span(decl_ref),
-                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
+                        let entry =
+                            self.symbols
+                                .get(&decl.name.raw)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    let entry =
+                                        SymbolEntry::with_linkage(self.new_sema_symbol(&decl.name));
+                                    self.symbols.insert_global(decl.name.raw, entry);
+                                    self.symbols.insert(decl.name.raw, entry);
+                                    entry
                                 });
-                            }
+                        if !entry.has_linkage {
+                            self.result.diagnostics.push(ResolverDiagnostic {
+                                span: *self.ast.decl_span(decl_ref),
+                                kind: ResolverDiagnosticKind::ConflictingSymbol,
+                            });
                         }
                     }
                 }

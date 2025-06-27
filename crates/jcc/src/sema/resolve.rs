@@ -7,11 +7,11 @@ use crate::{
 };
 
 use jcc_ssa::{
-    interner::SymbolTable,
+    interner::{Symbol, SymbolTable},
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
-use std::num::NonZeroU32;
+use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
 // ResolverResult
@@ -41,12 +41,14 @@ pub struct ResolverPass<'a> {
     result: ResolverResult,
     symbol_counter: NonZeroU32,
     symbols: SymbolTable<SymbolEntry>,
+    cache: HashMap<Symbol, SemaSymbol>,
 }
 
 impl<'a> ResolverPass<'a> {
     pub fn new(ast: &'a Ast) -> Self {
         Self {
             ast,
+            cache: HashMap::new(),
             symbols: SymbolTable::new(),
             result: ResolverResult::default(),
             symbol_counter: NonZeroU32::new(1).unwrap(),
@@ -62,27 +64,49 @@ impl<'a> ResolverPass<'a> {
         self.result
     }
 
-    #[inline]
-    fn new_sema_symbol(&mut self, name: &AstSymbol) -> SemaSymbol {
-        let symbol = SemaSymbol(self.symbol_counter);
+    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SymbolEntry {
+        let entry = self.symbols.entry_global(name.raw).or_insert_with(|| {
+            SymbolEntry::with_linkage(*self.cache.entry(name.raw).or_insert_with(|| {
+                let symbol = SemaSymbol(self.symbol_counter);
+                self.symbol_counter = self.symbol_counter.saturating_add(1);
+                symbol
+            }))
+        });
+        name.sema.set(Some(entry.symbol));
+        *entry
+    }
+
+    fn get_or_create_block_scope_symbol(
+        &mut self,
+        decl: DeclRef,
+        name: &AstSymbol,
+        has_linkage: bool,
+    ) {
+        let entry = match has_linkage {
+            false => SymbolEntry::new(SemaSymbol(self.symbol_counter), false),
+            true => SymbolEntry::new(
+                *self
+                    .cache
+                    .entry(name.raw)
+                    .or_insert(SemaSymbol(self.symbol_counter)),
+                true,
+            ),
+        };
+        name.sema.set(Some(entry.symbol));
         self.symbol_counter = self.symbol_counter.saturating_add(1);
-        name.sema.set(Some(symbol));
-        symbol
+        if let Some(prev) = self.symbols.insert(name.raw, entry) {
+            if !(entry.has_linkage && prev.has_linkage) {
+                self.result.diagnostics.push(ResolverDiagnostic {
+                    span: *self.ast.decl_span(decl),
+                    kind: ResolverDiagnosticKind::ConflictingSymbol,
+                });
+            }
+        }
     }
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
-        let symbol = self
-            .symbols
-            .get(&decl.name.raw)
-            .map(|entry| entry.symbol)
-            .unwrap_or_else(|| {
-                let symbol = self.new_sema_symbol(&decl.name);
-                self.symbols
-                    .insert(decl.name.raw, SymbolEntry::with_linkage(symbol));
-                symbol
-            });
-        decl.name.sema.set(Some(symbol));
+        self.get_or_create_global_symbol(&decl.name);
         match decl.kind {
             DeclKind::Var(init) => {
                 if let Some(expr) = init {
@@ -111,18 +135,8 @@ impl<'a> ResolverPass<'a> {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
             DeclKind::Var(init) => {
-                let entry = SymbolEntry::new(
-                    self.new_sema_symbol(&decl.name),
-                    Some(StorageClass::Extern) == decl.storage,
-                );
-                if let Some(prev) = self.symbols.insert(decl.name.raw, entry) {
-                    if !(entry.has_linkage && prev.has_linkage) {
-                        self.result.diagnostics.push(ResolverDiagnostic {
-                            span: *self.ast.decl_span(decl_ref),
-                            kind: ResolverDiagnosticKind::ConflictingSymbol,
-                        });
-                    }
-                }
+                let has_linkage = decl.storage == Some(StorageClass::Extern);
+                self.get_or_create_block_scope_symbol(decl_ref, &decl.name, has_linkage);
                 if let Some(expr) = init {
                     self.visit_expr(expr);
                 }
@@ -142,22 +156,14 @@ impl<'a> ResolverPass<'a> {
                         });
                     }
                     None => {
-                        let entry =
-                            self.symbols
-                                .get(&decl.name.raw)
-                                .cloned()
-                                .unwrap_or_else(|| {
-                                    let entry =
-                                        SymbolEntry::with_linkage(self.new_sema_symbol(&decl.name));
-                                    self.symbols.insert_global(decl.name.raw, entry);
-                                    self.symbols.insert(decl.name.raw, entry);
-                                    entry
+                        let entry = self.get_or_create_global_symbol(&decl.name);
+                        if let Some(prev) = self.symbols.insert(decl.name.raw, entry) {
+                            if !prev.has_linkage {
+                                self.result.diagnostics.push(ResolverDiagnostic {
+                                    span: *self.ast.decl_span(decl_ref),
+                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
                                 });
-                        if !entry.has_linkage {
-                            self.result.diagnostics.push(ResolverDiagnostic {
-                                span: *self.ast.decl_span(decl_ref),
-                                kind: ResolverDiagnosticKind::ConflictingSymbol,
-                            });
+                            }
                         }
                     }
                 }

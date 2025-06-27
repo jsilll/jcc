@@ -123,7 +123,7 @@ impl<'ctx> TyperPass<'ctx> {
                     if decl.storage != Some(StorageClass::Extern) && (is_global != decl_is_global) {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: *self.ast.decl_span(decl_ref),
-                            kind: TyperDiagnosticKind::FunctionVisibilityMismatch,
+                            kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
                         });
                     }
                     match init {
@@ -239,7 +239,7 @@ impl<'ctx> TyperPass<'ctx> {
                 if is_global && !decl_is_global {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: *self.ast.decl_span(decl_ref),
-                        kind: TyperDiagnosticKind::FunctionVisibilityMismatch,
+                        kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
                     });
                 }
                 if body.is_some() {
@@ -247,7 +247,7 @@ impl<'ctx> TyperPass<'ctx> {
                     *is_defined = true;
                 }
                 self.ast.params(params).iter().for_each(|param| {
-                    if let Some(_) = self.ast.decl(*param).storage {
+                    if self.ast.decl(*param).storage.is_some() {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: *self.ast.decl_span(*param),
                             kind: TyperDiagnosticKind::StorageClassesDisallowed,
@@ -315,7 +315,7 @@ impl<'ctx> TyperPass<'ctx> {
                     match init {
                         ForInit::Expr(expr) => self.visit_expr(*expr),
                         ForInit::VarDecl(decl) => {
-                            if let Some(_) = self.ast.decl(*decl).storage {
+                            if self.ast.decl(*decl).storage.is_some() {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: *self.ast.decl_span(*decl),
                                     kind: TyperDiagnosticKind::StorageClassesDisallowed,
@@ -487,7 +487,7 @@ pub enum TyperDiagnosticKind {
     DeclarationTypeMismatch,
     FunctionUsedAsVariable,
     StorageClassesDisallowed,
-    FunctionVisibilityMismatch,
+    DeclarationVisibilityMismatch,
 }
 
 impl From<TyperDiagnostic> for Diagnostic {
@@ -543,10 +543,10 @@ impl From<TyperDiagnostic> for Diagnostic {
                 "storage classes disallowed",
                 "storage classes are disallowed in this context",
             ),
-            TyperDiagnosticKind::FunctionVisibilityMismatch => Diagnostic::error(
+            TyperDiagnosticKind::DeclarationVisibilityMismatch => Diagnostic::error(
                 diagnostic.span,
-                "function visibility mismatch",
-                "this function has a different visibility than expected",
+                "declaration visibility mismatch",
+                "this declaration has a different visibility than expected",
             ),
         }
     }

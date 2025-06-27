@@ -817,7 +817,7 @@ impl fmt::Display for Program {
             }
         }
         if !self.static_vars.is_empty() {
-            writeln!(f, "")?;
+            writeln!(f)?;
         }
         for (name, func) in self.funcs_name.iter().zip(self.funcs.iter()).skip(1) {
             write!(f, "define @{}", self.interner.lookup(*name))?;

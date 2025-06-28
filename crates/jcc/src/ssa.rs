@@ -1,4 +1,7 @@
-use crate::{ast, sema};
+use crate::{
+    ast,
+    sema::{self, SemaSymbol},
+};
 
 use jcc_ssa::{
     self as ssa,
@@ -62,7 +65,7 @@ struct SSAFuncBuilder<'a> {
     func: ssa::FuncRef,
     block: ssa::BlockRef,
     funcs: HashMap<Symbol, ssa::FuncRef>,
-    vars: HashMap<ast::DeclRef, ssa::InstRef>,
+    vars: HashMap<SemaSymbol, ssa::InstRef>,
     labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
     case_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
     break_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
@@ -136,7 +139,15 @@ impl<'a> SSAFuncBuilder<'a> {
                 let arg = self
                     .prog
                     .new_inst_with_span(ssa::Inst::arg(ssa::Type::Int32), span);
-                self.vars.insert(*param, arg);
+                self.vars.insert(
+                    self.ast
+                        .decl(*param)
+                        .name
+                        .sema
+                        .get()
+                        .expect("expected a sema symbol"),
+                    arg,
+                );
                 self.append_to_block(arg);
             });
 
@@ -168,22 +179,11 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     #[inline]
-    fn get_var_ptr(&self, decl: ast::DeclRef) -> ssa::InstRef {
+    fn get_var_ptr(&self, sym: SemaSymbol) -> ssa::InstRef {
         self.vars
-            .get(&decl)
+            .get(&sym)
             .copied()
-            .unwrap_or_else(|| panic!("expected a variable declaration for {decl:?}"))
-    }
-
-    #[inline]
-    fn get_var_decl(&self, _expr: ast::ExprRef) -> ast::DeclRef {
-        // TODO: Uncomment this when we have a way to map expressions
-        // self.sema
-        //     .vars
-        //     .get(&expr)
-        //     .copied()
-        //     .expect("expected a variable declaration")
-        self.decl
+            .unwrap_or_else(|| panic!("expected a variable pointer for {sym:?}"))
     }
 
     #[inline]
@@ -208,7 +208,15 @@ impl<'a> SSAFuncBuilder<'a> {
             let span = *self.ast.decl_span(decl);
             let alloca = self.prog.new_inst_with_span(ssa::Inst::alloca(), span);
             self.append_to_block(alloca);
-            self.vars.insert(decl, alloca);
+            self.vars.insert(
+                self.ast
+                    .decl(decl)
+                    .name
+                    .sema
+                    .get()
+                    .expect("expected a sema symbol"),
+                alloca,
+            );
             if let Some(init) = init {
                 let val = self.visit_expr(init, ExprMode::RightValue);
                 let store = self
@@ -724,9 +732,8 @@ impl<'a> SSAFuncBuilder<'a> {
                 self.append_to_block(inst);
                 inst
             }
-            ast::Expr::Var { .. } => {
-                let decl = self.get_var_decl(expr);
-                let ptr = self.get_var_ptr(decl);
+            ast::Expr::Var(name) => {
+                let ptr = self.get_var_ptr(name.sema.get().expect("expected a sema symbol"));
                 match mode {
                     ExprMode::LeftValue => ptr,
                     ExprMode::RightValue => {

@@ -104,7 +104,7 @@ impl<'ctx> TyperPass<'ctx> {
                     }
                 };
 
-                let info = self.ctx.symbol_mut(&decl.name.sema);
+                let info = self.ctx.symbol_mut(decl.name.sema());
                 let occupied = info.is_some();
                 let info = info.get_or_insert(SymbolInfo::static_(ty, decl_is_global, decl_init));
 
@@ -156,7 +156,7 @@ impl<'ctx> TyperPass<'ctx> {
                 *self.ctx.decl_type_mut(decl_ref) = ty;
                 match decl.storage {
                     None => {
-                        *self.ctx.symbol_mut(&decl.name.sema) = Some(SymbolInfo::local(ty));
+                        *self.ctx.symbol_mut(decl.name.sema()) = Some(SymbolInfo::local(ty));
                         if let Some(init) = init {
                             self.visit_expr(init);
                         }
@@ -169,7 +169,7 @@ impl<'ctx> TyperPass<'ctx> {
                             });
                         }
                         None => {
-                            let info = self.ctx.symbol_mut(&decl.name.sema).get_or_insert(
+                            let info = self.ctx.symbol_mut(decl.name.sema()).get_or_insert(
                                 SymbolInfo::static_(ty, true, StaticValue::NoInitializer),
                             );
                             if info.ty != ty {
@@ -203,7 +203,7 @@ impl<'ctx> TyperPass<'ctx> {
                                 }
                             }
                         };
-                        *self.ctx.symbol_mut(&decl.name.sema) =
+                        *self.ctx.symbol_mut(decl.name.sema()) =
                             Some(SymbolInfo::static_(ty, false, decl_init));
                     }
                 }
@@ -221,7 +221,7 @@ impl<'ctx> TyperPass<'ctx> {
 
             let entry = self
                 .ctx
-                .symbol_mut(&decl.name.sema)
+                .symbol_mut(decl.name.sema())
                 .get_or_insert(SymbolInfo::function(ty, decl_is_global, false));
 
             if entry.ty != ty {
@@ -371,7 +371,7 @@ impl<'ctx> TyperPass<'ctx> {
             Expr::Grouped(expr) => self.visit_expr(*expr),
             Expr::Const(_) => {}
             Expr::Var(name) => {
-                let info = self.ctx.symbol(&name.sema).expect("symbol info not found");
+                let info = self.ctx.symbol(name.sema()).expect("symbol info not found");
                 if let Type::Func(_) = info.ty {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: *self.ast.expr_span(expr),
@@ -417,7 +417,7 @@ impl<'ctx> TyperPass<'ctx> {
                 }
             },
             Expr::Call { name, args } => {
-                let info = self.ctx.symbol(&name.sema).expect("symbol info not found");
+                let info = self.ctx.symbol(name.sema()).expect("symbol info not found");
                 match info.ty {
                     Type::Func(arity) => {
                         if arity != args.len() {

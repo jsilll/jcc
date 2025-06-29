@@ -458,6 +458,10 @@ impl AstSymbol {
             sema: Cell::new(None),
         }
     }
+
+    pub fn sema(&self) -> SemaSymbol {
+        self.sema.get().expect("sema symbol not set")
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

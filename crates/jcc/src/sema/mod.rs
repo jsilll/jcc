@@ -6,7 +6,7 @@ pub mod resolve;
 
 use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 
-use std::{cell::Cell, collections::HashMap, num::NonZeroU32};
+use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
 // ResolvedSymbol
@@ -62,13 +62,13 @@ impl SemaCtx {
     }
 
     #[inline]
-    pub fn symbol(&self, sym: &Cell<Option<SemaSymbol>>) -> &Option<SymbolInfo> {
-        &self.symbols[sym.get().expect("SemaSymbol should be set").0.get() as usize]
+    pub fn symbol(&self, sym: SemaSymbol) -> &Option<SymbolInfo> {
+        &self.symbols[sym.0.get() as usize]
     }
 
     #[inline]
-    pub fn symbol_mut(&mut self, sym: &Cell<Option<SemaSymbol>>) -> &mut Option<SymbolInfo> {
-        &mut self.symbols[sym.get().expect("SemaSymbol should be set").0.get() as usize]
+    pub fn symbol_mut(&mut self, sym: SemaSymbol) -> &mut Option<SymbolInfo> {
+        &mut self.symbols[sym.0.get() as usize]
     }
 }
 
@@ -129,6 +129,15 @@ impl SymbolInfo {
         Self {
             ty,
             attr: Attribute::Static { is_global, init },
+        }
+    }
+
+    #[inline]
+    pub fn is_global(&self) -> bool {
+        match self.attr {
+            Attribute::Local => false,
+            Attribute::Static { is_global, .. } => is_global,
+            Attribute::Function { is_global, .. } => is_global,
         }
     }
 }

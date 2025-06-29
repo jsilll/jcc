@@ -27,11 +27,7 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
             ast::DeclKind::Func { body: None, .. } => continue,
             ast::DeclKind::Func { body: Some(_), .. } => {
                 builder = Some(SSAFuncBuilder::new(
-                    ast,
-                    sema,
-                    &mut prog,
-                    *decl_ref,
-                    decl.name.raw,
+                    ast, sema, &mut prog, *decl_ref, &decl.name,
                 ));
                 break;
             }
@@ -44,7 +40,7 @@ pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::P
             match decl.kind {
                 ast::DeclKind::Var(_) => todo!("handle global variable declarations"),
                 ast::DeclKind::Func { params, body, .. } => {
-                    builder.build_func(*decl_ref, decl.name.raw, params, body);
+                    builder.build_func(*decl_ref, &decl.name, params, body);
                 }
             }
         }
@@ -78,13 +74,17 @@ impl<'a> SSAFuncBuilder<'a> {
         sema: &'a sema::SemaCtx,
         prog: &'a mut ssa::Program,
         default_decl: ast::DeclRef,
-        default_name: Symbol,
+        default_name: &ast::AstSymbol,
     ) -> Self {
         let span = *ast.decl_span(default_decl);
-        let func = prog.new_func_with_span_interned(default_name, span);
+        let is_global = sema
+            .symbol(default_name.sema())
+            .expect("expected a sema symbol")
+            .is_global();
+        let func = prog.new_func_with_span_interned(default_name.raw, is_global, span);
         let block = prog.new_block_with_span("entry", span);
         prog.func_mut(func).blocks.push(block);
-        let funcs = HashMap::from([(default_name, func)]);
+        let funcs = HashMap::from([(default_name.raw, func)]);
         Self {
             ast,
             sema,
@@ -113,7 +113,7 @@ impl<'a> SSAFuncBuilder<'a> {
     fn build_func(
         &mut self,
         decl: ast::DeclRef,
-        name: Symbol,
+        name: &ast::AstSymbol,
         params: ast::Slice<ast::DeclRef>,
         body: Option<ast::Slice<ast::BlockItem>>,
     ) {
@@ -121,10 +121,15 @@ impl<'a> SSAFuncBuilder<'a> {
         if self.decl != decl {
             self.decl = decl;
             let span = *self.ast.decl_span(decl);
-            self.func = *self
-                .funcs
-                .entry(name)
-                .or_insert(self.prog.new_func_with_span_interned(name, span));
+            let is_global = self
+                .sema
+                .symbol(name.sema())
+                .expect("expected a sema symbol")
+                .is_global();
+            self.func = *self.funcs.entry(name.raw).or_insert(
+                self.prog
+                    .new_func_with_span_interned(name.raw, is_global, span),
+            );
             if body.is_some() {
                 // Also create a new entry block for the function
                 self.block = self.prog.new_block_with_span("entry", span);
@@ -721,19 +726,23 @@ impl<'a> SSAFuncBuilder<'a> {
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
-                let call = ssa::Inst::call(
-                    *self
-                        .funcs
-                        .entry(name.raw)
-                        .or_insert(self.prog.new_func_with_span_interned(name.raw, span)),
-                    args,
+                let func = *self.funcs.entry(name.raw).or_insert(
+                    self.prog.new_func_with_span_interned(
+                        name.raw,
+                        self.sema
+                            .symbol(name.sema())
+                            .expect("expected a sema symbol")
+                            .is_global(),
+                        span,
+                    ),
                 );
+                let call = ssa::Inst::call(func, args);
                 let inst = self.prog.new_inst_with_span(call, span);
                 self.append_to_block(inst);
                 inst
             }
             ast::Expr::Var(name) => {
-                let ptr = self.get_var_ptr(name.sema.get().expect("expected a sema symbol"));
+                let ptr = self.get_var_ptr(name.sema());
                 match mode {
                     ExprMode::LeftValue => ptr,
                     ExprMode::RightValue => {

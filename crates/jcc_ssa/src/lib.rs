@@ -376,6 +376,7 @@ pub struct FuncRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone)]
 pub struct Func {
+    pub is_global: bool,
     pub blocks: Vec<BlockRef>,
 }
 
@@ -388,7 +389,7 @@ pub struct StaticVarRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone)]
 pub struct StaticVar {
-    pub global: bool,
+    pub is_global: bool,
     pub init: Option<i64>,
 }
 
@@ -580,9 +581,14 @@ impl Program {
         r
     }
 
-    pub fn new_static_var(&mut self, name: &str, global: bool, init: Option<i64>) -> StaticVarRef {
+    pub fn new_static_var(
+        &mut self,
+        name: &str,
+        is_global: bool,
+        init: Option<i64>,
+    ) -> StaticVarRef {
         let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
-        self.static_vars.push(StaticVar { global, init });
+        self.static_vars.push(StaticVar { is_global, init });
         self.static_vars_span.push(Default::default());
         self.static_vars_name.push(self.interner.intern(name));
         r
@@ -596,9 +602,12 @@ impl Program {
         r
     }
 
-    pub fn new_func_interned(&mut self, name: Symbol) -> FuncRef {
+    pub fn new_func_interned(&mut self, name: Symbol, is_global: bool) -> FuncRef {
         let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
-        self.funcs.push(Default::default());
+        self.funcs.push(Func {
+            is_global,
+            ..Default::default()
+        });
         self.funcs_span.push(Default::default());
         self.funcs_name.push(name);
         r
@@ -619,9 +628,12 @@ impl Program {
         r
     }
 
-    pub fn new_func_with_span(&mut self, name: &str, span: SourceSpan) -> FuncRef {
+    pub fn new_func_with_span(&mut self, name: &str, is_global: bool, span: SourceSpan) -> FuncRef {
         let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
-        self.funcs.push(Default::default());
+        self.funcs.push(Func {
+            is_global,
+            ..Default::default()
+        });
         self.funcs_span.push(span);
         self.funcs_name.push(self.interner.intern(name));
         r
@@ -630,12 +642,12 @@ impl Program {
     pub fn new_static_var_with_span(
         &mut self,
         name: &str,
-        global: bool,
+        is_global: bool,
         init: Option<i64>,
         span: SourceSpan,
     ) -> StaticVarRef {
         let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
-        self.static_vars.push(StaticVar { global, init });
+        self.static_vars.push(StaticVar { is_global, init });
         self.static_vars_span.push(span);
         self.static_vars_name.push(self.interner.intern(name));
         r
@@ -649,9 +661,17 @@ impl Program {
         r
     }
 
-    pub fn new_func_with_span_interned(&mut self, name: Symbol, span: SourceSpan) -> FuncRef {
+    pub fn new_func_with_span_interned(
+        &mut self,
+        name: Symbol,
+        is_global: bool,
+        span: SourceSpan,
+    ) -> FuncRef {
         let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
-        self.funcs.push(Default::default());
+        self.funcs.push(Func {
+            is_global,
+            ..Default::default()
+        });
         self.funcs_span.push(span);
         self.funcs_name.push(name);
         r
@@ -808,7 +828,7 @@ impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (r, var) in self.static_vars_iter2() {
             let name = self.interner.lookup(*self.static_var_name(r));
-            let linkage = if var.global { "global" } else { "static" };
+            let linkage = if var.is_global { "global" } else { "static" };
             write!(f, "{} {} = ", linkage, name)?;
             if let Some(init) = var.init {
                 writeln!(f, "{}", init)?;

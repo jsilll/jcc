@@ -32,7 +32,7 @@ impl<'a> SSAVerifier<'a> {
         //
         // For now, iterate over all the instructions and check their types:
         // TODO: this will iterate over deleted/invalidated instructions, fix it
-        for (i, inst) in self.ssa.insts_iter2() {
+        for (i, inst) in self.ssa.iter_insts_with_refs() {
             match inst.kind {
                 InstKind::Nop | InstKind::Phi | InstKind::Arg | InstKind::StaticAddr(_) => {}
                 InstKind::Alloca => {

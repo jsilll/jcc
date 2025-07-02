@@ -10,7 +10,7 @@ const ARG_REGS: [Reg; 6] = [Reg::Rdi, Reg::Rsi, Reg::Rdx, Reg::Rcx, Reg::R8, Reg
 
 pub fn build(ssa: &crate::Program) -> Program {
     let mut prog = Program::default();
-    ssa.funcs_iter().for_each(|func| {
+    ssa.iter_funcs().for_each(|func| {
         if ssa.func(func).blocks.is_empty() {
             // Skip empty functions
             return;
@@ -38,7 +38,8 @@ pub struct AMD64FuncBuilder<'a> {
 impl<'a> AMD64FuncBuilder<'a> {
     pub fn new(ssa: &'a crate::Program, func: crate::FuncRef) -> Self {
         let mut blocks = HashMap::new();
-        let mut fn_def = FnDef::new(*ssa.func_name(func), *ssa.func_span(func));
+        let actual_func = ssa.func(func);
+        let mut fn_def = FnDef::new(actual_func.name, actual_func.span);
         let block = fn_def.push_block(Block::default());
         blocks.insert(ssa.func(func).blocks[0], block);
         Self {
@@ -54,11 +55,10 @@ impl<'a> AMD64FuncBuilder<'a> {
     }
 
     pub fn build(mut self) -> FnDef {
-        let span = *self.ssa.func_span(self.func);
-        self.append_to_block(Inst::Alloca(0), span);
+        self.append_to_block(Inst::Alloca(0), self.ssa.func(self.func).span);
         self.ssa.func(self.func).blocks.iter().for_each(|b| {
             self.block = self.get_or_make_block(*b);
-            self.fn_def.get_block_mut(self.block).label = Some(*self.ssa.block_name(*b));
+            self.fn_def.get_block_mut(self.block).label = Some(self.ssa.block(*b).name);
             self.ssa.block(*b).insts.iter().for_each(|inst| {
                 self.visit_inst(*inst);
             });
@@ -104,7 +104,6 @@ impl<'a> AMD64FuncBuilder<'a> {
 
     fn visit_inst(&mut self, i: crate::InstRef) {
         let inst = self.ssa.inst(i);
-        let span = *self.ssa.inst_span(i);
         match &inst.kind {
             crate::InstKind::Select { .. } => todo!("handle select"),
             crate::InstKind::StaticAddr(_) => todo!("handle static address"),
@@ -118,7 +117,7 @@ impl<'a> AMD64FuncBuilder<'a> {
             }
             crate::InstKind::Jump(block) => {
                 let block = self.get_or_make_block(*block);
-                self.append_to_block(Inst::Jmp(block), span);
+                self.append_to_block(Inst::Jmp(block), inst.span);
             }
             crate::InstKind::Identity(val) => {
                 self.operands.insert(i, self.get_operand(val));
@@ -129,9 +128,9 @@ impl<'a> AMD64FuncBuilder<'a> {
                         src: self.get_operand(val),
                         dst: Operand::Reg(Reg::Rax),
                     },
-                    span,
+                    inst.span,
                 );
-                self.append_to_block(Inst::Ret, span);
+                self.append_to_block(Inst::Ret, inst.span);
             }
             crate::InstKind::Load(ptr) => {
                 let dst = self.make_pseudo();
@@ -141,7 +140,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                         src: self.get_operand(ptr),
                         dst,
                     },
-                    span,
+                    inst.span,
                 );
             }
             crate::InstKind::Store { ptr, val } => {
@@ -150,7 +149,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                         src: self.get_operand(val),
                         dst: self.get_operand(ptr),
                     },
-                    span,
+                    inst.span,
                 );
             }
             crate::InstKind::Upsilon { phi, val } => {
@@ -160,7 +159,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                         dst,
                         src: self.get_operand(val),
                     },
-                    span,
+                    inst.span,
                 );
             }
             crate::InstKind::Branch { cond, then, other } => {
@@ -172,16 +171,16 @@ impl<'a> AMD64FuncBuilder<'a> {
                         lhs: cond,
                         rhs: cond,
                     },
-                    span,
+                    inst.span,
                 );
                 self.append_to_block(
                     Inst::JmpCC {
                         cond_code: CondCode::NotEqual,
                         target: then,
                     },
-                    span,
+                    inst.span,
                 );
-                self.append_to_block(Inst::Jmp(other), span);
+                self.append_to_block(Inst::Jmp(other), inst.span);
             }
             crate::InstKind::Switch {
                 cond,
@@ -196,28 +195,28 @@ impl<'a> AMD64FuncBuilder<'a> {
                             lhs: cond,
                             rhs: Operand::Imm(*val),
                         },
-                        span,
+                        inst.span,
                     );
                     self.append_to_block(
                         Inst::JmpCC {
                             cond_code: CondCode::Equal,
                             target: block,
                         },
-                        span,
+                        inst.span,
                     );
                 });
                 let default = self.get_or_make_block(*default);
-                self.append_to_block(Inst::Jmp(default), span);
+                self.append_to_block(Inst::Jmp(default), inst.span);
             }
             crate::InstKind::Unary { op, val } => {
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
                 let src = self.get_operand(val);
                 match op {
-                    crate::UnaryOp::Not => self.build_unary(UnaryOp::Not, src, dst, span),
-                    crate::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, src, dst, span),
-                    crate::UnaryOp::Inc => self.build_unary(UnaryOp::Inc, src, dst, span),
-                    crate::UnaryOp::Dec => self.build_unary(UnaryOp::Dec, src, dst, span),
+                    crate::UnaryOp::Not => self.build_unary(UnaryOp::Not, src, dst, inst.span),
+                    crate::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, src, dst, inst.span),
+                    crate::UnaryOp::Inc => self.build_unary(UnaryOp::Inc, src, dst, inst.span),
+                    crate::UnaryOp::Dec => self.build_unary(UnaryOp::Dec, src, dst, inst.span),
                 }
             }
             crate::InstKind::Binary { op, lhs, rhs } => {
@@ -226,34 +225,50 @@ impl<'a> AMD64FuncBuilder<'a> {
                 let lhs = self.get_operand(lhs);
                 let rhs = self.get_operand(rhs);
                 match op {
-                    crate::BinaryOp::Or => self.build_binary(BinaryOp::Or, lhs, rhs, dst, span),
-                    crate::BinaryOp::And => self.build_binary(BinaryOp::And, lhs, rhs, dst, span),
-                    crate::BinaryOp::Xor => self.build_binary(BinaryOp::Xor, lhs, rhs, dst, span),
-                    crate::BinaryOp::Shl => self.build_binary(BinaryOp::Shl, lhs, rhs, dst, span),
-                    crate::BinaryOp::Shr => self.build_binary(BinaryOp::Shr, lhs, rhs, dst, span),
-                    crate::BinaryOp::Add => self.build_binary(BinaryOp::Add, lhs, rhs, dst, span),
-                    crate::BinaryOp::Sub => self.build_binary(BinaryOp::Sub, lhs, rhs, dst, span),
-                    crate::BinaryOp::Mul => self.build_binary(BinaryOp::Mul, lhs, rhs, dst, span),
+                    crate::BinaryOp::Or => {
+                        self.build_binary(BinaryOp::Or, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::And => {
+                        self.build_binary(BinaryOp::And, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::Xor => {
+                        self.build_binary(BinaryOp::Xor, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::Shl => {
+                        self.build_binary(BinaryOp::Shl, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::Shr => {
+                        self.build_binary(BinaryOp::Shr, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::Add => {
+                        self.build_binary(BinaryOp::Add, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::Sub => {
+                        self.build_binary(BinaryOp::Sub, lhs, rhs, dst, inst.span)
+                    }
+                    crate::BinaryOp::Mul => {
+                        self.build_binary(BinaryOp::Mul, lhs, rhs, dst, inst.span)
+                    }
                     crate::BinaryOp::Equal => {
-                        self.build_comparison(CondCode::Equal, lhs, rhs, dst, span)
+                        self.build_comparison(CondCode::Equal, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::NotEqual => {
-                        self.build_comparison(CondCode::NotEqual, lhs, rhs, dst, span)
+                        self.build_comparison(CondCode::NotEqual, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::LessThan => {
-                        self.build_comparison(CondCode::LessThan, lhs, rhs, dst, span)
+                        self.build_comparison(CondCode::LessThan, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::LessEqual => {
-                        self.build_comparison(CondCode::LessEqual, lhs, rhs, dst, span)
+                        self.build_comparison(CondCode::LessEqual, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::GreaterThan => {
-                        self.build_comparison(CondCode::GreaterThan, lhs, rhs, dst, span)
+                        self.build_comparison(CondCode::GreaterThan, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::GreaterEqual => {
-                        self.build_comparison(CondCode::GreaterEqual, lhs, rhs, dst, span)
+                        self.build_comparison(CondCode::GreaterEqual, lhs, rhs, dst, inst.span)
                     }
-                    crate::BinaryOp::Div => self.build_div_or_rem(true, lhs, rhs, dst, span),
-                    crate::BinaryOp::Rem => self.build_div_or_rem(false, lhs, rhs, dst, span),
+                    crate::BinaryOp::Div => self.build_div_or_rem(true, lhs, rhs, dst, inst.span),
+                    crate::BinaryOp::Rem => self.build_div_or_rem(false, lhs, rhs, dst, inst.span),
                 }
             }
             crate::InstKind::Arg => {
@@ -266,7 +281,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                                 src: Operand::Reg(reg),
                                 dst,
                             },
-                            span,
+                            inst.span,
                         );
                     }
                     None => {
@@ -277,7 +292,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                                 src: Operand::Stack(offset as i32),
                                 dst,
                             },
-                            span,
+                            inst.span,
                         );
                     }
                 }
@@ -288,7 +303,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                 let stack_padding = match stack_args % 2 {
                     0 => 0,
                     1 => {
-                        self.append_to_block(Inst::Alloca(8), span);
+                        self.append_to_block(Inst::Alloca(8), inst.span);
                         8
                     }
                     _ => unreachable!(),
@@ -300,14 +315,14 @@ impl<'a> AMD64FuncBuilder<'a> {
                             src,
                             dst: Operand::Reg(*reg),
                         },
-                        span,
+                        inst.span,
                     );
                 }
                 for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
                     let arg = self.get_operand(arg);
                     match arg {
                         Operand::Imm(_) | Operand::Reg(_) => {
-                            self.append_to_block(Inst::Push(arg), span);
+                            self.append_to_block(Inst::Push(arg), inst.span);
                         }
                         _ => {
                             self.append_to_block(
@@ -315,17 +330,17 @@ impl<'a> AMD64FuncBuilder<'a> {
                                     src: arg,
                                     dst: Operand::Reg(Reg::Rax),
                                 },
-                                span,
+                                inst.span,
                             );
-                            self.append_to_block(Inst::Push(Operand::Reg(Reg::Rax)), span);
+                            self.append_to_block(Inst::Push(Operand::Reg(Reg::Rax)), inst.span);
                         }
                     }
                 }
-                let name = self.ssa.func_name(*func);
-                self.append_to_block(Inst::Call(*name), span);
+                let name = self.ssa.func(*func).name;
+                self.append_to_block(Inst::Call(name), inst.span);
                 let stack_size = stack_args as i32 * 8 + stack_padding;
                 if stack_size > 0 {
-                    self.append_to_block(Inst::Dealloca(stack_size), span);
+                    self.append_to_block(Inst::Dealloca(stack_size), inst.span);
                 }
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
@@ -334,7 +349,7 @@ impl<'a> AMD64FuncBuilder<'a> {
                         src: Operand::Reg(Reg::Rax),
                         dst,
                     },
-                    span,
+                    inst.span,
                 );
             }
         }

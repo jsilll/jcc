@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Ast, AstSymbol, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef,
-        StorageClass,
+        Ast, AstSymbol, BlockItem, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind,
+        StmtRef, StorageClass,
     },
     sema::SemaSymbol,
 };
@@ -97,7 +97,7 @@ impl<'a> ResolverPass<'a> {
         if let Some(prev) = self.symbols.insert(name.raw, entry) {
             if !(entry.has_linkage && prev.has_linkage) {
                 self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *self.ast.decl_span(decl),
+                    span: self.ast.decl(decl).span,
                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                 });
             }
@@ -133,25 +133,25 @@ impl<'a> ResolverPass<'a> {
 
     fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
-        match decl.kind {
+        match &decl.kind {
             DeclKind::Var(init) => {
                 let has_linkage = decl.storage == Some(StorageClass::Extern);
                 self.get_or_create_block_scope_symbol(decl_ref, &decl.name, has_linkage);
                 if let Some(expr) = init {
-                    self.visit_expr(expr);
+                    self.visit_expr(*expr);
                 }
             }
             DeclKind::Func { params, body, .. } => {
                 if let Some(StorageClass::Static) = decl.storage {
                     self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *self.ast.decl_span(decl_ref),
+                        span: decl.span,
                         kind: ResolverDiagnosticKind::IllegalLocalStaticFunction,
                     });
                 }
                 match body {
                     Some(_) => {
                         self.result.diagnostics.push(ResolverDiagnostic {
-                            span: *self.ast.decl_span(decl_ref),
+                            span: decl.span,
                             kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
                         });
                     }
@@ -160,7 +160,7 @@ impl<'a> ResolverPass<'a> {
                         if let Some(prev) = self.symbols.insert(decl.name.raw, entry) {
                             if !prev.has_linkage {
                                 self.result.diagnostics.push(ResolverDiagnostic {
-                                    span: *self.ast.decl_span(decl_ref),
+                                    span: decl.span,
                                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                                 });
                             }
@@ -169,7 +169,7 @@ impl<'a> ResolverPass<'a> {
                 }
                 self.symbols.push_scope();
                 self.ast
-                    .params(params)
+                    .params(*params)
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.symbols.pop_scope();
@@ -178,29 +178,29 @@ impl<'a> ResolverPass<'a> {
     }
 
     fn visit_stmt(&mut self, stmt: StmtRef) {
-        match self.ast.stmt(stmt) {
-            Stmt::Empty | Stmt::Break | Stmt::Continue | Stmt::Goto(_) => {}
-            Stmt::Expr(expr) => self.visit_expr(*expr),
-            Stmt::Return(expr) => self.visit_expr(*expr),
-            Stmt::Default(stmt) => self.visit_stmt(*stmt),
-            Stmt::Label { stmt, .. } => self.visit_stmt(*stmt),
-            Stmt::Case { expr, stmt } => {
+        match &self.ast.stmt(stmt).kind {
+            StmtKind::Empty | StmtKind::Break | StmtKind::Continue | StmtKind::Goto(_) => {}
+            StmtKind::Expr(expr) => self.visit_expr(*expr),
+            StmtKind::Return(expr) => self.visit_expr(*expr),
+            StmtKind::Default(stmt) => self.visit_stmt(*stmt),
+            StmtKind::Label { stmt, .. } => self.visit_stmt(*stmt),
+            StmtKind::Case { expr, stmt } => {
                 self.visit_expr(*expr);
                 self.visit_stmt(*stmt);
             }
-            Stmt::Switch { cond, body } => {
+            StmtKind::Switch { cond, body } => {
                 self.visit_expr(*cond);
                 self.visit_stmt(*body);
             }
-            Stmt::While { cond, body } => {
+            StmtKind::While { cond, body } => {
                 self.visit_expr(*cond);
                 self.visit_stmt(*body);
             }
-            Stmt::DoWhile { body, cond } => {
+            StmtKind::DoWhile { body, cond } => {
                 self.visit_stmt(*body);
                 self.visit_expr(*cond);
             }
-            Stmt::If {
+            StmtKind::If {
                 cond,
                 then,
                 otherwise,
@@ -211,7 +211,7 @@ impl<'a> ResolverPass<'a> {
                     self.visit_stmt(*otherwise);
                 }
             }
-            Stmt::Compound(items) => {
+            StmtKind::Compound(items) => {
                 self.symbols.push_scope();
                 self.ast
                     .block_items(*items)
@@ -222,7 +222,7 @@ impl<'a> ResolverPass<'a> {
                     });
                 self.symbols.pop_scope();
             }
-            Stmt::For {
+            StmtKind::For {
                 init,
                 cond,
                 step,
@@ -247,16 +247,17 @@ impl<'a> ResolverPass<'a> {
         }
     }
 
-    fn visit_expr(&mut self, expr: ExprRef) {
-        match self.ast.expr(expr) {
-            Expr::Const(_) => {}
-            Expr::Grouped(expr) => self.visit_expr(*expr),
-            Expr::Unary { expr, .. } => self.visit_expr(*expr),
-            Expr::Binary { lhs, rhs, .. } => {
+    fn visit_expr(&mut self, expr_ref: ExprRef) {
+        let expr = self.ast.expr(expr_ref);
+        match &expr.kind {
+            ExprKind::Const(_) => {}
+            ExprKind::Grouped(expr) => self.visit_expr(*expr),
+            ExprKind::Unary { expr, .. } => self.visit_expr(*expr),
+            ExprKind::Binary { lhs, rhs, .. } => {
                 self.visit_expr(*lhs);
                 self.visit_expr(*rhs);
             }
-            Expr::Ternary {
+            ExprKind::Ternary {
                 cond,
                 then,
                 otherwise,
@@ -265,18 +266,18 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*then);
                 self.visit_expr(*otherwise);
             }
-            Expr::Var(name) => match self.symbols.get(&name.raw) {
+            ExprKind::Var(name) => match self.symbols.get(&name.raw) {
                 Some(entry) => name.sema.set(Some(entry.symbol)),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: *self.ast.expr_span(expr),
+                    span: expr.span,
                     kind: ResolverDiagnosticKind::UndeclaredVariable,
                 }),
             },
-            Expr::Call { name, args } => {
+            ExprKind::Call { name, args } => {
                 match self.symbols.get(&name.raw) {
                     Some(entry) => name.sema.set(Some(entry.symbol)),
                     None => self.result.diagnostics.push(ResolverDiagnostic {
-                        span: *self.ast.expr_span(expr),
+                        span: expr.span,
                         kind: ResolverDiagnosticKind::UndeclaredFunction,
                     }),
                 }

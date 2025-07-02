@@ -1,8 +1,6 @@
-pub mod parse;
-
-pub mod mermaid;
-
 pub mod graphviz;
+pub mod mermaid;
+pub mod parse;
 
 use crate::sema::SemaSymbol;
 
@@ -20,9 +18,6 @@ pub struct Ast {
     decls: Vec<Decl>,
     stmts: Vec<Stmt>,
     exprs: Vec<Expr>,
-    decls_span: Vec<SourceSpan>,
-    stmts_span: Vec<SourceSpan>,
-    exprs_span: Vec<SourceSpan>,
     sliced_args: Vec<ExprRef>,
     sliced_params: Vec<DeclRef>,
     sliced_block_items: Vec<BlockItem>,
@@ -33,16 +28,13 @@ impl Default for Ast {
     fn default() -> Self {
         Ast {
             root: Default::default(),
+            last_symbol: Cell::new(None),
             decls: vec![Default::default()],
             stmts: vec![Default::default()],
             exprs: vec![Default::default()],
-            decls_span: vec![Default::default()],
-            stmts_span: vec![Default::default()],
-            exprs_span: vec![Default::default()],
             sliced_args: Default::default(),
             sliced_params: Default::default(),
             sliced_block_items: Default::default(),
-            last_symbol: Cell::new(None),
         }
     }
 }
@@ -63,7 +55,7 @@ impl std::fmt::Debug for Ast {
 
 impl Ast {
     pub fn new() -> Self {
-        Self::with_capacity(128)
+        Self::with_capacity(256)
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -71,22 +63,13 @@ impl Ast {
         let mut decls = Vec::with_capacity(capacity);
         let mut stmts = Vec::with_capacity(capacity);
         let mut exprs = Vec::with_capacity(capacity);
-        let mut decls_span = Vec::with_capacity(capacity);
-        let mut stmts_span = Vec::with_capacity(capacity);
-        let mut exprs_span = Vec::with_capacity(capacity);
         decls.push(Default::default());
         stmts.push(Default::default());
         exprs.push(Default::default());
-        decls_span.push(Default::default());
-        stmts_span.push(Default::default());
-        exprs_span.push(Default::default());
         Ast {
             decls,
             stmts,
             exprs,
-            decls_span,
-            stmts_span,
-            exprs_span,
             root: Vec::with_capacity(capacity),
             sliced_args: Vec::with_capacity(capacity),
             sliced_params: Vec::with_capacity(capacity),
@@ -94,6 +77,10 @@ impl Ast {
             last_symbol: Cell::new(None),
         }
     }
+
+    // ---------------------------------------------------------------------------
+    // Accessors
+    // ---------------------------------------------------------------------------
 
     #[inline]
     pub fn root(&self) -> &[DeclRef] {
@@ -136,21 +123,6 @@ impl Ast {
     }
 
     #[inline]
-    pub fn decl_span(&self, decl: DeclRef) -> &SourceSpan {
-        &self.decls_span[decl.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn stmt_span(&self, stmt: StmtRef) -> &SourceSpan {
-        &self.stmts_span[stmt.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn expr_span(&self, expr: ExprRef) -> &SourceSpan {
-        &self.exprs_span[expr.0.get() as usize]
-    }
-
-    #[inline]
     pub fn decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
         &mut self.decls[decl.0.get() as usize]
     }
@@ -180,27 +152,37 @@ impl Ast {
         &self.sliced_block_items[slice.0 as usize..slice.1 as usize]
     }
 
+    /// ---------------------------------------------------------------------------
+    /// Setters
+    /// ---------------------------------------------------------------------------
+
     #[inline]
-    pub fn new_decl(&mut self, decl: Decl, span: SourceSpan) -> DeclRef {
+    pub fn set_last_symbol(&self, count: NonZeroU32) {
+        self.last_symbol.set(Some(count));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Creation
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    pub fn new_decl(&mut self, decl: Decl) -> DeclRef {
         let r = DeclRef(NonZeroU32::new(self.decls.len() as u32).unwrap());
         self.decls.push(decl);
-        self.decls_span.push(span);
         r
     }
 
     #[inline]
-    pub fn new_stmt(&mut self, stmt: Stmt, span: SourceSpan) -> StmtRef {
+    pub fn new_stmt(&mut self, stmt: Stmt) -> StmtRef {
         let r = StmtRef(NonZeroU32::new(self.stmts.len() as u32).unwrap());
         self.stmts.push(stmt);
-        self.stmts_span.push(span);
         r
     }
 
     #[inline]
-    pub fn new_expr(&mut self, expr: Expr, span: SourceSpan) -> ExprRef {
+    pub fn new_expr(&mut self, expr: Expr) -> ExprRef {
         let r = ExprRef(NonZeroU32::new(self.exprs.len() as u32).unwrap());
         self.exprs.push(expr);
-        self.exprs_span.push(span);
         r
     }
 
@@ -230,11 +212,6 @@ impl Ast {
         let end = self.sliced_block_items.len() as u32;
         Slice::new(begin, end)
     }
-
-    #[inline]
-    pub fn set_last_symbol(&self, count: NonZeroU32) {
-        self.last_symbol.set(Some(count));
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +225,7 @@ pub struct DeclRef(pub(crate) NonZeroU32);
 pub struct Decl {
     pub name: AstSymbol,
     pub kind: DeclKind,
+    pub span: SourceSpan,
     pub storage: Option<StorageClass>,
 }
 
@@ -271,8 +249,14 @@ impl Default for DeclKind {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StmtRef(pub(crate) NonZeroU32);
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Stmt {
+    pub kind: StmtKind,
+    pub span: SourceSpan,
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub enum Stmt {
+pub enum StmtKind {
     /// An empty statement.
     #[default]
     Empty,
@@ -318,8 +302,14 @@ pub enum Stmt {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ExprRef(pub(crate) NonZeroU32);
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: SourceSpan,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Expr {
+pub enum ExprKind {
     /// A constant integer value.
     Const(i64),
     /// A variable reference.
@@ -347,7 +337,7 @@ pub enum Expr {
     },
 }
 
-impl Default for Expr {
+impl Default for ExprKind {
     fn default() -> Self {
         Self::Const(0)
     }

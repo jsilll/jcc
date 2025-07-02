@@ -1,4 +1,6 @@
-use crate::ast::{Ast, BlockItem, DeclKind, DeclRef, Expr, ExprRef, ForInit, Stmt, StmtRef};
+use crate::ast::{
+    Ast, BlockItem, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind, StmtRef,
+};
 
 use jcc_ssa::interner::Interner;
 
@@ -152,72 +154,72 @@ impl<'a> AstMermaid<'a> {
 
     fn visit_stmt(&mut self, stmt: StmtRef) -> String {
         let stmt_id = format!("stmt_{}", stmt.0.get());
-        match self.ast.stmt(stmt) {
-            Stmt::Empty => {
+        match &self.ast.stmt(stmt).kind {
+            StmtKind::Empty => {
                 self.define_node(&stmt_id, "EmptyStmt");
             }
-            Stmt::Break => {
+            StmtKind::Break => {
                 self.define_node(&stmt_id, "BreakStmt");
             }
-            Stmt::Continue => {
+            StmtKind::Continue => {
                 self.define_node(&stmt_id, "ContinueStmt");
             }
-            Stmt::Expr(expr) => {
+            StmtKind::Expr(expr) => {
                 self.define_node(&stmt_id, "ExprStmt");
                 let expr_id = self.visit_expr(*expr);
                 self.define_edge(&stmt_id, &expr_id, None);
             }
-            Stmt::Return(expr) => {
+            StmtKind::Return(expr) => {
                 self.define_node(&stmt_id, "ReturnStmt");
                 let expr_id = self.visit_expr(*expr);
                 self.define_edge(&stmt_id, &expr_id, Some("value"));
             }
-            Stmt::Default(inner) => {
+            StmtKind::Default(inner) => {
                 self.define_node(&stmt_id, "DefaultStmt (Switch)");
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"));
             }
-            Stmt::Goto(name) => {
+            StmtKind::Goto(name) => {
                 let name = self.interner.lookup(*name);
                 let label = format!("GotoStmt\nlabel: {}", name);
                 self.define_node(&stmt_id, &label);
             }
-            Stmt::Label { label, stmt: inner } => {
+            StmtKind::Label { label, stmt: inner } => {
                 let name = self.interner.lookup(*label);
                 let label = format!("LabelStmt\nlabel: {}", name);
                 self.define_node(&stmt_id, &label);
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, None);
             }
-            Stmt::Case { expr, stmt: inner } => {
+            StmtKind::Case { expr, stmt: inner } => {
                 self.define_node(&stmt_id, "CaseStmt (Switch)");
                 let expr_id = self.visit_expr(*expr);
                 self.define_edge(&stmt_id, &expr_id, Some("condition"));
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"));
             }
-            Stmt::Switch { cond, body } => {
+            StmtKind::Switch { cond, body } => {
                 self.define_node(&stmt_id, "SwitchStmt");
                 let cond_id = self.visit_expr(*cond);
                 self.define_edge(&stmt_id, &cond_id, Some("condition"));
                 let body_id = self.visit_stmt(*body);
                 self.define_edge(&stmt_id, &body_id, Some("body"));
             }
-            Stmt::While { cond, body } => {
+            StmtKind::While { cond, body } => {
                 self.define_node(&stmt_id, "WhileStmt");
                 let cond_id = self.visit_expr(*cond);
                 self.define_edge(&stmt_id, &cond_id, Some("condition"));
                 let body_id = self.visit_stmt(*body);
                 self.define_edge(&stmt_id, &body_id, Some("body"));
             }
-            Stmt::DoWhile { body, cond } => {
+            StmtKind::DoWhile { body, cond } => {
                 self.define_node(&stmt_id, "DoWhileStmt");
                 let body_id = self.visit_stmt(*body);
                 self.define_edge(&stmt_id, &body_id, Some("body"));
                 let cond_id = self.visit_expr(*cond);
                 self.define_edge(&stmt_id, &cond_id, Some("condition"));
             }
-            Stmt::If {
+            StmtKind::If {
                 cond,
                 then,
                 otherwise,
@@ -232,7 +234,7 @@ impl<'a> AstMermaid<'a> {
                     self.define_edge(&stmt_id, &otherwise_id, Some("else_branch"));
                 }
             }
-            Stmt::Compound(items) => {
+            StmtKind::Compound(items) => {
                 self.define_node(&stmt_id, "CompoundStmt (Block)");
                 let items = self.ast.block_items(*items);
                 if items.is_empty() {
@@ -250,7 +252,7 @@ impl<'a> AstMermaid<'a> {
                     }
                 }
             }
-            Stmt::For {
+            StmtKind::For {
                 init,
                 cond,
                 step,
@@ -286,28 +288,28 @@ impl<'a> AstMermaid<'a> {
 
     fn visit_expr(&mut self, expr: ExprRef) -> String {
         let expr_id = format!("expr_{}", expr.0.get());
-        match self.ast.expr(expr) {
-            Expr::Const(val) => {
+        match &self.ast.expr(expr).kind {
+            ExprKind::Const(val) => {
                 let label = format!("Const\nvalue: {val}");
                 self.define_node(&expr_id, &label);
             }
-            Expr::Grouped(inner) => {
+            ExprKind::Grouped(inner) => {
                 self.define_node(&expr_id, "GroupedExpr");
                 let inner_id = self.visit_expr(*inner);
                 self.define_edge(&expr_id, &inner_id, None);
             }
-            Expr::Var(name) => {
+            ExprKind::Var(name) => {
                 let n = self.interner.lookup(name.raw);
                 let label = format!("VarRef\nname: {}\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label);
             }
-            Expr::Unary { op, expr: inner } => {
+            ExprKind::Unary { op, expr: inner } => {
                 let label = format!("UnaryOp\nop: {:?}", op);
                 self.define_node(&expr_id, &label);
                 let inner_id = self.visit_expr(*inner);
                 self.define_edge(&expr_id, &inner_id, Some("operand"));
             }
-            Expr::Binary { op, lhs, rhs } => {
+            ExprKind::Binary { op, lhs, rhs } => {
                 let label = format!("BinaryOp\nop: {:?}", op);
                 self.define_node(&expr_id, &label);
                 let lhs_id = self.visit_expr(*lhs);
@@ -315,7 +317,7 @@ impl<'a> AstMermaid<'a> {
                 let rhs_id = self.visit_expr(*rhs);
                 self.define_edge(&expr_id, &rhs_id, Some("rhs"));
             }
-            Expr::Ternary {
+            ExprKind::Ternary {
                 cond,
                 then,
                 otherwise,
@@ -328,7 +330,7 @@ impl<'a> AstMermaid<'a> {
                 let otherwise_id = self.visit_expr(*otherwise);
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
-            Expr::Call { name, args } => {
+            ExprKind::Call { name, args } => {
                 let n = self.interner.lookup(name.raw);
                 let label = format!("FunctionCall\nname: {}\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label);

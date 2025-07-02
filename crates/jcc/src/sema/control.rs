@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Ast, BlockItem, DeclKind, Stmt, StmtRef},
+    ast::{Ast, BlockItem, DeclKind, StmtKind, StmtRef},
     sema::SemaCtx,
 };
 
@@ -83,10 +83,11 @@ impl<'ctx> ControlPass<'ctx> {
         self.result
     }
 
-    fn visit_stmt(&mut self, ast: &Ast, stmt: StmtRef) {
-        match ast.stmt(stmt) {
-            Stmt::Empty | Stmt::Expr(_) | Stmt::Return(_) => {}
-            Stmt::If {
+    fn visit_stmt(&mut self, ast: &Ast, stmt_ref: StmtRef) {
+        let stmt = ast.stmt(stmt_ref);
+        match &stmt.kind {
+            StmtKind::Empty | StmtKind::Expr(_) | StmtKind::Return(_) => {}
+            StmtKind::If {
                 then, otherwise, ..
             } => {
                 self.visit_stmt(ast, *then);
@@ -94,45 +95,45 @@ impl<'ctx> ControlPass<'ctx> {
                     self.visit_stmt(ast, *otherwise);
                 }
             }
-            Stmt::While { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt));
+            StmtKind::While { body, .. } => {
+                self.tracked.push(TrackedStmt::Loop(stmt_ref));
                 self.visit_stmt(ast, *body);
                 self.tracked.pop();
             }
-            Stmt::DoWhile { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt));
+            StmtKind::DoWhile { body, .. } => {
+                self.tracked.push(TrackedStmt::Loop(stmt_ref));
                 self.visit_stmt(ast, *body);
                 self.tracked.pop();
             }
-            Stmt::For { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt));
+            StmtKind::For { body, .. } => {
+                self.tracked.push(TrackedStmt::Loop(stmt_ref));
                 self.visit_stmt(ast, *body);
                 self.tracked.pop();
             }
-            Stmt::Switch { body, .. } => {
-                self.tracked.push(TrackedStmt::Switch(stmt));
+            StmtKind::Switch { body, .. } => {
+                self.tracked.push(TrackedStmt::Switch(stmt_ref));
                 self.visit_stmt(ast, *body);
                 self.tracked.pop();
             }
-            Stmt::Goto(label) => {
+            StmtKind::Goto(label) => {
                 if !self.defined_labels.contains(label) {
                     self.unresolved_labels
                         .entry(*label)
                         .or_default()
-                        .push(*ast.stmt_span(stmt));
+                        .push(stmt.span);
                 }
             }
-            Stmt::Label { label, stmt: inner } => {
+            StmtKind::Label { label, stmt: inner } => {
                 if !self.defined_labels.insert(*label) {
                     self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.stmt_span(stmt),
+                        span: stmt.span,
                         kind: ControlDiagnosticKind::RedeclaredLabel,
                     });
                 }
                 self.unresolved_labels.remove(label);
                 self.visit_stmt(ast, *inner);
             }
-            Stmt::Compound(stmt) => {
+            StmtKind::Compound(stmt) => {
                 ast.block_items(*stmt)
                     .iter()
                     .for_each(|block_item| match block_item {
@@ -140,33 +141,33 @@ impl<'ctx> ControlPass<'ctx> {
                         BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
                     });
             }
-            Stmt::Break => match self.tracked.last() {
+            StmtKind::Break => match self.tracked.last() {
                 Some(TrackedStmt::Loop(loop_stmt)) => {
-                    self.ctx.breaks.insert(stmt, *loop_stmt);
+                    self.ctx.breaks.insert(stmt_ref, *loop_stmt);
                 }
                 Some(TrackedStmt::Switch(switch_stmt)) => {
-                    self.ctx.breaks.insert(stmt, *switch_stmt);
+                    self.ctx.breaks.insert(stmt_ref, *switch_stmt);
                 }
                 _ => self.result.diagnostics.push(ControlDiagnostic {
-                    span: *ast.stmt_span(stmt),
+                    span: stmt.span,
                     kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
                 }),
             },
-            Stmt::Continue => {
+            StmtKind::Continue => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Loop(loop_stmt) => Some(*loop_stmt),
                     _ => None,
                 }) {
                     Some(loop_stmt) => {
-                        self.ctx.continues.insert(stmt, loop_stmt);
+                        self.ctx.continues.insert(stmt_ref, loop_stmt);
                     }
                     None => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.stmt_span(stmt),
+                        span: stmt.span,
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
             }
-            Stmt::Case { stmt: inner, .. } => {
+            StmtKind::Case { stmt: inner, .. } => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
@@ -177,15 +178,15 @@ impl<'ctx> ControlPass<'ctx> {
                         .entry(*switch_stmt)
                         .or_default()
                         .cases
-                        .push(stmt),
+                        .push(stmt_ref),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.stmt_span(stmt),
+                        span: stmt.span,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
                 self.visit_stmt(ast, *inner);
             }
-            Stmt::Default(inner) => {
+            StmtKind::Default(inner) => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
@@ -193,15 +194,15 @@ impl<'ctx> ControlPass<'ctx> {
                     Some(switch_stmt) => {
                         let switch = self.ctx.switches.entry(*switch_stmt).or_default();
                         match switch.default {
-                            None => switch.default = Some(stmt),
+                            None => switch.default = Some(stmt_ref),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {
-                                span: *ast.stmt_span(stmt),
+                                span: stmt.span,
                                 kind: ControlDiagnosticKind::DuplicateDefault,
                             }),
                         }
                     }
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: *ast.stmt_span(stmt),
+                        span: stmt.span,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }

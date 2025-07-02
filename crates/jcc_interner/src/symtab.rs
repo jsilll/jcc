@@ -164,7 +164,7 @@ where
     /// Inserts a key-value pair into the current scope or the global table.
     /// If there are active scopes, the pair is inserted into the most recent one.
     /// Otherwise, it is inserted into the global table.
-    /// 
+    ///
     /// Returns `None` if the key was newly inserted in the current scope, or the previous value if it was updated.
     pub fn insert(&mut self, key: S, value: V) -> Option<V> {
         if !self.has_active_scope() {

@@ -100,8 +100,8 @@ pub struct SwitchCases {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolInfo {
-    ty: Type,
-    attr: Attribute,
+    pub ty: Type,
+    pub attr: Attribute,
 }
 
 impl SymbolInfo {

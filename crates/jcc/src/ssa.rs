@@ -1,139 +1,44 @@
-use crate::{
-    ast,
-    sema::{self, SemaSymbol},
-};
-
-use jcc_ssa::{
-    self as ssa,
-    interner::{Interner, Symbol},
-    sourcemap::SourceSpan,
-    Block, Func, StaticVar,
-};
-
 use std::collections::HashMap;
 
-// ---------------------------------------------------------------------------
-// Building SSA from AST
-// ---------------------------------------------------------------------------
+use jcc_ssa::{
+    builder::IRBuilder,
+    interner::{Interner, Symbol},
+    sourcemap::SourceSpan,
+    BinaryOp, BlockRef, FuncRef, Inst, InstRef, Program, Type, UnaryOp,
+};
 
-pub fn build(ast: &ast::Ast, sema: &sema::SemaCtx, interner: Interner) -> ssa::Program {
-    let mut prog = ssa::Program::new(interner);
-
-    // Bootstrap the builder with the first function declaration
-    let mut builder = None;
-    for decl_ref in ast.root() {
-        let decl = ast.decl(*decl_ref);
-        match decl.kind {
-            ast::DeclKind::Var(_) => continue,
-            ast::DeclKind::Func { body: None, .. } => continue,
-            ast::DeclKind::Func { body: Some(_), .. } => {
-                builder = Some(SSAFuncBuilder::new(
-                    ast, sema, &mut prog, *decl_ref, &decl.name,
-                ));
-                break;
-            }
-        }
-    }
-
-    if let Some(mut builder) = builder {
-        for decl_ref in ast.root() {
-            let decl = ast.decl(*decl_ref);
-            match decl.kind {
-                ast::DeclKind::Var(_) => {}
-                ast::DeclKind::Func { params, body, .. } => {
-                    builder.build_func(*decl_ref, &decl.name, params, body);
-                }
-            }
-        }
-    }
-
-    for decl_ref in ast.root() {
-        let decl = ast.decl(*decl_ref);
-        match decl.kind {
-            ast::DeclKind::Func { .. } => {}
-            ast::DeclKind::Var(_) => {
-                let info = sema
-                    .symbol(decl.name.sema())
-                    .expect("expected a sema symbol");
-                match info.attr {
-                    sema::Attribute::Local | sema::Attribute::Function { .. } => {}
-                    sema::Attribute::Static { init, is_global } => match init {
-                        sema::StaticValue::Tentative | sema::StaticValue::NoInitializer => {}
-                        sema::StaticValue::Initialized(init) => {
-                            prog.static_vars.insert(
-                                decl.name.raw,
-                                StaticVar {
-                                    is_global,
-                                    span: decl.span,
-                                    init: Some(init),
-                                    ty: ssa::Type::Int32,
-                                },
-                            );
-                        }
-                    },
-                }
-            }
-        }
-    }
-
-    prog
-}
+use crate::{
+    ast,
+    sema::{Attribute, SemaCtx, SemaSymbol},
+};
 
 // ---------------------------------------------------------------------------
-// SSAFuncBuilder
+// Builder
 // ---------------------------------------------------------------------------
 
-struct SSAFuncBuilder<'a> {
+pub struct Builder<'a> {
     ast: &'a ast::Ast,
-    sema: &'a sema::SemaCtx,
-    prog: &'a mut ssa::Program,
-    decl: ast::DeclRef,
-    func: ssa::FuncRef,
-    block: ssa::BlockRef,
-    funcs: HashMap<Symbol, ssa::FuncRef>,
-    vars: HashMap<SemaSymbol, ssa::InstRef>,
-    labeled_blocks: HashMap<Symbol, ssa::BlockRef>,
-    case_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
-    break_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
-    continue_blocks: HashMap<ast::StmtRef, ssa::BlockRef>,
+    sema: &'a SemaCtx,
+    builder: IRBuilder<'a>,
+
+    // TODO: group these fields into a context struct
+    funcs: HashMap<Symbol, FuncRef>,
+    vars: HashMap<SemaSymbol, InstRef>, // TODO: use a vector instead
+    labeled_blocks: HashMap<Symbol, BlockRef>,
+    case_blocks: HashMap<ast::StmtRef, BlockRef>,
+    break_blocks: HashMap<ast::StmtRef, BlockRef>,
+    continue_blocks: HashMap<ast::StmtRef, BlockRef>,
 }
 
-impl<'a> SSAFuncBuilder<'a> {
-    fn new(
-        ast: &'a ast::Ast,
-        sema: &'a sema::SemaCtx,
-        prog: &'a mut ssa::Program,
-        default_decl: ast::DeclRef,
-        default_name: &ast::AstSymbol,
-    ) -> Self {
-        let span = ast.decl(default_decl).span;
-        let is_global = sema
-            .symbol(default_name.sema())
-            .expect("expected a sema symbol")
-            .is_global();
-        let func = prog.new_func(Func {
-            span,
-            is_global,
-            name: default_name.raw,
-            ..Default::default()
-        });
-        let block_name = prog.interner.intern("entry");
-        let block = prog.new_block(Block {
-            span,
-            name: block_name,
-            ..Default::default()
-        });
-        prog.func_mut(func).blocks.push(block);
-        let funcs = HashMap::from([(default_name.raw, func)]);
+impl<'a> Builder<'a> {
+    pub fn new(ast: &'a ast::Ast, sema: &'a SemaCtx, interner: &'a mut Interner) -> Self {
         Self {
             ast,
             sema,
-            prog,
-            func,
-            funcs,
-            block,
-            decl: default_decl,
+            builder: IRBuilder::new(interner),
+
             vars: HashMap::new(),
+            funcs: HashMap::new(),
             case_blocks: HashMap::new(),
             break_blocks: HashMap::new(),
             labeled_blocks: HashMap::new(),
@@ -142,97 +47,7 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     #[inline]
-    fn clear(&mut self) {
-        self.vars.clear();
-        self.case_blocks.clear();
-        self.break_blocks.clear();
-        self.labeled_blocks.clear();
-        self.continue_blocks.clear();
-    }
-
-    fn build_func(
-        &mut self,
-        decl: ast::DeclRef,
-        name: &ast::AstSymbol,
-        params: ast::Slice<ast::DeclRef>,
-        body: Option<ast::Slice<ast::BlockItem>>,
-    ) {
-        // If the function declaration has changed, we need to update the function reference
-        if self.decl != decl {
-            self.decl = decl;
-            let span = self.ast.decl(decl).span;
-            let is_global = self
-                .sema
-                .symbol(name.sema())
-                .expect("expected a sema symbol")
-                .is_global();
-            self.func = *self
-                .funcs
-                .entry(name.raw)
-                .or_insert(self.prog.new_func(Func {
-                    span,
-                    is_global,
-                    name: name.raw,
-                    ..Default::default()
-                }));
-            if body.is_some() {
-                // Also create a new entry block for the function
-                let block_name = self.prog.interner.intern("entry");
-                self.block = self.prog.new_block(Block {
-                    span,
-                    name: block_name,
-                    ..Default::default()
-                });
-                self.prog.func_mut(self.func).blocks.push(self.block);
-            }
-        }
-
-        if let Some(body) = body {
-            self.clear();
-            self.ast.params(params).iter().for_each(|param| {
-                let span = self.ast.decl(*param).span;
-                let arg = self.prog.new_inst(ssa::Inst::arg(ssa::Type::Int32, span));
-                self.vars.insert(
-                    self.ast
-                        .decl(*param)
-                        .name
-                        .sema
-                        .get()
-                        .expect("expected a sema symbol"),
-                    arg,
-                );
-                self.append_to_block(arg);
-            });
-
-            self.ast
-                .block_items(body)
-                .iter()
-                .for_each(|item| match item {
-                    ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                });
-            let append_return = match self.ast.block_items(body).last() {
-                Some(ast::BlockItem::Stmt(stmt)) => {
-                    !matches!(self.ast.stmt(*stmt).kind, ast::StmtKind::Return(_))
-                }
-                _ => true,
-            };
-            if append_return {
-                let span = self.ast.decl(self.decl).span;
-                let val = self.prog.new_inst(ssa::Inst::const_i32(0, span));
-                let ret = self.prog.new_inst(ssa::Inst::ret(val, span));
-                self.append_slice_to_block(&[val, ret]);
-            }
-        }
-    }
-
-    #[inline]
-    fn append_to_block(&mut self, instr: ssa::InstRef) {
-        self.prog.block_mut(self.block).insts.push(instr);
-    }
-
-    #[inline]
-    fn get_var_ptr(&self, sym: SemaSymbol) -> ssa::InstRef {
+    fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
         self.vars
             .get(&sym)
             .copied()
@@ -240,44 +55,80 @@ impl<'a> SSAFuncBuilder<'a> {
     }
 
     #[inline]
-    fn append_slice_to_block(&mut self, instrs: &[ssa::InstRef]) {
-        self.prog
-            .block_mut(self.block)
-            .insts
-            .extend_from_slice(instrs);
+    fn get_or_make_labeled_block(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
+        *self
+            .labeled_blocks
+            .entry(name)
+            .or_insert_with(|| self.builder.new_block_interned(name, span))
     }
 
-    #[inline]
-    fn get_or_make_labeled_block(&mut self, label: Symbol, span: SourceSpan) -> ssa::BlockRef {
-        *self.labeled_blocks.entry(label).or_insert_with(|| {
-            let block = self.prog.new_block(Block {
-                span,
-                name: label,
-                ..Default::default()
-            });
-            self.prog.func_mut(self.func).blocks.push(block);
-            block
-        })
+    pub fn build(mut self) -> Program<'a> {
+        self.ast.root().iter().for_each(|decl_ref| {
+            let decl = self.ast.decl(*decl_ref);
+            match decl.kind {
+                ast::DeclKind::Var(_) => todo!("handle variable declarations"),
+                ast::DeclKind::Func { params, body } => {
+                    let is_global = self
+                        .sema
+                        .symbol(decl.name.sema())
+                        .expect("expected a sema symbol")
+                        .is_global();
+
+                    let func = self.builder.new_func(decl.name.raw, is_global, decl.span);
+                    self.builder.switch_to_func(func);
+
+                    if body.is_some() {
+                        let block = self.builder.new_block("entry", decl.span);
+                        self.builder.switch_to_block(block);
+                    }
+
+                    if let Some(body) = body {
+                        // TODO: self.clear();
+
+                        self.ast.params(params).iter().for_each(|param_ref| {
+                            let param = self.ast.decl(*param_ref);
+                            let arg = self.builder.insert_inst(Inst::arg(Type::Int32, param.span));
+                            self.vars.insert(param.name.sema(), arg);
+                        });
+
+                        self.ast
+                            .block_items(body)
+                            .iter()
+                            .for_each(|item| match item {
+                                ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                                ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                            });
+
+                        let append_return = match self.ast.block_items(body).last() {
+                            Some(ast::BlockItem::Stmt(stmt)) => {
+                                !matches!(self.ast.stmt(*stmt).kind, ast::StmtKind::Return(_))
+                            }
+                            _ => true,
+                        };
+
+                        if append_return {
+                            let val = self.builder.insert_inst(Inst::const_i32(0, decl.span));
+                            self.builder.insert_inst(Inst::ret(val, decl.span));
+                        }
+                    }
+                }
+            }
+        });
+        self.builder.build()
     }
 
-    fn visit_decl(&mut self, decl: ast::DeclRef) {
-        if let ast::DeclKind::Var(init) = self.ast.decl(decl).kind {
-            let span = self.ast.decl(decl).span;
-            let alloca = self.prog.new_inst(ssa::Inst::alloca(span));
-            self.append_to_block(alloca);
-            self.vars.insert(
-                self.ast
-                    .decl(decl)
-                    .name
-                    .sema
-                    .get()
-                    .expect("expected a sema symbol"),
-                alloca,
-            );
-            if let Some(init) = init {
-                let val = self.visit_expr(init, ExprMode::RightValue);
-                let store = self.prog.new_inst(ssa::Inst::store(alloca, val, span));
-                self.append_to_block(store);
+    fn visit_decl(&mut self, decl_ref: ast::DeclRef) {
+        let decl = self.ast.decl(decl_ref);
+        match decl.kind {
+            ast::DeclKind::Func { .. } => {}
+            ast::DeclKind::Var(init) => {
+                let alloca = self.builder.insert_inst(Inst::alloca(decl.span));
+                self.vars.insert(decl.name.sema(), alloca);
+                if let Some(init) = init {
+                    let val = self.visit_expr(init, ExprMode::RightValue);
+                    self.builder
+                        .insert_inst(Inst::store(alloca, val, decl.span));
+                }
             }
         }
     }
@@ -296,63 +147,8 @@ impl<'a> SSAFuncBuilder<'a> {
                             .expect("expected a break block"),
                     )
                     .expect("expected a break block");
-                let jump = self.prog.new_inst(ssa::Inst::jump(*block, stmt.span));
-                self.append_to_block(jump);
-            }
-            ast::StmtKind::Expr(expr) => {
-                self.visit_expr(*expr, ExprMode::RightValue);
-            }
-            ast::StmtKind::Return(expr) => {
-                let val = self.visit_expr(*expr, ExprMode::RightValue);
-                let inst = self.prog.new_inst(ssa::Inst::ret(val, stmt.span));
-                self.append_to_block(inst);
-            }
-            ast::StmtKind::Goto(label) => {
-                let block = self.get_or_make_labeled_block(*label, stmt.span);
-                let inst = self.prog.new_inst(ssa::Inst::jump(block, stmt.span));
-                self.append_to_block(inst);
-            }
-            ast::StmtKind::Label { label, stmt: inner } => {
-                let block = self.get_or_make_labeled_block(*label, stmt.span);
-                let inst = self.prog.new_inst(ssa::Inst::jump(block, stmt.span));
-                self.append_to_block(inst);
 
-                // === Labeled Block ===
-                self.block = block;
-                self.visit_stmt(*inner);
-            }
-            ast::StmtKind::Compound(items) => {
-                self.ast
-                    .block_items(*items)
-                    .iter()
-                    .for_each(|item| match item {
-                        ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                        ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    });
-            }
-            ast::StmtKind::Default(inner) => {
-                let block = self
-                    .case_blocks
-                    .remove(&stmt_ref)
-                    .expect("expected a case block");
-
-                // === Default Block ===
-                self.block = block;
-                self.visit_stmt(*inner);
-            }
-            ast::StmtKind::Case { stmt: inner, .. } => {
-                let block = self
-                    .case_blocks
-                    .remove(&stmt_ref)
-                    .expect("expected a case block");
-
-                // === Previous Block ===
-                let jump = self.prog.new_inst(ssa::Inst::jump(block, stmt.span));
-                self.append_to_block(jump);
-
-                // === Case Block ===
-                self.block = block;
-                self.visit_stmt(*inner);
+                self.builder.insert_inst(Inst::jump(*block, stmt.span));
             }
             ast::StmtKind::Continue => {
                 let block = self
@@ -364,8 +160,59 @@ impl<'a> SSAFuncBuilder<'a> {
                             .expect("expected a continue block"),
                     )
                     .expect("expected a continue block");
-                let jump = self.prog.new_inst(ssa::Inst::jump(*block, stmt.span));
-                self.append_to_block(jump);
+
+                self.builder.insert_inst(Inst::jump(*block, stmt.span));
+            }
+            ast::StmtKind::Expr(expr) => {
+                self.visit_expr(*expr, ExprMode::RightValue);
+            }
+            ast::StmtKind::Return(expr) => {
+                let val = self.visit_expr(*expr, ExprMode::RightValue);
+                self.builder.insert_inst(Inst::ret(val, stmt.span));
+            }
+            ast::StmtKind::Goto(label) => {
+                let block = self.get_or_make_labeled_block(*label, stmt.span);
+                self.builder.insert_inst(Inst::jump(block, stmt.span));
+            }
+            ast::StmtKind::Default(inner) => {
+                let block = self
+                    .case_blocks
+                    .remove(&stmt_ref)
+                    .expect("expected a case block");
+
+                // === Default Block ===
+                self.builder.switch_to_block(block);
+                self.visit_stmt(*inner);
+            }
+            ast::StmtKind::Compound(items) => {
+                self.ast
+                    .block_items(*items)
+                    .iter()
+                    .for_each(|item| match item {
+                        ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    });
+            }
+            ast::StmtKind::Label { label, stmt: inner } => {
+                let block = self.get_or_make_labeled_block(*label, stmt.span);
+                self.builder.insert_inst(Inst::jump(block, stmt.span));
+
+                // === Labeled Block ===
+                self.builder.switch_to_block(block);
+                self.visit_stmt(*inner);
+            }
+            ast::StmtKind::Case { stmt: inner, .. } => {
+                let block = self
+                    .case_blocks
+                    .remove(&stmt_ref)
+                    .expect("expected a case block");
+
+                // === Previous Block ===
+                self.builder.insert_inst(Inst::jump(block, stmt.span));
+
+                // === Case Block ===
+                self.builder.switch_to_block(block);
+                self.visit_stmt(*inner);
             }
             ast::StmtKind::If {
                 cond,
@@ -373,36 +220,20 @@ impl<'a> SSAFuncBuilder<'a> {
                 otherwise: None,
             } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let then_name = self.prog.interner.intern("if.then");
-                let if_name = self.prog.interner.intern("if.cont");
-                let then_block = self.prog.new_block(Block {
-                    name: then_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: if_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[then_block, cont_block]);
 
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, then_block, cont_block, stmt.span,
-                ));
-                self.append_to_block(branch);
+                let then_block = self.builder.new_block("if.then", stmt.span);
+                let cont_block = self.builder.new_block("if.cont", stmt.span);
+
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, then_block, cont_block, stmt.span));
 
                 // === Then Block ===
-                self.block = then_block;
+                self.builder.switch_to_block(then_block);
                 self.visit_stmt(*then);
-                let jmp_then = self.prog.new_inst(ssa::Inst::jump(cont_block, stmt.span));
-                self.append_to_block(jmp_then);
+                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::If {
                 cond,
@@ -410,143 +241,79 @@ impl<'a> SSAFuncBuilder<'a> {
                 otherwise: Some(otherwise),
             } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let then_name = self.prog.interner.intern("if.then");
-                let else_name = self.prog.interner.intern("if.else");
-                let if_name = self.prog.interner.intern("if.cont");
-                let then_block = self.prog.new_block(Block {
-                    name: then_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let else_block = self.prog.new_block(Block {
-                    name: else_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: if_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[then_block, else_block, cont_block]);
 
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, then_block, else_block, stmt.span,
-                ));
-                self.append_to_block(branch);
+                let then_block = self.builder.new_block("if.then", stmt.span);
+                let else_block = self.builder.new_block("if.else", stmt.span);
+                let cont_block = self.builder.new_block("if.cont", stmt.span);
+
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, then_block, else_block, stmt.span));
 
                 // === Then Block ===
-                self.block = then_block;
+                self.builder.switch_to_block(then_block);
                 self.visit_stmt(*then);
-                let jmp_then = self.prog.new_inst(ssa::Inst::jump(cont_block, stmt.span));
-                self.append_to_block(jmp_then);
+                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Else Block ===
-                self.block = else_block;
+                self.builder.switch_to_block(else_block);
                 self.visit_stmt(*otherwise);
-                let jmp_else = self.prog.new_inst(ssa::Inst::jump(cont_block, stmt.span));
-                self.append_to_block(jmp_else);
+                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::While { cond, body } => {
-                let cond_name = self.prog.interner.intern("while.cond");
-                let body_name = self.prog.interner.intern("while.cond");
-                let cont_name = self.prog.interner.intern("while.cond");
-                let cond_block = self.prog.new_block(Block {
-                    name: cond_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let body_block = self.prog.new_block(Block {
-                    name: body_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
+                let cond_block = self.builder.new_block("while.cond", stmt.span);
+                let body_block = self.builder.new_block("while.body", stmt.span);
+                let cont_block = self.builder.new_block("while.cont", stmt.span);
+
                 self.break_blocks.insert(stmt_ref, cont_block);
                 self.continue_blocks.insert(stmt_ref, cond_block);
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[cond_block, body_block, cont_block]);
 
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.block = cond_block;
+                self.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, body_block, cont_block, stmt.span,
-                ));
-                self.append_to_block(branch);
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Body Block ===
-                self.block = body_block;
+                self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
+
                 self.break_blocks.remove(&stmt_ref);
                 self.continue_blocks.remove(&stmt_ref);
             }
             ast::StmtKind::DoWhile { body, cond } => {
-                let body_name = self.prog.interner.intern("do.body");
-                let cond_name = self.prog.interner.intern("do.cond");
-                let cont_name = self.prog.interner.intern("do.cont");
-                let body_block = self.prog.new_block(Block {
-                    name: body_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cond_block = self.prog.new_block(Block {
-                    name: cond_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
+                let body_block = self.builder.new_block("do.body", stmt.span);
+                let cond_block = self.builder.new_block("do.cond", stmt.span);
+                let cont_block = self.builder.new_block("do.cont", stmt.span);
+
                 self.break_blocks.insert(stmt_ref, cont_block);
                 self.continue_blocks.insert(stmt_ref, cond_block);
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[body_block, cond_block, cont_block]);
 
                 // === Jump to Body Block ===
-                let jump = self.prog.new_inst(ssa::Inst::jump(body_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Body Block ===
-                self.block = body_block;
+                self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.block = cond_block;
+                self.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, body_block, cont_block, stmt.span,
-                ));
-                self.append_to_block(branch);
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
+
                 self.break_blocks.remove(&stmt_ref);
                 self.continue_blocks.remove(&stmt_ref);
             }
@@ -556,24 +323,11 @@ impl<'a> SSAFuncBuilder<'a> {
                 step: None,
                 body,
             } => {
-                let body_name = self.prog.interner.intern("for.body");
-                let cont_name = self.prog.interner.intern("for.cont");
-                let body_block = self.prog.new_block(Block {
-                    name: body_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
+                let body_block = self.builder.new_block("for.body", stmt.span);
+                let cont_block = self.builder.new_block("for.cont", stmt.span);
+
                 self.break_blocks.insert(stmt_ref, cont_block);
                 self.continue_blocks.insert(stmt_ref, body_block);
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[body_block, cont_block]);
 
                 if let Some(init) = init {
                     match init {
@@ -585,17 +339,16 @@ impl<'a> SSAFuncBuilder<'a> {
                         }
                     }
                 }
-                let jump = self.prog.new_inst(ssa::Inst::jump(body_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Body Block ===
-                self.block = body_block;
+                self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(body_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
+
                 self.break_blocks.remove(&stmt_ref);
                 self.continue_blocks.remove(&stmt_ref);
             }
@@ -605,30 +358,12 @@ impl<'a> SSAFuncBuilder<'a> {
                 step: None,
                 body,
             } => {
-                let cond_name = self.prog.interner.intern("for.cond");
-                let body_name = self.prog.interner.intern("for.body");
-                let cont_name = self.prog.interner.intern("for.cont");
-                let cond_block = self.prog.new_block(Block {
-                    name: cond_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let body_block = self.prog.new_block(Block {
-                    name: body_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
+                let cond_block = self.builder.new_block("for.cond", stmt.span);
+                let body_block = self.builder.new_block("for.body", stmt.span);
+                let cont_block = self.builder.new_block("for.cont", stmt.span);
+
                 self.break_blocks.insert(stmt_ref, cont_block);
                 self.continue_blocks.insert(stmt_ref, cond_block);
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[cond_block, body_block, cont_block]);
 
                 if let Some(init) = init {
                     match init {
@@ -640,25 +375,22 @@ impl<'a> SSAFuncBuilder<'a> {
                         }
                     }
                 }
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.block = cond_block;
+                self.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, body_block, cont_block, stmt.span,
-                ));
-                self.append_to_block(branch);
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Body Block ===
-                self.block = body_block;
+                self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
+
                 self.break_blocks.remove(&stmt_ref);
                 self.continue_blocks.remove(&stmt_ref);
             }
@@ -668,30 +400,12 @@ impl<'a> SSAFuncBuilder<'a> {
                 step: Some(step),
                 body,
             } => {
-                let step_name = self.prog.interner.intern("for.step");
-                let body_name = self.prog.interner.intern("for.body");
-                let cont_name = self.prog.interner.intern("for.cont");
-                let step_block = self.prog.new_block(Block {
-                    name: step_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let body_block = self.prog.new_block(Block {
-                    name: body_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
+                let step_block = self.builder.new_block("for.step", stmt.span);
+                let body_block = self.builder.new_block("for.body", stmt.span);
+                let cont_block = self.builder.new_block("for.cont", stmt.span);
+
                 self.break_blocks.insert(stmt_ref, cont_block);
                 self.continue_blocks.insert(stmt_ref, step_block);
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[step_block, body_block, cont_block]);
 
                 if let Some(init) = init {
                     match init {
@@ -703,23 +417,21 @@ impl<'a> SSAFuncBuilder<'a> {
                         }
                     }
                 }
-                let jump = self.prog.new_inst(ssa::Inst::jump(body_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Step Block ===
-                self.block = step_block;
+                self.builder.switch_to_block(step_block);
                 self.visit_expr(*step, ExprMode::RightValue);
-                let jump = self.prog.new_inst(ssa::Inst::jump(body_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Body Block ===
-                self.block = body_block;
+                self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(step_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(step_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
+
                 self.break_blocks.remove(&stmt_ref);
                 self.continue_blocks.remove(&stmt_ref);
             }
@@ -729,36 +441,13 @@ impl<'a> SSAFuncBuilder<'a> {
                 step: Some(step),
                 body,
             } => {
-                let cond_name = self.prog.interner.intern("for.cond");
-                let step_name = self.prog.interner.intern("for.step");
-                let body_name = self.prog.interner.intern("for.body");
-                let cont_name = self.prog.interner.intern("for.cont");
-                let cond_block = self.prog.new_block(Block {
-                    name: cond_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let step_block = self.prog.new_block(Block {
-                    name: step_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let body_block = self.prog.new_block(Block {
-                    name: body_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
+                let cond_block = self.builder.new_block("for.cond", stmt.span);
+                let step_block = self.builder.new_block("for.step", stmt.span);
+                let body_block = self.builder.new_block("for.body", stmt.span);
+                let cont_block = self.builder.new_block("for.cont", stmt.span);
+
                 self.break_blocks.insert(stmt_ref, cont_block);
                 self.continue_blocks.insert(stmt_ref, step_block);
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[cond_block, step_block, body_block, cont_block]);
 
                 if let Some(init) = init {
                     match init {
@@ -770,31 +459,27 @@ impl<'a> SSAFuncBuilder<'a> {
                         }
                     }
                 }
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.block = cond_block;
+                self.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, body_block, cont_block, stmt.span,
-                ));
-                self.append_to_block(branch);
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Step Block ===
-                self.block = step_block;
+                self.builder.switch_to_block(step_block);
                 self.visit_expr(*step, ExprMode::RightValue);
-                let jump = self.prog.new_inst(ssa::Inst::jump(cond_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Body Block ===
-                self.block = body_block;
+                self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(step_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(step_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
+
                 self.break_blocks.remove(&stmt_ref);
                 self.continue_blocks.remove(&stmt_ref);
             }
@@ -803,72 +488,70 @@ impl<'a> SSAFuncBuilder<'a> {
                 let mut default_block = None;
                 if let Some(switch) = self.sema.switches.get(&stmt_ref) {
                     cases.reserve(switch.cases.len());
-                    switch.cases.iter().for_each(|inner| {
-                        if let ast::StmtKind::Case { expr, .. } = &self.ast.stmt(*inner).kind {
-                            let val = match self.ast.expr(*expr).kind {
+                    switch.cases.iter().for_each(|inner_ref| {
+                        let inner = self.ast.stmt(*inner_ref);
+                        if let ast::StmtKind::Case { expr, .. } = inner.kind {
+                            let val = match self.ast.expr(expr).kind {
                                 ast::ExprKind::Const(c) => c,
                                 _ => panic!("expected a constant expression"),
                             };
-                            let case_name = self.prog.interner.intern("switch.case");
-                            let case_block = self.prog.new_block(Block {
-                                name: case_name,
-                                span: stmt.span,
-                                ..Default::default()
-                            });
-                            self.prog.func_mut(self.func).blocks.push(case_block);
-                            self.case_blocks.insert(*inner, case_block);
+                            let case_block = self.builder.new_block("switch.case", inner.span);
+                            self.case_blocks.insert(*inner_ref, case_block);
                             cases.push((val, case_block));
                         }
                     });
                     if let Some(inner) = switch.default {
-                        let default_name = self.prog.interner.intern("switch.default");
-                        let block = self.prog.new_block(Block {
-                            name: default_name,
-                            span: stmt.span,
-                            ..Default::default()
-                        });
-                        self.prog.func_mut(self.func).blocks.push(block);
+                        let block = self
+                            .builder
+                            .new_block("switch.default", self.ast.stmt(inner).span);
                         self.case_blocks.insert(inner, block);
                         default_block = Some(block);
                     }
                 }
 
-                let cont_name = self.prog.interner.intern("switch.cont");
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: stmt.span,
-                    ..Default::default()
-                });
-                self.prog.func_mut(self.func).blocks.push(cont_block);
+                let cont_block = self.builder.new_block("switch.cont", stmt.span);
                 self.break_blocks.insert(stmt_ref, cont_block);
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let switch = self.prog.new_inst(ssa::Inst::switch(
+                self.builder.insert_inst(Inst::switch(
                     cond_val,
                     default_block.unwrap_or(cont_block),
                     cases,
                     stmt.span,
                 ));
-                self.append_to_block(switch);
 
                 self.visit_stmt(*body);
-                let jump = self.prog.new_inst(ssa::Inst::jump(cont_block, stmt.span));
-                self.append_to_block(jump);
+                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
+                self.builder.switch_to_block(cont_block);
             }
         }
     }
 
-    fn visit_expr(&mut self, expr: ast::ExprRef, mode: ExprMode) -> ssa::InstRef {
+    fn visit_expr(&mut self, expr: ast::ExprRef, mode: ExprMode) -> InstRef {
         let expr = self.ast.expr(expr);
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
-            ast::ExprKind::Const(c) => {
-                let inst = self.prog.new_inst(ssa::Inst::const_i32(*c, expr.span));
-                self.append_to_block(inst);
-                inst
+            ast::ExprKind::Const(c) => self.builder.insert_inst(Inst::const_i32(*c, expr.span)),
+            ast::ExprKind::Var(name) => {
+                let info = self
+                    .sema
+                    .symbol(name.sema())
+                    .expect("expected a sema symbol");
+                match info.attr {
+                    Attribute::Static { .. } => todo!("handle static variables"),
+                    Attribute::Function { .. } => todo!("handle function variables"),
+                    Attribute::Local => {
+                        let ptr = self.get_var_ptr(name.sema());
+                        match mode {
+                            ExprMode::LeftValue => ptr,
+                            ExprMode::RightValue => {
+                                self.builder.insert_inst(Inst::load(ptr, expr.span))
+                            }
+                        }
+                    }
+                }
             }
             ast::ExprKind::Call { name, args, .. } => {
                 let args = self
@@ -885,146 +568,91 @@ impl<'a> SSAFuncBuilder<'a> {
                 let func = *self
                     .funcs
                     .entry(name.raw)
-                    .or_insert(self.prog.new_func(Func {
-                        is_global,
-                        name: name.raw,
-                        span: expr.span,
-                        ..Default::default()
-                    }));
-                let inst = self.prog.new_inst(ssa::Inst::call(func, args, expr.span));
-                self.append_to_block(inst);
-                inst
-            }
-            ast::ExprKind::Var(name) => {
-                let info = self
-                    .sema
-                    .symbol(name.sema())
-                    .expect("expected a sema symbol");
-                match info.attr {
-                    sema::Attribute::Local => {
-                        let ptr = self.get_var_ptr(name.sema());
-                        match mode {
-                            ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => {
-                                let inst = self.prog.new_inst(ssa::Inst::load(ptr, expr.span));
-                                self.append_to_block(inst);
-                                inst
-                            }
-                        }
-                    }
-                    sema::Attribute::Static { .. } => todo!("handle static variables"),
-                    sema::Attribute::Function { .. } => todo!("handle function variables"),
-                }
+                    .or_insert(self.builder.new_func(name.raw, is_global, expr.span));
+                self.builder.insert_inst(Inst::call(func, args, expr.span))
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
-                ast::UnaryOp::Neg => self.build_unary(ssa::UnaryOp::Neg, *inner, expr.span),
-                ast::UnaryOp::BitNot => self.build_unary(ssa::UnaryOp::Not, *inner, expr.span),
-                ast::UnaryOp::PreInc => {
-                    self.build_prefix_unary(ssa::UnaryOp::Inc, *inner, expr.span)
-                }
-                ast::UnaryOp::PreDec => {
-                    self.build_prefix_unary(ssa::UnaryOp::Dec, *inner, expr.span)
-                }
-                ast::UnaryOp::PostInc => {
-                    self.build_postfix_unary(ssa::UnaryOp::Inc, *inner, expr.span)
-                }
-                ast::UnaryOp::PostDec => {
-                    self.build_postfix_unary(ssa::UnaryOp::Dec, *inner, expr.span)
-                }
+                ast::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, *inner, expr.span),
+                ast::UnaryOp::BitNot => self.build_unary(UnaryOp::Not, *inner, expr.span),
+                ast::UnaryOp::PreInc => self.build_prefix_unary(UnaryOp::Inc, *inner, expr.span),
+                ast::UnaryOp::PreDec => self.build_prefix_unary(UnaryOp::Dec, *inner, expr.span),
+                ast::UnaryOp::PostInc => self.build_postfix_unary(UnaryOp::Inc, *inner, expr.span),
+                ast::UnaryOp::PostDec => self.build_postfix_unary(UnaryOp::Dec, *inner, expr.span),
                 ast::UnaryOp::LogicalNot => {
                     let val = self.visit_expr(*inner, ExprMode::RightValue);
-
-                    let zero = self.prog.new_inst(ssa::Inst::const_i32(0, expr.span));
-                    let cmp = self.prog.new_inst(ssa::Inst::binary(
-                        ssa::Type::Int32,
-                        ssa::BinaryOp::Equal,
+                    let zero = self.builder.insert_inst(Inst::const_i32(0, expr.span));
+                    self.builder.insert_inst(Inst::binary(
+                        Type::Int32,
+                        BinaryOp::Equal,
                         val,
                         zero,
                         expr.span,
-                    ));
-
-                    self.append_slice_to_block(&[zero, cmp]);
-                    cmp
+                    ))
                 }
             },
             ast::ExprKind::Binary { op, lhs, rhs } => match op {
-                ast::BinaryOp::LogicalOr => {
-                    self.build_short_circuit(LogicalOp::Or, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::LogicalAnd => {
-                    self.build_short_circuit(LogicalOp::And, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::Equal => {
-                    self.build_binary(ssa::BinaryOp::Equal, *lhs, *rhs, expr.span)
-                }
+                ast::BinaryOp::LogicalOr => self.build_sc(LogicalOp::Or, *lhs, *rhs, expr.span),
+                ast::BinaryOp::LogicalAnd => self.build_sc(LogicalOp::And, *lhs, *rhs, expr.span),
+                ast::BinaryOp::Equal => self.build_bin(BinaryOp::Equal, *lhs, *rhs, expr.span),
                 ast::BinaryOp::NotEqual => {
-                    self.build_binary(ssa::BinaryOp::NotEqual, *lhs, *rhs, expr.span)
+                    self.build_bin(BinaryOp::NotEqual, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::LessThan => {
-                    self.build_binary(ssa::BinaryOp::LessThan, *lhs, *rhs, expr.span)
+                    self.build_bin(BinaryOp::LessThan, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::LessEqual => {
-                    self.build_binary(ssa::BinaryOp::LessEqual, *lhs, *rhs, expr.span)
+                    self.build_bin(BinaryOp::LessEqual, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::GreaterThan => {
-                    self.build_binary(ssa::BinaryOp::GreaterThan, *lhs, *rhs, expr.span)
+                    self.build_bin(BinaryOp::GreaterThan, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::GreaterEqual => {
-                    self.build_binary(ssa::BinaryOp::GreaterEqual, *lhs, *rhs, expr.span)
+                    self.build_bin(BinaryOp::GreaterEqual, *lhs, *rhs, expr.span)
                 }
-                ast::BinaryOp::Add => self.build_binary(ssa::BinaryOp::Add, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Sub => self.build_binary(ssa::BinaryOp::Sub, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Mul => self.build_binary(ssa::BinaryOp::Mul, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Div => self.build_binary(ssa::BinaryOp::Div, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Rem => self.build_binary(ssa::BinaryOp::Rem, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitOr => self.build_binary(ssa::BinaryOp::Or, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitAnd => {
-                    self.build_binary(ssa::BinaryOp::And, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitXor => {
-                    self.build_binary(ssa::BinaryOp::Xor, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitShl => {
-                    self.build_binary(ssa::BinaryOp::Shl, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitShr => {
-                    self.build_binary(ssa::BinaryOp::Shr, *lhs, *rhs, expr.span)
-                }
+                ast::BinaryOp::Add => self.build_bin(BinaryOp::Add, *lhs, *rhs, expr.span),
+                ast::BinaryOp::Sub => self.build_bin(BinaryOp::Sub, *lhs, *rhs, expr.span),
+                ast::BinaryOp::Mul => self.build_bin(BinaryOp::Mul, *lhs, *rhs, expr.span),
+                ast::BinaryOp::Div => self.build_bin(BinaryOp::Div, *lhs, *rhs, expr.span),
+                ast::BinaryOp::Rem => self.build_bin(BinaryOp::Rem, *lhs, *rhs, expr.span),
+                ast::BinaryOp::BitOr => self.build_bin(BinaryOp::Or, *lhs, *rhs, expr.span),
+                ast::BinaryOp::BitAnd => self.build_bin(BinaryOp::And, *lhs, *rhs, expr.span),
+                ast::BinaryOp::BitXor => self.build_bin(BinaryOp::Xor, *lhs, *rhs, expr.span),
+                ast::BinaryOp::BitShl => self.build_bin(BinaryOp::Shl, *lhs, *rhs, expr.span),
+                ast::BinaryOp::BitShr => self.build_bin(BinaryOp::Shr, *lhs, *rhs, expr.span),
                 ast::BinaryOp::AddAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Add, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Add, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::SubAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Sub, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Sub, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::MulAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Mul, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Mul, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::DivAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Div, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Div, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::RemAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Rem, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Rem, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::BitOrAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Or, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Or, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::BitAndAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::And, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::And, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::BitXorAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Xor, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Xor, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::BitShlAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Shl, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Shl, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::BitShrAssign => {
-                    self.build_binary_assign(ssa::BinaryOp::Shr, *lhs, *rhs, expr.span)
+                    self.build_bin_asgn(BinaryOp::Shr, *lhs, *rhs, expr.span)
                 }
                 ast::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let store = self.prog.new_inst(ssa::Inst::store(lhs, rhs, expr.span));
-                    self.append_to_block(store);
+                    self.builder.insert_inst(Inst::store(lhs, rhs, expr.span));
                     match mode {
                         ExprMode::LeftValue => lhs,
                         ExprMode::RightValue => rhs,
@@ -1038,237 +666,163 @@ impl<'a> SSAFuncBuilder<'a> {
             } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
 
-                let then_name = self.prog.interner.intern("tern.then");
-                let else_name = self.prog.interner.intern("tern.else");
-                let cont_name = self.prog.interner.intern("tern.cont");
-                let then_block = self.prog.new_block(Block {
-                    name: then_name,
-                    span: expr.span,
-                    ..Default::default()
-                });
-                let else_block = self.prog.new_block(Block {
-                    name: else_name,
-                    span: expr.span,
-                    ..Default::default()
-                });
-                let cont_block = self.prog.new_block(Block {
-                    name: cont_name,
-                    span: expr.span,
-                    ..Default::default()
-                });
-                self.prog
-                    .func_mut(self.func)
-                    .blocks
-                    .extend_from_slice(&[then_block, else_block, cont_block]);
+                let then_block = self.builder.new_block("tern.then", expr.span);
+                let else_block = self.builder.new_block("tern.else", expr.span);
+                let cont_block = self.builder.new_block("tern.cont", expr.span);
 
                 let phi = self
-                    .prog
-                    .new_inst(ssa::Inst::phi(ssa::Type::Int32, expr.span));
+                    .builder
+                    .insert_inst_skip(Inst::phi(Type::Int32, expr.span));
 
-                let branch = self.prog.new_inst(ssa::Inst::branch(
-                    cond_val, then_block, else_block, expr.span,
-                ));
-                self.append_to_block(branch);
+                self.builder
+                    .insert_inst(Inst::branch(cond_val, then_block, else_block, expr.span));
 
                 // === Then Block ===
-                self.block = then_block;
+                self.builder.switch_to_block(then_block);
                 let then_val = self.visit_expr(*then, ExprMode::RightValue);
-                let upsilon = self
-                    .prog
-                    .new_inst(ssa::Inst::upsilon(phi, then_val, expr.span));
-                let jmp_then = self.prog.new_inst(ssa::Inst::jump(cont_block, expr.span));
-                self.append_slice_to_block(&[upsilon, jmp_then]);
+                self.builder
+                    .insert_inst(Inst::upsilon(phi, then_val, expr.span));
+                self.builder.insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Else Block ===
-                self.block = else_block;
+                self.builder.switch_to_block(else_block);
                 let else_val = self.visit_expr(*otherwise, ExprMode::RightValue);
-                let upsilon = self
-                    .prog
-                    .new_inst(ssa::Inst::upsilon(phi, else_val, expr.span));
-                let jmp_else = self.prog.new_inst(ssa::Inst::jump(cont_block, expr.span));
-                self.append_slice_to_block(&[upsilon, jmp_else]);
+                self.builder
+                    .insert_inst(Inst::upsilon(phi, else_val, expr.span));
+                self.builder.insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Merge Block ===
-                self.block = cont_block;
-                self.append_to_block(phi);
+                self.builder.switch_to_block(cont_block);
+                self.builder.insert_inst_ref(phi);
                 phi
             }
         }
     }
 
-    fn build_unary(
-        &mut self,
-        op: ssa::UnaryOp,
-        expr: ast::ExprRef,
-        span: SourceSpan,
-    ) -> ssa::InstRef {
+    fn build_unary(&mut self, op: UnaryOp, expr: ast::ExprRef, span: SourceSpan) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        let inst = self
-            .prog
-            .new_inst(ssa::Inst::unary(ssa::Type::Int32, op, val, span));
-        self.append_to_block(inst);
-
-        inst
+        self.builder
+            .insert_inst(Inst::unary(Type::Int32, op, val, span))
     }
 
-    fn build_prefix_unary(
-        &mut self,
-        op: ssa::UnaryOp,
-        expr: ast::ExprRef,
-        span: SourceSpan,
-    ) -> ssa::InstRef {
+    fn build_prefix_unary(&mut self, op: UnaryOp, expr: ast::ExprRef, span: SourceSpan) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         let inst = self
-            .prog
-            .new_inst(ssa::Inst::unary(ssa::Type::Int32, op, val, span));
-        self.append_to_block(inst);
+            .builder
+            .insert_inst(Inst::unary(Type::Int32, op, val, span));
 
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
-        let store = self.prog.new_inst(ssa::Inst::store(ptr, inst, span));
-        self.append_to_block(store);
+        self.builder.insert_inst(Inst::store(ptr, inst, span));
 
         inst
     }
 
     fn build_postfix_unary(
         &mut self,
-        op: ssa::UnaryOp,
+        op: UnaryOp,
         expr: ast::ExprRef,
         span: SourceSpan,
-    ) -> ssa::InstRef {
+    ) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         let inst = self
-            .prog
-            .new_inst(ssa::Inst::unary(ssa::Type::Int32, op, val, span));
-        self.append_to_block(inst);
+            .builder
+            .insert_inst(Inst::unary(Type::Int32, op, val, span));
 
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
-        let store = self.prog.new_inst(ssa::Inst::store(ptr, inst, span));
-        self.append_to_block(store);
+        self.builder.insert_inst(Inst::store(ptr, inst, span));
 
         val
     }
 
-    fn build_binary(
+    fn build_bin(
         &mut self,
-        op: ssa::BinaryOp,
+        op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
         span: SourceSpan,
-    ) -> ssa::InstRef {
+    ) -> InstRef {
         let lhs = self.visit_expr(lhs, ExprMode::RightValue);
         let rhs = self.visit_expr(rhs, ExprMode::RightValue);
-        let inst = self
-            .prog
-            .new_inst(ssa::Inst::binary(ssa::Type::Int32, op, lhs, rhs, span));
-        self.append_to_block(inst);
-
-        inst
+        self.builder
+            .insert_inst(Inst::binary(Type::Int32, op, lhs, rhs, span))
     }
 
-    fn build_binary_assign(
+    fn build_bin_asgn(
         &mut self,
-        op: ssa::BinaryOp,
+        op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
         span: SourceSpan,
-    ) -> ssa::InstRef {
+    ) -> InstRef {
         let l = self.visit_expr(lhs, ExprMode::RightValue);
         let r = self.visit_expr(rhs, ExprMode::RightValue);
         let inst = self
-            .prog
-            .new_inst(ssa::Inst::binary(ssa::Type::Int32, op, l, r, span));
-        self.append_to_block(inst);
+            .builder
+            .insert_inst(Inst::binary(Type::Int32, op, l, r, span));
 
         let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
-        let store = self.prog.new_inst(ssa::Inst::store(ptr, inst, span));
-        self.append_to_block(store);
+        self.builder.insert_inst(Inst::store(ptr, inst, span));
 
         inst
     }
 
-    fn build_short_circuit(
+    fn build_sc(
         &mut self,
         op: LogicalOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
         span: SourceSpan,
-    ) -> ssa::InstRef {
-        let rhs_name = match op {
-            LogicalOp::Or => "or",
-            LogicalOp::And => "and",
-        };
-        let rhs_name = self.prog.interner.intern(rhs_name);
-        let rhs_block = self.prog.new_block(Block {
-            name: rhs_name,
+    ) -> InstRef {
+        let rhs_block = self.builder.new_block(
+            match op {
+                LogicalOp::Or => "or",
+                LogicalOp::And => "and",
+            },
             span,
-            ..Default::default()
-        });
-        let cont_name = match op {
-            LogicalOp::Or => "or.cont",
-            LogicalOp::And => "and.cont",
-        };
-        let cont_name = self.prog.interner.intern(cont_name);
-        let cont_block = self.prog.new_block(Block {
-            name: cont_name,
+        );
+        let cont_block = self.builder.new_block(
+            match op {
+                LogicalOp::Or => "or.cont",
+                LogicalOp::And => "and.cont",
+            },
             span,
-            ..Default::default()
-        });
-        self.prog
-            .func_mut(self.func)
-            .blocks
-            .extend_from_slice(&[rhs_block, cont_block]);
+        );
 
-        let phi = self.prog.new_inst(ssa::Inst::phi(ssa::Type::Int32, span));
+        let phi = self.builder.insert_inst_skip(Inst::phi(Type::Int32, span));
 
         // === LHS Block ===
         let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
-
-        let short_circuit_val = self.prog.new_inst(match op {
-            LogicalOp::Or => ssa::Inst::const_i32(1, span),
-            LogicalOp::And => ssa::Inst::const_i32(0, span),
+        let short_circuit_val = self.builder.insert_inst(match op {
+            LogicalOp::Or => Inst::const_i32(1, span),
+            LogicalOp::And => Inst::const_i32(0, span),
         });
-
-        let upsilon = self
-            .prog
-            .new_inst(ssa::Inst::upsilon(phi, short_circuit_val, span));
-
+        self.builder
+            .insert_inst(Inst::upsilon(phi, short_circuit_val, span));
         let (true_target, false_target) = match op {
             LogicalOp::Or => (cont_block, rhs_block),
             LogicalOp::And => (rhs_block, cont_block),
         };
-
-        let branch =
-            self.prog
-                .new_inst(ssa::Inst::branch(lhs_val, true_target, false_target, span));
-
-        self.append_slice_to_block(&[short_circuit_val, upsilon, branch]);
+        self.builder
+            .insert_inst(Inst::branch(lhs_val, true_target, false_target, span));
 
         // === RHS Block ===
-        self.block = rhs_block;
+        self.builder.switch_to_block(rhs_block);
         let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
-
-        let zero_val = self.prog.new_inst(ssa::Inst::const_i32(0, span));
-
-        let is_nonzero = self.prog.new_inst(ssa::Inst::binary(
-            ssa::Type::Int32,
-            ssa::BinaryOp::NotEqual,
+        let zero_val = self.builder.insert_inst(Inst::const_i32(0, span));
+        let is_nonzero = self.builder.insert_inst(Inst::binary(
+            Type::Int32,
+            BinaryOp::NotEqual,
             rhs_val,
             zero_val,
             span,
         ));
-
-        let upsilon = self
-            .prog
-            .new_inst(ssa::Inst::upsilon(phi, is_nonzero, span));
-
-        let jmp_rhs = self.prog.new_inst(ssa::Inst::jump(cont_block, span));
-
-        self.append_slice_to_block(&[zero_val, is_nonzero, upsilon, jmp_rhs]);
+        self.builder
+            .insert_inst(Inst::upsilon(phi, is_nonzero, span));
+        self.builder.insert_inst(Inst::jump(cont_block, span));
 
         // === Merge Block ===
-        self.block = cont_block;
-        self.append_to_block(phi);
+        self.builder.switch_to_block(cont_block);
+        self.builder.insert_inst_ref(phi);
         phi
     }
 }

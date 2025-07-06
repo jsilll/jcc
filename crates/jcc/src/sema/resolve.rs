@@ -217,8 +217,8 @@ impl<'a> ResolverPass<'a> {
                     .block_items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
-                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
                 self.symbols.pop_scope();
             }

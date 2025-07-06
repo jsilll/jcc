@@ -80,6 +80,7 @@ impl<'ctx> ControlPass<'ctx> {
                     }
                 }
             });
+
         self.result
     }
 

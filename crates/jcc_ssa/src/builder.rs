@@ -1,54 +1,96 @@
+use std::num::NonZero;
+
+use jcc_interner::{Interner, Symbol};
+use jcc_sourcemap::SourceSpan;
+
+use crate::{Block, BlockRef, Func, FuncRef, Inst, InstRef, Program};
+
 // ---------------------------------------------------------------------------
 // IRBuilder
 // ---------------------------------------------------------------------------
 
-/// A helper to build IR in a specific function and block.
 pub struct IRBuilder<'p> {
-    program: &'p mut Program,
-    current_block: BlockRef,
+    func: FuncRef,
+    block: BlockRef,
+    prog: Program<'p>,
 }
 
 impl<'p> IRBuilder<'p> {
-    pub fn new(program: &'p mut Program, entry_block: BlockRef) -> Self {
+    pub fn new(interner: &'p mut Interner) -> Self {
         Self {
-            program,
-            current_block: entry_block,
+            prog: Program::new(interner),
+            func: FuncRef(NonZero::new(u32::MAX).unwrap()),
+            block: BlockRef(NonZero::new(u32::MAX).unwrap()),
         }
     }
 
+    pub fn build(self) -> Program<'p> {
+        self.prog
+    }
+
+    #[inline]
+    pub fn func(&self) -> FuncRef {
+        self.func
+    }
+
+    #[inline]
+    pub fn block(&self) -> BlockRef {
+        self.block
+    }
+
+    #[inline]
+    pub fn switch_to_func(&mut self, func: FuncRef) {
+        self.func = func;
+    }
+
+    #[inline]
     pub fn switch_to_block(&mut self, block: BlockRef) {
-        self.current_block = block;
+        self.block = block;
     }
 
-    pub fn current_block(&self) -> BlockRef {
-        self.current_block
+    #[inline]
+    pub fn insert_inst_ref(&mut self, inst: InstRef) {
+        self.prog.block_mut(self.block).insts.push(inst);
     }
 
-    /// Inserts the instruction at the current position.
-    fn insert_inst(&mut self, mut inst: Inst) -> InstRef {
-        inst.block = self.current_block;
-        let inst_ref = self.program.new_inst(inst);
-        self.program
-            .block_mut(self.current_block)
-            .insts
-            .push(inst_ref);
+    #[inline]
+    pub fn insert_inst(&mut self, mut inst: Inst) -> InstRef {
+        inst.block = self.block;
+        let inst_ref = self.prog.new_inst(inst);
+        self.prog.block_mut(self.block).insts.push(inst_ref);
         inst_ref
     }
 
-    // --- Builder methods for instructions ---
-
-    pub fn const_i32(&mut self, val: i64, span: SourceSpan) -> InstRef {
-        self.insert_inst(Inst::const_i32(val, span))
+    #[inline]
+    pub fn insert_inst_skip(&mut self, mut inst: Inst) -> InstRef {
+        inst.block = self.block;
+        self.prog.new_inst(inst)
     }
 
-    pub fn ret(&mut self, val: InstRef, span: SourceSpan) -> InstRef {
-        self.insert_inst(Inst::ret(val, span))
+    #[inline]
+    pub fn new_block(&mut self, name: &str, span: SourceSpan) -> BlockRef {
+        let name = self.prog.interner.intern(name);
+        self.new_block_interned(name, span)
     }
 
-    pub fn add(&mut self, lhs: InstRef, rhs: InstRef, span: SourceSpan) -> InstRef {
-        let ty = self.program.inst(lhs).ty; // Assume same type for now
-        self.insert_inst(Inst::binary(ty, BinaryOp::Add, lhs, rhs, span))
+    #[inline]
+    pub fn new_block_interned(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
+        let block = self.prog.new_block(Block {
+            name,
+            span,
+            ..Default::default()
+        });
+        self.prog.func_mut(self.func).blocks.push(block);
+        block
     }
 
-    // Add other builder methods as needed...
+    #[inline]
+    pub fn new_func(&mut self, name: Symbol, is_global: bool, span: SourceSpan) -> FuncRef {
+        self.prog.new_func(Func {
+            name,
+            span,
+            is_global,
+            ..Default::default()
+        })
+    }
 }

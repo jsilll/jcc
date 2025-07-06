@@ -1,6 +1,7 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, mermaid::AstMermaid, parse::Parser},
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
+    ssa::Builder,
     tok::lex::{Lexer, LexerDiagnosticKind},
 };
 
@@ -115,9 +116,6 @@ fn try_main() -> Result<()> {
         sourcemap::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
-    if args.verbose {
-        println!("{:#?}", parser_result.ast);
-    }
     if args.emit_ast_mermaid {
         let mmd_path = args.path.with_extension("mmd");
         let ast_mermaid = AstMermaid::new(&parser_result.ast, &interner);
@@ -170,15 +168,12 @@ fn try_main() -> Result<()> {
         sourcemap::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
-    if args.verbose {
-        println!("{:#?}", ast);
-    }
     if args.validate {
         return Ok(());
     }
 
     // Generate SSA
-    let ssa = jcc::ssa::build(&ast, &ctx, interner);
+    let ssa = Builder::new(&ast, &ctx, &mut interner).build();
     if args.verbose {
         println!("{}", ssa);
     }
@@ -193,8 +188,6 @@ fn try_main() -> Result<()> {
     }
 
     let mut amd64 = ssa::amd64::build(&ssa);
-    let interner = ssa.take_interner();
-
     if args.verbose {
         println!("{}", amd64);
     }

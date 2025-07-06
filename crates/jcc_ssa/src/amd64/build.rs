@@ -25,7 +25,7 @@ pub fn build(ssa: &crate::Program) -> Program {
 // ---------------------------------------------------------------------------
 
 pub struct AMD64FuncBuilder<'a> {
-    ssa: &'a crate::Program,
+    ssa: &'a crate::Program<'a>,
     func: crate::FuncRef,
     fn_def: FnDef,
     block: BlockRef,

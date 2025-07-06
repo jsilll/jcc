@@ -1,8 +1,6 @@
-pub mod ty;
-
 pub mod control;
-
 pub mod resolve;
+pub mod ty;
 
 use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 

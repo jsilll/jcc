@@ -26,30 +26,7 @@ pub struct Ast {
 
 impl Default for Ast {
     fn default() -> Self {
-        Ast {
-            root: Default::default(),
-            last_symbol: Cell::new(None),
-            decls: vec![Default::default()],
-            stmts: vec![Default::default()],
-            exprs: vec![Default::default()],
-            sliced_args: Default::default(),
-            sliced_params: Default::default(),
-            sliced_block_items: Default::default(),
-        }
-    }
-}
-
-impl std::fmt::Debug for Ast {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Ast")
-            .field("root", &self.root)
-            .field("decls", &&self.decls[1..])
-            .field("stmts", &&self.stmts[1..])
-            .field("exprs", &&self.exprs[1..])
-            .field("sliced_args", &self.sliced_args)
-            .field("sliced_params", &self.sliced_params)
-            .field("sliced_block_items", &self.sliced_block_items)
-            .finish()
+        Ast::new()
     }
 }
 
@@ -59,22 +36,21 @@ impl Ast {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        let capacity = capacity.max(1);
-        let mut decls = Vec::with_capacity(capacity);
-        let mut stmts = Vec::with_capacity(capacity);
-        let mut exprs = Vec::with_capacity(capacity);
-        decls.push(Default::default());
-        stmts.push(Default::default());
-        exprs.push(Default::default());
+        #[inline]
+        fn default_vec_with_capacity<T: Default>(capacity: usize) -> Vec<T> {
+            let mut v = Vec::with_capacity(capacity);
+            v.push(Default::default());
+            v
+        }
         Ast {
-            decls,
-            stmts,
-            exprs,
+            last_symbol: Cell::new(None),
             root: Vec::with_capacity(capacity),
+            decls: default_vec_with_capacity(capacity),
+            stmts: default_vec_with_capacity(capacity),
+            exprs: default_vec_with_capacity(capacity),
             sliced_args: Vec::with_capacity(capacity),
             sliced_params: Vec::with_capacity(capacity),
             sliced_block_items: Vec::with_capacity(capacity),
-            last_symbol: Cell::new(None),
         }
     }
 
@@ -280,16 +256,16 @@ pub enum StmtKind {
     Label { label: Symbol, stmt: StmtRef },
     /// A switch statement.
     Switch { cond: ExprRef, body: StmtRef },
+    /// A while statement.
+    While { cond: ExprRef, body: StmtRef },
+    /// A do-while statement.
+    DoWhile { body: StmtRef, cond: ExprRef },
     /// An if statement.
     If {
         cond: ExprRef,
         then: StmtRef,
         otherwise: Option<StmtRef>,
     },
-    /// A while statement.
-    While { cond: ExprRef, body: StmtRef },
-    /// A do-while statement.
-    DoWhile { body: StmtRef, cond: ExprRef },
     /// A for statement.
     For {
         init: Option<ForInit>,
@@ -430,7 +406,6 @@ pub enum BinaryOp {
     /// The `>>=` operator.
     BitShrAssign,
 }
-
 // ---------------------------------------------------------------------------
 // Auxiliary structures
 // ---------------------------------------------------------------------------
@@ -449,6 +424,7 @@ impl AstSymbol {
         }
     }
 
+    #[inline]
     pub fn sema(&self) -> SemaSymbol {
         self.sema.get().expect("sema symbol not set")
     }
@@ -469,6 +445,10 @@ pub enum ForInit {
     /// A variable declaration.
     VarDecl(DeclRef),
 }
+
+// ---------------------------------------------------------------------------
+// Slice
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Slice<T>(u32, u32, std::marker::PhantomData<T>);

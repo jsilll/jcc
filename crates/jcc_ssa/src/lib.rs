@@ -1,4 +1,5 @@
 pub mod amd64;
+pub mod builder;
 pub mod effects;
 pub mod insertion;
 pub mod verify;
@@ -7,13 +8,10 @@ pub use jcc_interner as interner;
 pub use jcc_sourcemap as sourcemap;
 
 use effects::{AbstractHeap, FastEffects};
-use jcc_interner::{Interner, Symbol};
-use jcc_sourcemap::SourceSpan;
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    num::NonZeroU32,
-};
+use interner::{Interner, Symbol};
+use sourcemap::SourceSpan;
+
+use std::{collections::HashMap, fmt, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
 // Type
@@ -389,7 +387,7 @@ pub enum BinaryOp {
 pub struct BlockRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct BlockIdx(pub(crate) u32);
+pub struct BlockIdx(u32);
 
 #[derive(Debug, Default, Clone)]
 pub struct Block {
@@ -418,9 +416,13 @@ pub struct Func {
 // StaticVar
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StaticVarRef(NonZeroU32);
+
 #[derive(Debug, Default, Clone)]
 pub struct StaticVar {
     pub ty: Type,
+    pub name: Symbol,
     pub is_global: bool,
     pub span: SourceSpan,
     pub init: Option<i64>,
@@ -453,35 +455,33 @@ impl Default for BaseHeaps {
 // Program
 // ---------------------------------------------------------------------------
 
-pub struct Program {
+pub struct Program<'a> {
+    pub interner: &'a mut Interner,
     heaps: BaseHeaps,
     insts: Vec<Inst>,
+    insts_free: Vec<InstRef>,
     funcs: Vec<Func>,
+    funcs_free: Vec<FuncRef>,
     blocks: Vec<Block>,
-    insts_free: HashSet<InstRef>,
-    funcs_free: HashSet<FuncRef>,
-    blocks_free: HashSet<BlockRef>,
-    pub interner: Interner,
-    pub static_vars: HashMap<Symbol, StaticVar>,
+    blocks_free: Vec<BlockRef>,
+    static_vars: Vec<StaticVar>,
+    static_vars_free: Vec<StaticVarRef>,
 }
 
-impl Program {
-    pub fn new(interner: Interner) -> Self {
+impl<'a> Program<'a> {
+    pub fn new(interner: &'a mut Interner) -> Self {
         Self {
             interner,
             heaps: Default::default(),
-            insts_free: HashSet::new(),
-            funcs_free: HashSet::new(),
-            static_vars: HashMap::new(),
-            blocks_free: HashSet::new(),
+            insts_free: Vec::new(),
+            funcs_free: Vec::new(),
+            blocks_free: Vec::new(),
+            static_vars_free: Vec::new(),
             insts: vec![Default::default()],
             funcs: vec![Default::default()],
             blocks: vec![Default::default()],
+            static_vars: vec![Default::default()],
         }
-    }
-
-    pub fn take_interner(self) -> Interner {
-        self.interner
     }
 
     // ---------------------------------------------------------------------------
@@ -537,20 +537,31 @@ impl Program {
         r
     }
 
+    pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
+        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
+        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
+        self.static_vars.push(var);
+        r
+    }
+
     // ---------------------------------------------------------------------------
     // Deletion
     // ---------------------------------------------------------------------------
 
     pub fn delete_inst(&mut self, inst_ref: InstRef) {
-        self.insts_free.insert(inst_ref);
+        self.insts_free.push(inst_ref);
     }
 
     pub fn delete_func(&mut self, func_ref: FuncRef) {
-        self.funcs_free.insert(func_ref);
+        self.funcs_free.push(func_ref);
     }
 
     pub fn delete_block(&mut self, block_ref: BlockRef) {
-        self.blocks_free.insert(block_ref);
+        self.blocks_free.push(block_ref);
+    }
+
+    pub fn delete_static_var(&mut self, var_ref: StaticVarRef) {
+        self.static_vars_free.push(var_ref);
     }
 
     // ---------------------------------------------------------------------------
@@ -687,10 +698,10 @@ impl fmt::Display for InstKind {
     }
 }
 
-impl fmt::Display for Program {
+impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (name, var) in self.static_vars.iter() {
-            let name_str = self.interner.lookup(*name);
+        for var in self.static_vars.iter() {
+            let name_str = self.interner.lookup(var.name);
             let linkage = if var.is_global { "global" } else { "static" };
             writeln!(f, "{} {} = {:?};", linkage, name_str, var.init)?;
         }

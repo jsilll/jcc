@@ -133,22 +133,22 @@ impl<'a> Parser<'a> {
     fn parse_var_decl(&mut self) -> Option<DeclRef> {
         let (_, storage) = self.parse_specifiers()?;
         let (span, name) = self.eat_identifier()?;
-        let init = match self.iter.peek() {
-            Some(Token {
-                kind: TokenKind::Eq,
-                ..
-            }) => {
-                self.iter.next();
-                Some(self.parse_expr(0)?)
-            }
-            _ => None,
+        let init = if let Some(Token {
+            kind: TokenKind::Eq,
+            ..
+        }) = self.iter.peek()
+        {
+            self.iter.next();
+            Some(self.parse_expr(0)?)
+        } else {
+            None
         };
         self.eat(TokenKind::Semi)?;
         Some(self.result.ast.new_decl(Decl {
             span,
             storage,
-            name: AstSymbol::new(name),
             kind: DeclKind::Var(init),
+            name: AstSymbol::new(name),
         }))
     }
 
@@ -176,20 +176,18 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => {
                 let params = self.parse_params();
                 self.eat(TokenKind::RParen)?;
-                let body = match self.iter.peek() {
-                    Some(Token {
-                        kind: TokenKind::Semi,
-                        ..
-                    }) => {
-                        self.iter.next();
-                        None
-                    }
-                    _ => {
-                        self.eat(TokenKind::LBrace)?;
-                        let body = self.parse_body();
-                        self.eat(TokenKind::RBrace)?;
-                        Some(body)
-                    }
+                let body = if let Some(Token {
+                    kind: TokenKind::Semi,
+                    ..
+                }) = self.iter.peek()
+                {
+                    self.iter.next();
+                    None
+                } else {
+                    self.eat(TokenKind::LBrace)?;
+                    let body = self.parse_body();
+                    self.eat(TokenKind::RBrace)?;
+                    Some(body)
                 };
                 Some(self.result.ast.new_decl(Decl {
                     span,

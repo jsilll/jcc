@@ -38,6 +38,17 @@ impl<'a> AstMermaid<'a> {
     }
 
     #[inline]
+    fn escape_label(&self, label: &str) -> String {
+        label.replace('"', "#quot;").replace('\n', "<br>")
+    }
+
+    #[inline]
+    fn define_node(&mut self, id: &str, label: &str) {
+        let label = self.escape_label(label);
+        self.writeln_fmt(format_args!("{id}[\"{label}\"]"));
+    }
+
+    #[inline]
     fn fresh_aux_node_id(&mut self, hint: &str) -> String {
         let id = self.node_counter;
         self.node_counter += 1;
@@ -45,23 +56,12 @@ impl<'a> AstMermaid<'a> {
     }
 
     #[inline]
-    fn escape_label(&self, label: &str) -> String {
-        label.replace('"', "#quot;").replace('\n', "<br>")
-    }
-
-    #[inline]
-    fn define_node(&mut self, id: &str, label: &str) {
-        let escaped_label = self.escape_label(label);
-        self.writeln_fmt(format_args!("{id}[\"{escaped_label}\"]"));
-    }
-
-    #[inline]
     fn define_edge(&mut self, from_id: &str, to_id: &str, label: Option<&str>) {
         match label {
             None => self.writeln_fmt(format_args!("{from_id} --> {to_id}")),
             Some(label) => {
-                let escaped_label = self.escape_label(label);
-                self.writeln_fmt(format_args!("{from_id} -- \"{escaped_label}\" --> {to_id}"))
+                let label = self.escape_label(label);
+                self.writeln_fmt(format_args!("{from_id} -- \"{label}\" --> {to_id}"))
             }
         }
     }
@@ -71,8 +71,8 @@ impl<'a> AstMermaid<'a> {
         match label {
             None => self.writeln_fmt(format_args!("{from_id} -.-> {to_id}")),
             Some(label) => {
-                let escaped_label = self.escape_label(label);
-                self.writeln_fmt(format_args!("{from_id} -. \"{escaped_label}\" .-> {to_id}"))
+                let label = self.escape_label(label);
+                self.writeln_fmt(format_args!("{from_id} -. \"{label}\" .-> {to_id}"))
             }
         }
     }
@@ -155,19 +155,18 @@ impl<'a> AstMermaid<'a> {
     fn visit_stmt(&mut self, stmt: StmtRef) -> String {
         let stmt_id = format!("stmt_{}", stmt.0.get());
         match &self.ast.stmt(stmt).kind {
-            StmtKind::Empty => {
-                self.define_node(&stmt_id, "EmptyStmt");
-            }
-            StmtKind::Break => {
-                self.define_node(&stmt_id, "BreakStmt");
-            }
-            StmtKind::Continue => {
-                self.define_node(&stmt_id, "ContinueStmt");
-            }
+            StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt"),
+            StmtKind::Break => self.define_node(&stmt_id, "BreakStmt"),
+            StmtKind::Continue => self.define_node(&stmt_id, "ContinueStmt"),
             StmtKind::Expr(expr) => {
                 self.define_node(&stmt_id, "ExprStmt");
                 let expr_id = self.visit_expr(*expr);
                 self.define_edge(&stmt_id, &expr_id, None);
+            }
+            StmtKind::Goto(name) => {
+                let name = self.interner.lookup(*name);
+                let label = format!("GotoStmt\nlabel: {}", name);
+                self.define_node(&stmt_id, &label);
             }
             StmtKind::Return(expr) => {
                 self.define_node(&stmt_id, "ReturnStmt");
@@ -178,11 +177,6 @@ impl<'a> AstMermaid<'a> {
                 self.define_node(&stmt_id, "DefaultStmt (Switch)");
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"));
-            }
-            StmtKind::Goto(name) => {
-                let name = self.interner.lookup(*name);
-                let label = format!("GotoStmt\nlabel: {}", name);
-                self.define_node(&stmt_id, &label);
             }
             StmtKind::Label { label, stmt: inner } => {
                 let name = self.interner.lookup(*label);

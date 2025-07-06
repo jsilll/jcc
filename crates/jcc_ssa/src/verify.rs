@@ -14,7 +14,7 @@ pub struct SSAVerifierResult {
 // ---------------------------------------------------------------------------
 
 pub struct SSAVerifier<'a> {
-    ssa: &'a Program,
+    ssa: &'a Program<'a>,
     result: SSAVerifierResult,
 }
 

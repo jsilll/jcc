@@ -11,7 +11,7 @@ use std::{collections::HashMap, num::NonZeroU32};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SemaSymbol(NonZeroU32);
+pub struct SemaSymbol(pub(crate) NonZeroU32);
 
 // ---------------------------------------------------------------------------
 // SemaCtx

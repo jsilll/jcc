@@ -19,15 +19,8 @@ use crate::{
 pub struct Builder<'a> {
     ast: &'a ast::Ast,
     sema: &'a SemaCtx,
+    ctx: BuilderCtx,
     builder: IRBuilder<'a>,
-
-    // TODO: group these fields into a context struct
-    funcs: HashMap<Symbol, FuncRef>,
-    vars: HashMap<SemaSymbol, InstRef>, // TODO: use a vector instead
-    labeled_blocks: HashMap<Symbol, BlockRef>,
-    case_blocks: HashMap<ast::StmtRef, BlockRef>,
-    break_blocks: HashMap<ast::StmtRef, BlockRef>,
-    continue_blocks: HashMap<ast::StmtRef, BlockRef>,
 }
 
 impl<'a> Builder<'a> {
@@ -35,31 +28,9 @@ impl<'a> Builder<'a> {
         Self {
             ast,
             sema,
+            ctx: BuilderCtx::new(ast),
             builder: IRBuilder::new(interner),
-
-            vars: HashMap::new(),
-            funcs: HashMap::new(),
-            case_blocks: HashMap::new(),
-            break_blocks: HashMap::new(),
-            labeled_blocks: HashMap::new(),
-            continue_blocks: HashMap::new(),
         }
-    }
-
-    #[inline]
-    fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
-        self.vars
-            .get(&sym)
-            .copied()
-            .unwrap_or_else(|| panic!("expected a variable pointer for {sym:?}"))
-    }
-
-    #[inline]
-    fn get_or_make_labeled_block(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
-        *self
-            .labeled_blocks
-            .entry(name)
-            .or_insert_with(|| self.builder.new_block_interned(name, span))
     }
 
     pub fn build(mut self) -> Program<'a> {
@@ -74,7 +45,12 @@ impl<'a> Builder<'a> {
                         .expect("expected a sema symbol")
                         .is_global();
 
-                    let func = self.builder.new_func(decl.name.raw, is_global, decl.span);
+                    let func = self.ctx.get_or_insert_function(
+                        decl.name.raw,
+                        is_global,
+                        decl.span,
+                        &mut self.builder,
+                    );
                     self.builder.switch_to_func(func);
 
                     if body.is_some() {
@@ -83,12 +59,12 @@ impl<'a> Builder<'a> {
                     }
 
                     if let Some(body) = body {
-                        // TODO: self.clear();
+                        self.ctx.clear();
 
                         self.ast.params(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
                             let arg = self.builder.insert_inst(Inst::arg(Type::Int32, param.span));
-                            self.vars.insert(param.name.sema(), arg);
+                            self.ctx.insert_var(param.name.sema(), arg);
                         });
 
                         self.ast
@@ -123,7 +99,7 @@ impl<'a> Builder<'a> {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
                 let alloca = self.builder.insert_inst(Inst::alloca(decl.span));
-                self.vars.insert(decl.name.sema(), alloca);
+                self.ctx.insert_var(decl.name.sema(), alloca);
                 if let Some(init) = init {
                     let val = self.visit_expr(init, ExprMode::RightValue);
                     self.builder
@@ -137,31 +113,25 @@ impl<'a> Builder<'a> {
         let stmt = self.ast.stmt(stmt_ref);
         match &stmt.kind {
             ast::StmtKind::Empty => {}
-            ast::StmtKind::Break => {
-                let block = self
-                    .break_blocks
-                    .get(
-                        self.sema
-                            .breaks
-                            .get(&stmt_ref)
-                            .expect("expected a break block"),
-                    )
-                    .expect("expected a break block");
-
-                self.builder.insert_inst(Inst::jump(*block, stmt.span));
-            }
             ast::StmtKind::Continue => {
-                let block = self
-                    .continue_blocks
-                    .get(
-                        self.sema
-                            .continues
-                            .get(&stmt_ref)
-                            .expect("expected a continue block"),
-                    )
-                    .expect("expected a continue block");
-
-                self.builder.insert_inst(Inst::jump(*block, stmt.span));
+                let block = self.ctx.get_continue_block(
+                    *self
+                        .sema
+                        .continues
+                        .get(&stmt_ref)
+                        .expect("expected a continue block"),
+                );
+                self.builder.insert_inst(Inst::jump(block, stmt.span));
+            }
+            ast::StmtKind::Break => {
+                let block = self.ctx.get_break_block(
+                    *self
+                        .sema
+                        .breaks
+                        .get(&stmt_ref)
+                        .expect("expected a break block"),
+                );
+                self.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
@@ -171,14 +141,13 @@ impl<'a> Builder<'a> {
                 self.builder.insert_inst(Inst::ret(val, stmt.span));
             }
             ast::StmtKind::Goto(label) => {
-                let block = self.get_or_make_labeled_block(*label, stmt.span);
+                let block =
+                    self.ctx
+                        .get_or_make_labeled_block(*label, stmt.span, &mut self.builder);
                 self.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Default(inner) => {
-                let block = self
-                    .case_blocks
-                    .remove(&stmt_ref)
-                    .expect("expected a case block");
+                let block = self.ctx.remove_case_block(stmt_ref);
 
                 // === Default Block ===
                 self.builder.switch_to_block(block);
@@ -194,7 +163,9 @@ impl<'a> Builder<'a> {
                     });
             }
             ast::StmtKind::Label { label, stmt: inner } => {
-                let block = self.get_or_make_labeled_block(*label, stmt.span);
+                let block =
+                    self.ctx
+                        .get_or_make_labeled_block(*label, stmt.span, &mut self.builder);
                 self.builder.insert_inst(Inst::jump(block, stmt.span));
 
                 // === Labeled Block ===
@@ -202,10 +173,7 @@ impl<'a> Builder<'a> {
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Case { stmt: inner, .. } => {
-                let block = self
-                    .case_blocks
-                    .remove(&stmt_ref)
-                    .expect("expected a case block");
+                let block = self.ctx.remove_case_block(stmt_ref);
 
                 // === Previous Block ===
                 self.builder.insert_inst(Inst::jump(block, stmt.span));
@@ -267,8 +235,8 @@ impl<'a> Builder<'a> {
                 let body_block = self.builder.new_block("while.body", stmt.span);
                 let cont_block = self.builder.new_block("while.cont", stmt.span);
 
-                self.break_blocks.insert(stmt_ref, cont_block);
-                self.continue_blocks.insert(stmt_ref, cond_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
+                self.ctx.insert_continue_block(stmt_ref, cond_block);
 
                 self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
@@ -286,16 +254,16 @@ impl<'a> Builder<'a> {
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
 
-                self.break_blocks.remove(&stmt_ref);
-                self.continue_blocks.remove(&stmt_ref);
+                self.ctx.remove_break_block(stmt_ref);
+                self.ctx.remove_continue_block(stmt_ref);
             }
             ast::StmtKind::DoWhile { body, cond } => {
                 let body_block = self.builder.new_block("do.body", stmt.span);
                 let cond_block = self.builder.new_block("do.cond", stmt.span);
                 let cont_block = self.builder.new_block("do.cont", stmt.span);
 
-                self.break_blocks.insert(stmt_ref, cont_block);
-                self.continue_blocks.insert(stmt_ref, cond_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
+                self.ctx.insert_continue_block(stmt_ref, cond_block);
 
                 // === Jump to Body Block ===
                 self.builder.insert_inst(Inst::jump(body_block, stmt.span));
@@ -314,8 +282,8 @@ impl<'a> Builder<'a> {
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
 
-                self.break_blocks.remove(&stmt_ref);
-                self.continue_blocks.remove(&stmt_ref);
+                self.ctx.remove_break_block(stmt_ref);
+                self.ctx.remove_continue_block(stmt_ref);
             }
             ast::StmtKind::For {
                 init,
@@ -326,8 +294,8 @@ impl<'a> Builder<'a> {
                 let body_block = self.builder.new_block("for.body", stmt.span);
                 let cont_block = self.builder.new_block("for.cont", stmt.span);
 
-                self.break_blocks.insert(stmt_ref, cont_block);
-                self.continue_blocks.insert(stmt_ref, body_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
+                self.ctx.insert_continue_block(stmt_ref, body_block);
 
                 if let Some(init) = init {
                     match init {
@@ -349,8 +317,8 @@ impl<'a> Builder<'a> {
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
 
-                self.break_blocks.remove(&stmt_ref);
-                self.continue_blocks.remove(&stmt_ref);
+                self.ctx.remove_break_block(stmt_ref);
+                self.ctx.remove_continue_block(stmt_ref);
             }
             ast::StmtKind::For {
                 init,
@@ -362,8 +330,8 @@ impl<'a> Builder<'a> {
                 let body_block = self.builder.new_block("for.body", stmt.span);
                 let cont_block = self.builder.new_block("for.cont", stmt.span);
 
-                self.break_blocks.insert(stmt_ref, cont_block);
-                self.continue_blocks.insert(stmt_ref, cond_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
+                self.ctx.insert_continue_block(stmt_ref, cond_block);
 
                 if let Some(init) = init {
                     match init {
@@ -391,8 +359,8 @@ impl<'a> Builder<'a> {
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
 
-                self.break_blocks.remove(&stmt_ref);
-                self.continue_blocks.remove(&stmt_ref);
+                self.ctx.remove_break_block(stmt_ref);
+                self.ctx.remove_continue_block(stmt_ref);
             }
             ast::StmtKind::For {
                 init,
@@ -404,8 +372,8 @@ impl<'a> Builder<'a> {
                 let body_block = self.builder.new_block("for.body", stmt.span);
                 let cont_block = self.builder.new_block("for.cont", stmt.span);
 
-                self.break_blocks.insert(stmt_ref, cont_block);
-                self.continue_blocks.insert(stmt_ref, step_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
+                self.ctx.insert_continue_block(stmt_ref, step_block);
 
                 if let Some(init) = init {
                     match init {
@@ -432,8 +400,8 @@ impl<'a> Builder<'a> {
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
 
-                self.break_blocks.remove(&stmt_ref);
-                self.continue_blocks.remove(&stmt_ref);
+                self.ctx.remove_break_block(stmt_ref);
+                self.ctx.remove_continue_block(stmt_ref);
             }
             ast::StmtKind::For {
                 init,
@@ -446,8 +414,8 @@ impl<'a> Builder<'a> {
                 let body_block = self.builder.new_block("for.body", stmt.span);
                 let cont_block = self.builder.new_block("for.cont", stmt.span);
 
-                self.break_blocks.insert(stmt_ref, cont_block);
-                self.continue_blocks.insert(stmt_ref, step_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
+                self.ctx.insert_continue_block(stmt_ref, step_block);
 
                 if let Some(init) = init {
                     match init {
@@ -480,8 +448,8 @@ impl<'a> Builder<'a> {
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
 
-                self.break_blocks.remove(&stmt_ref);
-                self.continue_blocks.remove(&stmt_ref);
+                self.ctx.remove_break_block(stmt_ref);
+                self.ctx.remove_continue_block(stmt_ref);
             }
             ast::StmtKind::Switch { cond, body } => {
                 let mut cases = Vec::new();
@@ -496,7 +464,7 @@ impl<'a> Builder<'a> {
                                 _ => panic!("expected a constant expression"),
                             };
                             let case_block = self.builder.new_block("switch.case", inner.span);
-                            self.case_blocks.insert(*inner_ref, case_block);
+                            self.ctx.insert_case_block(*inner_ref, case_block);
                             cases.push((val, case_block));
                         }
                     });
@@ -504,13 +472,13 @@ impl<'a> Builder<'a> {
                         let block = self
                             .builder
                             .new_block("switch.default", self.ast.stmt(inner).span);
-                        self.case_blocks.insert(inner, block);
+                        self.ctx.insert_case_block(inner, block);
                         default_block = Some(block);
                     }
                 }
 
                 let cont_block = self.builder.new_block("switch.cont", stmt.span);
-                self.break_blocks.insert(stmt_ref, cont_block);
+                self.ctx.insert_break_block(stmt_ref, cont_block);
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                 self.builder.insert_inst(Inst::switch(
@@ -543,7 +511,7 @@ impl<'a> Builder<'a> {
                     Attribute::Static { .. } => todo!("handle static variables"),
                     Attribute::Function { .. } => todo!("handle function variables"),
                     Attribute::Local => {
-                        let ptr = self.get_var_ptr(name.sema());
+                        let ptr = self.ctx.get_var_ptr(name.sema());
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => {
@@ -565,10 +533,12 @@ impl<'a> Builder<'a> {
                     .symbol(name.sema())
                     .expect("expected a sema symbol")
                     .is_global();
-                let func = *self
-                    .funcs
-                    .entry(name.raw)
-                    .or_insert(self.builder.new_func(name.raw, is_global, expr.span));
+                let func = self.ctx.get_or_insert_function(
+                    name.raw,
+                    is_global,
+                    expr.span,
+                    &mut self.builder,
+                );
                 self.builder.insert_inst(Inst::call(func, args, expr.span))
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
@@ -845,4 +815,115 @@ enum ExprMode {
 enum LogicalOp {
     Or,
     And,
+}
+
+// ---------------------------------------------------------------------------
+// BuilderCtx
+// ---------------------------------------------------------------------------
+
+struct BuilderCtx {
+    vars: Vec<Option<InstRef>>,
+    funcs: HashMap<Symbol, FuncRef>,
+    labeled_blocks: HashMap<Symbol, BlockRef>,
+    case_blocks: HashMap<ast::StmtRef, BlockRef>,
+    break_blocks: HashMap<ast::StmtRef, BlockRef>,
+    continue_blocks: HashMap<ast::StmtRef, BlockRef>,
+}
+
+impl BuilderCtx {
+    fn new(ast: &ast::Ast) -> Self {
+        Self {
+            funcs: HashMap::new(),
+            case_blocks: HashMap::new(),
+            break_blocks: HashMap::new(),
+            labeled_blocks: HashMap::new(),
+            continue_blocks: HashMap::new(),
+            vars: vec![Default::default(); ast.symbols_len() + 1],
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.case_blocks.clear();
+        self.break_blocks.clear();
+        self.labeled_blocks.clear();
+        self.continue_blocks.clear();
+    }
+
+    #[inline]
+    fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
+        self.vars[sym.0.get() as usize].unwrap()
+    }
+
+    #[inline]
+    fn insert_var(&mut self, sym: SemaSymbol, var: InstRef) {
+        let _ = self.vars[sym.0.get() as usize].insert(var);
+    }
+
+    #[inline]
+    fn get_break_block(&self, stmt: ast::StmtRef) -> BlockRef {
+        *self.break_blocks.get(&stmt).unwrap()
+    }
+
+    #[inline]
+    fn get_continue_block(&self, stmt: ast::StmtRef) -> BlockRef {
+        *self.continue_blocks.get(&stmt).unwrap()
+    }
+
+    #[inline]
+    fn insert_break_block(&mut self, stmt: ast::StmtRef, block: BlockRef) {
+        self.break_blocks.insert(stmt, block);
+    }
+
+    #[inline]
+    fn remove_break_block(&mut self, stmt: ast::StmtRef) {
+        self.break_blocks.remove(&stmt);
+    }
+
+    #[inline]
+    fn insert_continue_block(&mut self, stmt: ast::StmtRef, block: BlockRef) {
+        self.continue_blocks.insert(stmt, block);
+    }
+
+    #[inline]
+    fn remove_continue_block(&mut self, stmt: ast::StmtRef) {
+        self.break_blocks.remove(&stmt);
+    }
+
+    #[inline]
+    fn insert_case_block(&mut self, stmt: ast::StmtRef, block: BlockRef) {
+        self.case_blocks.insert(stmt, block);
+    }
+
+    #[inline]
+    fn remove_case_block(&mut self, stmt: ast::StmtRef) -> BlockRef {
+        self.case_blocks.remove(&stmt).unwrap()
+    }
+
+    #[inline]
+    fn get_or_insert_function(
+        &mut self,
+        name: Symbol,
+        is_global: bool,
+        span: SourceSpan,
+        builder: &mut IRBuilder,
+    ) -> FuncRef {
+        *self
+            .funcs
+            .entry(name)
+            .or_insert(builder.new_func(name, is_global, span))
+    }
+
+    #[inline]
+    fn get_or_make_labeled_block(
+        &mut self,
+        name: Symbol,
+        span: SourceSpan,
+        builder: &mut IRBuilder,
+    ) -> BlockRef {
+        *self
+            .labeled_blocks
+            .entry(name)
+            .or_insert_with(|| builder.new_block_interned(name, span))
+    }
 }

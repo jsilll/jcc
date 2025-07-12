@@ -45,10 +45,10 @@ impl<S, V> SymbolTable<S, V> {
     #[inline]
     pub fn new() -> Self {
         SymbolTable {
-            markers: Vec::new(),
-            history: Vec::new(),
             global: HashMap::new(),
             scoped: HashMap::new(),
+            markers: Vec::with_capacity(16),
+            history: Vec::with_capacity(64),
         }
     }
 

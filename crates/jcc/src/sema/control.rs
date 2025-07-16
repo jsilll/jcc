@@ -124,6 +124,14 @@ impl<'ctx> ControlPass<'ctx> {
                         .push(stmt.span);
                 }
             }
+            StmtKind::Compound(stmt) => {
+                ast.block_items(*stmt)
+                    .iter()
+                    .for_each(|block_item| match block_item {
+                        BlockItem::Decl(_) => {}
+                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
+                    });
+            }
             StmtKind::Label { label, stmt: inner } => {
                 if !self.defined_labels.insert(*label) {
                     self.result.diagnostics.push(ControlDiagnostic {
@@ -133,14 +141,6 @@ impl<'ctx> ControlPass<'ctx> {
                 }
                 self.unresolved_labels.remove(label);
                 self.visit_stmt(ast, *inner);
-            }
-            StmtKind::Compound(stmt) => {
-                ast.block_items(*stmt)
-                    .iter()
-                    .for_each(|block_item| match block_item {
-                        BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
-                    });
             }
             StmtKind::Break => match self.tracked.last() {
                 Some(TrackedStmt::Loop(loop_stmt)) => {

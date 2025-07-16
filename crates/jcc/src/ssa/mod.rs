@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-
-use jcc_ssa::{
-    builder::IRBuilder,
-    interner::{Interner, Symbol},
-    sourcemap::SourceSpan,
-    BinaryOp, BlockRef, FuncRef, Inst, InstRef, Program, Type, UnaryOp,
-};
+mod ctx;
 
 use crate::{
     ast,
-    sema::{Attribute, SemaCtx, SemaSymbol},
+    sema::{Attribute, SemaCtx},
+    ssa::ctx::BuilderCtx,
+};
+
+use jcc_ssa::{
+    interner::Interner, sourcemap::SourceSpan, BinaryOp, Inst, InstRef, Program, Type, UnaryOp,
 };
 
 // ---------------------------------------------------------------------------
@@ -19,8 +17,7 @@ use crate::{
 pub struct Builder<'a> {
     ast: &'a ast::Ast,
     sema: &'a SemaCtx,
-    ctx: BuilderCtx,
-    builder: IRBuilder<'a>,
+    ctx: BuilderCtx<'a>,
 }
 
 impl<'a> Builder<'a> {
@@ -28,8 +25,7 @@ impl<'a> Builder<'a> {
         Self {
             ast,
             sema,
-            ctx: BuilderCtx::new(ast),
-            builder: IRBuilder::new(interner),
+            ctx: BuilderCtx::new(ast, interner),
         }
     }
 
@@ -37,7 +33,15 @@ impl<'a> Builder<'a> {
         self.ast.root().iter().for_each(|decl_ref| {
             let decl = self.ast.decl(*decl_ref);
             match decl.kind {
-                ast::DeclKind::Var(_) => todo!("handle variable declarations"),
+                ast::DeclKind::Var(_) => {
+                    let info = self
+                        .sema
+                        .symbol(decl.name.sema())
+                        .expect("expected a sema symbol");
+                    if let Attribute::Static { .. } = info.attr {
+                        println!("sema info!");
+                    }
+                }
                 ast::DeclKind::Func { params, body } => {
                     let is_global = self
                         .sema
@@ -45,17 +49,14 @@ impl<'a> Builder<'a> {
                         .expect("expected a sema symbol")
                         .is_global();
 
-                    let func = self.ctx.get_or_make_function(
-                        decl.name.raw,
-                        is_global,
-                        decl.span,
-                        &mut self.builder,
-                    );
-                    self.builder.switch_to_func(func);
+                    let func = self
+                        .ctx
+                        .get_or_make_function(decl.name.raw, is_global, decl.span);
+                    self.ctx.builder.switch_to_func(func);
 
                     if body.is_some() {
-                        let block = self.builder.new_block("entry", decl.span);
-                        self.builder.switch_to_block(block);
+                        let block = self.ctx.builder.new_block("entry", decl.span);
+                        self.ctx.builder.switch_to_block(block);
                     }
 
                     if let Some(body) = body {
@@ -63,7 +64,10 @@ impl<'a> Builder<'a> {
 
                         self.ast.params(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
-                            let arg = self.builder.insert_inst(Inst::arg(Type::Int32, param.span));
+                            let arg = self
+                                .ctx
+                                .builder
+                                .insert_inst(Inst::arg(Type::Int32, param.span));
                             self.ctx.insert_var(param.name.sema(), arg);
                         });
 
@@ -83,14 +87,14 @@ impl<'a> Builder<'a> {
                         };
 
                         if append_return {
-                            let val = self.builder.insert_inst(Inst::const_i32(0, decl.span));
-                            self.builder.insert_inst(Inst::ret(val, decl.span));
+                            let val = self.ctx.builder.insert_inst(Inst::const_i32(0, decl.span));
+                            self.ctx.builder.insert_inst(Inst::ret(val, decl.span));
                         }
                     }
                 }
             }
         });
-        self.builder.build()
+        self.ctx.builder.build()
     }
 
     fn visit_decl(&mut self, decl_ref: ast::DeclRef) {
@@ -98,11 +102,12 @@ impl<'a> Builder<'a> {
         match decl.kind {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
-                let alloca = self.builder.insert_inst(Inst::alloca(decl.span));
+                let alloca = self.ctx.builder.insert_inst(Inst::alloca(decl.span));
                 self.ctx.insert_var(decl.name.sema(), alloca);
                 if let Some(init) = init {
                     let val = self.visit_expr(init, ExprMode::RightValue);
-                    self.builder
+                    self.ctx
+                        .builder
                         .insert_inst(Inst::store(alloca, val, decl.span));
                 }
             }
@@ -124,7 +129,7 @@ impl<'a> Builder<'a> {
                             .expect("expected a continue block"),
                     )
                     .unwrap();
-                self.builder.insert_inst(Inst::jump(block, stmt.span));
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Break => {
                 let block = *self
@@ -137,26 +142,24 @@ impl<'a> Builder<'a> {
                             .expect("expected a break block"),
                     )
                     .unwrap();
-                self.builder.insert_inst(Inst::jump(block, stmt.span));
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
             }
             ast::StmtKind::Return(expr) => {
                 let val = self.visit_expr(*expr, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::ret(val, stmt.span));
+                self.ctx.builder.insert_inst(Inst::ret(val, stmt.span));
             }
             ast::StmtKind::Goto(label) => {
-                let block = self
-                    .ctx
-                    .get_or_make_block(*label, stmt.span, &mut self.builder);
-                self.builder.insert_inst(Inst::jump(block, stmt.span));
+                let block = self.ctx.get_or_make_block(*label, stmt.span);
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Default(inner) => {
                 let block = self.ctx.case_blocks.remove(&stmt_ref).unwrap();
 
                 // === Default Block ===
-                self.builder.switch_to_block(block);
+                self.ctx.builder.switch_to_block(block);
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Compound(items) => {
@@ -169,23 +172,21 @@ impl<'a> Builder<'a> {
                     });
             }
             ast::StmtKind::Label { label, stmt: inner } => {
-                let block = self
-                    .ctx
-                    .get_or_make_block(*label, stmt.span, &mut self.builder);
-                self.builder.insert_inst(Inst::jump(block, stmt.span));
+                let block = self.ctx.get_or_make_block(*label, stmt.span);
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
 
                 // === Labeled Block ===
-                self.builder.switch_to_block(block);
+                self.ctx.builder.switch_to_block(block);
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Case { stmt: inner, .. } => {
                 let block = self.ctx.case_blocks.remove(&stmt_ref).unwrap();
 
                 // === Previous Block ===
-                self.builder.insert_inst(Inst::jump(block, stmt.span));
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
 
                 // === Case Block ===
-                self.builder.switch_to_block(block);
+                self.ctx.builder.switch_to_block(block);
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::If {
@@ -195,19 +196,22 @@ impl<'a> Builder<'a> {
             } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
 
-                let then_block = self.builder.new_block("if.then", stmt.span);
-                let cont_block = self.builder.new_block("if.cont", stmt.span);
+                let then_block = self.ctx.builder.new_block("if.then", stmt.span);
+                let cont_block = self.ctx.builder.new_block("if.cont", stmt.span);
 
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, then_block, cont_block, stmt.span));
 
                 // === Then Block ===
-                self.builder.switch_to_block(then_block);
+                self.ctx.builder.switch_to_block(then_block);
                 self.visit_stmt(*then);
-                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::If {
                 cond,
@@ -216,74 +220,89 @@ impl<'a> Builder<'a> {
             } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
 
-                let then_block = self.builder.new_block("if.then", stmt.span);
-                let else_block = self.builder.new_block("if.else", stmt.span);
-                let cont_block = self.builder.new_block("if.cont", stmt.span);
+                let then_block = self.ctx.builder.new_block("if.then", stmt.span);
+                let else_block = self.ctx.builder.new_block("if.else", stmt.span);
+                let cont_block = self.ctx.builder.new_block("if.cont", stmt.span);
 
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, then_block, else_block, stmt.span));
 
                 // === Then Block ===
-                self.builder.switch_to_block(then_block);
+                self.ctx.builder.switch_to_block(then_block);
                 self.visit_stmt(*then);
-                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Else Block ===
-                self.builder.switch_to_block(else_block);
+                self.ctx.builder.switch_to_block(else_block);
                 self.visit_stmt(*otherwise);
-                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::While { cond, body } => {
-                let cond_block = self.builder.new_block("while.cond", stmt.span);
-                let body_block = self.builder.new_block("while.body", stmt.span);
-                let cont_block = self.builder.new_block("while.cont", stmt.span);
+                let cond_block = self.ctx.builder.new_block("while.cond", stmt.span);
+                let body_block = self.ctx.builder.new_block("while.body", stmt.span);
+                let cont_block = self.ctx.builder.new_block("while.cont", stmt.span);
 
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
                 self.ctx.continue_blocks.insert(stmt_ref, cond_block);
 
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
+                self.ctx.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.ctx.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::DoWhile { body, cond } => {
-                let body_block = self.builder.new_block("do.body", stmt.span);
-                let cond_block = self.builder.new_block("do.cond", stmt.span);
-                let cont_block = self.builder.new_block("do.cont", stmt.span);
+                let body_block = self.ctx.builder.new_block("do.body", stmt.span);
+                let cond_block = self.ctx.builder.new_block("do.cond", stmt.span);
+                let cont_block = self.ctx.builder.new_block("do.cont", stmt.span);
 
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
                 self.ctx.continue_blocks.insert(stmt_ref, cond_block);
 
                 // === Jump to Body Block ===
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.ctx.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
+                self.ctx.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::For {
                 init,
@@ -291,8 +310,8 @@ impl<'a> Builder<'a> {
                 step: None,
                 body,
             } => {
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
+                let body_block = self.ctx.builder.new_block("for.body", stmt.span);
+                let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
                 self.ctx.continue_blocks.insert(stmt_ref, body_block);
@@ -307,15 +326,19 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.ctx.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::For {
                 init,
@@ -323,9 +346,9 @@ impl<'a> Builder<'a> {
                 step: None,
                 body,
             } => {
-                let cond_block = self.builder.new_block("for.cond", stmt.span);
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
+                let cond_block = self.ctx.builder.new_block("for.cond", stmt.span);
+                let body_block = self.ctx.builder.new_block("for.body", stmt.span);
+                let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
                 self.ctx.continue_blocks.insert(stmt_ref, cond_block);
@@ -340,21 +363,26 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
+                self.ctx.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.ctx.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::For {
                 init,
@@ -362,9 +390,9 @@ impl<'a> Builder<'a> {
                 step: Some(step),
                 body,
             } => {
-                let step_block = self.builder.new_block("for.step", stmt.span);
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
+                let step_block = self.ctx.builder.new_block("for.step", stmt.span);
+                let body_block = self.ctx.builder.new_block("for.body", stmt.span);
+                let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
                 self.ctx.continue_blocks.insert(stmt_ref, step_block);
@@ -379,20 +407,26 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Step Block ===
-                self.builder.switch_to_block(step_block);
+                self.ctx.builder.switch_to_block(step_block);
                 self.visit_expr(*step, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.ctx.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(step_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(step_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::For {
                 init,
@@ -400,10 +434,10 @@ impl<'a> Builder<'a> {
                 step: Some(step),
                 body,
             } => {
-                let cond_block = self.builder.new_block("for.cond", stmt.span);
-                let step_block = self.builder.new_block("for.step", stmt.span);
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
+                let cond_block = self.ctx.builder.new_block("for.cond", stmt.span);
+                let step_block = self.ctx.builder.new_block("for.step", stmt.span);
+                let body_block = self.ctx.builder.new_block("for.body", stmt.span);
+                let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
                 self.ctx.continue_blocks.insert(stmt_ref, step_block);
@@ -418,26 +452,33 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
+                self.ctx.builder.switch_to_block(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
 
                 // === Step Block ===
-                self.builder.switch_to_block(step_block);
+                self.ctx.builder.switch_to_block(step_block);
                 self.visit_expr(*step, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.ctx.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(step_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(step_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
             ast::StmtKind::Switch { cond, body } => {
                 let mut cases = Vec::new();
@@ -451,13 +492,14 @@ impl<'a> Builder<'a> {
                                 ast::ExprKind::Const(c) => c,
                                 _ => panic!("expected a constant expression"),
                             };
-                            let case_block = self.builder.new_block("switch.case", inner.span);
+                            let case_block = self.ctx.builder.new_block("switch.case", inner.span);
                             self.ctx.case_blocks.insert(*inner_ref, case_block);
                             cases.push((val, case_block));
                         }
                     });
                     if let Some(inner) = switch.default {
                         let block = self
+                            .ctx
                             .builder
                             .new_block("switch.default", self.ast.stmt(inner).span);
                         self.ctx.case_blocks.insert(inner, block);
@@ -465,11 +507,11 @@ impl<'a> Builder<'a> {
                     }
                 }
 
-                let cont_block = self.builder.new_block("switch.cont", stmt.span);
+                let cont_block = self.ctx.builder.new_block("switch.cont", stmt.span);
                 self.ctx.break_blocks.insert(stmt_ref, cont_block);
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::switch(
+                self.ctx.builder.insert_inst(Inst::switch(
                     cond_val,
                     default_block.unwrap_or(cont_block),
                     cases,
@@ -477,10 +519,12 @@ impl<'a> Builder<'a> {
                 ));
 
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cont_block, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.ctx.builder.switch_to_block(cont_block);
             }
         }
     }
@@ -489,7 +533,7 @@ impl<'a> Builder<'a> {
         let expr = self.ast.expr(expr);
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
-            ast::ExprKind::Const(c) => self.builder.insert_inst(Inst::const_i32(*c, expr.span)),
+            ast::ExprKind::Const(c) => self.ctx.builder.insert_inst(Inst::const_i32(*c, expr.span)),
             ast::ExprKind::Var(name) => {
                 let info = self
                     .sema
@@ -503,7 +547,7 @@ impl<'a> Builder<'a> {
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => {
-                                self.builder.insert_inst(Inst::load(ptr, expr.span))
+                                self.ctx.builder.insert_inst(Inst::load(ptr, expr.span))
                             }
                         }
                     }
@@ -521,13 +565,12 @@ impl<'a> Builder<'a> {
                     .symbol(name.sema())
                     .expect("expected a sema symbol")
                     .is_global();
-                let func = self.ctx.get_or_make_function(
-                    name.raw,
-                    is_global,
-                    expr.span,
-                    &mut self.builder,
-                );
-                self.builder.insert_inst(Inst::call(func, args, expr.span))
+                let func = self
+                    .ctx
+                    .get_or_make_function(name.raw, is_global, expr.span);
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::call(func, args, expr.span))
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
                 ast::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, *inner, expr.span),
@@ -538,8 +581,8 @@ impl<'a> Builder<'a> {
                 ast::UnaryOp::PostDec => self.build_postfix_unary(UnaryOp::Dec, *inner, expr.span),
                 ast::UnaryOp::LogicalNot => {
                     let val = self.visit_expr(*inner, ExprMode::RightValue);
-                    let zero = self.builder.insert_inst(Inst::const_i32(0, expr.span));
-                    self.builder.insert_inst(Inst::binary(
+                    let zero = self.ctx.builder.insert_inst(Inst::const_i32(0, expr.span));
+                    self.ctx.builder.insert_inst(Inst::binary(
                         Type::Int32,
                         BinaryOp::Equal,
                         val,
@@ -610,7 +653,9 @@ impl<'a> Builder<'a> {
                 ast::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder.insert_inst(Inst::store(lhs, rhs, expr.span));
+                    self.ctx
+                        .builder
+                        .insert_inst(Inst::store(lhs, rhs, expr.span));
                     match mode {
                         ExprMode::LeftValue => lhs,
                         ExprMode::RightValue => rhs,
@@ -624,34 +669,42 @@ impl<'a> Builder<'a> {
             } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
 
-                let then_block = self.builder.new_block("tern.then", expr.span);
-                let else_block = self.builder.new_block("tern.else", expr.span);
-                let cont_block = self.builder.new_block("tern.cont", expr.span);
+                let then_block = self.ctx.builder.new_block("tern.then", expr.span);
+                let else_block = self.ctx.builder.new_block("tern.else", expr.span);
+                let cont_block = self.ctx.builder.new_block("tern.cont", expr.span);
 
                 let phi = self
+                    .ctx
                     .builder
                     .insert_inst_skip(Inst::phi(Type::Int32, expr.span));
 
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::branch(cond_val, then_block, else_block, expr.span));
 
                 // === Then Block ===
-                self.builder.switch_to_block(then_block);
+                self.ctx.builder.switch_to_block(then_block);
                 let then_val = self.visit_expr(*then, ExprMode::RightValue);
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::upsilon(phi, then_val, expr.span));
-                self.builder.insert_inst(Inst::jump(cont_block, expr.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Else Block ===
-                self.builder.switch_to_block(else_block);
+                self.ctx.builder.switch_to_block(else_block);
                 let else_val = self.visit_expr(*otherwise, ExprMode::RightValue);
-                self.builder
+                self.ctx
+                    .builder
                     .insert_inst(Inst::upsilon(phi, else_val, expr.span));
-                self.builder.insert_inst(Inst::jump(cont_block, expr.span));
+                self.ctx
+                    .builder
+                    .insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
-                self.builder.insert_inst_ref(phi);
+                self.ctx.builder.switch_to_block(cont_block);
+                self.ctx.builder.insert_inst_ref(phi);
                 phi
             }
         }
@@ -660,7 +713,8 @@ impl<'a> Builder<'a> {
     #[inline]
     fn build_unary(&mut self, op: UnaryOp, expr: ast::ExprRef, span: SourceSpan) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        self.builder
+        self.ctx
+            .builder
             .insert_inst(Inst::unary(Type::Int32, op, val, span))
     }
 
@@ -668,11 +722,12 @@ impl<'a> Builder<'a> {
     fn build_prefix_unary(&mut self, op: UnaryOp, expr: ast::ExprRef, span: SourceSpan) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         let inst = self
+            .ctx
             .builder
             .insert_inst(Inst::unary(Type::Int32, op, val, span));
 
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
-        self.builder.insert_inst(Inst::store(ptr, inst, span));
+        self.ctx.builder.insert_inst(Inst::store(ptr, inst, span));
 
         inst
     }
@@ -686,11 +741,12 @@ impl<'a> Builder<'a> {
     ) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         let inst = self
+            .ctx
             .builder
             .insert_inst(Inst::unary(Type::Int32, op, val, span));
 
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
-        self.builder.insert_inst(Inst::store(ptr, inst, span));
+        self.ctx.builder.insert_inst(Inst::store(ptr, inst, span));
 
         val
     }
@@ -705,7 +761,8 @@ impl<'a> Builder<'a> {
     ) -> InstRef {
         let lhs = self.visit_expr(lhs, ExprMode::RightValue);
         let rhs = self.visit_expr(rhs, ExprMode::RightValue);
-        self.builder
+        self.ctx
+            .builder
             .insert_inst(Inst::binary(Type::Int32, op, lhs, rhs, span))
     }
 
@@ -720,11 +777,12 @@ impl<'a> Builder<'a> {
         let l = self.visit_expr(lhs, ExprMode::RightValue);
         let r = self.visit_expr(rhs, ExprMode::RightValue);
         let inst = self
+            .ctx
             .builder
             .insert_inst(Inst::binary(Type::Int32, op, l, r, span));
 
         let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
-        self.builder.insert_inst(Inst::store(ptr, inst, span));
+        self.ctx.builder.insert_inst(Inst::store(ptr, inst, span));
 
         inst
     }
@@ -736,14 +794,14 @@ impl<'a> Builder<'a> {
         rhs: ast::ExprRef,
         span: SourceSpan,
     ) -> InstRef {
-        let rhs_block = self.builder.new_block(
+        let rhs_block = self.ctx.builder.new_block(
             match op {
                 LogicalOp::Or => "or",
                 LogicalOp::And => "and",
             },
             span,
         );
-        let cont_block = self.builder.new_block(
+        let cont_block = self.ctx.builder.new_block(
             match op {
                 LogicalOp::Or => "or.cont",
                 LogicalOp::And => "and.cont",
@@ -751,41 +809,47 @@ impl<'a> Builder<'a> {
             span,
         );
 
-        let phi = self.builder.insert_inst_skip(Inst::phi(Type::Int32, span));
+        let phi = self
+            .ctx
+            .builder
+            .insert_inst_skip(Inst::phi(Type::Int32, span));
 
         // === LHS Block ===
         let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
-        let short_circuit_val = self.builder.insert_inst(match op {
+        let short_circuit_val = self.ctx.builder.insert_inst(match op {
             LogicalOp::Or => Inst::const_i32(1, span),
             LogicalOp::And => Inst::const_i32(0, span),
         });
-        self.builder
+        self.ctx
+            .builder
             .insert_inst(Inst::upsilon(phi, short_circuit_val, span));
         let (true_target, false_target) = match op {
             LogicalOp::Or => (cont_block, rhs_block),
             LogicalOp::And => (rhs_block, cont_block),
         };
-        self.builder
+        self.ctx
+            .builder
             .insert_inst(Inst::branch(lhs_val, true_target, false_target, span));
 
         // === RHS Block ===
-        self.builder.switch_to_block(rhs_block);
+        self.ctx.builder.switch_to_block(rhs_block);
         let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
-        let zero_val = self.builder.insert_inst(Inst::const_i32(0, span));
-        let is_nonzero = self.builder.insert_inst(Inst::binary(
+        let zero_val = self.ctx.builder.insert_inst(Inst::const_i32(0, span));
+        let is_nonzero = self.ctx.builder.insert_inst(Inst::binary(
             Type::Int32,
             BinaryOp::NotEqual,
             rhs_val,
             zero_val,
             span,
         ));
-        self.builder
+        self.ctx
+            .builder
             .insert_inst(Inst::upsilon(phi, is_nonzero, span));
-        self.builder.insert_inst(Inst::jump(cont_block, span));
+        self.ctx.builder.insert_inst(Inst::jump(cont_block, span));
 
         // === Merge Block ===
-        self.builder.switch_to_block(cont_block);
-        self.builder.insert_inst_ref(phi);
+        self.ctx.builder.switch_to_block(cont_block);
+        self.ctx.builder.insert_inst_ref(phi);
         phi
     }
 }
@@ -808,75 +872,4 @@ enum ExprMode {
 enum LogicalOp {
     Or,
     And,
-}
-
-// ---------------------------------------------------------------------------
-// BuilderCtx
-// ---------------------------------------------------------------------------
-
-struct BuilderCtx {
-    vars: Vec<Option<InstRef>>,
-    funcs: HashMap<Symbol, FuncRef>,
-    labeled_blocks: HashMap<Symbol, BlockRef>,
-    case_blocks: HashMap<ast::StmtRef, BlockRef>,
-    break_blocks: HashMap<ast::StmtRef, BlockRef>,
-    continue_blocks: HashMap<ast::StmtRef, BlockRef>,
-}
-
-impl BuilderCtx {
-    fn new(ast: &ast::Ast) -> Self {
-        Self {
-            funcs: HashMap::new(),
-            case_blocks: HashMap::new(),
-            break_blocks: HashMap::new(),
-            labeled_blocks: HashMap::new(),
-            continue_blocks: HashMap::new(),
-            vars: vec![Default::default(); ast.symbols_len() + 1],
-        }
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        self.case_blocks.clear();
-        self.break_blocks.clear();
-        self.labeled_blocks.clear();
-        self.continue_blocks.clear();
-    }
-
-    #[inline]
-    fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
-        self.vars[sym.0.get() as usize].unwrap()
-    }
-
-    #[inline]
-    fn insert_var(&mut self, sym: SemaSymbol, var: InstRef) {
-        let _ = self.vars[sym.0.get() as usize].insert(var);
-    }
-
-    #[inline]
-    fn get_or_make_block(
-        &mut self,
-        name: Symbol,
-        span: SourceSpan,
-        builder: &mut IRBuilder,
-    ) -> BlockRef {
-        *self
-            .labeled_blocks
-            .entry(name)
-            .or_insert_with(|| builder.new_block_interned(name, span))
-    }
-
-    #[inline]
-    fn get_or_make_function(
-        &mut self,
-        name: Symbol,
-        is_global: bool,
-        span: SourceSpan,
-        builder: &mut IRBuilder,
-    ) -> FuncRef {
-        *self
-            .funcs
-            .entry(name)
-            .or_insert(builder.new_func(name, is_global, span))
-    }
 }

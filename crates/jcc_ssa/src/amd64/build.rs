@@ -106,7 +106,7 @@ impl<'a> AMD64FuncBuilder<'a> {
         let inst = self.ssa.inst(i);
         match &inst.kind {
             crate::InstKind::Select { .. } => todo!("handle select"),
-            crate::InstKind::StaticAddr(_) => todo!("handle static address"),
+            crate::InstKind::Static(_) => todo!("handle static address"),
             crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Alloca => {
                 let dst = self.make_pseudo();

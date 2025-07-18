@@ -133,8 +133,8 @@ impl Inst {
     }
 
     #[inline]
-    pub fn static_addr(var: Symbol, span: SourceSpan) -> Self {
-        Self::new(Type::IntPtr, InstKind::StaticAddr(var), span)
+    pub fn static_addr(var: StaticVarRef, span: SourceSpan) -> Self {
+        Self::new(Type::IntPtr, InstKind::Static(var), span)
     }
 
     #[inline]
@@ -246,7 +246,7 @@ impl Inst {
             | InstKind::Alloca
             | InstKind::Const(_)
             | InstKind::Jump(_)
-            | InstKind::StaticAddr(_) => {}
+            | InstKind::Static(_) => {}
         }
     }
 
@@ -291,7 +291,7 @@ impl Inst {
             | InstKind::Alloca
             | InstKind::Jump(_)
             | InstKind::Const(_)
-            | InstKind::StaticAddr(_) => {}
+            | InstKind::Static(_) => {}
         }
     }
 }
@@ -309,10 +309,10 @@ pub enum InstKind {
     Alloca,
     Const(i64),
     Ret(InstRef),
-    Jump(BlockRef),
     Load(InstRef),
+    Jump(BlockRef),
     Identity(InstRef),
-    StaticAddr(Symbol),
+    Static(StaticVarRef),
     Store {
         ptr: InstRef,
         val: InstRef,
@@ -424,8 +424,8 @@ pub struct StaticVar {
     pub ty: Type,
     pub name: Symbol,
     pub is_global: bool,
-    pub span: SourceSpan,
     pub init: Option<i64>,
+    pub span: SourceSpan,
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +500,10 @@ impl<'a> Program<'a> {
         &self.blocks[block.0.get() as usize]
     }
 
+    pub fn static_var(&self, var: StaticVarRef) -> &StaticVar {
+        &self.static_vars[var.0.get() as usize]
+    }
+
     pub fn inst_mut(&mut self, inst: InstRef) -> &mut Inst {
         &mut self.insts[inst.0.get() as usize]
     }
@@ -510,6 +514,10 @@ impl<'a> Program<'a> {
 
     pub fn block_mut(&mut self, block: BlockRef) -> &mut Block {
         &mut self.blocks[block.0.get() as usize]
+    }
+
+    pub fn static_var_mut(&mut self, var: StaticVarRef) -> &mut StaticVar {
+        &mut self.static_vars[var.0.get() as usize]
     }
 
     // ---------------------------------------------------------------------------
@@ -568,6 +576,11 @@ impl<'a> Program<'a> {
     // Iterators
     // ---------------------------------------------------------------------------
 
+    // TODO: There's some issues with this iterators:
+    // 1. Find a better a way to skip deleted entries (maybe a use an Option)
+    // 2. The _with_refs version do not need to index into the vector, they can
+    // just iterate through it with an enumerate()
+
     pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
         // Start from 1 to skip the default function at index 0
         (1..self.insts.len())
@@ -589,6 +602,13 @@ impl<'a> Program<'a> {
             .filter(move |r| !self.blocks_free.contains(r))
     }
 
+    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.static_vars.len())
+            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+            .filter(move |r| !self.static_vars_free.contains(r))
+    }
+
     pub fn iter_insts_with_refs(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
         self.iter_insts().map(move |r| (r, self.inst(r)))
     }
@@ -599,6 +619,11 @@ impl<'a> Program<'a> {
 
     pub fn iter_blocks_with_refs(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
         self.iter_blocks().map(move |r| (r, self.block(r)))
+    }
+
+    pub fn iter_static_vars_with_refs(&self) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> {
+        self.iter_static_vars()
+            .map(move |r| (r, self.static_var(r)))
     }
 
     // ---------------------------------------------------------------------------
@@ -652,6 +677,46 @@ impl fmt::Display for FuncRef {
     }
 }
 
+impl fmt::Display for StaticVarRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "v{}", self.0.get())
+    }
+}
+
+impl fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnaryOp::Not => write!(f, "not"),
+            UnaryOp::Neg => write!(f, "neg"),
+            UnaryOp::Inc => write!(f, "inc"),
+            UnaryOp::Dec => write!(f, "dec"),
+        }
+    }
+}
+
+impl fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BinaryOp::Or => write!(f, "or"),
+            BinaryOp::And => write!(f, "and"),
+            BinaryOp::Xor => write!(f, "xor"),
+            BinaryOp::Shl => write!(f, "shl"),
+            BinaryOp::Shr => write!(f, "shr"),
+            BinaryOp::Add => write!(f, "add"),
+            BinaryOp::Sub => write!(f, "sub"),
+            BinaryOp::Mul => write!(f, "mul"),
+            BinaryOp::Div => write!(f, "div"),
+            BinaryOp::Rem => write!(f, "rem"),
+            BinaryOp::Equal => write!(f, "eq"),
+            BinaryOp::NotEqual => write!(f, "neq"),
+            BinaryOp::LessThan => write!(f, "lt"),
+            BinaryOp::LessEqual => write!(f, "leq"),
+            BinaryOp::GreaterThan => write!(f, "gt"),
+            BinaryOp::GreaterEqual => write!(f, "geq"),
+        }
+    }
+}
+
 impl fmt::Display for InstKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -663,12 +728,12 @@ impl fmt::Display for InstKind {
             InstKind::Jump(b) => write!(f, "jump {}", b),
             InstKind::Const(i) => write!(f, "const {}", i),
             InstKind::Load(ptr) => write!(f, "load {}", ptr),
+            InstKind::Static(v) => write!(f, "static {}", v),
             InstKind::Identity(i) => write!(f, "identity {}", i),
-            InstKind::StaticAddr(name) => write!(f, "static_addr {:?}", name),
+            InstKind::Unary { op, val } => write!(f, "{} {}", op, val),
             InstKind::Store { val, ptr } => write!(f, "store {}, {}", ptr, val),
             InstKind::Upsilon { phi, val } => write!(f, "upsilon {}, {}", phi, val),
-            InstKind::Unary { op, val } => write!(f, "{:?} {}", op, val),
-            InstKind::Binary { op, lhs, rhs } => write!(f, "{:?} {}, {}", op, lhs, rhs),
+            InstKind::Binary { op, lhs, rhs } => write!(f, "{} {}, {}", op, lhs, rhs),
             InstKind::Select { cond, then, other } => {
                 write!(f, "select {}, {}, {}", cond, then, other)
             }
@@ -700,35 +765,40 @@ impl fmt::Display for InstKind {
 
 impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for var in self.static_vars.iter() {
+        for (var_ref, var) in self.iter_static_vars_with_refs() {
             let name_str = self.interner.lookup(var.name);
             let linkage = if var.is_global { "global" } else { "static" };
-            writeln!(f, "{} {} = {:?};", linkage, name_str, var.init)?;
-        }
-        if !self.static_vars.is_empty() {
-            writeln!(f)?;
+            let init = match var.init {
+                None => "_".to_string(),
+                Some(v) => v.to_string(),
+            };
+            writeln!(
+                f,
+                "@{}({}) = {} {:?} {}",
+                name_str, var_ref, linkage, var.ty, init
+            )?;
         }
         for (func_ref, func) in self.iter_funcs_with_refs() {
             let func_name = self.interner.lookup(func.name);
-            writeln!(f, "define @{}({}) {{", func_name, func_ref)?;
-
-            for block_ref in &func.blocks {
-                if self.blocks_free.contains(block_ref) {
-                    continue;
-                }
-                let block = self.block(*block_ref);
-                let block_name = self.interner.lookup(block.name);
-                writeln!(f, "{}: ; preds: TODO", block_name)?;
-                for inst_ref in &block.insts {
-                    let inst = self.inst(*inst_ref);
-                    if inst.ty == Type::Void {
-                        writeln!(f, "  {};", inst.kind)?;
-                    } else {
-                        writeln!(f, "  {} = {:?} {};", inst_ref, inst.ty, inst.kind)?;
+            write!(f, "define @{}({}) ", func_name, func_ref)?;
+            if func.blocks.is_empty() {
+                writeln!(f)?;
+            } else {
+                writeln!(f, "{{")?;
+                for block_ref in &func.blocks {
+                    if self.blocks_free.contains(block_ref) {
+                        continue;
+                    }
+                    let block = self.block(*block_ref);
+                    let block_name = self.interner.lookup(block.name);
+                    writeln!(f, "{}({}): ; preds: []", block_name, block_ref)?;
+                    for inst_ref in &block.insts {
+                        let inst = self.inst(*inst_ref);
+                        writeln!(f, "  {} = {:?} {}", inst_ref, inst.ty, inst.kind)?;
                     }
                 }
+                writeln!(f, "}}")?;
             }
-            writeln!(f, "}}")?;
         }
         Ok(())
     }

@@ -2,7 +2,7 @@ mod ctx;
 
 use crate::{
     ast,
-    sema::{Attribute, SemaCtx},
+    sema::{Attribute, SemaCtx, StaticValue},
     ssa::ctx::BuilderCtx,
 };
 
@@ -38,8 +38,19 @@ impl<'a> Builder<'a> {
                         .sema
                         .symbol(decl.name.sema())
                         .expect("expected a sema symbol");
-                    if let Attribute::Static { .. } = info.attr {
-                        println!("sema info!");
+                    if let Attribute::Static { init, is_global } = info.attr {
+                        let init = match init {
+                            StaticValue::Tentative => Some(0),
+                            StaticValue::NoInitializer => None,
+                            StaticValue::Initialized(init) => Some(init),
+                        };
+                        self.ctx.get_or_make_static_var(
+                            Type::Int32,
+                            &decl.name,
+                            is_global,
+                            init,
+                            decl.span,
+                        );
                     }
                 }
                 ast::DeclKind::Func { params, body } => {
@@ -102,13 +113,36 @@ impl<'a> Builder<'a> {
         match decl.kind {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
-                let alloca = self.ctx.builder.insert_inst(Inst::alloca(decl.span));
-                self.ctx.insert_var(decl.name.sema(), alloca);
-                if let Some(init) = init {
-                    let val = self.visit_expr(init, ExprMode::RightValue);
-                    self.ctx
-                        .builder
-                        .insert_inst(Inst::store(alloca, val, decl.span));
+                let info = self
+                    .sema
+                    .symbol(decl.name.sema())
+                    .expect("expected a sema symbol");
+                match info.attr {
+                    Attribute::Function { .. } => panic!("unexpected function attribute"),
+                    Attribute::Local => {
+                        let alloca = self.ctx.builder.insert_inst(Inst::alloca(decl.span));
+                        self.ctx.insert_var(decl.name.sema(), alloca);
+                        if let Some(init) = init {
+                            let val = self.visit_expr(init, ExprMode::RightValue);
+                            self.ctx
+                                .builder
+                                .insert_inst(Inst::store(alloca, val, decl.span));
+                        }
+                    }
+                    Attribute::Static { is_global, init } => {
+                        let init = match init {
+                            StaticValue::Tentative => Some(0),
+                            StaticValue::NoInitializer => None,
+                            StaticValue::Initialized(init) => Some(init),
+                        };
+                        self.ctx.get_or_make_static_var(
+                            Type::Int32,
+                            &decl.name,
+                            is_global,
+                            init,
+                            decl.span,
+                        );
+                    }
                 }
             }
         }
@@ -126,7 +160,7 @@ impl<'a> Builder<'a> {
                         self.sema
                             .continues
                             .get(&stmt_ref)
-                            .expect("expected a continue block"),
+                            .expect("expected a resolved continue"),
                     )
                     .unwrap();
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
@@ -139,7 +173,7 @@ impl<'a> Builder<'a> {
                         self.sema
                             .breaks
                             .get(&stmt_ref)
-                            .expect("expected a break block"),
+                            .expect("expected a resolved break"),
                     )
                     .unwrap();
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
@@ -540,8 +574,20 @@ impl<'a> Builder<'a> {
                     .symbol(name.sema())
                     .expect("expected a sema symbol");
                 match info.attr {
-                    Attribute::Static { .. } => todo!("handle static variables"),
                     Attribute::Function { .. } => todo!("handle function variables"),
+                    Attribute::Static { .. } => {
+                        let var = self.ctx.get_static_var_ref(name.sema());
+                        let ptr = self
+                            .ctx
+                            .builder
+                            .insert_inst(Inst::static_addr(var, expr.span));
+                        match mode {
+                            ExprMode::LeftValue => ptr,
+                            ExprMode::RightValue => {
+                                self.ctx.builder.insert_inst(Inst::load(ptr, expr.span))
+                            }
+                        }
+                    }
                     Attribute::Local => {
                         let ptr = self.ctx.get_var_ptr(name.sema());
                         match mode {

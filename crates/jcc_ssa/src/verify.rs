@@ -34,7 +34,7 @@ impl<'a> SSAVerifier<'a> {
         // TODO: this will iterate over deleted/invalidated instructions, fix it
         for (i, inst) in self.ssa.iter_insts_with_refs() {
             match inst.kind {
-                InstKind::Nop | InstKind::Phi | InstKind::Arg | InstKind::StaticAddr(_) => {}
+                InstKind::Nop | InstKind::Phi | InstKind::Arg | InstKind::Static(_) => {}
                 InstKind::Alloca => {
                     if inst.ty != Type::IntPtr {
                         self.result

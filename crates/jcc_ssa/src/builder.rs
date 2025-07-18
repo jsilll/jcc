@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use jcc_interner::{Interner, Symbol};
 use jcc_sourcemap::SourceSpan;
 
@@ -18,9 +16,9 @@ pub struct IRBuilder<'p> {
 impl<'p> IRBuilder<'p> {
     pub fn new(interner: &'p mut Interner) -> Self {
         Self {
+            func: FuncRef::default(),
+            block: BlockRef::default(),
             prog: Program::new(interner),
-            func: FuncRef(NonZero::new(u32::MAX).unwrap()),
-            block: BlockRef(NonZero::new(u32::MAX).unwrap()),
         }
     }
 

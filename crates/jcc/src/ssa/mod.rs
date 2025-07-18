@@ -152,32 +152,6 @@ impl<'a> Builder<'a> {
         let stmt = self.ast.stmt(stmt_ref);
         match &stmt.kind {
             ast::StmtKind::Empty => {}
-            ast::StmtKind::Continue(_) => {
-                let block = *self
-                    .ctx
-                    .continue_blocks
-                    .get(
-                        self.sema
-                            .continues
-                            .get(&stmt_ref)
-                            .expect("expected a resolved continue"),
-                    )
-                    .unwrap();
-                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
-            }
-            ast::StmtKind::Break(_) => {
-                let block = *self
-                    .ctx
-                    .break_blocks
-                    .get(
-                        self.sema
-                            .breaks
-                            .get(&stmt_ref)
-                            .expect("expected a resolved break"),
-                    )
-                    .unwrap();
-                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
-            }
             ast::StmtKind::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
             }
@@ -187,6 +161,14 @@ impl<'a> Builder<'a> {
             }
             ast::StmtKind::Goto(label) => {
                 let block = self.ctx.get_or_make_block(*label, stmt.span);
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
+            }
+            ast::StmtKind::Continue(target) => {
+                let block = *self.ctx.continue_blocks.get(&target.get()).unwrap();
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
+            }
+            ast::StmtKind::Break(target) => {
+                let block = *self.ctx.break_blocks.get(&target.get()).unwrap();
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Default(inner) => {

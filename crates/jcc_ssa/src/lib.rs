@@ -51,25 +51,13 @@ pub struct InstRef(NonZeroU32);
 #[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InstIdx(pub(crate) u32);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Inst {
     pub ty: Type,
     pub kind: InstKind,
     pub block: BlockRef,
     pub span: SourceSpan,
     pub(crate) idx: InstIdx,
-}
-
-impl Default for Inst {
-    fn default() -> Self {
-        Self {
-            ty: Default::default(),
-            idx: Default::default(),
-            kind: Default::default(),
-            span: Default::default(),
-            block: BlockRef(NonZeroU32::new(u32::MAX).unwrap()),
-        }
-    }
 }
 
 impl Inst {
@@ -386,6 +374,12 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockRef(NonZeroU32);
 
+impl Default for BlockRef {
+    fn default() -> Self {
+        BlockRef(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct BlockIdx(u32);
 
@@ -403,6 +397,12 @@ pub struct Block {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FuncRef(NonZeroU32);
+
+impl Default for FuncRef {
+    fn default() -> Self {
+        FuncRef(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct Func {

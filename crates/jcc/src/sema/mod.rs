@@ -13,6 +13,12 @@ use std::{collections::HashMap, num::NonZeroU32};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SemaSymbol(pub(crate) NonZeroU32);
 
+impl Default for SemaSymbol {
+    fn default() -> Self {
+        SemaSymbol(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SemaCtx
 // ---------------------------------------------------------------------------

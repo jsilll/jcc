@@ -179,7 +179,7 @@ impl<'a> ResolverPass<'a> {
 
     fn visit_stmt(&mut self, stmt: StmtRef) {
         match &self.ast.stmt(stmt).kind {
-            StmtKind::Empty | StmtKind::Break | StmtKind::Continue | StmtKind::Goto(_) => {}
+            StmtKind::Empty | StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Goto(_) => {}
             StmtKind::Expr(expr) => self.visit_expr(*expr),
             StmtKind::Return(expr) => self.visit_expr(*expr),
             StmtKind::Default(stmt) => self.visit_stmt(*stmt),

@@ -156,8 +156,8 @@ impl<'a> AstMermaid<'a> {
         let stmt_id = format!("stmt_{}", stmt.0.get());
         match &self.ast.stmt(stmt).kind {
             StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt"),
-            StmtKind::Break => self.define_node(&stmt_id, "BreakStmt"),
-            StmtKind::Continue => self.define_node(&stmt_id, "ContinueStmt"),
+            StmtKind::Break(_) => self.define_node(&stmt_id, "BreakStmt"),
+            StmtKind::Continue(_) => self.define_node(&stmt_id, "ContinueStmt"),
             StmtKind::Expr(expr) => {
                 self.define_node(&stmt_id, "ExprStmt");
                 let expr_id = self.visit_expr(*expr);

@@ -15,7 +15,7 @@ pub struct SemaSymbol(pub(crate) NonZeroU32);
 
 impl Default for SemaSymbol {
     fn default() -> Self {
-        SemaSymbol(NonZeroU32::new(u32::MAX).unwrap())
+        Self(NonZeroU32::new(u32::MAX).unwrap())
     }
 }
 

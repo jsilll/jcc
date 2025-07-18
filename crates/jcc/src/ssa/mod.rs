@@ -152,7 +152,7 @@ impl<'a> Builder<'a> {
         let stmt = self.ast.stmt(stmt_ref);
         match &stmt.kind {
             ast::StmtKind::Empty => {}
-            ast::StmtKind::Continue => {
+            ast::StmtKind::Continue(_) => {
                 let block = *self
                     .ctx
                     .continue_blocks
@@ -165,7 +165,7 @@ impl<'a> Builder<'a> {
                     .unwrap();
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
-            ast::StmtKind::Break => {
+            ast::StmtKind::Break(_) => {
                 let block = *self
                     .ctx
                     .break_blocks

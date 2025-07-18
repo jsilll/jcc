@@ -376,7 +376,7 @@ pub struct BlockRef(NonZeroU32);
 
 impl Default for BlockRef {
     fn default() -> Self {
-        BlockRef(NonZeroU32::new(u32::MAX).unwrap())
+        Self(NonZeroU32::new(u32::MAX).unwrap())
     }
 }
 
@@ -400,7 +400,7 @@ pub struct FuncRef(NonZeroU32);
 
 impl Default for FuncRef {
     fn default() -> Self {
-        FuncRef(NonZeroU32::new(u32::MAX).unwrap())
+        Self(NonZeroU32::new(u32::MAX).unwrap())
     }
 }
 

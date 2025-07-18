@@ -142,7 +142,7 @@ impl<'ctx> ControlPass<'ctx> {
                 self.unresolved_labels.remove(label);
                 self.visit_stmt(ast, *inner);
             }
-            StmtKind::Break => match self.tracked.last() {
+            StmtKind::Break(_) => match self.tracked.last() {
                 Some(TrackedStmt::Loop(loop_stmt)) => {
                     self.ctx.breaks.insert(stmt_ref, *loop_stmt);
                 }
@@ -154,7 +154,7 @@ impl<'ctx> ControlPass<'ctx> {
                     kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
                 }),
             },
-            StmtKind::Continue => {
+            StmtKind::Continue(_) => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Loop(loop_stmt) => Some(*loop_stmt),
                     _ => None,

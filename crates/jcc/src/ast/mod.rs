@@ -225,6 +225,12 @@ impl Default for DeclKind {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StmtRef(pub(crate) NonZeroU32);
 
+impl Default for StmtRef {
+    fn default() -> Self {
+        Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Stmt {
     pub kind: StmtKind,
@@ -236,10 +242,6 @@ pub enum StmtKind {
     /// An empty statement.
     #[default]
     Empty,
-    /// A break statement.
-    Break,
-    /// A continue statement.
-    Continue,
     /// A goto statement.
     Goto(Symbol),
     /// An expression statement.
@@ -248,6 +250,10 @@ pub enum StmtKind {
     Return(ExprRef),
     /// A default statement.
     Default(StmtRef),
+    /// A break statement.
+    Break(Cell<StmtRef>),
+    /// A continue statement.
+    Continue(Cell<StmtRef>),
     /// A compound statement.
     Compound(Slice<BlockItem>),
     /// A case statement.
@@ -284,6 +290,12 @@ pub struct Expr {
     pub span: SourceSpan,
 }
 
+impl Default for ExprKind {
+    fn default() -> Self {
+        Self::Const(0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprKind {
     /// A constant integer value.
@@ -311,12 +323,6 @@ pub enum ExprKind {
         name: AstSymbol,
         args: Slice<ExprRef>,
     },
-}
-
-impl Default for ExprKind {
-    fn default() -> Self {
-        Self::Const(0)
-    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -448,6 +454,12 @@ pub enum ForInit {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Slice<T>(u32, u32, std::marker::PhantomData<T>);
 
+impl<T> Default for Slice<T> {
+    fn default() -> Self {
+        Slice(0, 0, std::marker::PhantomData)
+    }
+}
+
 impl<T> Slice<T> {
     #[inline]
     pub fn new(begin: u32, end: u32) -> Self {
@@ -462,11 +474,5 @@ impl<T> Slice<T> {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.0 == self.1
-    }
-}
-
-impl<T> Default for Slice<T> {
-    fn default() -> Self {
-        Slice(0, 0, std::marker::PhantomData)
     }
 }

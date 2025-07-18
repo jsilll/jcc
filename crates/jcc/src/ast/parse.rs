@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
                 self.iter.next();
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_stmt(Stmt {
-                    kind: StmtKind::Break,
+                    kind: StmtKind::Break(Default::default()),
                     span: *span,
                 }))
             }
@@ -300,7 +300,7 @@ impl<'a> Parser<'a> {
                 self.iter.next();
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_stmt(Stmt {
-                    kind: StmtKind::Continue,
+                    kind: StmtKind::Continue(Default::default()),
                     span: *span,
                 }))
             }

@@ -180,8 +180,8 @@ impl<'a> AstGraphviz<'a> {
         let stmt_id = format!("stmt_{}", stmt.0.get());
         match &self.ast.stmt(stmt).kind {
             StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt", "gray90"),
-            StmtKind::Break => self.define_node(&stmt_id, "BreakStmt", "lightcoral"),
-            StmtKind::Continue => self.define_node(&stmt_id, "ContinueStmt", "lightsalmon"),
+            StmtKind::Break(_) => self.define_node(&stmt_id, "BreakStmt", "lightcoral"),
+            StmtKind::Continue(_) => self.define_node(&stmt_id, "ContinueStmt", "lightsalmon"),
             StmtKind::Expr(expr) => {
                 self.define_node(&stmt_id, "ExprStmt", "azure");
                 let expr_id = self.visit_expr(*expr);

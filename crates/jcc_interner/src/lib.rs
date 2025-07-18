@@ -9,7 +9,7 @@ pub struct Symbol(NonZeroU32);
 
 impl Default for Symbol {
     fn default() -> Self {
-        Symbol(NonZeroU32::new(u32::MAX).unwrap())
+        Self(NonZeroU32::new(u32::MAX).unwrap())
     }
 }
 

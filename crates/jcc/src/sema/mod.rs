@@ -28,17 +28,13 @@ pub struct SemaCtx {
     decls_type: Vec<Type>,
     exprs_type: Vec<Type>,
     symbols: Vec<Option<SymbolInfo>>,
-    pub breaks: HashMap<StmtRef, StmtRef>,
-    pub continues: HashMap<StmtRef, StmtRef>,
     pub switches: HashMap<StmtRef, SwitchCases>,
 }
 
 impl SemaCtx {
     pub fn new(ast: &Ast) -> Self {
         Self {
-            breaks: HashMap::new(),
             switches: HashMap::new(),
-            continues: HashMap::new(),
             symbols: vec![Default::default(); ast.symbols_len() + 1],
             decls_type: vec![Default::default(); ast.decls_len() + 1],
             exprs_type: vec![Default::default(); ast.exprs_len() + 1],

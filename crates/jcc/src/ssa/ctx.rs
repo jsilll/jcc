@@ -1,10 +1,13 @@
-use crate::{ast, sema::SemaSymbol};
+use crate::{
+    ast::{self, AstSymbol},
+    sema::SemaSymbol,
+};
 
 use jcc_ssa::{
     builder::IRBuilder,
     interner::{Interner, Symbol},
     sourcemap::SourceSpan,
-    BlockRef, FuncRef, InstRef,
+    BlockRef, Func, FuncRef, InstRef, StaticVar, StaticVarRef, Type,
 };
 
 use std::collections::HashMap;
@@ -15,7 +18,7 @@ use std::collections::HashMap;
 
 pub struct BuilderCtx<'a> {
     pub builder: IRBuilder<'a>,
-    vars: Vec<Option<InstRef>>,
+    vars: Vec<VarEntry>,
     funcs: HashMap<Symbol, FuncRef>,
     labeled_blocks: HashMap<Symbol, BlockRef>,
     pub case_blocks: HashMap<ast::StmtRef, BlockRef>,
@@ -46,12 +49,23 @@ impl<'a> BuilderCtx<'a> {
 
     #[inline]
     pub fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
-        self.vars[sym.0.get() as usize].unwrap()
+        match self.vars[sym.0.get() as usize] {
+            VarEntry::Inst(inst) => inst,
+            VarEntry::None | VarEntry::Static(_) => panic!("expected an inst ref"),
+        }
     }
 
     #[inline]
     pub fn insert_var(&mut self, sym: SemaSymbol, var: InstRef) {
-        let _ = self.vars[sym.0.get() as usize].insert(var);
+        self.vars[sym.0.get() as usize] = VarEntry::Inst(var);
+    }
+
+    #[inline]
+    pub fn get_static_var_ref(&self, sym: SemaSymbol) -> StaticVarRef {
+        match self.vars[sym.0.get() as usize] {
+            VarEntry::Static(v) => v,
+            VarEntry::None | VarEntry::Inst(_) => panic!("expected a static var ref"),
+        }
     }
 
     #[inline]
@@ -69,9 +83,58 @@ impl<'a> BuilderCtx<'a> {
         is_global: bool,
         span: SourceSpan,
     ) -> FuncRef {
-        *self
-            .funcs
-            .entry(name)
-            .or_insert(self.builder.new_func(name, is_global, span))
+        *self.funcs.entry(name).or_insert_with(|| {
+            self.builder.prog.new_func(Func {
+                name,
+                span,
+                is_global,
+                ..Default::default()
+            })
+        })
     }
+
+    #[inline]
+    pub fn get_or_make_static_var(
+        &mut self,
+        ty: Type,
+        name: &AstSymbol,
+        is_global: bool,
+        init: Option<i64>,
+        span: SourceSpan,
+    ) -> StaticVarRef {
+        let idx = name.sema().0.get() as usize;
+        match self.vars[idx] {
+            VarEntry::Inst(_) => panic!("unexpected inst ref"),
+            VarEntry::Static(v) => v,
+            VarEntry::None => {
+                let func = self.builder.func();
+                let fname = self.builder.prog.func(func).name;
+                let fname = self.builder.prog.interner.lookup(fname);
+                let name = self.builder.prog.interner.lookup(name.raw);
+                let scoped = format!("{fname}.{name}");
+                let name = self.builder.prog.interner.intern(&scoped);
+                let v = self.builder.prog.new_static_var(StaticVar {
+                    ty,
+                    name,
+                    init,
+                    span,
+                    is_global,
+                });
+                self.vars[idx] = VarEntry::Static(v);
+                v
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Auxiliary Structures
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum VarEntry {
+    #[default]
+    None,
+    Inst(InstRef),
+    Static(StaticVarRef),
 }

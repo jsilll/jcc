@@ -3,7 +3,7 @@ use std::num::NonZero;
 use jcc_interner::{Interner, Symbol};
 use jcc_sourcemap::SourceSpan;
 
-use crate::{Block, BlockRef, Func, FuncRef, Inst, InstRef, Program};
+use crate::{Block, BlockRef, FuncRef, Inst, InstRef, Program};
 
 // ---------------------------------------------------------------------------
 // IRBuilder
@@ -12,7 +12,7 @@ use crate::{Block, BlockRef, Func, FuncRef, Inst, InstRef, Program};
 pub struct IRBuilder<'p> {
     func: FuncRef,
     block: BlockRef,
-    prog: Program<'p>,
+    pub prog: Program<'p>,
 }
 
 impl<'p> IRBuilder<'p> {
@@ -82,15 +82,5 @@ impl<'p> IRBuilder<'p> {
         });
         self.prog.func_mut(self.func).blocks.push(block);
         block
-    }
-
-    #[inline]
-    pub fn new_func(&mut self, name: Symbol, is_global: bool, span: SourceSpan) -> FuncRef {
-        self.prog.new_func(Func {
-            name,
-            span,
-            is_global,
-            ..Default::default()
-        })
     }
 }

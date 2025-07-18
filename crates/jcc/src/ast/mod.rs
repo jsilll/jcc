@@ -413,20 +413,15 @@ pub enum BinaryOp {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AstSymbol {
     pub raw: Symbol,
-    pub sema: Cell<Option<SemaSymbol>>,
+    pub sema: Cell<SemaSymbol>,
 }
 
 impl AstSymbol {
     pub fn new(name: Symbol) -> Self {
         AstSymbol {
             raw: name,
-            sema: Cell::new(None),
+            ..Default::default()
         }
-    }
-
-    #[inline]
-    pub fn sema(&self) -> SemaSymbol {
-        self.sema.get().expect("sema symbol not set")
     }
 }
 

@@ -72,7 +72,7 @@ impl<'a> ResolverPass<'a> {
                 symbol
             }))
         });
-        name.sema.set(Some(entry.symbol));
+        name.sema.set(entry.symbol);
         *entry
     }
 
@@ -92,7 +92,7 @@ impl<'a> ResolverPass<'a> {
                 true,
             ),
         };
-        name.sema.set(Some(entry.symbol));
+        name.sema.set(entry.symbol);
         self.symbol_counter = self.symbol_counter.saturating_add(1);
         if let Some(prev) = self.symbols.insert(name.raw, entry) {
             if !(entry.has_linkage && prev.has_linkage) {
@@ -267,7 +267,7 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*otherwise);
             }
             ExprKind::Var(name) => match self.symbols.get(&name.raw) {
-                Some(entry) => name.sema.set(Some(entry.symbol)),
+                Some(entry) => name.sema.set(entry.symbol),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: expr.span,
                     kind: ResolverDiagnosticKind::UndeclaredVariable,
@@ -275,7 +275,7 @@ impl<'a> ResolverPass<'a> {
             },
             ExprKind::Call { name, args } => {
                 match self.symbols.get(&name.raw) {
-                    Some(entry) => name.sema.set(Some(entry.symbol)),
+                    Some(entry) => name.sema.set(entry.symbol),
                     None => self.result.diagnostics.push(ResolverDiagnostic {
                         span: expr.span,
                         kind: ResolverDiagnosticKind::UndeclaredFunction,

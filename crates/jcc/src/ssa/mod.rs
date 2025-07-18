@@ -36,7 +36,7 @@ impl<'a> Builder<'a> {
                 ast::DeclKind::Var(_) => {
                     let info = self
                         .sema
-                        .symbol(decl.name.sema())
+                        .symbol(decl.name.sema.get())
                         .expect("expected a sema symbol");
                     if let Attribute::Static { init, is_global } = info.attr {
                         let init = match init {
@@ -56,7 +56,7 @@ impl<'a> Builder<'a> {
                 ast::DeclKind::Func { params, body } => {
                     let is_global = self
                         .sema
-                        .symbol(decl.name.sema())
+                        .symbol(decl.name.sema.get())
                         .expect("expected a sema symbol")
                         .is_global();
 
@@ -79,7 +79,7 @@ impl<'a> Builder<'a> {
                                 .ctx
                                 .builder
                                 .insert_inst(Inst::arg(Type::Int32, param.span));
-                            self.ctx.insert_var(param.name.sema(), arg);
+                            self.ctx.insert_var(param.name.sema.get(), arg);
                         });
 
                         self.ast
@@ -115,13 +115,13 @@ impl<'a> Builder<'a> {
             ast::DeclKind::Var(init) => {
                 let info = self
                     .sema
-                    .symbol(decl.name.sema())
+                    .symbol(decl.name.sema.get())
                     .expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => panic!("unexpected function attribute"),
                     Attribute::Local => {
                         let alloca = self.ctx.builder.insert_inst(Inst::alloca(decl.span));
-                        self.ctx.insert_var(decl.name.sema(), alloca);
+                        self.ctx.insert_var(decl.name.sema.get(), alloca);
                         if let Some(init) = init {
                             let val = self.visit_expr(init, ExprMode::RightValue);
                             self.ctx
@@ -571,12 +571,12 @@ impl<'a> Builder<'a> {
             ast::ExprKind::Var(name) => {
                 let info = self
                     .sema
-                    .symbol(name.sema())
+                    .symbol(name.sema.get())
                     .expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => todo!("handle function variables"),
                     Attribute::Static { .. } => {
-                        let var = self.ctx.get_static_var_ref(name.sema());
+                        let var = self.ctx.get_static_var_ref(name.sema.get());
                         let ptr = self
                             .ctx
                             .builder
@@ -589,7 +589,7 @@ impl<'a> Builder<'a> {
                         }
                     }
                     Attribute::Local => {
-                        let ptr = self.ctx.get_var_ptr(name.sema());
+                        let ptr = self.ctx.get_var_ptr(name.sema.get());
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => {
@@ -608,7 +608,7 @@ impl<'a> Builder<'a> {
                     .collect::<Vec<_>>();
                 let is_global = self
                     .sema
-                    .symbol(name.sema())
+                    .symbol(name.sema.get())
                     .expect("expected a sema symbol")
                     .is_global();
                 let func = self

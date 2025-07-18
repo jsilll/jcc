@@ -102,7 +102,7 @@ impl<'a> BuilderCtx<'a> {
         init: Option<i64>,
         span: SourceSpan,
     ) -> StaticVarRef {
-        let idx = name.sema().0.get() as usize;
+        let idx = name.sema.get().0.get() as usize;
         match self.vars[idx] {
             VarEntry::Inst(_) => panic!("unexpected inst ref"),
             VarEntry::Static(v) => v,

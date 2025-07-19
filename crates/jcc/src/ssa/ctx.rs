@@ -125,16 +125,16 @@ impl<'a> BuilderCtx<'a> {
             VarEntry::Inst(_) => panic!("unexpected inst ref"),
             VarEntry::Static(v) => v,
             VarEntry::None => {
-                let name = match is_global {
-                    true => name.raw,
-                    false => {
-                        let func = self.builder.func();
+                let func = self.builder.func();
+                let name = match func {
+                    Some(func) if !is_global => {
                         let fname = self.builder.prog.func(func).name;
                         let fname = self.builder.prog.interner.lookup(fname);
                         let name = self.builder.prog.interner.lookup(name.raw);
                         let scoped = format!("{fname}.{name}");
                         self.builder.prog.interner.intern(&scoped)
                     }
+                    _ => name.raw,
                 };
                 let v = self.builder.prog.new_static_var(StaticVar {
                     ty,

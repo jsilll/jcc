@@ -102,6 +102,7 @@ impl<'a> Builder<'a> {
                             self.ctx.builder.insert_inst(Inst::ret(val, decl.span));
                         }
                     }
+                    self.ctx.builder.clear_func();
                 }
             }
         });

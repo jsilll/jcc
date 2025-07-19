@@ -7,7 +7,7 @@ use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
 use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
-// ResolvedSymbol
+// SemaSymbol
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -114,6 +114,14 @@ impl SymbolInfo {
     }
 
     #[inline]
+    pub fn statik(ty: Type, is_global: bool, init: StaticValue) -> Self {
+        Self {
+            ty,
+            attr: Attribute::Static { is_global, init },
+        }
+    }
+
+    #[inline]
     pub fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
         Self {
             ty,
@@ -121,14 +129,6 @@ impl SymbolInfo {
                 is_global,
                 is_defined,
             },
-        }
-    }
-
-    #[inline]
-    pub fn static_(ty: Type, is_global: bool, init: StaticValue) -> Self {
-        Self {
-            ty,
-            attr: Attribute::Static { is_global, init },
         }
     }
 

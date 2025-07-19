@@ -106,7 +106,7 @@ impl<'ctx> TyperPass<'ctx> {
 
                 let info = self.ctx.symbol_mut(decl.name.sema.get());
                 let occupied = info.is_some();
-                let info = info.get_or_insert(SymbolInfo::static_(ty, decl_is_global, decl_init));
+                let info = info.get_or_insert(SymbolInfo::statik(ty, decl_is_global, decl_init));
 
                 if info.ty != ty {
                     self.result.diagnostics.push(TyperDiagnostic {
@@ -170,7 +170,7 @@ impl<'ctx> TyperPass<'ctx> {
                         }
                         None => {
                             let info = self.ctx.symbol_mut(decl.name.sema.get()).get_or_insert(
-                                SymbolInfo::static_(ty, true, StaticValue::NoInitializer),
+                                SymbolInfo::statik(ty, true, StaticValue::NoInitializer),
                             );
                             if info.ty != ty {
                                 self.result.diagnostics.push(TyperDiagnostic {
@@ -204,14 +204,13 @@ impl<'ctx> TyperPass<'ctx> {
                             }
                         };
                         *self.ctx.symbol_mut(decl.name.sema.get()) =
-                            Some(SymbolInfo::static_(ty, false, decl_init));
+                            Some(SymbolInfo::statik(ty, false, decl_init));
                     }
                 }
             }
         }
     }
 
-    #[inline]
     fn visit_func_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         if let DeclKind::Func { params, body } = decl.kind {
@@ -273,11 +272,8 @@ impl<'ctx> TyperPass<'ctx> {
             StmtKind::Expr(expr) => self.visit_expr(*expr),
             StmtKind::Return(expr) => self.visit_expr(*expr),
             StmtKind::Default(stmt) => self.visit_stmt(*stmt),
+            StmtKind::Case { stmt, .. } => self.visit_stmt(*stmt),
             StmtKind::Label { stmt, .. } => self.visit_stmt(*stmt),
-            StmtKind::Case { expr, stmt } => {
-                self.visit_expr(*expr);
-                self.visit_stmt(*stmt);
-            }
             StmtKind::While { cond, body } => {
                 self.visit_expr(*cond);
                 self.visit_stmt(*body);
@@ -358,8 +354,8 @@ impl<'ctx> TyperPass<'ctx> {
                             },
                             _ => panic!("unexpected statement in switch case"),
                         });
+                    self.switch_cases.clear();
                 }
-                self.switch_cases.clear();
                 self.visit_expr(*cond);
                 self.visit_stmt(*body);
             }
@@ -370,8 +366,8 @@ impl<'ctx> TyperPass<'ctx> {
         *self.ctx.expr_type_mut(expr_ref) = Type::Int;
         let expr = self.ast.expr(expr_ref);
         match &expr.kind {
-            ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Const(_) => {}
+            ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Var(name) => {
                 let info = self
                     .ctx

@@ -8,15 +8,15 @@ use crate::{Block, BlockRef, FuncRef, Inst, InstRef, Program};
 // ---------------------------------------------------------------------------
 
 pub struct IRBuilder<'p> {
-    func: FuncRef,
     block: BlockRef,
+    func: Option<FuncRef>,
     pub prog: Program<'p>,
 }
 
 impl<'p> IRBuilder<'p> {
     pub fn new(interner: &'p mut Interner) -> Self {
         Self {
-            func: FuncRef::default(),
+            func: None,
             block: BlockRef::default(),
             prog: Program::new(interner),
         }
@@ -27,18 +27,23 @@ impl<'p> IRBuilder<'p> {
     }
 
     #[inline]
-    pub fn func(&self) -> FuncRef {
-        self.func
-    }
-
-    #[inline]
     pub fn block(&self) -> BlockRef {
         self.block
     }
 
     #[inline]
+    pub fn func(&self) -> Option<FuncRef> {
+        self.func
+    }
+
+    #[inline]
+    pub fn clear_func(&mut self) {
+        self.func = None;
+    }
+
+    #[inline]
     pub fn switch_to_func(&mut self, func: FuncRef) {
-        self.func = func;
+        self.func = Some(func);
     }
 
     #[inline]
@@ -78,7 +83,10 @@ impl<'p> IRBuilder<'p> {
             span,
             ..Default::default()
         });
-        self.prog.func_mut(self.func).blocks.push(block);
+        self.prog
+            .func_mut(self.func.expect("expected a function"))
+            .blocks
+            .push(block);
         block
     }
 }

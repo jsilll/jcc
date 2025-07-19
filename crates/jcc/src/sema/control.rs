@@ -143,11 +143,8 @@ impl<'ctx> ControlPass<'ctx> {
                 self.visit_stmt(ast, *inner);
             }
             StmtKind::Break(target) => match self.tracked.last() {
-                Some(TrackedStmt::Loop(loop_stmt)) => {
-                    target.set(*loop_stmt);
-                }
-                Some(TrackedStmt::Switch(switch_stmt)) => {
-                    target.set(*switch_stmt);
+                Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
+                    target.set(*stmt)
                 }
                 _ => self.result.diagnostics.push(ControlDiagnostic {
                     span: stmt.span,
@@ -156,11 +153,11 @@ impl<'ctx> ControlPass<'ctx> {
             },
             StmtKind::Continue(target) => {
                 match self.tracked.iter().rev().find_map(|stmt| match stmt {
-                    TrackedStmt::Loop(loop_stmt) => Some(*loop_stmt),
+                    TrackedStmt::Loop(stmt) => Some(*stmt),
                     _ => None,
                 }) {
-                    Some(loop_stmt) => {
-                        target.set(loop_stmt);
+                    Some(stmt) => {
+                        target.set(stmt);
                     }
                     None => self.result.diagnostics.push(ControlDiagnostic {
                         span: stmt.span,
@@ -219,7 +216,9 @@ impl<'ctx> ControlPass<'ctx> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrackedStmt {
+    /// A loop statement
     Loop(StmtRef),
+    /// A switch statement
     Switch(StmtRef),
 }
 

@@ -288,6 +288,15 @@ impl<'a> Parser<'a> {
                     span: *span,
                 }))
             }
+            TokenKind::KwGoto => {
+                self.iter.next();
+                let (_, name) = self.eat_identifier()?;
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.new_stmt(Stmt {
+                    kind: StmtKind::Goto(name),
+                    span: *span,
+                }))
+            }
             TokenKind::KwBreak => {
                 self.iter.next();
                 self.eat(TokenKind::Semi)?;
@@ -301,15 +310,6 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_stmt(Stmt {
                     kind: StmtKind::Continue(Default::default()),
-                    span: *span,
-                }))
-            }
-            TokenKind::KwGoto => {
-                self.iter.next();
-                let (_, name) = self.eat_identifier()?;
-                self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
-                    kind: StmtKind::Goto(name),
                     span: *span,
                 }))
             }
@@ -652,6 +652,20 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
+    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
+        while let Some(token) = self.iter.peek() {
+            if token.kind == eat {
+                self.iter.next();
+                break;
+            }
+            if token.kind == stop {
+                break;
+            }
+            self.iter.next();
+        }
+    }
+
+    #[inline]
     fn peek_some(&mut self) -> Option<&&Token> {
         self.iter.peek().or_else(|| {
             self.result.diagnostics.push(ParserDiagnostic {
@@ -714,19 +728,6 @@ impl<'a> Parser<'a> {
                 });
                 None
             }
-        }
-    }
-
-    fn sync(&mut self, eat: TokenKind, stop: TokenKind) {
-        while let Some(token) = self.iter.peek() {
-            if token.kind == eat {
-                self.iter.next();
-                break;
-            }
-            if token.kind == stop {
-                break;
-            }
-            self.iter.next();
         }
     }
 }

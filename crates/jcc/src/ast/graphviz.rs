@@ -253,7 +253,7 @@ impl<'a> AstGraphviz<'a> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.define_node(&stmt_id, "CompoundStmt (Block)", "lightcyan");
+                self.define_node(&stmt_id, "CompoundStmt", "lightcyan");
                 let items = self.ast.block_items(*items);
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, AstSymbol},
+    ast::{Ast, AstSymbol, StmtRef},
     sema::SemaSymbol,
 };
 
@@ -21,30 +21,34 @@ pub struct BuilderCtx<'a> {
     vars: Vec<VarEntry>,
     funcs: HashMap<Symbol, FuncRef>,
     labeled_blocks: HashMap<Symbol, BlockRef>,
-    pub case_blocks: HashMap<ast::StmtRef, BlockRef>,
-    pub break_blocks: HashMap<ast::StmtRef, BlockRef>,
-    pub continue_blocks: HashMap<ast::StmtRef, BlockRef>,
+    pub tracked_blocks: HashMap<StmtRef, TrackedBlock>,
 }
 
 impl<'a> BuilderCtx<'a> {
-    pub fn new(ast: &ast::Ast, interner: &'a mut Interner) -> Self {
+    pub fn new(ast: &Ast, interner: &'a mut Interner) -> Self {
         Self {
             funcs: HashMap::new(),
-            case_blocks: HashMap::new(),
-            break_blocks: HashMap::new(),
+            tracked_blocks: HashMap::new(),
             labeled_blocks: HashMap::new(),
-            continue_blocks: HashMap::new(),
             builder: IRBuilder::new(interner),
             vars: vec![Default::default(); ast.symbols_len() + 1],
         }
     }
 
     #[inline]
-    pub fn clear(&mut self) {
-        self.case_blocks.clear();
-        self.break_blocks.clear();
-        self.labeled_blocks.clear();
-        self.continue_blocks.clear();
+    pub fn get_break_block(&self, stmt: StmtRef) -> BlockRef {
+        match self.tracked_blocks.get(&stmt) {
+            Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
+            None | Some(TrackedBlock::Case(_)) => panic!("expected a break block"),
+        }
+    }
+
+    #[inline]
+    pub fn get_continue_block(&self, stmt: StmtRef) -> BlockRef {
+        match self.tracked_blocks.get(&stmt) {
+            Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
+            None | Some(TrackedBlock::Case(_)) => panic!("expected a break block"),
+        }
     }
 
     #[inline]
@@ -56,15 +60,29 @@ impl<'a> BuilderCtx<'a> {
     }
 
     #[inline]
+    pub fn get_static_var_ref(&self, sym: SemaSymbol) -> StaticVarRef {
+        match self.vars[sym.0.get() as usize] {
+            VarEntry::Static(v) => v,
+            VarEntry::None | VarEntry::Inst(_) => panic!("expected a static var ref"),
+        }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.labeled_blocks.clear();
+        self.tracked_blocks.clear();
+    }
+
+    #[inline]
     pub fn insert_var(&mut self, sym: SemaSymbol, var: InstRef) {
         self.vars[sym.0.get() as usize] = VarEntry::Inst(var);
     }
 
     #[inline]
-    pub fn get_static_var_ref(&self, sym: SemaSymbol) -> StaticVarRef {
-        match self.vars[sym.0.get() as usize] {
-            VarEntry::Static(v) => v,
-            VarEntry::None | VarEntry::Inst(_) => panic!("expected a static var ref"),
+    pub fn remove_case_block(&mut self, stmt: StmtRef) -> BlockRef {
+        match self.tracked_blocks.remove(&stmt) {
+            Some(TrackedBlock::Case(c)) => c,
+            None | Some(TrackedBlock::BreakAndContinue(_, _)) => panic!("expected a break block"),
         }
     }
 
@@ -135,6 +153,12 @@ impl<'a> BuilderCtx<'a> {
 // ---------------------------------------------------------------------------
 // Auxiliary Structures
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackedBlock {
+    Case(BlockRef),
+    BreakAndContinue(BlockRef, BlockRef),
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum VarEntry {

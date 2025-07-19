@@ -163,16 +163,16 @@ impl<'a> Builder<'a> {
                 let block = self.ctx.get_or_make_block(*label, stmt.span);
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
-            ast::StmtKind::Continue(target) => {
-                let block = *self.ctx.continue_blocks.get(&target.get()).unwrap();
+            ast::StmtKind::Break(target) => {
+                let block = self.ctx.get_break_block(target.get());
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
-            ast::StmtKind::Break(target) => {
-                let block = *self.ctx.break_blocks.get(&target.get()).unwrap();
+            ast::StmtKind::Continue(target) => {
+                let block = self.ctx.get_continue_block(target.get());
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Default(inner) => {
-                let block = self.ctx.case_blocks.remove(&stmt_ref).unwrap();
+                let block = self.ctx.remove_case_block(stmt_ref);
 
                 // === Default Block ===
                 self.ctx.builder.switch_to_block(block);
@@ -196,7 +196,7 @@ impl<'a> Builder<'a> {
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Case { stmt: inner, .. } => {
-                let block = self.ctx.case_blocks.remove(&stmt_ref).unwrap();
+                let block = self.ctx.remove_case_block(stmt_ref);
 
                 // === Previous Block ===
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
@@ -266,8 +266,10 @@ impl<'a> Builder<'a> {
                 let body_block = self.ctx.builder.new_block("while.body", stmt.span);
                 let cont_block = self.ctx.builder.new_block("while.cont", stmt.span);
 
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
-                self.ctx.continue_blocks.insert(stmt_ref, cond_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, cond_block),
+                );
 
                 self.ctx
                     .builder
@@ -295,8 +297,10 @@ impl<'a> Builder<'a> {
                 let cond_block = self.ctx.builder.new_block("do.cond", stmt.span);
                 let cont_block = self.ctx.builder.new_block("do.cont", stmt.span);
 
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
-                self.ctx.continue_blocks.insert(stmt_ref, cond_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, cond_block),
+                );
 
                 // === Jump to Body Block ===
                 self.ctx
@@ -329,8 +333,10 @@ impl<'a> Builder<'a> {
                 let body_block = self.ctx.builder.new_block("for.body", stmt.span);
                 let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
-                self.ctx.continue_blocks.insert(stmt_ref, body_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, body_block),
+                );
 
                 if let Some(init) = init {
                     match init {
@@ -366,8 +372,10 @@ impl<'a> Builder<'a> {
                 let body_block = self.ctx.builder.new_block("for.body", stmt.span);
                 let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
-                self.ctx.continue_blocks.insert(stmt_ref, cond_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, cond_block),
+                );
 
                 if let Some(init) = init {
                     match init {
@@ -410,8 +418,10 @@ impl<'a> Builder<'a> {
                 let body_block = self.ctx.builder.new_block("for.body", stmt.span);
                 let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
-                self.ctx.continue_blocks.insert(stmt_ref, step_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, step_block),
+                );
 
                 if let Some(init) = init {
                     match init {
@@ -455,8 +465,10 @@ impl<'a> Builder<'a> {
                 let body_block = self.ctx.builder.new_block("for.body", stmt.span);
                 let cont_block = self.ctx.builder.new_block("for.cont", stmt.span);
 
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
-                self.ctx.continue_blocks.insert(stmt_ref, step_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, step_block),
+                );
 
                 if let Some(init) = init {
                     match init {
@@ -509,7 +521,9 @@ impl<'a> Builder<'a> {
                                 _ => panic!("expected a constant expression"),
                             };
                             let case_block = self.ctx.builder.new_block("switch.case", inner.span);
-                            self.ctx.case_blocks.insert(*inner_ref, case_block);
+                            self.ctx
+                                .tracked_blocks
+                                .insert(*inner_ref, ctx::TrackedBlock::Case(case_block));
                             cases.push((val, case_block));
                         }
                     });
@@ -518,13 +532,18 @@ impl<'a> Builder<'a> {
                             .ctx
                             .builder
                             .new_block("switch.default", self.ast.stmt(inner).span);
-                        self.ctx.case_blocks.insert(inner, block);
+                        self.ctx
+                            .tracked_blocks
+                            .insert(inner, ctx::TrackedBlock::Case(block));
                         default_block = Some(block);
                     }
                 }
 
                 let cont_block = self.ctx.builder.new_block("switch.cont", stmt.span);
-                self.ctx.break_blocks.insert(stmt_ref, cont_block);
+                self.ctx.tracked_blocks.insert(
+                    stmt_ref,
+                    ctx::TrackedBlock::BreakAndContinue(cont_block, cont_block),
+                );
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                 self.ctx.builder.insert_inst(Inst::switch(

@@ -187,11 +187,6 @@ impl<'a> AstGraphviz<'a> {
                 let expr_id = self.visit_expr(*expr);
                 self.define_edge(&stmt_id, &expr_id, None);
             }
-            StmtKind::Goto(name) => {
-                let name = self.interner.lookup(*name).escape_default();
-                let label = format!("GotoStmt\\nlabel: {}", name);
-                self.define_node(&stmt_id, &label, "sandybrown");
-            }
             StmtKind::Return(expr) => {
                 self.define_node(&stmt_id, "ReturnStmt", "mediumpurple1");
                 let expr_id = self.visit_expr(*expr);
@@ -201,6 +196,11 @@ impl<'a> AstGraphviz<'a> {
                 self.define_node(&stmt_id, "DefaultStmt (Switch)", "khaki");
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"));
+            }
+            StmtKind::Goto { label, stmt } => {
+                let label = self.interner.lookup(*label).escape_default();
+                let label = format!("GotoStmt\\nlabel: {}\\nstmt: {:?}", label, stmt.get());
+                self.define_node(&stmt_id, &label, "sandybrown");
             }
             StmtKind::Label { label, stmt: inner } => {
                 let label = self.interner.lookup(*label).escape_default();

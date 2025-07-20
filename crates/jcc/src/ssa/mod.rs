@@ -160,10 +160,6 @@ impl<'a> Builder<'a> {
                 let val = self.visit_expr(*expr, ExprMode::RightValue);
                 self.ctx.builder.insert_inst(Inst::ret(val, stmt.span));
             }
-            ast::StmtKind::Goto(label) => {
-                let block = self.ctx.get_or_make_labeled_block(*label, stmt.span);
-                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
-            }
             ast::StmtKind::Break(target) => {
                 let block = self.ctx.get_break_block(target.get());
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
@@ -188,8 +184,19 @@ impl<'a> Builder<'a> {
                         ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
             }
+            ast::StmtKind::Goto {
+                label,
+                stmt: target,
+            } => {
+                let block = self
+                    .ctx
+                    .get_or_make_labeled_block(target.get(), *label, stmt.span);
+                self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
+            }
             ast::StmtKind::Label { label, stmt: inner } => {
-                let block = self.ctx.get_or_make_labeled_block(*label, stmt.span);
+                let block = self
+                    .ctx
+                    .get_or_make_labeled_block(stmt_ref, *label, stmt.span);
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
 
                 // === Labeled Block ===

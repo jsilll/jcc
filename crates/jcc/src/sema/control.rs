@@ -8,7 +8,7 @@ use jcc_ssa::{
     sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
-use std::collections::{HashMap, HashSet};
+use std::{cell::Cell, collections::HashMap};
 
 // ---------------------------------------------------------------------------
 // ControlResult
@@ -33,115 +33,136 @@ pub struct ControlDiagnostic {
 // ControlPass
 // ---------------------------------------------------------------------------
 
-pub struct ControlPass<'ctx> {
-    ctx: &'ctx mut SemaCtx,
+pub struct ControlPass<'a> {
+    ast: &'a Ast,
+    ctx: &'a mut SemaCtx,
     result: ControlResult,
-    tracked: Vec<TrackedStmt>,
-    defined_labels: HashSet<Symbol>,
-    unresolved_labels: HashMap<Symbol, Vec<SourceSpan>>,
+    tracked_stmts: Vec<TrackedStmt>,
+    tracked_labels: HashMap<Symbol, LabelEntry<'a>>,
 }
 
-impl<'ctx> ControlPass<'ctx> {
-    pub fn new(ctx: &'ctx mut SemaCtx) -> Self {
+impl<'a> ControlPass<'a> {
+    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
         Self {
+            ast,
             ctx,
-            tracked: Vec::new(),
+            tracked_stmts: Vec::new(),
             result: ControlResult::default(),
-            defined_labels: HashSet::default(),
-            unresolved_labels: HashMap::default(),
+            tracked_labels: HashMap::default(),
         }
     }
 
-    pub fn check(mut self, ast: &Ast) -> ControlResult {
-        ast.root()
+    pub fn check(mut self) -> ControlResult {
+        self.ast
+            .root()
             .iter()
-            .for_each(|decl| match ast.decl(*decl).kind {
+            .for_each(|decl| match self.ast.decl(*decl).kind {
                 DeclKind::Var(_) => {}
                 DeclKind::Func { body, .. } => {
                     if let Some(body) = body {
-                        ast.block_items(body).iter().for_each(|block_item| {
+                        self.ast.block_items(body).iter().for_each(|block_item| {
                             if let BlockItem::Stmt(stmt) = block_item {
-                                self.visit_stmt(ast, *stmt)
+                                self.visit_stmt(*stmt)
                             }
                         });
-
-                        self.unresolved_labels.values().for_each(|spans| {
-                            spans.iter().for_each(|span| {
-                                self.result.diagnostics.push(ControlDiagnostic {
-                                    span: *span,
-                                    kind: ControlDiagnosticKind::UndefinedLabel,
+                        self.tracked_labels.values().for_each(|e| {
+                            if let LabelEntry::Unresolved(v) = e {
+                                v.iter().for_each(|(_, span)| {
+                                    self.result.diagnostics.push(ControlDiagnostic {
+                                        span: *span,
+                                        kind: ControlDiagnosticKind::UndefinedLabel,
+                                    });
                                 });
-                            });
+                            }
                         });
-
-                        self.tracked.clear();
-                        self.defined_labels.clear();
-                        self.unresolved_labels.clear();
+                        self.tracked_stmts.clear();
+                        self.tracked_labels.clear();
                     }
                 }
             });
         self.result
     }
 
-    fn visit_stmt(&mut self, ast: &Ast, stmt_ref: StmtRef) {
-        let stmt = ast.stmt(stmt_ref);
+    fn visit_stmt(&mut self, stmt_ref: StmtRef) {
+        let stmt = self.ast.stmt(stmt_ref);
         match &stmt.kind {
             StmtKind::Empty | StmtKind::Expr(_) | StmtKind::Return(_) => {}
             StmtKind::If {
                 then, otherwise, ..
             } => {
-                self.visit_stmt(ast, *then);
+                self.visit_stmt(*then);
                 if let Some(otherwise) = otherwise {
-                    self.visit_stmt(ast, *otherwise);
+                    self.visit_stmt(*otherwise);
                 }
             }
             StmtKind::While { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt_ref));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
+                self.tracked_stmts.push(TrackedStmt::Loop(stmt_ref));
+                self.visit_stmt(*body);
+                self.tracked_stmts.pop();
             }
             StmtKind::DoWhile { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt_ref));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
+                self.tracked_stmts.push(TrackedStmt::Loop(stmt_ref));
+                self.visit_stmt(*body);
+                self.tracked_stmts.pop();
             }
             StmtKind::For { body, .. } => {
-                self.tracked.push(TrackedStmt::Loop(stmt_ref));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
+                self.tracked_stmts.push(TrackedStmt::Loop(stmt_ref));
+                self.visit_stmt(*body);
+                self.tracked_stmts.pop();
             }
             StmtKind::Switch { body, .. } => {
-                self.tracked.push(TrackedStmt::Switch(stmt_ref));
-                self.visit_stmt(ast, *body);
-                self.tracked.pop();
-            }
-            StmtKind::Goto(label) => {
-                if !self.defined_labels.contains(label) {
-                    self.unresolved_labels
-                        .entry(*label)
-                        .or_default()
-                        .push(stmt.span);
-                }
+                self.tracked_stmts.push(TrackedStmt::Switch(stmt_ref));
+                self.visit_stmt(*body);
+                self.tracked_stmts.pop();
             }
             StmtKind::Compound(stmt) => {
-                ast.block_items(*stmt)
+                self.ast
+                    .block_items(*stmt)
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Decl(_) => {}
-                        BlockItem::Stmt(stmt) => self.visit_stmt(ast, *stmt),
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     });
+            }
+            StmtKind::Goto {
+                label,
+                stmt: target,
+            } => {
+                let entry = self
+                    .tracked_labels
+                    .entry(*label)
+                    .or_insert(LabelEntry::Unresolved(Default::default()));
+                match entry {
+                    LabelEntry::Resolved(stmt) => target.set(*stmt),
+                    LabelEntry::Unresolved(v) => {
+                        v.push((target, stmt.span));
+                    }
+                }
             }
             StmtKind::Label { label, stmt: inner } => {
-                if !self.defined_labels.insert(*label) {
-                    self.result.diagnostics.push(ControlDiagnostic {
-                        span: stmt.span,
-                        kind: ControlDiagnosticKind::RedeclaredLabel,
-                    });
+                let entry = self
+                    .tracked_labels
+                    .entry(*label)
+                    .or_insert(LabelEntry::Resolved(stmt_ref));
+                match entry {
+                    LabelEntry::Unresolved(v) => {
+                        v.iter().for_each(|(target, _)| {
+                            target.set(stmt_ref);
+                        });
+                        *entry = LabelEntry::Resolved(stmt_ref);
+                    }
+                    LabelEntry::Resolved(s) => {
+                        if stmt_ref != *s {
+                            self.result.diagnostics.push(ControlDiagnostic {
+                                span: stmt.span,
+                                kind: ControlDiagnosticKind::RedeclaredLabel,
+                            });
+                        }
+                    }
                 }
-                self.unresolved_labels.remove(label);
-                self.visit_stmt(ast, *inner);
+                self.visit_stmt(*inner);
             }
-            StmtKind::Break(target) => match self.tracked.last() {
+            StmtKind::Break(target) => match self.tracked_stmts.last() {
                 Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
                     target.set(*stmt)
                 }
@@ -151,7 +172,7 @@ impl<'ctx> ControlPass<'ctx> {
                 }),
             },
             StmtKind::Continue(target) => {
-                match self.tracked.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked_stmts.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Loop(stmt) => Some(*stmt),
                     _ => None,
                 }) {
@@ -165,7 +186,7 @@ impl<'ctx> ControlPass<'ctx> {
                 }
             }
             StmtKind::Case { stmt: inner, .. } => {
-                match self.tracked.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked_stmts.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
                 }) {
@@ -181,10 +202,10 @@ impl<'ctx> ControlPass<'ctx> {
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
-                self.visit_stmt(ast, *inner);
+                self.visit_stmt(*inner);
             }
             StmtKind::Default(inner) => {
-                match self.tracked.iter().rev().find_map(|stmt| match stmt {
+                match self.tracked_stmts.iter().rev().find_map(|stmt| match stmt {
                     TrackedStmt::Switch(stmt) => Some(stmt),
                     _ => None,
                 }) {
@@ -203,7 +224,7 @@ impl<'ctx> ControlPass<'ctx> {
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
-                self.visit_stmt(ast, *inner);
+                self.visit_stmt(*inner);
             }
         }
     }
@@ -219,6 +240,12 @@ pub enum TrackedStmt {
     Loop(StmtRef),
     /// A switch statement
     Switch(StmtRef),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LabelEntry<'a> {
+    Resolved(StmtRef),
+    Unresolved(Vec<(&'a Cell<StmtRef>, SourceSpan)>),
 }
 
 // ---------------------------------------------------------------------------

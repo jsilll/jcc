@@ -163,11 +163,6 @@ impl<'a> AstMermaid<'a> {
                 let expr_id = self.visit_expr(*expr);
                 self.define_edge(&stmt_id, &expr_id, None);
             }
-            StmtKind::Goto(name) => {
-                let name = self.interner.lookup(*name);
-                let label = format!("GotoStmt\nlabel: {}", name);
-                self.define_node(&stmt_id, &label);
-            }
             StmtKind::Return(expr) => {
                 self.define_node(&stmt_id, "ReturnStmt");
                 let expr_id = self.visit_expr(*expr);
@@ -177,6 +172,11 @@ impl<'a> AstMermaid<'a> {
                 self.define_node(&stmt_id, "DefaultStmt (Switch)");
                 let inner_id = self.visit_stmt(*inner);
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"));
+            }
+            StmtKind::Goto { label, stmt } => {
+                let label = self.interner.lookup(*label);
+                let label = format!("GotoStmt\nlabel: {}\nstmt: {:?}", label, stmt.get());
+                self.define_node(&stmt_id, &label);
             }
             StmtKind::Label { label, stmt: inner } => {
                 let name = self.interner.lookup(*label);

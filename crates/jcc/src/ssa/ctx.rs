@@ -19,7 +19,6 @@ use std::collections::HashMap;
 pub struct BuilderCtx<'a> {
     pub builder: IRBuilder<'a>,
     symbols: Vec<SymbolEntry>,
-    labeled_blocks: HashMap<Symbol, BlockRef>,
     pub tracked_blocks: HashMap<StmtRef, TrackedBlock>,
 }
 
@@ -27,7 +26,6 @@ impl<'a> BuilderCtx<'a> {
     pub fn new(ast: &Ast, interner: &'a mut Interner) -> Self {
         Self {
             tracked_blocks: HashMap::new(),
-            labeled_blocks: HashMap::new(),
             builder: IRBuilder::new(interner),
             symbols: vec![Default::default(); ast.symbols_len() + 1],
         }
@@ -37,9 +35,7 @@ impl<'a> BuilderCtx<'a> {
     pub fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
         match self.symbols[sym.0.get() as usize] {
             SymbolEntry::Inst(inst) => inst,
-            SymbolEntry::None | SymbolEntry::Static(_) | SymbolEntry::Function(_) => {
-                panic!("expected an inst ref")
-            }
+            _ => panic!("expected an inst ref"),
         }
     }
 
@@ -47,9 +43,7 @@ impl<'a> BuilderCtx<'a> {
     pub fn get_static_var_ref(&self, sym: SemaSymbol) -> StaticVarRef {
         match self.symbols[sym.0.get() as usize] {
             SymbolEntry::Static(v) => v,
-            SymbolEntry::None | SymbolEntry::Inst(_) | SymbolEntry::Function(_) => {
-                panic!("expected a static var ref")
-            }
+            _ => panic!("expected a static var ref"),
         }
     }
 
@@ -57,7 +51,7 @@ impl<'a> BuilderCtx<'a> {
     pub fn get_break_block(&self, stmt: StmtRef) -> BlockRef {
         match self.tracked_blocks.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
-            None | Some(TrackedBlock::Case(_)) => panic!("expected a break block"),
+            _ => panic!("expected a break block"),
         }
     }
 
@@ -65,13 +59,12 @@ impl<'a> BuilderCtx<'a> {
     pub fn get_continue_block(&self, stmt: StmtRef) -> BlockRef {
         match self.tracked_blocks.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
-            None | Some(TrackedBlock::Case(_)) => panic!("expected a break block"),
+            _ => panic!("expected a break block"),
         }
     }
 
     #[inline]
     pub fn clear_block_cache(&mut self) {
-        self.labeled_blocks.clear();
         self.tracked_blocks.clear();
     }
 
@@ -84,16 +77,25 @@ impl<'a> BuilderCtx<'a> {
     pub fn remove_case_block(&mut self, stmt: StmtRef) -> BlockRef {
         match self.tracked_blocks.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
-            None | Some(TrackedBlock::BreakAndContinue(_, _)) => panic!("expected a break block"),
+            _ => panic!("expected a break block"),
         }
     }
 
     #[inline]
-    pub fn get_or_make_labeled_block(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
-        *self
-            .labeled_blocks
-            .entry(name)
-            .or_insert_with(|| self.builder.new_block_interned(name, span))
+    pub fn get_or_make_labeled_block(
+        &mut self,
+        stmt: StmtRef,
+        name: Symbol,
+        span: SourceSpan,
+    ) -> BlockRef {
+        let entry = self
+            .tracked_blocks
+            .entry(stmt)
+            .or_insert_with(|| TrackedBlock::Label(self.builder.new_block_interned(name, span)));
+        match entry {
+            TrackedBlock::Label(l) => *l,
+            _ => panic!("expected a labeled block"),
+        }
     }
 
     #[inline]
@@ -166,6 +168,7 @@ impl<'a> BuilderCtx<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackedBlock {
     Case(BlockRef),
+    Label(BlockRef),
     BreakAndContinue(BlockRef, BlockRef),
 }
 

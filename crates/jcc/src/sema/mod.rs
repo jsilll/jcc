@@ -23,6 +23,7 @@ impl Default for SemaSymbol {
 // SemaCtx
 // ---------------------------------------------------------------------------
 
+// TODO:(perf) Consider moving types directly into the AST
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemaCtx {
     decls_type: Vec<Type>,
@@ -88,6 +89,7 @@ pub enum Type {
 // SwitchCases
 // ---------------------------------------------------------------------------
 
+// TODO:(perf) Consider flattening the cases into a pool
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct SwitchCases {
     pub cases: Vec<StmtRef>,
@@ -136,8 +138,9 @@ impl SymbolInfo {
     pub fn is_global(&self) -> bool {
         match self.attr {
             Attribute::Local => false,
-            Attribute::Static { is_global, .. } => is_global,
-            Attribute::Function { is_global, .. } => is_global,
+            Attribute::Static { is_global, .. } | Attribute::Function { is_global, .. } => {
+                is_global
+            }
         }
     }
 }

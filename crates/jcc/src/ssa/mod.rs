@@ -62,7 +62,7 @@ impl<'a> Builder<'a> {
 
                     let func = self
                         .ctx
-                        .get_or_make_function(decl.name.raw, is_global, decl.span);
+                        .get_or_make_function(&decl.name, is_global, decl.span);
                     self.ctx.builder.switch_to_func(func);
 
                     if body.is_some() {
@@ -71,7 +71,7 @@ impl<'a> Builder<'a> {
                     }
 
                     if let Some(body) = body {
-                        self.ctx.clear();
+                        self.ctx.clear_block_cache();
 
                         self.ast.params(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
@@ -161,7 +161,7 @@ impl<'a> Builder<'a> {
                 self.ctx.builder.insert_inst(Inst::ret(val, stmt.span));
             }
             ast::StmtKind::Goto(label) => {
-                let block = self.ctx.get_or_make_block(*label, stmt.span);
+                let block = self.ctx.get_or_make_labeled_block(*label, stmt.span);
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Break(target) => {
@@ -189,7 +189,7 @@ impl<'a> Builder<'a> {
                     });
             }
             ast::StmtKind::Label { label, stmt: inner } => {
-                let block = self.ctx.get_or_make_block(*label, stmt.span);
+                let block = self.ctx.get_or_make_labeled_block(*label, stmt.span);
                 self.ctx.builder.insert_inst(Inst::jump(block, stmt.span));
 
                 // === Labeled Block ===
@@ -613,9 +613,7 @@ impl<'a> Builder<'a> {
                     .symbol(name.sema.get())
                     .expect("expected a sema symbol")
                     .is_global();
-                let func = self
-                    .ctx
-                    .get_or_make_function(name.raw, is_global, expr.span);
+                let func = self.ctx.get_or_make_function(name, is_global, expr.span);
                 self.ctx
                     .builder
                     .insert_inst(Inst::call(func, args, expr.span))
@@ -752,7 +750,7 @@ impl<'a> Builder<'a> {
 
                 // === Merge Block ===
                 self.ctx.builder.switch_to_block(cont_block);
-                self.ctx.builder.insert_inst_ref(phi);
+                self.ctx.builder.insert_skipped(phi);
                 phi
             }
         }
@@ -897,7 +895,7 @@ impl<'a> Builder<'a> {
 
         // === Merge Block ===
         self.ctx.builder.switch_to_block(cont_block);
-        self.ctx.builder.insert_inst_ref(phi);
+        self.ctx.builder.insert_skipped(phi);
         phi
     }
 }

@@ -1,8 +1,6 @@
 pub mod build;
-
-pub mod fix;
-
 pub mod emit;
+pub mod fix;
 
 pub use build::{build, AMD64FuncBuilder};
 
@@ -14,7 +12,7 @@ use jcc_sourcemap::SourceSpan;
 // AMD64 IR
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct Program {
     funcs: Vec<FnDef>,
 }
@@ -52,14 +50,6 @@ impl FnDef {
     }
 }
 
-impl std::fmt::Debug for FnDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("FnDef")
-            .field("blocks", &self.blocks)
-            .finish()
-    }
-}
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BlockRef(u32);
 
@@ -82,15 +72,6 @@ impl Block {
             label: Some(label),
             ..Default::default()
         }
-    }
-}
-
-impl std::fmt::Debug for Block {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("Block")
-            .field("label", &self.label)
-            .field("instrs", &self.instrs)
-            .finish()
     }
 }
 
@@ -232,137 +213,5 @@ impl TryFrom<crate::BinaryOp> for CondCode {
             crate::BinaryOp::GreaterEqual => Ok(Self::GreaterEqual),
             _ => Err(()),
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Display
-// ---------------------------------------------------------------------------
-
-impl std::fmt::Display for Reg {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Reg::Rax => write!(f, "rax"),
-            Reg::Rbx => write!(f, "rbx"),
-            Reg::Rcx => write!(f, "rcx"),
-            Reg::Rdi => write!(f, "rdi"),
-            Reg::Rdx => write!(f, "rdx"),
-            Reg::Rsi => write!(f, "rsi"),
-            Reg::R8 => write!(f, "r8"),
-            Reg::R9 => write!(f, "r9"),
-            Reg::Rg10 => write!(f, "r10"),
-            Reg::Rg11 => write!(f, "r11"),
-        }
-    }
-}
-
-impl std::fmt::Display for UnaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            UnaryOp::Not => write!(f, "not"),
-            UnaryOp::Neg => write!(f, "neg"),
-            UnaryOp::Inc => write!(f, "inc"),
-            UnaryOp::Dec => write!(f, "dec"),
-        }
-    }
-}
-
-impl std::fmt::Display for BinaryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            BinaryOp::Or => write!(f, "or"),
-            BinaryOp::And => write!(f, "and"),
-            BinaryOp::Xor => write!(f, "xor"),
-            BinaryOp::Shl => write!(f, "sal"),
-            BinaryOp::Shr => write!(f, "sar"),
-            BinaryOp::Add => write!(f, "add"),
-            BinaryOp::Sub => write!(f, "sub"),
-            BinaryOp::Mul => write!(f, "mul"),
-        }
-    }
-}
-
-impl std::fmt::Display for CondCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            CondCode::Equal => write!(f, "eq"),
-            CondCode::NotEqual => write!(f, "ne"),
-            CondCode::LessThan => write!(f, "lt"),
-            CondCode::LessEqual => write!(f, "le"),
-            CondCode::GreaterThan => write!(f, "gt"),
-            CondCode::GreaterEqual => write!(f, "ge"),
-        }
-    }
-}
-
-impl std::fmt::Display for Operand {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Operand::Reg(reg) => write!(f, "{}", reg),
-            Operand::Imm(value) => write!(f, "{}", value),
-            Operand::Stack(offset) => write!(f, "[{}]", offset),
-            Operand::Pseudo(pseudo) => write!(f, "%{}", pseudo),
-        }
-    }
-}
-
-impl std::fmt::Display for Inst {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Inst::Ret => write!(f, "ret"),
-            Inst::Cdq => write!(f, "cdq"),
-            Inst::Call(_) => write!(f, "call <symbol>"),
-            Inst::Push(operand) => write!(f, "push {}", operand),
-            Inst::Alloca(size) => write!(f, "alloca {}", size),
-            Inst::Dealloca(size) => write!(f, "dealloca {}", size),
-            Inst::Idiv(operand) => write!(f, "idiv {}", operand),
-            Inst::Jmp(block_ref) => write!(f, "jmp {}", block_ref),
-            Inst::Mov { src, dst } => write!(f, "mov {}, {}", src, dst),
-            Inst::Cmp { lhs, rhs } => write!(f, "cmp {}, {}", lhs, rhs),
-            Inst::Test { lhs, rhs } => write!(f, "test {}, {}", lhs, rhs),
-            Inst::SetCC { cond_code, dst } => write!(f, "set{} {}", cond_code, dst),
-            Inst::JmpCC { cond_code, target } => {
-                write!(f, "jmpcc {}, {}", cond_code, target)
-            }
-            Inst::Unary { op, dst } => write!(f, "{} {}", op, dst),
-            Inst::Binary { op, src, dst } => write!(f, "{} {}, {}", op, src, dst),
-        }
-    }
-}
-
-impl std::fmt::Display for Block {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if self.label.is_some() {
-            write!(f, "<block with label>:")?;
-        } else {
-            write!(f, "<block without label>:")?;
-        }
-        for instr in self.instrs.iter() {
-            write!(f, "\n  {}", instr)?;
-        }
-        Ok(())
-    }
-}
-
-impl std::fmt::Display for FnDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if let Some(block) = self.blocks.first() {
-            write!(f, "{}", block)?;
-        }
-        self.blocks
-            .iter()
-            .skip(1)
-            .try_for_each(|block| write!(f, "\n{}", block))?;
-        Ok(())
-    }
-}
-
-impl std::fmt::Display for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.funcs.iter().try_for_each(|func| {
-            write!(f, "Function:\n{}", func)?;
-            Ok(())
-        })?;
-        Ok(())
     }
 }

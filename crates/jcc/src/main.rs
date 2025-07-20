@@ -177,7 +177,6 @@ fn try_main() -> Result<()> {
     if args.verbose {
         println!("{}", ssa);
     }
-
     let verifier_result = SSAVerifier::new(&ssa).verify();
     if !verifier_result.diagnostics.is_empty() {
         // TODO: properly report ssa errors
@@ -187,21 +186,22 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
+    // Generate Assembly
     let mut amd64 = ssa::amd64::build(&ssa);
     if args.verbose {
-        println!("{}", amd64);
+        let asm = AMD64Emitter::new(&amd64, &interner).emit();
+        println!("{}", asm);
     }
-
-    // Fix intructions
     AMD64Fixer::new().fix(&mut amd64);
     if args.verbose {
-        println!("{}", amd64);
+        let asm = AMD64Emitter::new(&amd64, &interner).emit();
+        println!("{}", asm);
     }
     if args.codegen {
         return Ok(());
     }
 
-    // Emit amd64 assembly
+    // Emit final assembly
     let asm_path = args.path.with_extension("s");
     let asm = AMD64Emitter::new(&amd64, &interner).emit();
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;

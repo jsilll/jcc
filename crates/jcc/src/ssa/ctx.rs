@@ -18,8 +18,7 @@ use std::collections::HashMap;
 
 pub struct BuilderCtx<'a> {
     pub builder: IRBuilder<'a>,
-    vars: Vec<VarEntry>,
-    funcs: HashMap<Symbol, FuncRef>,
+    symbols: Vec<SymbolEntry>,
     labeled_blocks: HashMap<Symbol, BlockRef>,
     pub tracked_blocks: HashMap<StmtRef, TrackedBlock>,
 }
@@ -27,11 +26,30 @@ pub struct BuilderCtx<'a> {
 impl<'a> BuilderCtx<'a> {
     pub fn new(ast: &Ast, interner: &'a mut Interner) -> Self {
         Self {
-            funcs: HashMap::new(),
             tracked_blocks: HashMap::new(),
             labeled_blocks: HashMap::new(),
             builder: IRBuilder::new(interner),
-            vars: vec![Default::default(); ast.symbols_len() + 1],
+            symbols: vec![Default::default(); ast.symbols_len() + 1],
+        }
+    }
+
+    #[inline]
+    pub fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
+        match self.symbols[sym.0.get() as usize] {
+            SymbolEntry::Inst(inst) => inst,
+            SymbolEntry::None | SymbolEntry::Static(_) | SymbolEntry::Function(_) => {
+                panic!("expected an inst ref")
+            }
+        }
+    }
+
+    #[inline]
+    pub fn get_static_var_ref(&self, sym: SemaSymbol) -> StaticVarRef {
+        match self.symbols[sym.0.get() as usize] {
+            SymbolEntry::Static(v) => v,
+            SymbolEntry::None | SymbolEntry::Inst(_) | SymbolEntry::Function(_) => {
+                panic!("expected a static var ref")
+            }
         }
     }
 
@@ -52,30 +70,14 @@ impl<'a> BuilderCtx<'a> {
     }
 
     #[inline]
-    pub fn get_var_ptr(&self, sym: SemaSymbol) -> InstRef {
-        match self.vars[sym.0.get() as usize] {
-            VarEntry::Inst(inst) => inst,
-            VarEntry::None | VarEntry::Static(_) => panic!("expected an inst ref"),
-        }
-    }
-
-    #[inline]
-    pub fn get_static_var_ref(&self, sym: SemaSymbol) -> StaticVarRef {
-        match self.vars[sym.0.get() as usize] {
-            VarEntry::Static(v) => v,
-            VarEntry::None | VarEntry::Inst(_) => panic!("expected a static var ref"),
-        }
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
+    pub fn clear_block_cache(&mut self) {
         self.labeled_blocks.clear();
         self.tracked_blocks.clear();
     }
 
     #[inline]
     pub fn insert_var(&mut self, sym: SemaSymbol, var: InstRef) {
-        self.vars[sym.0.get() as usize] = VarEntry::Inst(var);
+        self.symbols[sym.0.get() as usize] = SymbolEntry::Inst(var);
     }
 
     #[inline]
@@ -87,7 +89,7 @@ impl<'a> BuilderCtx<'a> {
     }
 
     #[inline]
-    pub fn get_or_make_block(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
+    pub fn get_or_make_labeled_block(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
         *self
             .labeled_blocks
             .entry(name)
@@ -97,18 +99,25 @@ impl<'a> BuilderCtx<'a> {
     #[inline]
     pub fn get_or_make_function(
         &mut self,
-        name: Symbol,
+        name: &AstSymbol,
         is_global: bool,
         span: SourceSpan,
     ) -> FuncRef {
-        *self.funcs.entry(name).or_insert_with(|| {
-            self.builder.prog.new_func(Func {
-                name,
-                span,
-                is_global,
-                ..Default::default()
-            })
-        })
+        let idx = name.sema.get().0.get() as usize;
+        match self.symbols[idx] {
+            SymbolEntry::Inst(_) | SymbolEntry::Static(_) => panic!("expected a static var ref"),
+            SymbolEntry::Function(f) => f,
+            SymbolEntry::None => {
+                let f = self.builder.prog.new_func(Func {
+                    span,
+                    is_global,
+                    name: name.raw,
+                    ..Default::default()
+                });
+                self.symbols[idx] = SymbolEntry::Function(f);
+                f
+            }
+        }
     }
 
     #[inline]
@@ -121,10 +130,10 @@ impl<'a> BuilderCtx<'a> {
         span: SourceSpan,
     ) -> StaticVarRef {
         let idx = name.sema.get().0.get() as usize;
-        match self.vars[idx] {
-            VarEntry::Inst(_) => panic!("unexpected inst ref"),
-            VarEntry::Static(v) => v,
-            VarEntry::None => {
+        match self.symbols[idx] {
+            SymbolEntry::Inst(_) | SymbolEntry::Function(_) => panic!("expected a static var ref"),
+            SymbolEntry::Static(v) => v,
+            SymbolEntry::None => {
                 let func = self.builder.func();
                 let name = match func {
                     Some(func) if !is_global => {
@@ -143,7 +152,7 @@ impl<'a> BuilderCtx<'a> {
                     span,
                     is_global,
                 });
-                self.vars[idx] = VarEntry::Static(v);
+                self.symbols[idx] = SymbolEntry::Static(v);
                 v
             }
         }
@@ -161,9 +170,10 @@ pub enum TrackedBlock {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum VarEntry {
+enum SymbolEntry {
     #[default]
     None,
     Inst(InstRef),
+    Function(FuncRef),
     Static(StaticVarRef),
 }

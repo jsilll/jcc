@@ -52,7 +52,7 @@ impl<'p> IRBuilder<'p> {
     }
 
     #[inline]
-    pub fn insert_inst_ref(&mut self, inst: InstRef) {
+    pub fn insert_skipped(&mut self, inst: InstRef) {
         self.prog.block_mut(self.block).insts.push(inst);
     }
 

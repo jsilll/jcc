@@ -80,7 +80,6 @@ impl<'ctx> ControlPass<'ctx> {
                     }
                 }
             });
-
         self.result
     }
 
@@ -146,7 +145,7 @@ impl<'ctx> ControlPass<'ctx> {
                 Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
                     target.set(*stmt)
                 }
-                _ => self.result.diagnostics.push(ControlDiagnostic {
+                None => self.result.diagnostics.push(ControlDiagnostic {
                     span: stmt.span,
                     kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
                 }),

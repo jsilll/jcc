@@ -288,15 +288,6 @@ impl<'a> Parser<'a> {
                     span: *span,
                 }))
             }
-            TokenKind::KwGoto => {
-                self.iter.next();
-                let (_, name) = self.eat_identifier()?;
-                self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
-                    kind: StmtKind::Goto(name),
-                    span: *span,
-                }))
-            }
             TokenKind::KwBreak => {
                 self.iter.next();
                 self.eat(TokenKind::Semi)?;
@@ -310,6 +301,18 @@ impl<'a> Parser<'a> {
                 self.eat(TokenKind::Semi)?;
                 Some(self.result.ast.new_stmt(Stmt {
                     kind: StmtKind::Continue(Default::default()),
+                    span: *span,
+                }))
+            }
+            TokenKind::KwGoto => {
+                self.iter.next();
+                let (_, label) = self.eat_identifier()?;
+                self.eat(TokenKind::Semi)?;
+                Some(self.result.ast.new_stmt(Stmt {
+                    kind: StmtKind::Goto {
+                        label,
+                        stmt: Default::default(),
+                    },
                     span: *span,
                 }))
             }

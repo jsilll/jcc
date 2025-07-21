@@ -158,7 +158,7 @@ fn try_main() -> Result<()> {
 
     // Analyze the AST
     let mut ctx = SemaCtx::new(&ast);
-    let control_result = ControlPass::new(&mut ctx).check(&ast);
+    let control_result = ControlPass::new(&ast, &mut ctx).check();
     if !control_result.diagnostics.is_empty() {
         sourcemap::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));

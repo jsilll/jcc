@@ -242,8 +242,6 @@ pub enum StmtKind {
     /// An empty statement.
     #[default]
     Empty,
-    /// A goto statement.
-    Goto(Symbol),
     /// An expression statement.
     Expr(ExprRef),
     /// A return statement.
@@ -266,6 +264,8 @@ pub enum StmtKind {
     While { cond: ExprRef, body: StmtRef },
     /// A do-while statement.
     DoWhile { body: StmtRef, cond: ExprRef },
+    /// A goto statement.
+    Goto { label: Symbol, stmt: Cell<StmtRef> },
     /// An if statement.
     If {
         cond: ExprRef,

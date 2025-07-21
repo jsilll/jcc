@@ -131,12 +131,9 @@ impl<'a> ControlPass<'a> {
                 let entry = self
                     .tracked_labels
                     .entry(*label)
-                    .or_insert(LabelEntry::Unresolved(Default::default()));
-                match entry {
-                    LabelEntry::Resolved(stmt) => target.set(*stmt),
-                    LabelEntry::Unresolved(v) => {
-                        v.push((target, stmt.span));
-                    }
+                    .or_insert(LabelEntry::Unresolved(vec![(target, stmt.span)]));
+                if let LabelEntry::Resolved(stmt) = entry {
+                    target.set(*stmt);
                 }
             }
             StmtKind::Label { label, stmt: inner } => {

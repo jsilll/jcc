@@ -14,29 +14,205 @@ use sourcemap::SourceSpan;
 use std::{collections::HashMap, fmt, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
-// Type
+// Program
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Type {
-    #[default]
-    Void,
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    IntPtr,
+pub struct Program<'a> {
+    pub interner: &'a mut Interner,
+    heaps: BaseHeaps,
+    insts: Vec<Inst>,
+    insts_free: Vec<InstRef>,
+    funcs: Vec<Func>,
+    funcs_free: Vec<FuncRef>,
+    blocks: Vec<Block>,
+    blocks_free: Vec<BlockRef>,
+    static_vars: Vec<StaticVar>,
+    static_vars_free: Vec<StaticVarRef>,
 }
 
-impl Type {
-    pub fn size(&self) -> u32 {
-        match self {
-            Type::Void => 0,
-            Type::Int8 => 1,
-            Type::Int16 => 2,
-            Type::Int32 => 4,
-            Type::Int64 => 8,
-            Type::IntPtr => 8,
+impl<'a> Program<'a> {
+    pub fn new(interner: &'a mut Interner) -> Self {
+        Self {
+            interner,
+            heaps: Default::default(),
+            insts_free: Vec::new(),
+            funcs_free: Vec::new(),
+            blocks_free: Vec::new(),
+            static_vars_free: Vec::new(),
+            insts: vec![Default::default()],
+            funcs: vec![Default::default()],
+            blocks: vec![Default::default()],
+            static_vars: vec![Default::default()],
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Accessors
+    // ---------------------------------------------------------------------------
+
+    pub fn inst(&self, inst: InstRef) -> &Inst {
+        &self.insts[inst.0.get() as usize]
+    }
+
+    pub fn func(&self, func: FuncRef) -> &Func {
+        &self.funcs[func.0.get() as usize]
+    }
+
+    pub fn block(&self, block: BlockRef) -> &Block {
+        &self.blocks[block.0.get() as usize]
+    }
+
+    pub fn static_var(&self, var: StaticVarRef) -> &StaticVar {
+        &self.static_vars[var.0.get() as usize]
+    }
+
+    pub fn inst_mut(&mut self, inst: InstRef) -> &mut Inst {
+        &mut self.insts[inst.0.get() as usize]
+    }
+
+    pub fn func_mut(&mut self, func: FuncRef) -> &mut Func {
+        &mut self.funcs[func.0.get() as usize]
+    }
+
+    pub fn block_mut(&mut self, block: BlockRef) -> &mut Block {
+        &mut self.blocks[block.0.get() as usize]
+    }
+
+    pub fn static_var_mut(&mut self, var: StaticVarRef) -> &mut StaticVar {
+        &mut self.static_vars[var.0.get() as usize]
+    }
+
+    // ---------------------------------------------------------------------------
+    // Creation
+    // ---------------------------------------------------------------------------
+
+    pub fn new_inst(&mut self, inst: Inst) -> InstRef {
+        // TODO: Reuse slots from `insts_free` for better memory efficiency
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
+        self.insts.push(inst);
+        r
+    }
+
+    pub fn new_func(&mut self, func: Func) -> FuncRef {
+        // TODO: Reuse slots from `funcs_free` for better memory efficiency
+        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
+        self.funcs.push(func);
+        r
+    }
+
+    pub fn new_block(&mut self, block: Block) -> BlockRef {
+        // TODO: Reuse slots from `blocks_free` for better memory efficiency
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
+        self.blocks.push(block);
+        r
+    }
+
+    pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
+        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
+        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
+        self.static_vars.push(var);
+        r
+    }
+
+    // ---------------------------------------------------------------------------
+    // Deletion
+    // ---------------------------------------------------------------------------
+
+    pub fn delete_inst(&mut self, inst_ref: InstRef) {
+        self.insts_free.push(inst_ref);
+    }
+
+    pub fn delete_func(&mut self, func_ref: FuncRef) {
+        self.funcs_free.push(func_ref);
+    }
+
+    pub fn delete_block(&mut self, block_ref: BlockRef) {
+        self.blocks_free.push(block_ref);
+    }
+
+    pub fn delete_static_var(&mut self, var_ref: StaticVarRef) {
+        self.static_vars_free.push(var_ref);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Iterators
+    // ---------------------------------------------------------------------------
+
+    // TODO: There's some issues with this iterators:
+    // 1. Find a better a way to skip deleted entries (maybe a use an Option)
+    // 2. The _with_refs version do not need to index into the vector, they can
+    // just iterate through it with an enumerate()
+
+    pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.insts.len())
+            .map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
+            .filter(move |r| !self.insts_free.contains(r))
+    }
+
+    pub fn iter_funcs(&self) -> impl Iterator<Item = FuncRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.funcs.len())
+            .map(|i| unsafe { FuncRef(NonZeroU32::new_unchecked(i as u32)) })
+            .filter(move |r| !self.funcs_free.contains(r))
+    }
+
+    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.blocks.len())
+            .map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
+            .filter(move |r| !self.blocks_free.contains(r))
+    }
+
+    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.static_vars.len())
+            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+            .filter(move |r| !self.static_vars_free.contains(r))
+    }
+
+    pub fn iter_insts_with_refs(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
+        self.iter_insts().map(move |r| (r, self.inst(r)))
+    }
+
+    pub fn iter_funcs_with_refs(&self) -> impl Iterator<Item = (FuncRef, &Func)> {
+        self.iter_funcs().map(move |r| (r, self.func(r)))
+    }
+
+    pub fn iter_blocks_with_refs(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
+        self.iter_blocks().map(move |r| (r, self.block(r)))
+    }
+
+    pub fn iter_static_vars_with_refs(&self) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> {
+        self.iter_static_vars()
+            .map(move |r| (r, self.static_var(r)))
+    }
+
+    // ---------------------------------------------------------------------------
+    // Complexity Queries
+    // ---------------------------------------------------------------------------
+
+    pub fn get_predecessors(&self, pred: &mut HashMap<BlockRef, Vec<BlockRef>>) {
+        pred.clear();
+        for (block_ref, block) in self.iter_blocks_with_refs() {
+            for succ in &block.succs {
+                pred.entry(*succ).or_default().push(block_ref);
+            }
+        }
+    }
+
+    pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
+        // This is inefficient (O(N_insts)) but kept as per user request.
+        for (idx, inst) in self.insts.iter().enumerate().skip(1) {
+            if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
+                if *p == phi {
+                    // This check is important to avoid yielding deleted upsilons
+                    let inst_ref = InstRef(NonZeroU32::new(idx as u32).unwrap());
+                    if !self.insts_free.contains(&inst_ref) {
+                        args.push(inst_ref);
+                    }
+                }
+            }
         }
     }
 }
@@ -285,6 +461,67 @@ impl Inst {
 }
 
 // ---------------------------------------------------------------------------
+// Block
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlockRef(NonZeroU32);
+
+impl Default for BlockRef {
+    fn default() -> Self {
+        Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct BlockIdx(u32);
+
+#[derive(Debug, Default, Clone)]
+pub struct Block {
+    pub name: Symbol,
+    pub span: SourceSpan,
+    pub insts: Vec<InstRef>,
+    pub succs: Vec<BlockRef>,
+}
+
+// ---------------------------------------------------------------------------
+// Func
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FuncRef(NonZeroU32);
+
+impl Default for FuncRef {
+    fn default() -> Self {
+        Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Func {
+    pub name: Symbol,
+    pub is_global: bool,
+    pub span: SourceSpan,
+    pub blocks: Vec<BlockRef>,
+}
+
+// ---------------------------------------------------------------------------
+// StaticVar
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StaticVarRef(NonZeroU32);
+
+#[derive(Debug, Default, Clone)]
+pub struct StaticVar {
+    pub ty: Type,
+    pub name: Symbol,
+    pub is_global: bool,
+    pub init: Option<i64>,
+    pub span: SourceSpan,
+}
+
+// ---------------------------------------------------------------------------
 // InstKind
 // ---------------------------------------------------------------------------
 
@@ -368,64 +605,31 @@ pub enum BinaryOp {
 }
 
 // ---------------------------------------------------------------------------
-// Block
+// Type
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BlockRef(NonZeroU32);
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Type {
+    #[default]
+    Void,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    IntPtr,
+}
 
-impl Default for BlockRef {
-    fn default() -> Self {
-        Self(NonZeroU32::new(u32::MAX).unwrap())
+impl Type {
+    pub fn size(&self) -> u32 {
+        match self {
+            Type::Void => 0,
+            Type::Int8 => 1,
+            Type::Int16 => 2,
+            Type::Int32 => 4,
+            Type::Int64 => 8,
+            Type::IntPtr => 8,
+        }
     }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct BlockIdx(u32);
-
-#[derive(Debug, Default, Clone)]
-pub struct Block {
-    pub name: Symbol,
-    pub span: SourceSpan,
-    pub insts: Vec<InstRef>,
-    pub succs: Vec<BlockRef>,
-}
-
-// ---------------------------------------------------------------------------
-// Func
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FuncRef(NonZeroU32);
-
-impl Default for FuncRef {
-    fn default() -> Self {
-        Self(NonZeroU32::new(u32::MAX).unwrap())
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct Func {
-    pub name: Symbol,
-    pub is_global: bool,
-    pub span: SourceSpan,
-    pub blocks: Vec<BlockRef>,
-}
-
-// ---------------------------------------------------------------------------
-// StaticVar
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StaticVarRef(NonZeroU32);
-
-#[derive(Debug, Default, Clone)]
-pub struct StaticVar {
-    pub ty: Type,
-    pub name: Symbol,
-    pub is_global: bool,
-    pub init: Option<i64>,
-    pub span: SourceSpan,
 }
 
 // ---------------------------------------------------------------------------
@@ -447,210 +651,6 @@ impl Default for BaseHeaps {
             memory: AbstractHeap::new(2, 3),
             control: AbstractHeap::new(4, 5),
             ssa_state: AbstractHeap::new(6, 7),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Program
-// ---------------------------------------------------------------------------
-
-pub struct Program<'a> {
-    pub interner: &'a mut Interner,
-    heaps: BaseHeaps,
-    insts: Vec<Inst>,
-    insts_free: Vec<InstRef>,
-    funcs: Vec<Func>,
-    funcs_free: Vec<FuncRef>,
-    blocks: Vec<Block>,
-    blocks_free: Vec<BlockRef>,
-    static_vars: Vec<StaticVar>,
-    static_vars_free: Vec<StaticVarRef>,
-}
-
-impl<'a> Program<'a> {
-    pub fn new(interner: &'a mut Interner) -> Self {
-        Self {
-            interner,
-            heaps: Default::default(),
-            insts_free: Vec::new(),
-            funcs_free: Vec::new(),
-            blocks_free: Vec::new(),
-            static_vars_free: Vec::new(),
-            insts: vec![Default::default()],
-            funcs: vec![Default::default()],
-            blocks: vec![Default::default()],
-            static_vars: vec![Default::default()],
-        }
-    }
-
-    // ---------------------------------------------------------------------------
-    // Accessors
-    // ---------------------------------------------------------------------------
-
-    pub fn inst(&self, inst: InstRef) -> &Inst {
-        &self.insts[inst.0.get() as usize]
-    }
-
-    pub fn func(&self, func: FuncRef) -> &Func {
-        &self.funcs[func.0.get() as usize]
-    }
-
-    pub fn block(&self, block: BlockRef) -> &Block {
-        &self.blocks[block.0.get() as usize]
-    }
-
-    pub fn static_var(&self, var: StaticVarRef) -> &StaticVar {
-        &self.static_vars[var.0.get() as usize]
-    }
-
-    pub fn inst_mut(&mut self, inst: InstRef) -> &mut Inst {
-        &mut self.insts[inst.0.get() as usize]
-    }
-
-    pub fn func_mut(&mut self, func: FuncRef) -> &mut Func {
-        &mut self.funcs[func.0.get() as usize]
-    }
-
-    pub fn block_mut(&mut self, block: BlockRef) -> &mut Block {
-        &mut self.blocks[block.0.get() as usize]
-    }
-
-    pub fn static_var_mut(&mut self, var: StaticVarRef) -> &mut StaticVar {
-        &mut self.static_vars[var.0.get() as usize]
-    }
-
-    // ---------------------------------------------------------------------------
-    // Creation
-    // ---------------------------------------------------------------------------
-
-    pub fn new_inst(&mut self, inst: Inst) -> InstRef {
-        // TODO: Reuse slots from `insts_free` for better memory efficiency
-        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
-        self.insts.push(inst);
-        r
-    }
-
-    pub fn new_func(&mut self, func: Func) -> FuncRef {
-        // TODO: Reuse slots from `funcs_free` for better memory efficiency
-        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
-        self.funcs.push(func);
-        r
-    }
-
-    pub fn new_block(&mut self, block: Block) -> BlockRef {
-        // TODO: Reuse slots from `blocks_free` for better memory efficiency
-        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
-        self.blocks.push(block);
-        r
-    }
-
-    pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
-        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
-        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
-        self.static_vars.push(var);
-        r
-    }
-
-    // ---------------------------------------------------------------------------
-    // Deletion
-    // ---------------------------------------------------------------------------
-
-    pub fn delete_inst(&mut self, inst_ref: InstRef) {
-        self.insts_free.push(inst_ref);
-    }
-
-    pub fn delete_func(&mut self, func_ref: FuncRef) {
-        self.funcs_free.push(func_ref);
-    }
-
-    pub fn delete_block(&mut self, block_ref: BlockRef) {
-        self.blocks_free.push(block_ref);
-    }
-
-    pub fn delete_static_var(&mut self, var_ref: StaticVarRef) {
-        self.static_vars_free.push(var_ref);
-    }
-
-    // ---------------------------------------------------------------------------
-    // Iterators
-    // ---------------------------------------------------------------------------
-
-    // TODO: There's some issues with this iterators:
-    // 1. Find a better a way to skip deleted entries (maybe a use an Option)
-    // 2. The _with_refs version do not need to index into the vector, they can
-    // just iterate through it with an enumerate()
-
-    pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.insts.len())
-            .map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.insts_free.contains(r))
-    }
-
-    pub fn iter_funcs(&self) -> impl Iterator<Item = FuncRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.funcs.len())
-            .map(|i| unsafe { FuncRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.funcs_free.contains(r))
-    }
-
-    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.blocks.len())
-            .map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.blocks_free.contains(r))
-    }
-
-    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.static_vars.len())
-            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.static_vars_free.contains(r))
-    }
-
-    pub fn iter_insts_with_refs(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
-        self.iter_insts().map(move |r| (r, self.inst(r)))
-    }
-
-    pub fn iter_funcs_with_refs(&self) -> impl Iterator<Item = (FuncRef, &Func)> {
-        self.iter_funcs().map(move |r| (r, self.func(r)))
-    }
-
-    pub fn iter_blocks_with_refs(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
-        self.iter_blocks().map(move |r| (r, self.block(r)))
-    }
-
-    pub fn iter_static_vars_with_refs(&self) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> {
-        self.iter_static_vars()
-            .map(move |r| (r, self.static_var(r)))
-    }
-
-    // ---------------------------------------------------------------------------
-    // Complexity Queries
-    // ---------------------------------------------------------------------------
-
-    pub fn get_predecessors(&self, pred: &mut HashMap<BlockRef, Vec<BlockRef>>) {
-        pred.clear();
-        for (block_ref, block) in self.iter_blocks_with_refs() {
-            for succ in &block.succs {
-                pred.entry(*succ).or_default().push(block_ref);
-            }
-        }
-    }
-
-    pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
-        // This is inefficient (O(N_insts)) but kept as per user request.
-        for (idx, inst) in self.insts.iter().enumerate().skip(1) {
-            if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
-                if *p == phi {
-                    // This check is important to avoid yielding deleted upsilons
-                    let inst_ref = InstRef(NonZeroU32::new(idx as u32).unwrap());
-                    if !self.insts_free.contains(&inst_ref) {
-                        args.push(inst_ref);
-                    }
-                }
-            }
         }
     }
 }

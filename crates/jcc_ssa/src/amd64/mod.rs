@@ -9,60 +9,120 @@ use crate::Symbol;
 use jcc_sourcemap::SourceSpan;
 
 // ---------------------------------------------------------------------------
-// AMD64 IR
+// Program
 // ---------------------------------------------------------------------------
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Program {
-    funcs: Vec<FnDef>,
+    funcs: Vec<Func>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct FnDef {
-    name: Symbol,
-    blocks: Vec<Block>,
+// ---------------------------------------------------------------------------
+// Inst
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inst {
+    pub kind: InstKind,
     pub span: SourceSpan,
 }
 
-impl FnDef {
-    pub fn new(name: Symbol, span: SourceSpan) -> Self {
-        FnDef {
-            name,
-            span,
-            blocks: Vec::new(),
-        }
+impl Inst {
+    #[inline]
+    fn new(kind: InstKind, span: SourceSpan) -> Self {
+        Self { kind, span }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Factory methods
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn ret(span: SourceSpan) -> Self {
+        Self::new(InstKind::Ret, span)
     }
 
     #[inline]
-    pub fn get_block(&self, block_ref: BlockRef) -> &Block {
-        &self.blocks[block_ref.0 as usize]
+    fn cdq(span: SourceSpan) -> Self {
+        Self::new(InstKind::Cdq, span)
     }
 
     #[inline]
-    pub fn get_block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
-        &mut self.blocks[block_ref.0 as usize]
+    fn call(sym: Symbol, span: SourceSpan) -> Self {
+        Self::new(InstKind::Call(sym), span)
     }
 
     #[inline]
-    pub fn push_block(&mut self, block: Block) -> BlockRef {
-        self.blocks.push(block);
-        BlockRef((self.blocks.len() - 1) as u32)
+    fn push(op: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Push(op), span)
+    }
+
+    #[inline]
+    fn idiv(op: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Idiv(op), span)
+    }
+
+    #[inline]
+    fn alloca(size: i32, span: SourceSpan) -> Self {
+        Self::new(InstKind::Alloca(size), span)
+    }
+
+    #[inline]
+    fn dealloca(size: i32, span: SourceSpan) -> Self {
+        Self::new(InstKind::Dealloca(size), span)
+    }
+
+    #[inline]
+    fn jmp(block: BlockRef, span: SourceSpan) -> Self {
+        Self::new(InstKind::Jmp(block), span)
+    }
+
+    #[inline]
+    fn mov(src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Mov { src, dst }, span)
+    }
+
+    #[inline]
+    fn cmp(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Cmp { lhs, rhs }, span)
+    }
+
+    #[inline]
+    fn test(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Test { lhs, rhs }, span)
+    }
+
+    #[inline]
+    fn setcc(code: CondCode, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::SetCC { dst, code }, span)
+    }
+
+    #[inline]
+    fn jmpcc(code: CondCode, target: BlockRef, span: SourceSpan) -> Self {
+        Self::new(InstKind::JmpCC { target, code }, span)
+    }
+
+    #[inline]
+    fn unary(op: UnaryOp, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Unary { op, dst }, span)
+    }
+
+    #[inline]
+    fn binary(op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Binary { op, src, dst }, span)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Block
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BlockRef(u32);
 
-impl std::fmt::Display for BlockRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
-    pub instrs: Vec<Inst>,
-    pub spans: Vec<SourceSpan>,
+    pub insts: Vec<Inst>,
     pub label: Option<Symbol>,
 }
 
@@ -75,8 +135,49 @@ impl Block {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Func
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Func {
+    name: Symbol,
+    span: SourceSpan,
+    blocks: Vec<Block>,
+}
+
+impl Func {
+    pub fn new(name: Symbol, span: SourceSpan) -> Self {
+        Func {
+            name,
+            span,
+            blocks: Vec::new(),
+        }
+    }
+
+    #[inline]
+    pub fn push_block(&mut self, block: Block) -> BlockRef {
+        self.blocks.push(block);
+        BlockRef((self.blocks.len() - 1) as u32)
+    }
+
+    #[inline]
+    pub fn get_block(&self, block_ref: BlockRef) -> &Block {
+        &self.blocks[block_ref.0 as usize]
+    }
+
+    #[inline]
+    pub fn get_block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
+        &mut self.blocks[block_ref.0 as usize]
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enum Soup
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Inst {
+pub enum InstKind {
     /// A `ret` instruction.
     Ret,
     /// A `cdq` instruction.
@@ -100,12 +201,9 @@ pub enum Inst {
     /// A `test` instruction.
     Test { lhs: Operand, rhs: Operand },
     /// A conditional set instruction.
-    SetCC { cond_code: CondCode, dst: Operand },
+    SetCC { code: CondCode, dst: Operand },
     /// A conditional jump instruction.
-    JmpCC {
-        cond_code: CondCode,
-        target: BlockRef,
-    },
+    JmpCC { code: CondCode, target: BlockRef },
     /// A unary operation instruction.
     Unary { op: UnaryOp, dst: Operand },
     /// A binary operation instruction.
@@ -213,5 +311,15 @@ impl TryFrom<crate::BinaryOp> for CondCode {
             crate::BinaryOp::GreaterEqual => Ok(Self::GreaterEqual),
             _ => Err(()),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+
+impl std::fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

@@ -1,6 +1,9 @@
-use crate::Interner;
+use crate::{
+    amd64::{InstKind, InstRef},
+    Interner,
+};
 
-use super::{BinaryOp, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
+use super::{BinaryOp, CondCode, Func, Operand, Program, Reg, UnaryOp};
 
 // ---------------------------------------------------------------------------
 // AMD64Emitter
@@ -9,7 +12,7 @@ use super::{BinaryOp, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
 pub struct AMD64Emitter<'a> {
     output: String,
     indent_level: usize,
-    fn_def: &'a FnDef,
+    fn_def: &'a Func,
     program: &'a Program,
     interner: &'a Interner,
 }
@@ -56,7 +59,7 @@ impl<'a> AMD64Emitter<'a> {
         self.output.push('\n');
     }
 
-    fn emit_fn_def(&mut self, fn_def: &FnDef) {
+    fn emit_fn_def(&mut self, fn_def: &Func) {
         // TODO: Use interner data for function names
         // If in macOS, use .globl _name instead of .globl name
         // All user-defined labels are prefixed with `_` on macOS
@@ -79,42 +82,40 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln(&format!(".L{label}{idx}{name}:"));
             }
             self.with_indent(|emitter| {
-                block
-                    .instrs
-                    .iter()
-                    .for_each(|instr| emitter.emit_instr(instr));
+                block.insts.iter().for_each(|inst| emitter.emit_inst(*inst));
             });
         });
     }
 
-    fn emit_instr(&mut self, instr: &Inst) {
-        match instr {
-            Inst::Ret => {
+    fn emit_inst(&mut self, inst: InstRef) {
+        let inst = self.fn_def.inst(inst);
+        match inst.kind {
+            InstKind::Ret => {
                 self.writeln("movq %rbp, %rsp");
                 self.writeln("popq %rbp");
                 self.writeln("ret");
             }
-            Inst::Cdq => self.writeln("cdq"),
-            Inst::Alloca(size) => {
-                if *size > 0 {
+            InstKind::Cdq => self.writeln("cdq"),
+            InstKind::Alloca(size) => {
+                if size > 0 {
                     self.writeln(&format!("subq ${size}, %rsp"));
                 }
             }
-            Inst::Dealloca(size) => {
-                if *size > 0 {
+            InstKind::Dealloca(size) => {
+                if size > 0 {
                     self.writeln(&format!("addq ${size}, %rsp"));
                 }
             }
-            Inst::Idiv(oper) => {
-                let oper = self.emit_operand_32(oper);
+            InstKind::Idiv(oper) => {
+                let oper = self.emit_operand_32(&oper);
                 self.writeln(&format!("idivl {oper}"));
             }
-            Inst::Push(oper) => {
-                let oper = self.emit_operand_64(oper);
+            InstKind::Push(oper) => {
+                let oper = self.emit_operand_64(&oper);
                 self.writeln(&format!("pushq {oper}"));
             }
-            Inst::Call(name) => {
-                let name = self.interner.lookup(*name);
+            InstKind::Call(name) => {
+                let name = self.interner.lookup(name);
                 // TODO: on macOS, we need to prefix the function name with `_`
                 // TODO: on Linux, if the function is not defined in the same file,
                 // we need to use `@plt` to call it. Ideally we should check if the
@@ -122,8 +123,8 @@ impl<'a> AMD64Emitter<'a> {
                 // For now, we assume all functions are defined not in the same file.
                 self.writeln(&format!("call {name}@plt"));
             }
-            Inst::Jmp(target) => {
-                let block = self.fn_def.get_block(*target);
+            InstKind::Jmp(target) => {
+                let block = self.fn_def.block(target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
@@ -135,43 +136,43 @@ impl<'a> AMD64Emitter<'a> {
                     }
                 }
             }
-            Inst::Mov { src, dst } => {
-                let src = self.emit_operand_32(src);
-                let dst = self.emit_operand_32(dst);
+            InstKind::Mov { src, dst } => {
+                let src = self.emit_operand_32(&src);
+                let dst = self.emit_operand_32(&dst);
                 self.writeln(&format!("movl {src}, {dst}"));
             }
-            Inst::Cmp { lhs, rhs } => {
-                let lhs = self.emit_operand_32(lhs);
-                let rhs = self.emit_operand_32(rhs);
+            InstKind::Cmp { lhs, rhs } => {
+                let lhs = self.emit_operand_32(&lhs);
+                let rhs = self.emit_operand_32(&rhs);
                 self.writeln(&format!("cmpl {lhs}, {rhs}"));
             }
-            Inst::SetCC { cond_code, dst } => {
-                let dst = self.emit_operand_8(dst);
-                let cond_code = self.emit_cond_code(*cond_code);
+            InstKind::SetCC { code, dst } => {
+                let dst = self.emit_operand_8(&dst);
+                let cond_code = self.emit_cond_code(code);
                 self.writeln(&format!("set{cond_code} {dst}"));
             }
-            Inst::Test { lhs, rhs } => {
-                let src = self.emit_operand_32(lhs);
-                let dst = self.emit_operand_32(rhs);
+            InstKind::Test { lhs, rhs } => {
+                let src = self.emit_operand_32(&lhs);
+                let dst = self.emit_operand_32(&rhs);
                 self.writeln(&format!("testl {src}, {dst}"));
             }
-            Inst::JmpCC { cond_code, target } => {
-                let block = self.fn_def.get_block(*target);
+            InstKind::JmpCC { code, target } => {
+                let block = self.fn_def.block(target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
-                        let cond_code = self.emit_cond_code(*cond_code);
+                        let cond_code = self.emit_cond_code(code);
                         let name = self.interner.lookup(self.fn_def.name);
                         self.writeln(&format!("j{cond_code} .L{label}{target}{name}"));
                     }
                     None => {
-                        let cond_code = self.emit_cond_code(*cond_code);
+                        let cond_code = self.emit_cond_code(code);
                         self.writeln(&format!("j{cond_code} .L{target}"));
                     }
                 }
             }
-            Inst::Unary { op, dst } => {
-                let dst = self.emit_operand_32(dst);
+            InstKind::Unary { op, dst } => {
+                let dst = self.emit_operand_32(&dst);
                 match op {
                     UnaryOp::Not => self.writeln(&format!("notl {dst}")),
                     UnaryOp::Neg => self.writeln(&format!("negl {dst}")),
@@ -179,9 +180,9 @@ impl<'a> AMD64Emitter<'a> {
                     UnaryOp::Dec => self.writeln(&format!("decl {dst}")),
                 };
             }
-            Inst::Binary { op, src, dst } => {
-                let src = self.emit_operand_32(src);
-                let dst = self.emit_operand_32(dst);
+            InstKind::Binary { op, src, dst } => {
+                let src = self.emit_operand_32(&src);
+                let dst = self.emit_operand_32(&dst);
                 match op {
                     BinaryOp::Add => self.writeln(&format!("addl {src}, {dst}")),
                     BinaryOp::Sub => self.writeln(&format!("subl {src}, {dst}")),

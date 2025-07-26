@@ -1,7 +1,7 @@
 pub mod amd64;
 pub mod builder;
 pub mod effects;
-pub mod insertion;
+pub mod infra;
 pub mod verify;
 
 pub use jcc_interner as interner;

@@ -44,7 +44,7 @@ impl AMD64Fixer {
                 }
                 self.inset.apply(func, *b);
             }
-            if let Some(block) = func.blocks.first() {
+            if let Some(block) = func.blocks[1..].first() {
                 if let Some(inst) = block.insts.first() {
                     let inst = func.inst_mut(*inst);
                     if let InstKind::Alloca(ref mut size) = &mut inst.kind {

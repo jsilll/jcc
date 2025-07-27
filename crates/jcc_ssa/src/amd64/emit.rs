@@ -83,7 +83,7 @@ impl<'a> AMD64Emitter<'a> {
                 if let Some(label) = block.label {
                     // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
                     let label = self.interner.lookup(label);
-                    self.writeln(&format!(".L{label}{idx}{name}:"));
+                    self.writeln(&format!(".L{label}{}{name}:", idx + 1));
                 }
                 self.with_indent(|emitter| {
                     block.insts.iter().for_each(|inst| emitter.emit_inst(*inst));

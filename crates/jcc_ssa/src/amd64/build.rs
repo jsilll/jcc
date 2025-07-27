@@ -148,7 +148,7 @@ impl<'a> AMD64FuncBuilder<'a> {
             }
             crate::InstKind::Upsilon { phi, val } => {
                 let dst = self.get_or_make_operand(*phi);
-                self.append_to_block(Inst::mov(dst, self.get_operand(val), inst.span));
+                self.append_to_block(Inst::mov(self.get_operand(val), dst, inst.span));
             }
             crate::InstKind::Branch { cond, then, other } => {
                 let cond = self.get_operand(cond);

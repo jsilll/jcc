@@ -68,23 +68,27 @@ impl<'a> AMD64Emitter<'a> {
             // If the function is `main`, we don't need to prefix it with `_`
             // on macOS, but we do on Linux.
             self.with_indent(|emitter| emitter.writeln(".globl main"));
+        } else {
+            self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
         }
-        self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
         self.writeln(&format!("{name}:"));
         self.with_indent(|emitter| {
             emitter.writeln("pushq %rbp");
             emitter.writeln("movq %rsp, %rbp");
         });
-        fn_def.blocks.iter().enumerate().for_each(|(idx, block)| {
-            if let Some(label) = block.label {
-                // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
-                let label = self.interner.lookup(label);
-                self.writeln(&format!(".L{label}{idx}{name}:"));
-            }
-            self.with_indent(|emitter| {
-                block.insts.iter().for_each(|inst| emitter.emit_inst(*inst));
+        fn_def.blocks[1..]
+            .iter()
+            .enumerate()
+            .for_each(|(idx, block)| {
+                if let Some(label) = block.label {
+                    // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
+                    let label = self.interner.lookup(label);
+                    self.writeln(&format!(".L{label}{idx}{name}:"));
+                }
+                self.with_indent(|emitter| {
+                    block.insts.iter().for_each(|inst| emitter.emit_inst(*inst));
+                });
             });
-        });
     }
 
     fn emit_inst(&mut self, inst: InstRef) {

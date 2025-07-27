@@ -1,5 +1,13 @@
 pub mod inset;
 
+pub trait Indexed {
+    /// Sets the index of the instruction.
+    ///     
+    /// This is used to update the instruction's index after modifications
+    /// or reordering in the IR.
+    fn set_idx(&mut self, idx: u32);
+}
+
 /// Trait for intermediate representation (IR) data structures used in compilers.
 ///
 /// This trait provides an abstraction over different IR implementations, allowing
@@ -9,7 +17,7 @@ pub trait IR {
     /// The type of instruction used in the IR.
     /// This is typically a struct that represents an instruction
     /// in the IR, containing fields like opcode, operands, etc.
-    type Inst: Clone;
+    type Inst: Clone + Indexed;
 
     /// A reference to an instruction that can be copied and hashed.
     /// This is typically an index or handle into an instruction storage.

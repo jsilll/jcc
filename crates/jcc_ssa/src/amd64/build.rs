@@ -1,3 +1,5 @@
+use crate::amd64::InstIdx;
+
 use super::{BinaryOp, Block, BlockRef, CondCode, Func, Inst, Operand, Program, Reg, UnaryOp};
 
 use std::collections::HashMap;
@@ -96,7 +98,9 @@ impl<'a> AMD64FuncBuilder<'a> {
     }
 
     #[inline]
-    fn append_to_block(&mut self, inst: Inst) {
+    fn append_to_block(&mut self, mut inst: Inst) {
+        let len = self.fn_def.block(self.block).insts.len() as u32;
+        inst.idx = InstIdx(len);
         let inst = self.fn_def.new_inst(inst);
         let block = self.fn_def.block_mut(self.block);
         block.insts.push(inst);

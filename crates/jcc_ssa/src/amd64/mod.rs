@@ -6,7 +6,10 @@ use std::num::NonZeroU32;
 
 pub use build::{build, AMD64FuncBuilder};
 
-use crate::{infra::IR, Symbol};
+use crate::{
+    infra::{Indexed, IR},
+    Symbol,
+};
 
 use jcc_sourcemap::SourceSpan;
 
@@ -104,6 +107,17 @@ impl Func {
         // Start from 1 to skip the default function at index 0
         (1..self.blocks.len()).map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
     }
+
+    // ---------------------------------------------------------------------------
+    // Snapshot
+    // ---------------------------------------------------------------------------
+
+    fn snapshot_blocks(&self, buf: &mut Vec<BlockRef>) {
+        buf.clear();
+        for i in 1..self.blocks.len() {
+            buf.push(BlockRef(NonZeroU32::new(i as u32).unwrap()));
+        }
+    }
 }
 
 impl IR for Func {
@@ -169,8 +183,19 @@ impl Block {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct InstRef(NonZeroU32);
 
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct InstIdx(pub(crate) u32);
+
+impl From<InstIdx> for u32 {
+    #[inline]
+    fn from(idx: InstIdx) -> Self {
+        idx.0
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Inst {
+    pub idx: InstIdx,
     pub kind: InstKind,
     pub span: SourceSpan,
 }
@@ -178,7 +203,11 @@ pub struct Inst {
 impl Inst {
     #[inline]
     fn new(kind: InstKind, span: SourceSpan) -> Self {
-        Self { kind, span }
+        Self {
+            kind,
+            span,
+            ..Default::default()
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -258,6 +287,13 @@ impl Inst {
     #[inline]
     fn binary(op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
         Self::new(InstKind::Binary { op, src, dst }, span)
+    }
+}
+
+impl Indexed for Inst {
+    #[inline]
+    fn set_idx(&mut self, idx: u32) {
+        self.idx = InstIdx(idx);
     }
 }
 

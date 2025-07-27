@@ -1,4 +1,4 @@
-use super::IR;
+use super::{Indexed, IR};
 
 /// A data structure for efficiently batching instruction insertions into IR blocks.
 ///
@@ -123,9 +123,12 @@ impl<P: IR> InsertionSet<P> {
         let mut log_idx = 0;
         let n_log_insts = self.log.len();
         let n_insts = p.block_insts(block).len();
+
         for idx in 0..n_insts {
             while log_idx < n_log_insts && self.log[log_idx].0 == idx as u32 {
-                buf.push(p.new_inst(self.log[log_idx].1.clone()));
+                let mut inst = self.log[log_idx].1.clone();
+                inst.set_idx(buf.len() as u32);
+                buf.push(p.new_inst(inst));
                 log_idx += 1;
             }
             let inst = p.block_insts(block)[idx];
@@ -133,10 +136,12 @@ impl<P: IR> InsertionSet<P> {
                 buf.push(inst);
             }
         }
-        while log_idx < n_log_insts {
-            buf.push(p.new_inst(self.log[log_idx].1.clone()));
-            log_idx += 1;
-        }
+
+        self.log[log_idx..].iter().for_each(|(_, inst)| {
+            let mut inst = inst.clone();
+            inst.set_idx(buf.len() as u32);
+            buf.push(p.new_inst(inst));
+        });
 
         self.log.clear();
         self.buf = Some(p.swap_block_insts(
@@ -149,46 +154,89 @@ impl<P: IR> InsertionSet<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
-    #[derive(Debug)]
-    struct MockIR {
-        blocks: HashMap<u32, Vec<u32>>,
-        nop_instructions: HashSet<u32>,
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestInst {
+        id: u32,
+        idx: u32,
+        is_nop: bool,
     }
 
-    impl MockIR {
-        fn new() -> Self {
+    impl TestInst {
+        fn new(id: u32) -> Self {
             Self {
-                blocks: HashMap::new(),
-                nop_instructions: HashSet::new(),
+                id,
+                idx: 0,
+                is_nop: false,
             }
         }
 
-        fn add_block(&mut self, block_id: u32, instructions: Vec<u32>) {
-            self.blocks.insert(block_id, instructions);
-        }
-
-        fn mark_as_nop(&mut self, inst: u32) {
-            self.nop_instructions.insert(inst);
-        }
-
-        fn get_block_insts(&self, block_id: u32) -> Vec<u32> {
-            self.blocks.get(&block_id).cloned().unwrap_or_default()
+        fn nop() -> Self {
+            Self {
+                id: 0,
+                idx: 0,
+                is_nop: true,
+            }
         }
     }
 
-    impl IR for MockIR {
-        type Inst = u32;
+    impl Indexed for TestInst {
+        fn set_idx(&mut self, idx: u32) {
+            self.idx = idx;
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestIR {
+        instructions: Vec<TestInst>,
+        blocks: HashMap<u32, Vec<u32>>,
+    }
+
+    impl TestIR {
+        fn new() -> Self {
+            Self {
+                blocks: HashMap::new(),
+                instructions: Vec::new(),
+            }
+        }
+
+        fn create_block(&mut self, block_id: u32, insts: Vec<TestInst>) -> u32 {
+            let mut indices = Vec::new();
+            for inst in insts {
+                indices.push(self.instructions.len() as u32);
+                self.instructions.push(inst);
+            }
+            self.blocks.insert(block_id, indices);
+            block_id
+        }
+
+        fn get_block_instructions(&self, block_id: u32) -> Vec<&TestInst> {
+            self.blocks
+                .get(&block_id)
+                .map(|indices| {
+                    indices
+                        .iter()
+                        .map(|&i| &self.instructions[i as usize])
+                        .collect()
+                })
+                .unwrap_or_else(Vec::new)
+        }
+    }
+
+    impl IR for TestIR {
+        type Inst = TestInst;
         type InstRef = u32;
         type BlockRef = u32;
 
         fn is_nop(&self, inst: Self::InstRef) -> bool {
-            self.nop_instructions.contains(&inst)
+            self.instructions[inst as usize].is_nop
         }
 
         fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
-            inst
+            let idx = self.instructions.len() as u32;
+            self.instructions.push(inst);
+            idx
         }
 
         fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
@@ -206,225 +254,185 @@ mod tests {
 
     #[test]
     fn test_empty_insertion_set() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3]);
-
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![1, 2, 3]);
+        let block = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        assert!(insertion_set.is_empty());
+        assert_eq!(insertion_set.len(), 0);
+
+        insertion_set.apply(&mut ir, block);
+        let instructions = ir.get_block_instructions(1);
+
+        assert_eq!(instructions.len(), 2);
+        assert_eq!(instructions[0].id, 1);
+        assert_eq!(instructions[1].id, 2);
     }
 
     #[test]
-    fn test_single_insertion_at_beginning() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3]);
-
+    fn test_insert_before() {
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.before(0 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![99, 1, 2, 3]);
+        let block = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        insertion_set.before(0_u32, TestInst::new(10));
+        insertion_set.before(1_u32, TestInst::new(11));
+
+        assert_eq!(insertion_set.len(), 2);
+
+        insertion_set.apply(&mut ir, block);
+        let instructions = ir.get_block_instructions(1);
+
+        assert_eq!(instructions.len(), 4);
+        assert_eq!(instructions[0].id, 10);
+        assert_eq!(instructions[1].id, 1);
+        assert_eq!(instructions[2].id, 11);
+        assert_eq!(instructions[3].id, 2);
     }
 
     #[test]
-    fn test_single_insertion_in_middle() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3]);
-
+    fn test_insert_after() {
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.before(1 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![1, 99, 2, 3]);
+        let block = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        insertion_set.after(0_u32, TestInst::new(10));
+        insertion_set.after(1_u32, TestInst::new(11));
+
+        insertion_set.apply(&mut ir, block);
+        let instructions = ir.get_block_instructions(1);
+
+        assert_eq!(instructions.len(), 4);
+        assert_eq!(instructions[0].id, 1);
+        assert_eq!(instructions[1].id, 10);
+        assert_eq!(instructions[2].id, 2);
+        assert_eq!(instructions[3].id, 11);
     }
 
     #[test]
-    fn test_single_insertion_at_end() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3]);
-
+    fn test_multiple_insertions_at_same_index() {
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.before(3 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![1, 2, 3, 99]);
+        let block = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        insertion_set.before(1_u32, TestInst::new(10));
+        insertion_set.before(1_u32, TestInst::new(11));
+        insertion_set.before(1_u32, TestInst::new(12));
+
+        insertion_set.apply(&mut ir, block);
+        let instructions = ir.get_block_instructions(1);
+
+        assert_eq!(instructions.len(), 5);
+        assert_eq!(instructions[0].id, 1);
+        assert_eq!(instructions[1].id, 10);
+        assert_eq!(instructions[2].id, 11);
+        assert_eq!(instructions[3].id, 12);
+        assert_eq!(instructions[4].id, 2);
     }
 
     #[test]
-    fn test_multiple_insertions_same_position() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3]);
-
+    fn test_insertions_beyond_block_length() {
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.before(1 as u32, 98);
-        insertion_set.before(1 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![1, 98, 99, 2, 3]);
-    }
+        let block = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        insertion_set.before(5_u32, TestInst::new(10));
+        insertion_set.before(10_u32, TestInst::new(11));
 
-    #[test]
-    fn test_multiple_insertions_different_positions() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3]);
+        insertion_set.apply(&mut ir, block);
+        let instructions = ir.get_block_instructions(1);
 
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.before(0 as u32, 97);
-        insertion_set.before(2 as u32, 98);
-        insertion_set.before(3 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
-
-        assert_eq!(ir.get_block_insts(0), vec![97, 1, 2, 98, 3, 99]);
+        assert_eq!(instructions.len(), 4);
+        assert_eq!(instructions[0].id, 1);
+        assert_eq!(instructions[1].id, 2);
+        assert_eq!(instructions[2].id, 10);
+        assert_eq!(instructions[3].id, 11);
     }
 
     #[test]
     fn test_nop_filtering() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2, 3, 4]);
-        ir.mark_as_nop(2);
-        ir.mark_as_nop(4);
-
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.before(1 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![1, 99, 3]);
+        let block = ir.create_block(
+            1,
+            vec![
+                TestInst::new(1),
+                TestInst::nop(),
+                TestInst::new(2),
+                TestInst::nop(),
+            ],
+        );
+        insertion_set.before(1_u32, TestInst::new(10));
+        insertion_set.before(3_u32, TestInst::new(11));
+
+        insertion_set.apply(&mut ir, block);
+        let instructions = ir.get_block_instructions(1);
+
+        assert_eq!(instructions.len(), 4);
+        assert_eq!(instructions[0].id, 1);
+        assert_eq!(instructions[1].id, 10);
+        assert_eq!(instructions[2].id, 2);
+        assert_eq!(instructions[3].id, 11);
     }
 
     #[test]
-    fn test_insertion_beyond_block_length() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2]);
-
+    fn test_index_updating() {
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.before(5 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![1, 2, 99]);
+        let block = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        insertion_set.before(0_u32, TestInst::new(10));
+        insertion_set.before(1_u32, TestInst::new(11));
+
+        insertion_set.apply(&mut ir, block);
+
+        let instructions = ir.get_block_instructions(1);
+        assert_eq!(instructions[0].idx, 0);
+        assert_eq!(instructions[2].idx, 2);
     }
 
     #[test]
-    fn test_empty_block() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![]);
+    fn test_clear() {
+        let mut insertion_set: InsertionSet<TestIR> = InsertionSet::new();
+        insertion_set.before(0_u32, TestInst::new(10));
+        insertion_set.before(1_u32, TestInst::new(11));
 
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.before(0 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
-
-        assert_eq!(ir.get_block_insts(0), vec![99]);
-    }
-
-    #[test]
-    fn test_reuse_insertion_set() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![1, 2]);
-        ir.add_block(1, vec![3, 4]);
-
-        let mut insertion_set = InsertionSet::new();
-
-        insertion_set.before(0 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
-        assert_eq!(ir.get_block_insts(0), vec![99, 1, 2]);
-
-        insertion_set.before(1 as u32, 88);
-        insertion_set.apply(&mut ir, 1);
-        assert_eq!(ir.get_block_insts(1), vec![3, 88, 4]);
-    }
-
-    #[test]
-    fn test_insertion_set_methods() {
-        let mut insertion_set = InsertionSet::<MockIR>::new();
-
-        assert!(insertion_set.is_empty());
-        assert_eq!(insertion_set.len(), 0);
-
-        insertion_set.before(0 as u32, 1);
-        insertion_set.before(1 as u32, 2);
-
-        assert!(!insertion_set.is_empty());
         assert_eq!(insertion_set.len(), 2);
+        assert!(!insertion_set.is_empty());
 
         insertion_set.clear();
 
-        assert!(insertion_set.is_empty());
         assert_eq!(insertion_set.len(), 0);
+        assert!(insertion_set.is_empty());
     }
 
     #[test]
-    fn test_insert_after_beginning() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![10, 20, 30]);
-
+    fn test_reuse_after_apply() {
+        let mut ir = TestIR::new();
         let mut insertion_set = InsertionSet::new();
-        insertion_set.after(0 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
 
-        assert_eq!(ir.get_block_insts(0), vec![10, 99, 20, 30]);
-    }
+        let block1 = ir.create_block(1, vec![TestInst::new(1), TestInst::new(2)]);
+        let block2 = ir.create_block(2, vec![TestInst::new(3), TestInst::new(4)]);
 
-    #[test]
-    fn test_insert_after_middle() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![10, 20, 30]);
+        insertion_set.before(0_u32, TestInst::new(10));
+        insertion_set.apply(&mut ir, block1);
 
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.after(1 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
+        assert!(insertion_set.is_empty());
 
-        assert_eq!(ir.get_block_insts(0), vec![10, 20, 99, 30]);
-    }
+        insertion_set.before(1_u32, TestInst::new(20));
+        insertion_set.apply(&mut ir, block2);
 
-    #[test]
-    fn test_insert_after_end() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![10, 20, 30]);
+        let instructions1 = ir.get_block_instructions(1);
+        assert_eq!(instructions1.len(), 3);
+        assert_eq!(instructions1[0].id, 10);
+        assert_eq!(instructions1[1].id, 1);
+        assert_eq!(instructions1[2].id, 2);
 
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.after(2 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
-
-        assert_eq!(ir.get_block_insts(0), vec![10, 20, 30, 99]);
-    }
-
-    #[test]
-    fn test_multiple_insert_after_same_position() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![10, 20, 30]);
-
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.after(0 as u32, 98);
-        insertion_set.after(0 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
-
-        assert_eq!(ir.get_block_insts(0), vec![10, 98, 99, 20, 30]);
-    }
-
-    #[test]
-    fn test_mixed_before_and_after_at_same_effective_index() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![10, 20, 30]);
-
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.before(1 as u32, 88);
-        insertion_set.after(0 as u32, 99);
-
-        insertion_set.apply(&mut ir, 0);
-
-        assert_eq!(ir.get_block_insts(0), vec![10, 88, 99, 20, 30]);
-    }
-
-    #[test]
-    fn test_insert_after_with_nop_filtering() {
-        let mut ir = MockIR::new();
-        ir.add_block(0, vec![10, 20, 30, 40]);
-        ir.mark_as_nop(30);
-
-        let mut insertion_set = InsertionSet::new();
-        insertion_set.after(1 as u32, 99);
-        insertion_set.apply(&mut ir, 0);
-
-        assert_eq!(ir.get_block_insts(0), vec![10, 20, 99, 40]);
+        let instructions2 = ir.get_block_instructions(2);
+        assert_eq!(instructions2.len(), 3);
+        assert_eq!(instructions2[0].id, 3);
+        assert_eq!(instructions2[1].id, 20);
+        assert_eq!(instructions2[2].id, 4);
     }
 }

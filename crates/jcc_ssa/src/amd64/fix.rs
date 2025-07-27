@@ -33,14 +33,16 @@ impl AMD64Fixer {
     }
 
     pub fn fix(mut self, program: &mut Program) {
+        let mut blocks = Vec::new();
         program.funcs.iter_mut().for_each(|func| {
-            for b_idx in 0..func.blocks.len() {
-                let n_insts = func.blocks[b_idx].insts.len();
+            func.snapshot_blocks(&mut blocks);
+            for b in blocks.iter() {
+                let n_insts = func.block(*b).insts.len();
                 for i_idx in 0..n_insts {
-                    let inst = func.blocks[b_idx].insts[i_idx];
-                    self.fix_instr(func.inst_mut(inst), i_idx as u32);
+                    let inst = func.block(*b).insts[i_idx];
+                    self.fix_instr(func.inst_mut(inst));
                 }
-                // self.inset.apply(func, b_idx);
+                self.inset.apply(func, *b);
             }
             if let Some(block) = func.blocks.first() {
                 if let Some(inst) = block.insts.first() {
@@ -64,7 +66,7 @@ impl AMD64Fixer {
         }
     }
 
-    fn fix_instr(&mut self, inst: &mut Inst, idx: u32) {
+    fn fix_instr(&mut self, inst: &mut Inst) {
         match &mut inst.kind {
             InstKind::Nop
             | InstKind::Ret
@@ -92,11 +94,8 @@ impl AMD64Fixer {
                     // idivl %r10d
                     let tmp = *oper;
                     *oper = Operand::Reg(Reg::Rg10);
-                    // block
-                    //     .insts
-                    //     .insert(*idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), span));
                     self.inset
-                        .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
+                        .before(inst.idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
                 }
             }
             InstKind::Mov { src, dst } => {
@@ -117,7 +116,7 @@ impl AMD64Fixer {
                     let tmp = *dst;
                     *dst = Operand::Reg(Reg::Rg10);
                     self.inset
-                        .after(idx, Inst::mov(Operand::Reg(Reg::Rg10), tmp, inst.span));
+                        .after(inst.idx, Inst::mov(Operand::Reg(Reg::Rg10), tmp, inst.span));
                 }
             }
             InstKind::Cmp { lhs, rhs } => {
@@ -138,7 +137,7 @@ impl AMD64Fixer {
                     let tmp = *rhs;
                     *rhs = Operand::Reg(Reg::Rg11);
                     self.inset
-                        .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg11), inst.span));
+                        .before(inst.idx, Inst::mov(tmp, Operand::Reg(Reg::Rg11), inst.span));
                 } else if matches!(lhs, Operand::Stack(_)) && matches!(rhs, Operand::Stack(_)) {
                     // NOTE
                     //
@@ -153,7 +152,7 @@ impl AMD64Fixer {
                     let tmp = *lhs;
                     *lhs = Operand::Reg(Reg::Rg10);
                     self.inset
-                        .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
+                        .before(inst.idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
                 }
             }
             InstKind::Test { lhs: src, rhs: dst } => {
@@ -173,7 +172,7 @@ impl AMD64Fixer {
                     let tmp = *src;
                     *src = Operand::Reg(Reg::Rg10);
                     self.inset
-                        .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
+                        .before(inst.idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
                 } else if matches!(src, Operand::Imm(_)) && matches!(dst, Operand::Imm(_)) {
                     // NOTE
                     //
@@ -188,7 +187,7 @@ impl AMD64Fixer {
                     let tmp = *dst;
                     *dst = Operand::Reg(Reg::Rg10);
                     self.inset
-                        .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
+                        .before(inst.idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
                 }
             }
             InstKind::SetCC { dst, .. } => {
@@ -215,10 +214,14 @@ impl AMD64Fixer {
                             // movl %r11d, -4(%rbp)
                             let tmp = *dst;
                             *dst = Operand::Reg(Reg::Rg11);
-                            self.inset
-                                .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg11), inst.span));
-                            self.inset
-                                .after(idx, Inst::mov(Operand::Reg(Reg::Rg11), tmp, inst.span));
+                            self.inset.before(
+                                inst.idx,
+                                Inst::mov(tmp, Operand::Reg(Reg::Rg11), inst.span),
+                            );
+                            self.inset.after(
+                                inst.idx,
+                                Inst::mov(Operand::Reg(Reg::Rg11), tmp, inst.span),
+                            );
                         }
                     }
                     BinaryOp::Shl | BinaryOp::Shr => {
@@ -236,8 +239,10 @@ impl AMD64Fixer {
                             // shll %cl, %rax
                             let tmp = *src;
                             *src = Operand::Reg(Reg::Rcx);
-                            self.inset
-                                .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rcx), inst.span));
+                            self.inset.before(
+                                inst.idx,
+                                Inst::mov(tmp, Operand::Reg(Reg::Rcx), inst.span),
+                            );
                         }
                     }
                     _ => {
@@ -254,8 +259,10 @@ impl AMD64Fixer {
                             // addl %r10d, -8(%rbp)
                             let tmp = *src;
                             *src = Operand::Reg(Reg::Rg10);
-                            self.inset
-                                .before(idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
+                            self.inset.before(
+                                inst.idx,
+                                Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span),
+                            );
                         }
                     }
                 }

@@ -90,6 +90,7 @@ impl<'a> AMD64Emitter<'a> {
     fn emit_inst(&mut self, inst: InstRef) {
         let inst = self.fn_def.inst(inst);
         match inst.kind {
+            InstKind::Nop => {}
             InstKind::Ret => {
                 self.writeln("movq %rbp, %rsp");
                 self.writeln("popq %rbp");

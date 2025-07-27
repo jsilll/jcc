@@ -6,6 +6,11 @@ pub mod inset;
 /// the `InsertionSet` to work with various compiler backends while maintaining
 /// type safety and efficient operations.
 pub trait IR {
+    /// The type of instruction used in the IR.
+    /// This is typically a struct that represents an instruction
+    /// in the IR, containing fields like opcode, operands, etc.
+    type Inst: Clone;
+
     /// A reference to an instruction that can be copied and hashed.
     /// This is typically an index or handle into an instruction storage.
     type InstRef: Copy + std::hash::Hash;
@@ -19,6 +24,10 @@ pub trait IR {
     /// No-op instructions are typically removed during optimization passes
     /// as they don't affect program semantics.
     fn is_nop(&self, inst: Self::InstRef) -> bool;
+
+    /// Creates a new instruction in the IR.
+    /// This method adds an instruction to the IR and returns a reference to it.
+    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef;
 
     /// Returns the instructions in a block as a slice.
     ///

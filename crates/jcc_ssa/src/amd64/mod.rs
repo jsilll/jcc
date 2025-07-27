@@ -1,10 +1,12 @@
 pub mod build;
 pub mod emit;
-// pub mod fix;
+pub mod fix;
+
+use std::num::NonZeroU32;
 
 pub use build::{build, AMD64FuncBuilder};
 
-use crate::Symbol;
+use crate::{infra::IR, Symbol};
 
 use jcc_sourcemap::SourceSpan;
 
@@ -34,41 +36,107 @@ impl Func {
         Func {
             name,
             span,
-            insts: Vec::new(),
-            blocks: Vec::new(),
+            insts: vec![Default::default()],
+            blocks: vec![Default::default()],
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Accessors
+    // ---------------------------------------------------------------------------
+
     #[inline]
     pub fn inst(&self, inst_ref: InstRef) -> &Inst {
-        &self.insts[inst_ref.0 as usize]
+        &self.insts[inst_ref.0.get() as usize]
     }
 
     #[inline]
     pub fn block(&self, block_ref: BlockRef) -> &Block {
-        &self.blocks[block_ref.0 as usize]
+        &self.blocks[block_ref.0.get() as usize]
     }
 
     #[inline]
     pub fn inst_mut(&mut self, inst_ref: InstRef) -> &mut Inst {
-        &mut self.insts[inst_ref.0 as usize]
+        &mut self.insts[inst_ref.0.get() as usize]
     }
 
     #[inline]
     pub fn block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
-        &mut self.blocks[block_ref.0 as usize]
+        &mut self.blocks[block_ref.0.get() as usize]
     }
+
+    // ---------------------------------------------------------------------------
+    // Creation
+    // ---------------------------------------------------------------------------
 
     #[inline]
     pub fn new_inst(&mut self, inst: Inst) -> InstRef {
+        // TODO: Reuse slots from `insts_free` for better memory efficiency
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
         self.insts.push(inst);
-        InstRef((self.blocks.len() - 1) as u32)
+        r
     }
 
     #[inline]
     pub fn new_block(&mut self, block: Block) -> BlockRef {
+        // TODO: Reuse slots from `blocks_free` for better memory efficiency
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(block);
-        BlockRef((self.blocks.len() - 1) as u32)
+        r
+    }
+
+    // ---------------------------------------------------------------------------
+    // Deletion
+    // ---------------------------------------------------------------------------
+
+    // TODO: Implement deletion methods if necessary.
+
+    // ---------------------------------------------------------------------------
+    // Iterators
+    // ---------------------------------------------------------------------------
+
+    pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.insts.len()).map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
+    }
+
+    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.blocks.len()).map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
+    }
+}
+
+impl IR for Func {
+    type Inst = Inst;
+    type InstRef = InstRef;
+    type BlockRef = BlockRef;
+
+    #[inline]
+    fn is_nop(&self, inst: Self::InstRef) -> bool {
+        matches!(self.inst(inst).kind, InstKind::Nop)
+    }
+
+    #[inline]
+    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
+        // TODO: Reuse slots from `insts_free` for better memory efficiency
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
+        self.insts.push(inst);
+        r
+    }
+
+    #[inline]
+    fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
+        &self.blocks[block.0.get() as usize].insts
+    }
+
+    #[inline]
+    fn swap_block_insts(
+        &mut self,
+        block: Self::BlockRef,
+        mut insts: Vec<Self::InstRef>,
+    ) -> Vec<Self::InstRef> {
+        std::mem::swap(&mut self.blocks[block.0.get() as usize].insts, &mut insts);
+        insts
     }
 }
 
@@ -77,7 +145,7 @@ impl Func {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct BlockRef(u32);
+pub struct BlockRef(NonZeroU32);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -99,9 +167,9 @@ impl Block {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct InstRef(u32);
+pub struct InstRef(NonZeroU32);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Inst {
     pub kind: InstKind,
     pub span: SourceSpan,
@@ -197,8 +265,11 @@ impl Inst {
 // Enum Soup
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum InstKind {
+    /// A no-operation instruction.
+    #[default]
+    Nop,
     /// A `ret` instruction.
     Ret,
     /// A `cdq` instruction.

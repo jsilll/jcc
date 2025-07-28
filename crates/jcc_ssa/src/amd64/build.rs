@@ -1,4 +1,6 @@
-use super::{BinaryOp, Block, BlockRef, CondCode, FnDef, Inst, Operand, Program, Reg, UnaryOp};
+use crate::amd64::InstIdx;
+
+use super::{BinaryOp, Block, BlockRef, CondCode, Func, Inst, Operand, Program, Reg, UnaryOp};
 
 use std::collections::HashMap;
 
@@ -27,7 +29,7 @@ pub fn build(ssa: &crate::Program) -> Program {
 pub struct AMD64FuncBuilder<'a> {
     ssa: &'a crate::Program<'a>,
     func: crate::FuncRef,
-    fn_def: FnDef,
+    fn_def: Func,
     block: BlockRef,
     arg_count: u32,
     pseudo_count: u32,
@@ -39,8 +41,8 @@ impl<'a> AMD64FuncBuilder<'a> {
     pub fn new(ssa: &'a crate::Program, func: crate::FuncRef) -> Self {
         let mut blocks = HashMap::new();
         let actual_func = ssa.func(func);
-        let mut fn_def = FnDef::new(actual_func.name, actual_func.span);
-        let block = fn_def.push_block(Block::default());
+        let mut fn_def = Func::new(actual_func.name, actual_func.span);
+        let block = fn_def.new_block(Block::default());
         blocks.insert(ssa.func(func).blocks[0], block);
         Self {
             ssa,
@@ -54,11 +56,11 @@ impl<'a> AMD64FuncBuilder<'a> {
         }
     }
 
-    pub fn build(mut self) -> FnDef {
-        self.append_to_block(Inst::Alloca(0), self.ssa.func(self.func).span);
+    pub fn build(mut self) -> Func {
+        self.append_to_block(Inst::alloca(0, self.ssa.func(self.func).span));
         self.ssa.func(self.func).blocks.iter().for_each(|b| {
             self.block = self.get_or_make_block(*b);
-            self.fn_def.get_block_mut(self.block).label = Some(self.ssa.block(*b).name);
+            self.fn_def.block_mut(self.block).label = Some(self.ssa.block(*b).name);
             self.ssa.block(*b).insts.iter().for_each(|inst| {
                 self.visit_inst(*inst);
             });
@@ -92,14 +94,16 @@ impl<'a> AMD64FuncBuilder<'a> {
         *self
             .blocks
             .entry(block)
-            .or_insert_with(|| self.fn_def.push_block(Block::default()))
+            .or_insert_with(|| self.fn_def.new_block(Block::default()))
     }
 
     #[inline]
-    fn append_to_block(&mut self, instr: Inst, span: crate::SourceSpan) {
-        let block = self.fn_def.get_block_mut(self.block);
-        block.instrs.push(instr);
-        block.spans.push(span);
+    fn append_to_block(&mut self, mut inst: Inst) {
+        let len = self.fn_def.block(self.block).insts.len() as u32;
+        inst.idx = InstIdx(len);
+        let inst = self.fn_def.new_inst(inst);
+        let block = self.fn_def.block_mut(self.block);
+        block.insts.push(inst);
     }
 
     fn visit_inst(&mut self, i: crate::InstRef) {
@@ -117,70 +121,42 @@ impl<'a> AMD64FuncBuilder<'a> {
             }
             crate::InstKind::Jump(block) => {
                 let block = self.get_or_make_block(*block);
-                self.append_to_block(Inst::Jmp(block), inst.span);
+                self.append_to_block(Inst::jmp(block, inst.span));
             }
             crate::InstKind::Identity(val) => {
                 self.operands.insert(i, self.get_operand(val));
             }
             crate::InstKind::Ret(val) => {
-                self.append_to_block(
-                    Inst::Mov {
-                        src: self.get_operand(val),
-                        dst: Operand::Reg(Reg::Rax),
-                    },
+                self.append_to_block(Inst::mov(
+                    self.get_operand(val),
+                    Operand::Reg(Reg::Rax),
                     inst.span,
-                );
-                self.append_to_block(Inst::Ret, inst.span);
+                ));
+                self.append_to_block(Inst::ret(inst.span));
             }
             crate::InstKind::Load(ptr) => {
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
-                self.append_to_block(
-                    Inst::Mov {
-                        src: self.get_operand(ptr),
-                        dst,
-                    },
-                    inst.span,
-                );
+                self.append_to_block(Inst::mov(self.get_operand(ptr), dst, inst.span));
             }
             crate::InstKind::Store { ptr, val } => {
-                self.append_to_block(
-                    Inst::Mov {
-                        src: self.get_operand(val),
-                        dst: self.get_operand(ptr),
-                    },
+                self.append_to_block(Inst::mov(
+                    self.get_operand(val),
+                    self.get_operand(ptr),
                     inst.span,
-                );
+                ));
             }
             crate::InstKind::Upsilon { phi, val } => {
                 let dst = self.get_or_make_operand(*phi);
-                self.append_to_block(
-                    Inst::Mov {
-                        dst,
-                        src: self.get_operand(val),
-                    },
-                    inst.span,
-                );
+                self.append_to_block(Inst::mov(self.get_operand(val), dst, inst.span));
             }
             crate::InstKind::Branch { cond, then, other } => {
                 let cond = self.get_operand(cond);
                 let then = self.get_or_make_block(*then);
                 let other = self.get_or_make_block(*other);
-                self.append_to_block(
-                    Inst::Test {
-                        lhs: cond,
-                        rhs: cond,
-                    },
-                    inst.span,
-                );
-                self.append_to_block(
-                    Inst::JmpCC {
-                        cond_code: CondCode::NotEqual,
-                        target: then,
-                    },
-                    inst.span,
-                );
-                self.append_to_block(Inst::Jmp(other), inst.span);
+                self.append_to_block(Inst::test(cond, cond, inst.span));
+                self.append_to_block(Inst::jmpcc(CondCode::NotEqual, then, inst.span));
+                self.append_to_block(Inst::jmp(other, inst.span));
             }
             crate::InstKind::Switch {
                 cond,
@@ -190,23 +166,11 @@ impl<'a> AMD64FuncBuilder<'a> {
                 let cond = self.get_operand(cond);
                 cases.iter().for_each(|(val, block)| {
                     let block = self.get_or_make_block(*block);
-                    self.append_to_block(
-                        Inst::Cmp {
-                            lhs: cond,
-                            rhs: Operand::Imm(*val),
-                        },
-                        inst.span,
-                    );
-                    self.append_to_block(
-                        Inst::JmpCC {
-                            cond_code: CondCode::Equal,
-                            target: block,
-                        },
-                        inst.span,
-                    );
+                    self.append_to_block(Inst::cmp(cond, Operand::Imm(*val), inst.span));
+                    self.append_to_block(Inst::jmpcc(CondCode::Equal, block, inst.span));
                 });
                 let default = self.get_or_make_block(*default);
-                self.append_to_block(Inst::Jmp(default), inst.span);
+                self.append_to_block(Inst::jmp(default, inst.span));
             }
             crate::InstKind::Unary { op, val } => {
                 let dst = self.make_pseudo();
@@ -276,24 +240,16 @@ impl<'a> AMD64FuncBuilder<'a> {
                 self.operands.insert(i, dst);
                 match ARG_REGS.get(self.arg_count as usize) {
                     Some(&reg) => {
-                        self.append_to_block(
-                            Inst::Mov {
-                                src: Operand::Reg(reg),
-                                dst,
-                            },
-                            inst.span,
-                        );
+                        self.append_to_block(Inst::mov(Operand::Reg(reg), dst, inst.span));
                     }
                     None => {
                         let n_stack_arg = self.arg_count - ARG_REGS.len() as u32;
                         let offset = 16 + n_stack_arg * 8;
-                        self.append_to_block(
-                            Inst::Mov {
-                                src: Operand::Stack(offset as i32),
-                                dst,
-                            },
+                        self.append_to_block(Inst::mov(
+                            Operand::Stack(offset as i32),
+                            dst,
                             inst.span,
-                        );
+                        ));
                     }
                 }
                 self.arg_count += 1;
@@ -303,62 +259,44 @@ impl<'a> AMD64FuncBuilder<'a> {
                 let stack_padding = match stack_args % 2 {
                     0 => 0,
                     1 => {
-                        self.append_to_block(Inst::Alloca(8), inst.span);
+                        self.append_to_block(Inst::alloca(8, inst.span));
                         8
                     }
                     _ => unreachable!(),
                 };
                 for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
                     let src = self.get_operand(arg);
-                    self.append_to_block(
-                        Inst::Mov {
-                            src,
-                            dst: Operand::Reg(*reg),
-                        },
-                        inst.span,
-                    );
+                    self.append_to_block(Inst::mov(src, Operand::Reg(*reg), inst.span));
                 }
                 for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
                     let arg = self.get_operand(arg);
                     match arg {
                         Operand::Imm(_) | Operand::Reg(_) => {
-                            self.append_to_block(Inst::Push(arg), inst.span);
+                            self.append_to_block(Inst::push(arg, inst.span));
                         }
                         _ => {
-                            self.append_to_block(
-                                Inst::Mov {
-                                    src: arg,
-                                    dst: Operand::Reg(Reg::Rax),
-                                },
-                                inst.span,
-                            );
-                            self.append_to_block(Inst::Push(Operand::Reg(Reg::Rax)), inst.span);
+                            self.append_to_block(Inst::mov(arg, Operand::Reg(Reg::Rax), inst.span));
+                            self.append_to_block(Inst::push(Operand::Reg(Reg::Rax), inst.span));
                         }
                     }
                 }
                 let name = self.ssa.func(*func).name;
-                self.append_to_block(Inst::Call(name), inst.span);
+                self.append_to_block(Inst::call(name, inst.span));
                 let stack_size = stack_args as i32 * 8 + stack_padding;
                 if stack_size > 0 {
-                    self.append_to_block(Inst::Dealloca(stack_size), inst.span);
+                    self.append_to_block(Inst::dealloca(stack_size, inst.span));
                 }
                 let dst = self.make_pseudo();
                 self.operands.insert(i, dst);
-                self.append_to_block(
-                    Inst::Mov {
-                        src: Operand::Reg(Reg::Rax),
-                        dst,
-                    },
-                    inst.span,
-                );
+                self.append_to_block(Inst::mov(Operand::Reg(Reg::Rax), dst, inst.span));
             }
         }
     }
 
     #[inline]
     fn build_unary(&mut self, op: UnaryOp, src: Operand, dst: Operand, span: crate::SourceSpan) {
-        self.append_to_block(Inst::Mov { src, dst }, span);
-        self.append_to_block(Inst::Unary { op, dst }, span);
+        self.append_to_block(Inst::mov(src, dst, span));
+        self.append_to_block(Inst::unary(op, dst, span));
     }
 
     #[inline]
@@ -370,8 +308,8 @@ impl<'a> AMD64FuncBuilder<'a> {
         dst: Operand,
         span: crate::SourceSpan,
     ) {
-        self.append_to_block(Inst::Mov { src: lhs, dst }, span);
-        self.append_to_block(Inst::Binary { op, src: rhs, dst }, span);
+        self.append_to_block(Inst::mov(lhs, dst, span));
+        self.append_to_block(Inst::binary(op, rhs, dst, span));
     }
 
     #[inline]
@@ -383,15 +321,9 @@ impl<'a> AMD64FuncBuilder<'a> {
         dst: Operand,
         span: crate::SourceSpan,
     ) {
-        self.append_to_block(
-            Inst::Mov {
-                src: Operand::Imm(0),
-                dst,
-            },
-            span,
-        );
-        self.append_to_block(Inst::Cmp { lhs: rhs, rhs: lhs }, span);
-        self.append_to_block(Inst::SetCC { cond_code, dst }, span);
+        self.append_to_block(Inst::mov(Operand::Imm(0), dst, span));
+        self.append_to_block(Inst::cmp(rhs, lhs, span));
+        self.append_to_block(Inst::setcc(cond_code, dst, span));
     }
 
     #[inline]
@@ -403,25 +335,17 @@ impl<'a> AMD64FuncBuilder<'a> {
         dst: Operand,
         span: crate::SourceSpan,
     ) {
-        self.append_to_block(
-            Inst::Mov {
-                src: lhs,
-                dst: Operand::Reg(Reg::Rax),
+        self.append_to_block(Inst::mov(lhs, Operand::Reg(Reg::Rax), span));
+        self.append_to_block(Inst::cdq(span));
+        self.append_to_block(Inst::idiv(rhs, span));
+        self.append_to_block(Inst::mov(
+            if div {
+                Operand::Reg(Reg::Rax)
+            } else {
+                Operand::Reg(Reg::Rdx)
             },
+            dst,
             span,
-        );
-        self.append_to_block(Inst::Cdq, span);
-        self.append_to_block(Inst::Idiv(rhs), span);
-        self.append_to_block(
-            Inst::Mov {
-                src: if div {
-                    Operand::Reg(Reg::Rax)
-                } else {
-                    Operand::Reg(Reg::Rdx)
-                },
-                dst,
-            },
-            span,
-        );
+        ));
     }
 }

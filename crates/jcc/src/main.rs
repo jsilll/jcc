@@ -93,54 +93,53 @@ fn try_main() -> Result<()> {
     ))?;
 
     // Lex file
-    let mut lexer_result = Lexer::new(file).lex();
+    let mut r = Lexer::new(file).lex();
     if args.lex {
-        lexer_result
-            .diagnostics
+        r.diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
-    if !lexer_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+    if !r.diagnostics.is_empty() {
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &lexer_result.diagnostics)?;
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
     }
     if args.lex {
         return Ok(());
     }
 
     // Parse tokens
-    let parser_result = Parser::new(file, &mut interner, lexer_result.tokens.iter()).parse();
-    if !parser_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &parser_result.diagnostics)?;
+    let r = Parser::new(file, &mut interner, r.tokens.iter()).parse();
+    if !r.diagnostics.is_empty() {
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.emit_ast_mermaid {
         let mmd_path = args.path.with_extension("mmd");
-        let ast_mermaid = AstMermaid::new(&parser_result.ast, &interner);
-        let dot = ast_mermaid.emit();
-        std::fs::write(&mmd_path, &dot).context("Failed to write Mermaid file")?;
+        let ast_mermaid = AstMermaid::new(&r.ast, &interner);
+        let mmd = ast_mermaid.emit();
+        std::fs::write(&mmd_path, &mmd).context("Failed to write AST Mermaid file")?;
     }
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
-        let ast_graphviz = AstGraphviz::new(&parser_result.ast, &interner);
+        let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
         let dot = ast_graphviz.emit();
         std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
     }
     if args.parse {
         return Ok(());
     }
-    if parser_result.ast.root().is_empty() {
+    if r.ast.root().is_empty() {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
 
     // Resolve the AST
-    let ast = parser_result.ast;
-    let resolver_result = ResolverPass::new(&ast).check();
-    if !resolver_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &resolver_result.diagnostics)?;
+    let ast = r.ast;
+    let r = ResolverPass::new(&ast).check();
+    if !r.diagnostics.is_empty() {
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
     if args.emit_ast_mermaid {
@@ -158,14 +157,14 @@ fn try_main() -> Result<()> {
 
     // Analyze the AST
     let mut ctx = SemaCtx::new(&ast);
-    let control_result = ControlPass::new(&ast, &mut ctx).check();
-    if !control_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &control_result.diagnostics)?;
+    let r = ControlPass::new(&ast, &mut ctx).check();
+    if !r.diagnostics.is_empty() {
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let typer_result = TyperPass::new(&ast, &mut ctx).check();
-    if !typer_result.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &typer_result.diagnostics)?;
+    let r = TyperPass::new(&ast, &mut ctx).check();
+    if !r.diagnostics.is_empty() {
+        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.validate {
@@ -177,8 +176,8 @@ fn try_main() -> Result<()> {
     if args.verbose {
         println!("{}", ssa);
     }
-    let verifier_result = SSAVerifier::new(&ssa).verify();
-    if !verifier_result.diagnostics.is_empty() {
+    let r = SSAVerifier::new(&ssa).verify();
+    if !r.diagnostics.is_empty() {
         // TODO: properly report ssa errors
         return Err(anyhow::anyhow!("exiting due to ssa verifier errors"));
     }

@@ -2,67 +2,168 @@ pub mod build;
 pub mod emit;
 pub mod fix;
 
+use std::num::NonZeroU32;
+
 pub use build::{build, AMD64FuncBuilder};
 
-use crate::Symbol;
+use crate::{
+    infra::{Indexed, IR},
+    Symbol,
+};
 
 use jcc_sourcemap::SourceSpan;
 
 // ---------------------------------------------------------------------------
-// AMD64 IR
+// Program
 // ---------------------------------------------------------------------------
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Program {
-    funcs: Vec<FnDef>,
+    funcs: Vec<Func>,
 }
+
+// ---------------------------------------------------------------------------
+// Func
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct FnDef {
+pub struct Func {
     name: Symbol,
+    span: SourceSpan,
+    insts: Vec<Inst>,
     blocks: Vec<Block>,
-    pub span: SourceSpan,
 }
 
-impl FnDef {
+impl Func {
     pub fn new(name: Symbol, span: SourceSpan) -> Self {
-        FnDef {
+        Func {
             name,
             span,
-            blocks: Vec::new(),
+            insts: vec![Default::default()],
+            blocks: vec![Default::default()],
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Accessors
+    // ---------------------------------------------------------------------------
+
     #[inline]
-    pub fn get_block(&self, block_ref: BlockRef) -> &Block {
-        &self.blocks[block_ref.0 as usize]
+    pub fn inst(&self, inst_ref: InstRef) -> &Inst {
+        &self.insts[inst_ref.0.get() as usize]
     }
 
     #[inline]
-    pub fn get_block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
-        &mut self.blocks[block_ref.0 as usize]
+    pub fn block(&self, block_ref: BlockRef) -> &Block {
+        &self.blocks[block_ref.0.get() as usize]
     }
 
     #[inline]
-    pub fn push_block(&mut self, block: Block) -> BlockRef {
+    pub fn inst_mut(&mut self, inst_ref: InstRef) -> &mut Inst {
+        &mut self.insts[inst_ref.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn block_mut(&mut self, block_ref: BlockRef) -> &mut Block {
+        &mut self.blocks[block_ref.0.get() as usize]
+    }
+
+    // ---------------------------------------------------------------------------
+    // Creation
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    pub fn new_inst(&mut self, inst: Inst) -> InstRef {
+        // TODO: Reuse slots from `insts_free` for better memory efficiency
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
+        self.insts.push(inst);
+        r
+    }
+
+    #[inline]
+    pub fn new_block(&mut self, block: Block) -> BlockRef {
+        // TODO: Reuse slots from `blocks_free` for better memory efficiency
+        let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(block);
-        BlockRef((self.blocks.len() - 1) as u32)
+        r
+    }
+
+    // ---------------------------------------------------------------------------
+    // Deletion
+    // ---------------------------------------------------------------------------
+
+    // TODO: Implement deletion methods if necessary.
+
+    // ---------------------------------------------------------------------------
+    // Iterators
+    // ---------------------------------------------------------------------------
+
+    pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.insts.len()).map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
+    }
+
+    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.blocks.len()).map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
+    }
+
+    // ---------------------------------------------------------------------------
+    // Snapshot
+    // ---------------------------------------------------------------------------
+
+    fn snapshot_blocks(&self, buf: &mut Vec<BlockRef>) {
+        buf.clear();
+        for i in 1..self.blocks.len() {
+            buf.push(BlockRef(NonZeroU32::new(i as u32).unwrap()));
+        }
     }
 }
+
+impl IR for Func {
+    type Inst = Inst;
+    type InstRef = InstRef;
+    type BlockRef = BlockRef;
+
+    #[inline]
+    fn is_nop(&self, inst: Self::InstRef) -> bool {
+        matches!(self.inst(inst).kind, InstKind::Nop)
+    }
+
+    #[inline]
+    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
+        // TODO: Reuse slots from `insts_free` for better memory efficiency
+        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
+        self.insts.push(inst);
+        r
+    }
+
+    #[inline]
+    fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
+        &self.blocks[block.0.get() as usize].insts
+    }
+
+    #[inline]
+    fn swap_block_insts(
+        &mut self,
+        block: Self::BlockRef,
+        mut insts: Vec<Self::InstRef>,
+    ) -> Vec<Self::InstRef> {
+        std::mem::swap(&mut self.blocks[block.0.get() as usize].insts, &mut insts);
+        insts
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Block
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct BlockRef(u32);
-
-impl std::fmt::Display for BlockRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+pub struct BlockRef(NonZeroU32);
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
-    pub instrs: Vec<Inst>,
-    pub spans: Vec<SourceSpan>,
+    pub insts: Vec<InstRef>,
     pub label: Option<Symbol>,
 }
 
@@ -75,8 +176,136 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Inst {
+// ---------------------------------------------------------------------------
+// Inst
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct InstRef(NonZeroU32);
+
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct InstIdx(pub(crate) u32);
+
+impl From<InstIdx> for u32 {
+    #[inline]
+    fn from(idx: InstIdx) -> Self {
+        idx.0
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Inst {
+    pub idx: InstIdx,
+    pub kind: InstKind,
+    pub span: SourceSpan,
+}
+
+impl Inst {
+    #[inline]
+    fn new(kind: InstKind, span: SourceSpan) -> Self {
+        Self {
+            kind,
+            span,
+            ..Default::default()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Factory methods
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn ret(span: SourceSpan) -> Self {
+        Self::new(InstKind::Ret, span)
+    }
+
+    #[inline]
+    fn cdq(span: SourceSpan) -> Self {
+        Self::new(InstKind::Cdq, span)
+    }
+
+    #[inline]
+    fn call(sym: Symbol, span: SourceSpan) -> Self {
+        Self::new(InstKind::Call(sym), span)
+    }
+
+    #[inline]
+    fn push(op: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Push(op), span)
+    }
+
+    #[inline]
+    fn idiv(op: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Idiv(op), span)
+    }
+
+    #[inline]
+    fn alloca(size: i32, span: SourceSpan) -> Self {
+        Self::new(InstKind::Alloca(size), span)
+    }
+
+    #[inline]
+    fn dealloca(size: i32, span: SourceSpan) -> Self {
+        Self::new(InstKind::Dealloca(size), span)
+    }
+
+    #[inline]
+    fn jmp(block: BlockRef, span: SourceSpan) -> Self {
+        Self::new(InstKind::Jmp(block), span)
+    }
+
+    #[inline]
+    fn mov(src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Mov { src, dst }, span)
+    }
+
+    #[inline]
+    fn cmp(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Cmp { lhs, rhs }, span)
+    }
+
+    #[inline]
+    fn test(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Test { lhs, rhs }, span)
+    }
+
+    #[inline]
+    fn setcc(code: CondCode, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::SetCC { dst, code }, span)
+    }
+
+    #[inline]
+    fn jmpcc(code: CondCode, target: BlockRef, span: SourceSpan) -> Self {
+        Self::new(InstKind::JmpCC { target, code }, span)
+    }
+
+    #[inline]
+    fn unary(op: UnaryOp, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Unary { op, dst }, span)
+    }
+
+    #[inline]
+    fn binary(op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Binary { op, src, dst }, span)
+    }
+}
+
+impl Indexed for Inst {
+    #[inline]
+    fn set_idx(&mut self, idx: u32) {
+        self.idx = InstIdx(idx);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enum Soup
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum InstKind {
+    /// A no-operation instruction.
+    #[default]
+    Nop,
     /// A `ret` instruction.
     Ret,
     /// A `cdq` instruction.
@@ -100,12 +329,9 @@ pub enum Inst {
     /// A `test` instruction.
     Test { lhs: Operand, rhs: Operand },
     /// A conditional set instruction.
-    SetCC { cond_code: CondCode, dst: Operand },
+    SetCC { code: CondCode, dst: Operand },
     /// A conditional jump instruction.
-    JmpCC {
-        cond_code: CondCode,
-        target: BlockRef,
-    },
+    JmpCC { code: CondCode, target: BlockRef },
     /// A unary operation instruction.
     Unary { op: UnaryOp, dst: Operand },
     /// A binary operation instruction.
@@ -213,5 +439,15 @@ impl TryFrom<crate::BinaryOp> for CondCode {
             crate::BinaryOp::GreaterEqual => Ok(Self::GreaterEqual),
             _ => Err(()),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+
+impl std::fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

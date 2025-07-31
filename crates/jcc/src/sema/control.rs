@@ -38,7 +38,7 @@ pub struct ControlPass<'a> {
     ctx: &'a mut SemaCtx,
     result: ControlResult,
     tracked_stmts: Vec<TrackedStmt>,
-    tracked_labels: HashMap<Symbol, LabelEntry<'a>>,
+    tracked_labels: HashMap<Symbol, TrackedLabel<'a>>,
 }
 
 impl<'a> ControlPass<'a> {
@@ -66,7 +66,7 @@ impl<'a> ControlPass<'a> {
                             }
                         });
                         self.tracked_labels.values().for_each(|e| {
-                            if let LabelEntry::Unresolved(v) = e {
+                            if let TrackedLabel::Unresolved(v) = e {
                                 v.iter().for_each(|(_, span)| {
                                     self.result.diagnostics.push(ControlDiagnostic {
                                         span: *span,
@@ -131,8 +131,8 @@ impl<'a> ControlPass<'a> {
                 let entry = self
                     .tracked_labels
                     .entry(*label)
-                    .or_insert(LabelEntry::Unresolved(vec![(target, stmt.span)]));
-                if let LabelEntry::Resolved(stmt) = entry {
+                    .or_insert(TrackedLabel::Unresolved(vec![(target, stmt.span)]));
+                if let TrackedLabel::Resolved(stmt) = entry {
                     target.set(*stmt);
                 }
             }
@@ -140,15 +140,15 @@ impl<'a> ControlPass<'a> {
                 let entry = self
                     .tracked_labels
                     .entry(*label)
-                    .or_insert(LabelEntry::Resolved(stmt_ref));
+                    .or_insert(TrackedLabel::Resolved(stmt_ref));
                 match entry {
-                    LabelEntry::Unresolved(v) => {
+                    TrackedLabel::Unresolved(v) => {
                         v.iter().for_each(|(target, _)| {
                             target.set(stmt_ref);
                         });
-                        *entry = LabelEntry::Resolved(stmt_ref);
+                        *entry = TrackedLabel::Resolved(stmt_ref);
                     }
-                    LabelEntry::Resolved(s) => {
+                    TrackedLabel::Resolved(s) => {
                         if stmt_ref != *s {
                             self.result.diagnostics.push(ControlDiagnostic {
                                 span: stmt.span,
@@ -240,8 +240,10 @@ pub enum TrackedStmt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LabelEntry<'a> {
+pub enum TrackedLabel<'a> {
+    /// A resolved label
     Resolved(StmtRef),
+    /// An unresolved label
     Unresolved(Vec<(&'a Cell<StmtRef>, SourceSpan)>),
 }
 

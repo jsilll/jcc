@@ -2,7 +2,7 @@ pub mod control;
 pub mod resolve;
 pub mod ty;
 
-use crate::ast::{Ast, DeclRef, ExprRef, StmtRef};
+use crate::ast::{Ast, StmtRef};
 
 use std::{collections::HashMap, num::NonZeroU32};
 
@@ -23,11 +23,8 @@ impl Default for SemaSymbol {
 // SemaCtx
 // ---------------------------------------------------------------------------
 
-// TODO:(perf) Consider moving types directly into the AST
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemaCtx {
-    decls_type: Vec<Type>,
-    exprs_type: Vec<Type>,
     symbols: Vec<Option<SymbolInfo>>,
     pub switches: HashMap<StmtRef, SwitchCases>,
 }
@@ -37,29 +34,7 @@ impl SemaCtx {
         Self {
             switches: HashMap::new(),
             symbols: vec![Default::default(); ast.symbols_len() + 1],
-            decls_type: vec![Default::default(); ast.decls_len() + 1],
-            exprs_type: vec![Default::default(); ast.exprs_len() + 1],
         }
-    }
-
-    #[inline]
-    pub fn decl_type(&self, decl: DeclRef) -> &Type {
-        &self.decls_type[decl.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn expr_type(&self, expr: ExprRef) -> &Type {
-        &self.exprs_type[expr.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn decl_type_mut(&mut self, decl: DeclRef) -> &mut Type {
-        &mut self.decls_type[decl.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn expr_type_mut(&mut self, expr: ExprRef) -> &mut Type {
-        &mut self.exprs_type[expr.0.get() as usize]
     }
 
     #[inline]

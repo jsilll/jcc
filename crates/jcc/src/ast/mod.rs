@@ -2,7 +2,7 @@ pub mod graphviz;
 pub mod mermaid;
 pub mod parse;
 
-use crate::sema::SemaSymbol;
+use crate::sema::{SemaSymbol, Type};
 
 use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};
 
@@ -199,8 +199,9 @@ pub struct DeclRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Decl {
-    pub name: AstSymbol,
+    pub ty: Cell<Type>,
     pub kind: DeclKind,
+    pub name: AstSymbol,
     pub span: SourceSpan,
     pub storage: Option<StorageClass>,
 }
@@ -286,8 +287,20 @@ pub struct ExprRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Expr {
+    pub ty: Cell<Type>,
     pub kind: ExprKind,
     pub span: SourceSpan,
+}
+
+impl Expr {
+    #[inline]
+    pub fn new(kind: ExprKind, span: SourceSpan) -> Self {
+        Expr {
+            kind,
+            span,
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for ExprKind {

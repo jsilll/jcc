@@ -48,9 +48,5 @@ pub trait IR {
     ///
     /// This operation replaces the entire instruction sequence of a block,
     /// which is useful for applying batched modifications efficiently.
-    fn swap_block_insts(
-        &mut self,
-        block: Self::BlockRef,
-        insts: Vec<Self::InstRef>,
-    ) -> Vec<Self::InstRef>;
+    fn swap_block_insts(&mut self, block: Self::BlockRef, insts: &mut Vec<Self::InstRef>);
 }

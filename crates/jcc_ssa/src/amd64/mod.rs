@@ -2,8 +2,6 @@ pub mod build;
 pub mod emit;
 pub mod fix;
 
-use std::num::NonZeroU32;
-
 pub use build::{build, AMD64FuncBuilder};
 
 use crate::{
@@ -12,6 +10,8 @@ use crate::{
 };
 
 use jcc_sourcemap::SourceSpan;
+
+use std::num::NonZeroU32;
 
 // ---------------------------------------------------------------------------
 // Program
@@ -32,6 +32,32 @@ pub struct Func {
     span: SourceSpan,
     insts: Vec<Inst>,
     blocks: Vec<Block>,
+}
+
+impl IR for Func {
+    type Inst = Inst;
+    type InstRef = InstRef;
+    type BlockRef = BlockRef;
+
+    #[inline]
+    fn is_nop(&self, inst: Self::InstRef) -> bool {
+        matches!(self.inst(inst).kind, InstKind::Nop)
+    }
+
+    #[inline]
+    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
+        Self::new_inst(self, inst)
+    }
+
+    #[inline]
+    fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
+        &self.blocks[block.0.get() as usize].insts
+    }
+
+    #[inline]
+    fn swap_block_insts(&mut self, block: Self::BlockRef, insts: &mut Vec<Self::InstRef>) {
+        std::mem::swap(&mut self.blocks[block.0.get() as usize].insts, insts);
+    }
 }
 
 impl Func {
@@ -120,40 +146,6 @@ impl Func {
     }
 }
 
-impl IR for Func {
-    type Inst = Inst;
-    type InstRef = InstRef;
-    type BlockRef = BlockRef;
-
-    #[inline]
-    fn is_nop(&self, inst: Self::InstRef) -> bool {
-        matches!(self.inst(inst).kind, InstKind::Nop)
-    }
-
-    #[inline]
-    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
-        // TODO: Reuse slots from `insts_free` for better memory efficiency
-        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
-        self.insts.push(inst);
-        r
-    }
-
-    #[inline]
-    fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
-        &self.blocks[block.0.get() as usize].insts
-    }
-
-    #[inline]
-    fn swap_block_insts(
-        &mut self,
-        block: Self::BlockRef,
-        mut insts: Vec<Self::InstRef>,
-    ) -> Vec<Self::InstRef> {
-        std::mem::swap(&mut self.blocks[block.0.get() as usize].insts, &mut insts);
-        insts
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Block
 // ---------------------------------------------------------------------------
@@ -198,6 +190,13 @@ pub struct Inst {
     pub idx: InstIdx,
     pub kind: InstKind,
     pub span: SourceSpan,
+}
+
+impl Indexed for Inst {
+    #[inline]
+    fn set_idx(&mut self, idx: u32) {
+        self.idx = InstIdx(idx);
+    }
 }
 
 impl Inst {
@@ -287,13 +286,6 @@ impl Inst {
     #[inline]
     fn binary(op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
         Self::new(InstKind::Binary { op, src, dst }, span)
-    }
-}
-
-impl Indexed for Inst {
-    #[inline]
-    fn set_idx(&mut self, idx: u32) {
-        self.idx = InstIdx(idx);
     }
 }
 

@@ -2,8 +2,6 @@ pub mod build;
 pub mod emit;
 pub mod fix;
 
-pub use build::{build, AMD64FuncBuilder};
-
 use crate::{
     infra::{Indexed, IR},
     Symbol,
@@ -17,9 +15,22 @@ use std::num::NonZeroU32;
 // Program
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone)]
 pub struct Program {
     funcs: Vec<Func>,
+    // static_vars: Vec<StaticVar>,
+}
+
+// ---------------------------------------------------------------------------
+// StaticVar
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone)]
+pub struct StaticVar {
+    pub name: Symbol,
+    pub is_global: bool,
+    pub init: i64,
+    pub span: SourceSpan,
 }
 
 // ---------------------------------------------------------------------------
@@ -28,10 +39,23 @@ pub struct Program {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Func {
-    name: Symbol,
-    span: SourceSpan,
+    pub name: Symbol,
+    pub is_global: bool,
+    pub span: SourceSpan,
     insts: Vec<Inst>,
     blocks: Vec<Block>,
+}
+
+impl Default for Func {
+    fn default() -> Self {
+        Func {
+            name: Default::default(),
+            span: Default::default(),
+            is_global: Default::default(),
+            insts: vec![Default::default()],
+            blocks: vec![Default::default()],
+        }
+    }
 }
 
 impl IR for Func {
@@ -61,10 +85,11 @@ impl IR for Func {
 }
 
 impl Func {
-    pub fn new(name: Symbol, span: SourceSpan) -> Self {
+    pub fn new(name: Symbol, is_global: bool, span: SourceSpan) -> Self {
         Func {
             name,
             span,
+            is_global,
             insts: vec![Default::default()],
             blocks: vec![Default::default()],
         }
@@ -152,6 +177,12 @@ impl Func {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BlockRef(NonZeroU32);
+
+impl Default for BlockRef {
+    fn default() -> Self {
+        Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -344,6 +375,8 @@ pub enum Operand {
     Stack(i32),
     /// Pseudo register.
     Pseudo(u32),
+    /// A data operand.
+    Data(Symbol),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

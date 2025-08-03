@@ -145,30 +145,23 @@ impl<'a> Program<'a> {
 
     pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
         // Start from 1 to skip the default function at index 0
-        (1..self.insts.len())
-            .map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.insts_free.contains(r))
+        (1..self.insts.len()).map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
     }
 
     pub fn iter_funcs(&self) -> impl Iterator<Item = FuncRef> + '_ {
         // Start from 1 to skip the default function at index 0
-        (1..self.funcs.len())
-            .map(|i| unsafe { FuncRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.funcs_free.contains(r))
+        (1..self.funcs.len()).map(|i| unsafe { FuncRef(NonZeroU32::new_unchecked(i as u32)) })
     }
 
     pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
         // Start from 1 to skip the default function at index 0
-        (1..self.blocks.len())
-            .map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.blocks_free.contains(r))
+        (1..self.blocks.len()).map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
     }
 
     pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
         // Start from 1 to skip the default function at index 0
         (1..self.static_vars.len())
             .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
-            .filter(move |r| !self.static_vars_free.contains(r))
     }
 
     pub fn iter_insts_with_refs(&self) -> impl Iterator<Item = (InstRef, &Inst)> {

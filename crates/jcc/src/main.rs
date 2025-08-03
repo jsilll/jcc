@@ -186,7 +186,7 @@ fn try_main() -> Result<()> {
     }
 
     // Generate Assembly
-    let mut amd64 = ssa::amd64::build(&ssa);
+    let mut amd64 = ssa::amd64::build::Builder::new(&ssa).build();
     if args.verbose {
         let asm = AMD64Emitter::new(&amd64, &interner).emit();
         println!("{}", asm);

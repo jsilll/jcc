@@ -205,6 +205,7 @@ impl<'a> AMD64Emitter<'a> {
 
     fn emit_operand_8(&mut self, oper: &Operand) -> String {
         match oper {
+            Operand::Data(_) => todo!(),
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%al".to_string(),
@@ -225,6 +226,7 @@ impl<'a> AMD64Emitter<'a> {
 
     fn emit_operand_32(&mut self, oper: &Operand) -> String {
         match oper {
+            Operand::Data(_) => todo!(),
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%eax".to_string(),
@@ -245,6 +247,7 @@ impl<'a> AMD64Emitter<'a> {
 
     fn emit_operand_64(&mut self, oper: &Operand) -> String {
         match oper {
+            Operand::Data(_) => todo!(),
             Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%rax".to_string(),

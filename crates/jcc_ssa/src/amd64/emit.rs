@@ -12,7 +12,7 @@ use super::{BinaryOp, CondCode, Func, Operand, Program, Reg, UnaryOp};
 pub struct AMD64Emitter<'a> {
     output: String,
     indent_level: usize,
-    fn_def: &'a Func,
+    func: &'a Func,
     program: &'a Program,
     interner: &'a Interner,
 }
@@ -24,7 +24,7 @@ impl<'a> AMD64Emitter<'a> {
             interner,
             indent_level: 0,
             output: String::with_capacity(1024),
-            fn_def: program
+            func: program
                 .funcs
                 .first()
                 .expect("No function definitions found"),
@@ -32,51 +32,63 @@ impl<'a> AMD64Emitter<'a> {
     }
 
     pub fn emit(mut self) -> String {
-        self.program.funcs.iter().for_each(|fn_def| {
-            self.fn_def = fn_def;
-            self.emit_fn_def(fn_def);
+        self.program
+            .iter_static_vars_with_refs()
+            .for_each(|(v, var)| {
+                let name = self.interner.lookup(var.name);
+                if let Some(init) = var.init {
+                    self.with_indent(|e| {
+                        if var.is_global {
+                            e.writeln(&format!(".globl {name}"))
+                        }
+                        if init == 0 {
+                            e.writeln(".bss");
+                        } else {
+                            e.writeln(".data");
+                        }
+                        e.writeln(".align 4");
+                    });
+                    if var.is_global {
+                        self.writeln(&format!("{name}:"));
+                    } else {
+                        self.writeln(&format!("{name}{}:", v.0));
+                    }
+                    self.with_indent(|e| {
+                        if init == 0 {
+                            e.writeln(".zero 4");
+                        } else {
+                            e.writeln(&format!(".long {init}"));
+                        }
+                    });
+                }
+            });
+        self.program.funcs.iter().for_each(|func| {
+            self.func = func;
+            self.emit_func(func);
         });
-        self.with_indent(|emitter| emitter.writeln(".section .note.GNU-stack,\"\",@progbits"));
+        self.with_indent(|e| e.writeln(".section .note.GNU-stack,\"\",@progbits"));
         self.output
     }
 
-    #[inline]
-    fn with_indent<F>(&mut self, f: F)
-    where
-        F: FnOnce(&mut Self),
-    {
-        self.indent_level += 1;
-        f(self);
-        self.indent_level -= 1;
-    }
-
-    #[inline]
-    fn writeln(&mut self, s: &str) {
-        if !s.is_empty() {
-            self.output.push_str(&"    ".repeat(self.indent_level));
-            self.output.push_str(s);
-        }
-        self.output.push('\n');
-    }
-
-    fn emit_fn_def(&mut self, fn_def: &Func) {
+    fn emit_func(&mut self, func: &Func) {
         // TODO: Use interner data for function names
         // If in macOS, use .globl _name instead of .globl name
         // All user-defined labels are prefixed with `_` on macOS
-        let name = self.interner.lookup(fn_def.name);
-        if name == "main" {
+        let name = self.interner.lookup(func.name);
+        if func.is_global {
             // If the function is `main`, we don't need to prefix it with `_`
             // on macOS, but we do on Linux.
-            self.with_indent(|emitter| emitter.writeln(".globl main"));
-        } else {
-            self.with_indent(|emitter| emitter.writeln(&format!(".globl {name}")));
+            self.with_indent(|e| e.writeln(&format!(".globl {name}")));
         }
-        self.writeln(&format!("{name}:"));
-        self.with_indent(|emitter| {
-            emitter.writeln("pushq %rbp");
-            emitter.writeln("movq %rsp, %rbp");
+        self.with_indent(|e| {
+            e.writeln(".text");
         });
-        fn_def.blocks[1..]
+        self.writeln(&format!("{name}:"));
+        self.with_indent(|e| {
+            e.writeln("pushq %rbp");
+            e.writeln("movq %rsp, %rbp");
+        });
+        func.blocks[1..]
             .iter()
             .enumerate()
             .for_each(|(idx, block)| {
@@ -85,14 +97,14 @@ impl<'a> AMD64Emitter<'a> {
                     let label = self.interner.lookup(label);
                     self.writeln(&format!(".L{label}{}{name}:", idx + 1));
                 }
-                self.with_indent(|emitter| {
-                    block.insts.iter().for_each(|inst| emitter.emit_inst(*inst));
+                self.with_indent(|e| {
+                    block.insts.iter().for_each(|inst| e.emit_inst(*inst));
                 });
             });
     }
 
     fn emit_inst(&mut self, inst: InstRef) {
-        let inst = self.fn_def.inst(inst);
+        let inst = self.func.inst(inst);
         match inst.kind {
             InstKind::Nop => {}
             InstKind::Ret => {
@@ -129,11 +141,11 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln(&format!("call {name}@plt"));
             }
             InstKind::Jmp(target) => {
-                let block = self.fn_def.block(target);
+                let block = self.func.block(target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
-                        let name = self.interner.lookup(self.fn_def.name);
+                        let name = self.interner.lookup(self.func.name);
                         self.writeln(&format!("jmp .L{label}{target}{name}"));
                     }
                     None => {
@@ -162,12 +174,12 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln(&format!("testl {src}, {dst}"));
             }
             InstKind::JmpCC { code, target } => {
-                let block = self.fn_def.block(target);
+                let block = self.func.block(target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
                         let cond_code = self.emit_cond_code(code);
-                        let name = self.interner.lookup(self.fn_def.name);
+                        let name = self.interner.lookup(self.func.name);
                         self.writeln(&format!("j{cond_code} .L{label}{target}{name}"));
                     }
                     None => {
@@ -226,8 +238,18 @@ impl<'a> AMD64Emitter<'a> {
 
     fn emit_operand_32(&mut self, oper: &Operand) -> String {
         match oper {
-            Operand::Data(_) => todo!(),
             Operand::Imm(value) => format!("${}", value),
+            Operand::Pseudo(id) => format!("pseudo({})", id),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Data(v) => {
+                let var = self.program.static_var(*v);
+                let name = self.interner.lookup(var.name);
+                if var.is_global {
+                    format!("{}(%rip)", name)
+                } else {
+                    format!("{}{}(%rip)", name, v.0)
+                }
+            }
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%eax".to_string(),
                 Reg::Rbx => "%ebx".to_string(),
@@ -240,8 +262,6 @@ impl<'a> AMD64Emitter<'a> {
                 Reg::Rg10 => "%r10d".to_string(),
                 Reg::Rg11 => "%r11d".to_string(),
             },
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Pseudo(id) => format!("pseudo({})", id),
         }
     }
 
@@ -275,5 +295,28 @@ impl<'a> AMD64Emitter<'a> {
             CondCode::GreaterThan => "g".to_string(),
             CondCode::GreaterEqual => "ge".to_string(),
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Auxiliary methods
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn with_indent<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        self.indent_level += 1;
+        f(self);
+        self.indent_level -= 1;
+    }
+
+    #[inline]
+    fn writeln(&mut self, s: &str) {
+        if !s.is_empty() {
+            self.output.push_str(&"    ".repeat(self.indent_level));
+            self.output.push_str(s);
+        }
+        self.output.push('\n');
     }
 }

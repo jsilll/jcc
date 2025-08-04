@@ -1,5 +1,6 @@
 use crate::amd64::{
-    BinaryOp, Block, BlockRef, CondCode, Func, Inst, InstIdx, Operand, Program, Reg, UnaryOp,
+    BinaryOp, Block, BlockRef, CondCode, Func, Inst, InstIdx, Operand, Program, Reg, StaticVar,
+    StaticVarRef, UnaryOp,
 };
 
 use std::collections::HashMap;
@@ -36,6 +37,15 @@ impl<'a> Builder<'a> {
     }
 
     pub fn build(mut self) -> Program {
+        self.ssa.iter_static_vars().for_each(|v| {
+            let var = self.ssa.static_var(v);
+            self.amd64.new_static_var(StaticVar {
+                name: var.name,
+                init: var.init,
+                span: var.span,
+                is_global: var.is_global,
+            });
+        });
         self.ssa.iter_funcs().for_each(|f| {
             let func = self.ssa.func(f);
             if func.blocks.is_empty() {
@@ -68,7 +78,6 @@ impl<'a> Builder<'a> {
         let inst = self.ssa.inst(inst_ref);
         match inst.kind {
             crate::InstKind::Select { .. } => todo!("handle select"),
-            crate::InstKind::Static(_) => todo!("handle static address"),
             crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Alloca => {
                 let dst = self.make_pseudo();
@@ -95,6 +104,10 @@ impl<'a> Builder<'a> {
             }
             crate::InstKind::Identity(val) => {
                 self.operands.insert(inst_ref, self.get_operand(val));
+            }
+            crate::InstKind::Static(v) => {
+                self.operands
+                    .insert(inst_ref, Operand::Data(StaticVarRef(v.0)));
             }
             crate::InstKind::Load(ptr) => {
                 let dst = self.make_pseudo();

@@ -103,7 +103,9 @@ impl AMD64Fixer {
             InstKind::Mov { src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
-                if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
+                if matches!(dst, Operand::Stack(_) | Operand::Data(_))
+                    && matches!(src, Operand::Stack(_) | Operand::Data(_))
+                {
                     // NOTE
                     //
                     // The `mov` instruction

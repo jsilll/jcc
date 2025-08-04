@@ -15,22 +15,63 @@ use std::num::NonZeroU32;
 // Program
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Program {
     funcs: Vec<Func>,
-    // static_vars: Vec<StaticVar>,
+    static_vars: Vec<StaticVar>,
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Program {
+            funcs: vec![],
+            static_vars: vec![Default::default()],
+        }
+    }
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn static_var(&self, var_ref: StaticVarRef) -> &StaticVar {
+        &self.static_vars[var_ref.0.get() as usize]
+    }
+
+    pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
+        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
+        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
+        self.static_vars.push(var);
+        r
+    }
+
+    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.static_vars.len())
+            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+    }
+
+    pub fn iter_static_vars_with_refs(
+        &self,
+    ) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> + '_ {
+        self.iter_static_vars().map(|r| (r, self.static_var(r)))
+    }
 }
 
 // ---------------------------------------------------------------------------
 // StaticVar
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StaticVarRef(NonZeroU32);
+
 #[derive(Debug, Default, Clone)]
 pub struct StaticVar {
     pub name: Symbol,
     pub is_global: bool,
-    pub init: i64,
     pub span: SourceSpan,
+    pub init: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -375,8 +416,8 @@ pub enum Operand {
     Stack(i32),
     /// Pseudo register.
     Pseudo(u32),
-    /// A data operand.
-    Data(Symbol),
+    /// A static variable reference.
+    Data(StaticVarRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

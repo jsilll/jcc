@@ -48,8 +48,8 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn lex(mut self) -> LexerResult {
-        while let Some((idx, c)) = self.chars.next().map(|(idx, c)| (idx as u32, c)) {
-            self.idx = idx;
+        while let Some((idx, c)) = self.chars.next() {
+            self.idx = idx as u32;
             match c {
                 c if c.is_whitespace() => continue,
                 c if c.is_ascii_digit() => self.handle_number(),
@@ -105,7 +105,7 @@ impl<'a> Lexer<'a> {
                 ),
                 _ => self.result.diagnostics.push(LexerDiagnostic {
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
-                    span: self.file.span(idx..idx + 1).unwrap_or_default(),
+                    span: self.file.span(self.idx..self.idx + 1).unwrap_or_default(),
                 }),
             }
         }

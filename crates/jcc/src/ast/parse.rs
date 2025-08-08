@@ -149,6 +149,7 @@ impl<'a> Parser<'a> {
             storage,
             kind: DeclKind::Var(init),
             name: AstSymbol::new(name),
+            ..Default::default()
         }))
     }
 
@@ -171,6 +172,7 @@ impl<'a> Parser<'a> {
                     storage,
                     name: AstSymbol::new(name),
                     kind: DeclKind::Var(Some(init)),
+                    ..Default::default()
                 }))
             }
             TokenKind::LParen => {
@@ -194,6 +196,7 @@ impl<'a> Parser<'a> {
                     storage,
                     name: AstSymbol::new(name),
                     kind: DeclKind::Func { params, body },
+                    ..Default::default()
                 }))
             }
             _ => {
@@ -504,23 +507,23 @@ impl<'a> Parser<'a> {
                     match token {
                         InfixToken::Binary(op) => {
                             let rhs = self.parse_expr(prec)?;
-                            lhs = self.result.ast.new_expr(Expr {
-                                kind: ExprKind::Binary { op, lhs, rhs },
-                                span: *span,
-                            });
+                            lhs = self
+                                .result
+                                .ast
+                                .new_expr(Expr::new(ExprKind::Binary { op, lhs, rhs }, *span));
                         }
                         InfixToken::Ternary => {
                             let then = self.parse_expr(0)?;
                             self.eat(TokenKind::Colon)?;
                             let otherwise = self.parse_expr(prec)?;
-                            lhs = self.result.ast.new_expr(Expr {
-                                kind: ExprKind::Ternary {
+                            lhs = self.result.ast.new_expr(Expr::new(
+                                ExprKind::Ternary {
                                     cond: lhs,
                                     then,
                                     otherwise,
                                 },
-                                span: *span,
-                            });
+                                *span,
+                            ));
                         }
                     }
                 }
@@ -537,10 +540,12 @@ impl<'a> Parser<'a> {
             span: &SourceSpan,
         ) -> Option<ExprRef> {
             let expr = parser.parse_expr_prefix()?;
-            Some(parser.result.ast.new_expr(Expr {
-                kind: ExprKind::Unary { op, expr },
-                span: *span,
-            }))
+            Some(
+                parser
+                    .result
+                    .ast
+                    .new_expr(Expr::new(ExprKind::Unary { op, expr }, *span)),
+            )
         }
         let Token { kind, span } = self.iter.next()?;
         match kind {
@@ -552,26 +557,27 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => {
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
-                let expr = self.result.ast.new_expr(Expr {
-                    kind: ExprKind::Grouped(expr),
-                    span: *span,
-                });
+                let expr = self
+                    .result
+                    .ast
+                    .new_expr(Expr::new(ExprKind::Grouped(expr), *span));
                 Some(self.parse_expr_postfix(expr))
             }
             TokenKind::Number => {
                 let number = self.file.slice(*span).expect("expected span to be valid");
                 let number = number.parse().expect("expected number to be valid");
-                Some(self.result.ast.new_expr(Expr {
-                    kind: ExprKind::Const(number),
-                    span: *span,
-                }))
+                Some(
+                    self.result
+                        .ast
+                        .new_expr(Expr::new(ExprKind::Const(number), *span)),
+                )
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);
-                let expr = self.result.ast.new_expr(Expr {
-                    kind: ExprKind::Var(AstSymbol::new(name)),
-                    span: *span,
-                });
+                let expr = self
+                    .result
+                    .ast
+                    .new_expr(Expr::new(ExprKind::Var(AstSymbol::new(name)), *span));
                 match self.iter.peek() {
                     Some(Token {
                         kind: TokenKind::LParen,
@@ -580,13 +586,13 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let args = self.parse_args();
                         self.eat(TokenKind::RParen)?;
-                        Some(self.result.ast.new_expr(Expr {
-                            kind: ExprKind::Call {
+                        Some(self.result.ast.new_expr(Expr::new(
+                            ExprKind::Call {
                                 args,
                                 name: AstSymbol::new(name),
                             },
-                            span: *span,
-                        }))
+                            *span,
+                        )))
                     }
                     _ => Some(self.parse_expr_postfix(expr)),
                 }
@@ -609,10 +615,10 @@ impl<'a> Parser<'a> {
             span: &SourceSpan,
         ) {
             parser.iter.next();
-            *expr = parser.result.ast.new_expr(Expr {
-                kind: ExprKind::Unary { op, expr: *expr },
-                span: *span,
-            });
+            *expr = parser
+                .result
+                .ast
+                .new_expr(Expr::new(ExprKind::Unary { op, expr: *expr }, *span));
         }
         while let Some(Token { kind, span }) = self.iter.peek() {
             match kind {
@@ -880,6 +886,11 @@ impl From<ParserDiagnostic> for Diagnostic {
                 "unexpected token",
                 "expected a different token",
             ),
+            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
+                diagnostic.span,
+                "unexpected token",
+                format!("expected {token} instead"),
+            ),
             ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error(
                 diagnostic.span,
                 "missing type specifier",
@@ -894,11 +905,6 @@ impl From<ParserDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "multiple storage classes",
                 "only one storage class is allowed",
-            ),
-            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                format!("expected {token} instead"),
             ),
         }
     }

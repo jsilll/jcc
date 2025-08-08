@@ -40,7 +40,7 @@ pub struct ResolverPass<'a> {
     ast: &'a Ast,
     result: ResolverResult,
     symbol_counter: NonZeroU32,
-    symbols: SymbolTable<SymbolEntry>,
+    symbols: SymbolTable<SymbolInfo>,
     cache: HashMap<Symbol, SemaSymbol>,
 }
 
@@ -64,9 +64,9 @@ impl<'a> ResolverPass<'a> {
         self.result
     }
 
-    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SymbolEntry {
+    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SymbolInfo {
         let entry = self.symbols.entry_global(name.raw).or_insert_with(|| {
-            SymbolEntry::with_linkage(*self.cache.entry(name.raw).or_insert_with(|| {
+            SymbolInfo::with_linkage(*self.cache.entry(name.raw).or_insert_with(|| {
                 let symbol = SemaSymbol(self.symbol_counter);
                 self.symbol_counter = self.symbol_counter.saturating_add(1);
                 symbol
@@ -83,8 +83,8 @@ impl<'a> ResolverPass<'a> {
         has_linkage: bool,
     ) {
         let entry = match has_linkage {
-            false => SymbolEntry::new(SemaSymbol(self.symbol_counter), false),
-            true => SymbolEntry::new(
+            false => SymbolInfo::new(SemaSymbol(self.symbol_counter), false),
+            true => SymbolInfo::new(
                 *self
                     .cache
                     .entry(name.raw)
@@ -298,12 +298,12 @@ impl<'a> ResolverPass<'a> {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SymbolEntry {
+struct SymbolInfo {
     pub has_linkage: bool,
     pub symbol: SemaSymbol,
 }
 
-impl SymbolEntry {
+impl SymbolInfo {
     #[inline]
     fn new(symbol: SemaSymbol, has_linkage: bool) -> Self {
         Self {

@@ -1,7 +1,7 @@
 use jcc_interner::{Interner, Symbol};
 use jcc_sourcemap::SourceSpan;
 
-use crate::{Block, BlockRef, FuncRef, Inst, InstRef, Program};
+use crate::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program};
 
 // ---------------------------------------------------------------------------
 // IRBuilder
@@ -22,6 +22,7 @@ impl<'p> IRBuilder<'p> {
         }
     }
 
+    #[inline]
     pub fn build(self) -> Program<'p> {
         self.prog
     }
@@ -59,6 +60,7 @@ impl<'p> IRBuilder<'p> {
     #[inline]
     pub fn insert_inst(&mut self, mut inst: Inst) -> InstRef {
         inst.block = self.block;
+        inst.idx = InstIdx(self.prog.block_mut(self.block).insts.len() as u32);
         let inst_ref = self.prog.new_inst(inst);
         self.prog.block_mut(self.block).insts.push(inst_ref);
         inst_ref

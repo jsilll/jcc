@@ -120,11 +120,11 @@ impl<P: IR> InsertionSet<P> {
         let buf = self.buf.get_or_insert_with(Vec::new);
         buf.clear();
 
-        let mut log_idx = 0;
         let n_log_insts = self.log.len();
-        let n_insts = p.block_insts(block).len();
+        let n_block_insts = p.block_insts(block).len();
 
-        for idx in 0..n_insts {
+        let mut log_idx = 0;
+        for idx in 0..n_block_insts {
             while log_idx < n_log_insts && self.log[log_idx].0 == idx as u32 {
                 let mut inst = self.log[log_idx].1.clone();
                 inst.set_idx(buf.len() as u32);
@@ -144,10 +144,7 @@ impl<P: IR> InsertionSet<P> {
         });
 
         self.log.clear();
-        self.buf = Some(p.swap_block_insts(
-            block,
-            self.buf.take().expect("buffer should be initialized"),
-        ));
+        p.swap_block_insts(block, buf);
     }
 }
 
@@ -161,6 +158,12 @@ mod tests {
         id: u32,
         idx: u32,
         is_nop: bool,
+    }
+
+    impl Indexed for TestInst {
+        fn set_idx(&mut self, idx: u32) {
+            self.idx = idx;
+        }
     }
 
     impl TestInst {
@@ -181,12 +184,6 @@ mod tests {
         }
     }
 
-    impl Indexed for TestInst {
-        fn set_idx(&mut self, idx: u32) {
-            self.idx = idx;
-        }
-    }
-
     #[derive(Debug)]
     struct TestIR {
         instructions: Vec<TestInst>,
@@ -201,16 +198,6 @@ mod tests {
             }
         }
 
-        fn create_block(&mut self, block_id: u32, insts: Vec<TestInst>) -> u32 {
-            let mut indices = Vec::new();
-            for inst in insts {
-                indices.push(self.instructions.len() as u32);
-                self.instructions.push(inst);
-            }
-            self.blocks.insert(block_id, indices);
-            block_id
-        }
-
         fn get_block_instructions(&self, block_id: u32) -> Vec<&TestInst> {
             self.blocks
                 .get(&block_id)
@@ -222,12 +209,22 @@ mod tests {
                 })
                 .unwrap_or_else(Vec::new)
         }
+
+        fn create_block(&mut self, block_id: u32, insts: Vec<TestInst>) -> u32 {
+            let mut indices = Vec::new();
+            for inst in insts {
+                indices.push(self.instructions.len() as u32);
+                self.instructions.push(inst);
+            }
+            self.blocks.insert(block_id, indices);
+            block_id
+        }
     }
 
     impl IR for TestIR {
-        type Inst = TestInst;
         type InstRef = u32;
         type BlockRef = u32;
+        type Inst = TestInst;
 
         fn is_nop(&self, inst: Self::InstRef) -> bool {
             self.instructions[inst as usize].is_nop
@@ -243,12 +240,8 @@ mod tests {
             self.blocks.get(&block).map(|v| v.as_slice()).unwrap_or(&[])
         }
 
-        fn swap_block_insts(
-            &mut self,
-            block: Self::BlockRef,
-            insts: Vec<Self::InstRef>,
-        ) -> Vec<Self::InstRef> {
-            self.blocks.insert(block, insts).unwrap_or_default()
+        fn swap_block_insts(&mut self, block: Self::BlockRef, insts: &mut Vec<Self::InstRef>) {
+            std::mem::swap(insts, self.blocks.entry(block).or_default());
         }
     }
 

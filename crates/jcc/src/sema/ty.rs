@@ -75,8 +75,8 @@ impl<'ctx> TyperPass<'ctx> {
         match decl.kind {
             DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
             DeclKind::Var(init) => {
-                let ty = Type::Int;
-                *self.ctx.decl_type_mut(decl_ref) = ty;
+                decl.ty.set(Type::Int);
+
                 let decl_is_global = decl.storage != Some(StorageClass::Static);
                 let decl_init = match init {
                     None => match decl.storage {
@@ -85,7 +85,7 @@ impl<'ctx> TyperPass<'ctx> {
                     },
                     Some(init) => {
                         self.visit_expr(init);
-                        if self.ctx.decl_type(decl_ref) != self.ctx.expr_type(init) {
+                        if decl.ty.get() != self.ast.expr(init).ty.get() {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: self.ast.expr(init).span,
                                 kind: TyperDiagnosticKind::InitializerTypeMismatch,
@@ -106,9 +106,13 @@ impl<'ctx> TyperPass<'ctx> {
 
                 let info = self.ctx.symbol_mut(decl.name.sema.get());
                 let occupied = info.is_some();
-                let info = info.get_or_insert(SymbolInfo::statik(ty, decl_is_global, decl_init));
+                let info = info.get_or_insert(SymbolInfo::statik(
+                    decl.ty.get(),
+                    decl_is_global,
+                    decl_init,
+                ));
 
-                if info.ty != ty {
+                if info.ty != decl.ty.get() {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: decl.span,
                         kind: TyperDiagnosticKind::DeclarationTypeMismatch,
@@ -152,11 +156,12 @@ impl<'ctx> TyperPass<'ctx> {
         match decl.kind {
             DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
             DeclKind::Var(init) => {
-                let ty = Type::Int;
-                *self.ctx.decl_type_mut(decl_ref) = ty;
+                decl.ty.set(Type::Int);
+
                 match decl.storage {
                     None => {
-                        *self.ctx.symbol_mut(decl.name.sema.get()) = Some(SymbolInfo::local(ty));
+                        *self.ctx.symbol_mut(decl.name.sema.get()) =
+                            Some(SymbolInfo::local(decl.ty.get()));
                         if let Some(init) = init {
                             self.visit_expr(init);
                         }
@@ -170,9 +175,9 @@ impl<'ctx> TyperPass<'ctx> {
                         }
                         None => {
                             let info = self.ctx.symbol_mut(decl.name.sema.get()).get_or_insert(
-                                SymbolInfo::statik(ty, true, StaticValue::NoInitializer),
+                                SymbolInfo::statik(decl.ty.get(), true, StaticValue::NoInitializer),
                             );
-                            if info.ty != ty {
+                            if info.ty != decl.ty.get() {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: decl.span,
                                     kind: TyperDiagnosticKind::DeclarationTypeMismatch,
@@ -185,7 +190,7 @@ impl<'ctx> TyperPass<'ctx> {
                             None => StaticValue::Initialized(0),
                             Some(init) => {
                                 self.visit_expr(init);
-                                if self.ctx.decl_type(decl_ref) != self.ctx.expr_type(init) {
+                                if decl.ty.get() != self.ast.expr(init).ty.get() {
                                     self.result.diagnostics.push(TyperDiagnostic {
                                         span: self.ast.expr(init).span,
                                         kind: TyperDiagnosticKind::InitializerTypeMismatch,
@@ -204,7 +209,7 @@ impl<'ctx> TyperPass<'ctx> {
                             }
                         };
                         *self.ctx.symbol_mut(decl.name.sema.get()) =
-                            Some(SymbolInfo::statik(ty, false, decl_init));
+                            Some(SymbolInfo::statik(decl.ty.get(), false, decl_init));
                     }
                 }
             }
@@ -214,16 +219,15 @@ impl<'ctx> TyperPass<'ctx> {
     fn visit_func_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         if let DeclKind::Func { params, body } = decl.kind {
-            let ty = Type::Func(params.len());
-            *self.ctx.decl_type_mut(decl_ref) = ty;
-            let decl_is_global = decl.storage != Some(StorageClass::Static);
+            decl.ty.set(Type::Func(params.len()));
 
+            let decl_is_global = decl.storage != Some(StorageClass::Static);
             let entry = self
                 .ctx
                 .symbol_mut(decl.name.sema.get())
-                .get_or_insert(SymbolInfo::function(ty, decl_is_global, false));
+                .get_or_insert(SymbolInfo::function(decl.ty.get(), decl_is_global, false));
 
-            if entry.ty != ty {
+            if entry.ty != decl.ty.get() {
                 self.result.diagnostics.push(TyperDiagnostic {
                     span: decl.span,
                     kind: TyperDiagnosticKind::DeclarationTypeMismatch,
@@ -366,8 +370,8 @@ impl<'ctx> TyperPass<'ctx> {
     }
 
     fn visit_expr(&mut self, expr_ref: ExprRef) {
-        *self.ctx.expr_type_mut(expr_ref) = Type::Int;
         let expr = self.ast.expr(expr_ref);
+        expr.ty.set(Type::Int);
         match &expr.kind {
             ExprKind::Const(_) => {}
             ExprKind::Grouped(expr) => self.visit_expr(*expr),

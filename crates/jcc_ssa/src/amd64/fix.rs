@@ -76,7 +76,9 @@ impl AMD64Fixer {
             | InstKind::Call(_)
             | InstKind::Dealloca(_)
             | InstKind::JmpCC { .. } => {}
-            InstKind::Push(oper) => {
+            InstKind::Push(oper)
+            | InstKind::SetCC { dst: oper, .. }
+            | InstKind::Unary { dst: oper, .. } => {
                 self.fix_operand(oper);
             }
             InstKind::Idiv(oper) => {
@@ -101,7 +103,9 @@ impl AMD64Fixer {
             InstKind::Mov { src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
-                if matches!(src, Operand::Stack(_)) && matches!(dst, Operand::Stack(_)) {
+                if matches!(dst, Operand::Stack(_) | Operand::Data(_))
+                    && matches!(src, Operand::Stack(_) | Operand::Data(_))
+                {
                     // NOTE
                     //
                     // The `mov` instruction
@@ -190,10 +194,6 @@ impl AMD64Fixer {
                         .before(inst.idx, Inst::mov(tmp, Operand::Reg(Reg::Rg10), inst.span));
                 }
             }
-            InstKind::SetCC { dst, .. } => {
-                self.fix_operand(dst);
-            }
-            InstKind::Unary { dst, .. } => self.fix_operand(dst),
             InstKind::Binary { op, src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);

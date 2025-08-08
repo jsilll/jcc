@@ -2,10 +2,6 @@ pub mod build;
 pub mod emit;
 pub mod fix;
 
-use std::num::NonZeroU32;
-
-pub use build::{build, AMD64FuncBuilder};
-
 use crate::{
     infra::{Indexed, IR},
     Symbol,
@@ -13,13 +9,69 @@ use crate::{
 
 use jcc_sourcemap::SourceSpan;
 
+use std::num::NonZeroU32;
+
 // ---------------------------------------------------------------------------
 // Program
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Program {
     funcs: Vec<Func>,
+    static_vars: Vec<StaticVar>,
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Program {
+            funcs: vec![],
+            static_vars: vec![Default::default()],
+        }
+    }
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn static_var(&self, var_ref: StaticVarRef) -> &StaticVar {
+        &self.static_vars[var_ref.0.get() as usize]
+    }
+
+    pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
+        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
+        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
+        self.static_vars.push(var);
+        r
+    }
+
+    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
+        // Start from 1 to skip the default function at index 0
+        (1..self.static_vars.len())
+            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+    }
+
+    pub fn iter_static_vars_with_refs(
+        &self,
+    ) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> + '_ {
+        self.iter_static_vars().map(|r| (r, self.static_var(r)))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StaticVar
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct StaticVarRef(NonZeroU32);
+
+#[derive(Debug, Default, Clone)]
+pub struct StaticVar {
+    pub name: Symbol,
+    pub is_global: bool,
+    pub span: SourceSpan,
+    pub init: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -28,17 +80,57 @@ pub struct Program {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Func {
-    name: Symbol,
-    span: SourceSpan,
+    pub name: Symbol,
+    pub is_global: bool,
+    pub span: SourceSpan,
     insts: Vec<Inst>,
     blocks: Vec<Block>,
 }
 
+impl Default for Func {
+    fn default() -> Self {
+        Func {
+            name: Default::default(),
+            span: Default::default(),
+            is_global: Default::default(),
+            insts: vec![Default::default()],
+            blocks: vec![Default::default()],
+        }
+    }
+}
+
+impl IR for Func {
+    type Inst = Inst;
+    type InstRef = InstRef;
+    type BlockRef = BlockRef;
+
+    #[inline]
+    fn is_nop(&self, inst: Self::InstRef) -> bool {
+        matches!(self.inst(inst).kind, InstKind::Nop)
+    }
+
+    #[inline]
+    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
+        Self::new_inst(self, inst)
+    }
+
+    #[inline]
+    fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
+        &self.blocks[block.0.get() as usize].insts
+    }
+
+    #[inline]
+    fn swap_block_insts(&mut self, block: Self::BlockRef, insts: &mut Vec<Self::InstRef>) {
+        std::mem::swap(&mut self.blocks[block.0.get() as usize].insts, insts);
+    }
+}
+
 impl Func {
-    pub fn new(name: Symbol, span: SourceSpan) -> Self {
+    pub fn new(name: Symbol, is_global: bool, span: SourceSpan) -> Self {
         Func {
             name,
             span,
+            is_global,
             insts: vec![Default::default()],
             blocks: vec![Default::default()],
         }
@@ -120,46 +212,18 @@ impl Func {
     }
 }
 
-impl IR for Func {
-    type Inst = Inst;
-    type InstRef = InstRef;
-    type BlockRef = BlockRef;
-
-    #[inline]
-    fn is_nop(&self, inst: Self::InstRef) -> bool {
-        matches!(self.inst(inst).kind, InstKind::Nop)
-    }
-
-    #[inline]
-    fn new_inst(&mut self, inst: Self::Inst) -> Self::InstRef {
-        // TODO: Reuse slots from `insts_free` for better memory efficiency
-        let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
-        self.insts.push(inst);
-        r
-    }
-
-    #[inline]
-    fn block_insts(&self, block: Self::BlockRef) -> &[Self::InstRef] {
-        &self.blocks[block.0.get() as usize].insts
-    }
-
-    #[inline]
-    fn swap_block_insts(
-        &mut self,
-        block: Self::BlockRef,
-        mut insts: Vec<Self::InstRef>,
-    ) -> Vec<Self::InstRef> {
-        std::mem::swap(&mut self.blocks[block.0.get() as usize].insts, &mut insts);
-        insts
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Block
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct BlockRef(NonZeroU32);
+
+impl Default for BlockRef {
+    fn default() -> Self {
+        Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -198,6 +262,13 @@ pub struct Inst {
     pub idx: InstIdx,
     pub kind: InstKind,
     pub span: SourceSpan,
+}
+
+impl Indexed for Inst {
+    #[inline]
+    fn set_idx(&mut self, idx: u32) {
+        self.idx = InstIdx(idx);
+    }
 }
 
 impl Inst {
@@ -290,13 +361,6 @@ impl Inst {
     }
 }
 
-impl Indexed for Inst {
-    #[inline]
-    fn set_idx(&mut self, idx: u32) {
-        self.idx = InstIdx(idx);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Enum Soup
 // ---------------------------------------------------------------------------
@@ -352,6 +416,8 @@ pub enum Operand {
     Stack(i32),
     /// Pseudo register.
     Pseudo(u32),
+    /// A static variable reference.
+    Data(StaticVarRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -54,9 +54,12 @@ impl SemaCtx {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
+    /// The `void` type
     #[default]
     Void,
+    /// The `int` type
     Int,
+    /// A functional type
     Func(u32),
 }
 
@@ -126,16 +129,13 @@ impl SymbolInfo {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Attribute {
+    /// A local variable
     #[default]
     Local,
-    Function {
-        is_global: bool,
-        is_defined: bool,
-    },
-    Static {
-        is_global: bool,
-        init: StaticValue,
-    },
+    /// A static variable
+    Static { is_global: bool, init: StaticValue },
+    /// A function
+    Function { is_global: bool, is_defined: bool },
 }
 
 // ---------------------------------------------------------------------------
@@ -144,8 +144,11 @@ pub enum Attribute {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StaticValue {
+    /// No initializer
     #[default]
     NoInitializer,
+    /// Tentative initializer
     Tentative,
+    /// Initialized with a value
     Initialized(i64),
 }

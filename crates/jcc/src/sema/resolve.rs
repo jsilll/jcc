@@ -39,19 +39,19 @@ pub struct ResolverDiagnostic {
 pub struct ResolverPass<'a> {
     ast: &'a Ast,
     result: ResolverResult,
-    symbol_counter: NonZeroU32,
-    symbols: SymbolTable<SymbolInfo>,
-    cache: HashMap<Symbol, SemaSymbol>,
+    symbol_count: NonZeroU32,
+    scope: SymbolTable<SymbolInfo>,
+    globals: HashMap<Symbol, SemaSymbol>,
 }
 
 impl<'a> ResolverPass<'a> {
     pub fn new(ast: &'a Ast) -> Self {
         Self {
             ast,
-            cache: HashMap::new(),
-            symbols: SymbolTable::new(),
+            globals: HashMap::new(),
+            scope: SymbolTable::new(),
             result: ResolverResult::default(),
-            symbol_counter: NonZeroU32::new(1).unwrap(),
+            symbol_count: NonZeroU32::new(1).unwrap(),
         }
     }
 
@@ -60,53 +60,15 @@ impl<'a> ResolverPass<'a> {
             .root()
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
-        self.ast.set_last_symbol(self.symbol_counter);
+        self.ast.set_last_symbol(self.symbol_count);
         self.result
-    }
-
-    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SymbolInfo {
-        let entry = self.symbols.entry_global(name.raw).or_insert_with(|| {
-            SymbolInfo::with_linkage(*self.cache.entry(name.raw).or_insert_with(|| {
-                let symbol = SemaSymbol(self.symbol_counter);
-                self.symbol_counter = self.symbol_counter.saturating_add(1);
-                symbol
-            }))
-        });
-        name.sema.set(entry.symbol);
-        *entry
-    }
-
-    fn get_or_create_block_scope_symbol(
-        &mut self,
-        decl: DeclRef,
-        name: &AstSymbol,
-        has_linkage: bool,
-    ) {
-        let entry = match has_linkage {
-            false => SymbolInfo::new(SemaSymbol(self.symbol_counter), false),
-            true => SymbolInfo::new(
-                *self
-                    .cache
-                    .entry(name.raw)
-                    .or_insert(SemaSymbol(self.symbol_counter)),
-                true,
-            ),
-        };
-        name.sema.set(entry.symbol);
-        self.symbol_counter = self.symbol_counter.saturating_add(1);
-        if let Some(prev) = self.symbols.insert(name.raw, entry) {
-            if !(entry.has_linkage && prev.has_linkage) {
-                self.result.diagnostics.push(ResolverDiagnostic {
-                    span: self.ast.decl(decl).span,
-                    kind: ResolverDiagnosticKind::ConflictingSymbol,
-                });
-            }
-        }
     }
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
-        self.get_or_create_global_symbol(&decl.name);
+        let symbol = self.get_or_create_global_symbol(&decl.name);
+        self.scope
+            .insert(decl.name.raw, SymbolInfo::with_linkage(symbol));
         match decl.kind {
             DeclKind::Var(init) => {
                 if let Some(expr) = init {
@@ -114,19 +76,19 @@ impl<'a> ResolverPass<'a> {
                 }
             }
             DeclKind::Func { body, params, .. } => {
-                self.symbols.push_scope();
+                self.scope.push_scope();
                 self.ast
-                    .params(params)
+                    .decls(params)
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.ast
-                    .block_items(body.unwrap_or_default())
+                    .bitems(body.unwrap_or_default())
                     .iter()
                     .for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
-                self.symbols.pop_scope();
+                self.scope.pop_scope();
             }
         }
     }
@@ -136,7 +98,7 @@ impl<'a> ResolverPass<'a> {
         match &decl.kind {
             DeclKind::Var(init) => {
                 let has_linkage = decl.storage == Some(StorageClass::Extern);
-                self.get_or_create_block_scope_symbol(decl_ref, &decl.name, has_linkage);
+                self.get_or_create_scoped_symbol(decl_ref, &decl.name, has_linkage);
                 if let Some(expr) = init {
                     self.visit_expr(*expr);
                 }
@@ -156,8 +118,11 @@ impl<'a> ResolverPass<'a> {
                         });
                     }
                     None => {
-                        let entry = self.get_or_create_global_symbol(&decl.name);
-                        if let Some(prev) = self.symbols.insert(decl.name.raw, entry) {
+                        let symbol = self.get_or_create_global_symbol(&decl.name);
+                        if let Some(prev) = self
+                            .scope
+                            .insert(decl.name.raw, SymbolInfo::with_linkage(symbol))
+                        {
                             if !prev.has_linkage {
                                 self.result.diagnostics.push(ResolverDiagnostic {
                                     span: decl.span,
@@ -167,12 +132,12 @@ impl<'a> ResolverPass<'a> {
                         }
                     }
                 }
-                self.symbols.push_scope();
+                self.scope.push_scope();
                 self.ast
-                    .params(*params)
+                    .decls(*params)
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
-                self.symbols.pop_scope();
+                self.scope.pop_scope();
             }
         }
     }
@@ -215,15 +180,15 @@ impl<'a> ResolverPass<'a> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.symbols.push_scope();
+                self.scope.push_scope();
                 self.ast
-                    .block_items(*items)
+                    .bitems(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
-                self.symbols.pop_scope();
+                self.scope.pop_scope();
             }
             StmtKind::For {
                 init,
@@ -231,7 +196,7 @@ impl<'a> ResolverPass<'a> {
                 step,
                 body,
             } => {
-                self.symbols.push_scope();
+                self.scope.push_scope();
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => self.visit_expr(*expr),
@@ -245,7 +210,7 @@ impl<'a> ResolverPass<'a> {
                     self.visit_expr(*step);
                 }
                 self.visit_stmt(*body);
-                self.symbols.pop_scope();
+                self.scope.pop_scope();
             }
         }
     }
@@ -269,7 +234,7 @@ impl<'a> ResolverPass<'a> {
                 self.visit_expr(*then);
                 self.visit_expr(*otherwise);
             }
-            ExprKind::Var(name) => match self.symbols.get(&name.raw) {
+            ExprKind::Var(name) => match self.scope.get(&name.raw) {
                 Some(entry) => name.sema.set(entry.symbol),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: expr.span,
@@ -277,7 +242,7 @@ impl<'a> ResolverPass<'a> {
                 }),
             },
             ExprKind::Call { name, args } => {
-                match self.symbols.get(&name.raw) {
+                match self.scope.get(&name.raw) {
                     Some(entry) => name.sema.set(entry.symbol),
                     None => self.result.diagnostics.push(ResolverDiagnostic {
                         span: expr.span,
@@ -285,9 +250,44 @@ impl<'a> ResolverPass<'a> {
                     }),
                 }
                 self.ast
-                    .args(*args)
+                    .exprs(*args)
                     .iter()
                     .for_each(|arg| self.visit_expr(*arg));
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Auxiliary structures
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SemaSymbol {
+        let symbol = self.globals.entry(name.raw).or_insert_with(|| {
+            let symbol = SemaSymbol(self.symbol_count);
+            self.symbol_count = self.symbol_count.saturating_add(1);
+            symbol
+        });
+        name.sema.set(*symbol);
+        *symbol
+    }
+
+    fn get_or_create_scoped_symbol(&mut self, decl: DeclRef, name: &AstSymbol, has_linkage: bool) {
+        let entry = match has_linkage {
+            true => SymbolInfo::with_linkage(self.get_or_create_global_symbol(name)),
+            false => {
+                let symbol = SemaSymbol(self.symbol_count);
+                self.symbol_count = self.symbol_count.saturating_add(1);
+                name.sema.set(symbol);
+                SymbolInfo::no_linkage(symbol)
+            }
+        };
+        if let Some(prev) = self.scope.insert(name.raw, entry) {
+            if !(entry.has_linkage && prev.has_linkage) {
+                self.result.diagnostics.push(ResolverDiagnostic {
+                    span: self.ast.decl(decl).span,
+                    kind: ResolverDiagnosticKind::ConflictingSymbol,
+                });
             }
         }
     }
@@ -305,10 +305,10 @@ struct SymbolInfo {
 
 impl SymbolInfo {
     #[inline]
-    fn new(symbol: SemaSymbol, has_linkage: bool) -> Self {
+    fn no_linkage(symbol: SemaSymbol) -> Self {
         Self {
             symbol,
-            has_linkage,
+            has_linkage: false,
         }
     }
 

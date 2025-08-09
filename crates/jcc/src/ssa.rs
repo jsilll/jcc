@@ -78,21 +78,18 @@ impl<'a> Builder<'a> {
                     if let Some(body) = body {
                         self.tracked_blocks.clear();
 
-                        self.ast.params(params).iter().for_each(|param_ref| {
+                        self.ast.decls(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
                             let arg = self.builder.insert_inst(Inst::arg(Type::Int32, param.span));
                             self.insert_var(param.name.sema.get(), arg);
                         });
 
-                        self.ast
-                            .block_items(body)
-                            .iter()
-                            .for_each(|item| match item {
-                                ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                                ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                            });
+                        self.ast.bitems(body).iter().for_each(|item| match item {
+                            ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                            ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        });
 
-                        let append_return = match self.ast.block_items(body).last() {
+                        let append_return = match self.ast.bitems(body).last() {
                             Some(ast::BlockItem::Stmt(stmt)) => {
                                 !matches!(self.ast.stmt(*stmt).kind, ast::StmtKind::Return(_))
                             }
@@ -177,13 +174,10 @@ impl<'a> Builder<'a> {
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Compound(items) => {
-                self.ast
-                    .block_items(*items)
-                    .iter()
-                    .for_each(|item| match item {
-                        ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                        ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    });
+                self.ast.bitems(*items).iter().for_each(|item| match item {
+                    ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                    ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                });
             }
             ast::StmtKind::Goto {
                 label,
@@ -559,7 +553,7 @@ impl<'a> Builder<'a> {
             ast::ExprKind::Call { name, args, .. } => {
                 let args = self
                     .ast
-                    .args(*args)
+                    .exprs(*args)
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();

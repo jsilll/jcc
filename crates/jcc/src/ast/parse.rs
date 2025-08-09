@@ -43,9 +43,9 @@ pub struct Parser<'a> {
     interner: &'a mut Interner,
     iter: Peekable<Iter<'a, Token>>,
     result: ParserResult,
-    args_stack: Vec<ExprRef>,
-    params_stack: Vec<DeclRef>,
-    block_items_stack: Vec<BlockItem>,
+    expr_stack: Vec<ExprRef>,
+    decl_stack: Vec<DeclRef>,
+    bitems_stack: Vec<BlockItem>,
 }
 
 impl<'a> Parser<'a> {
@@ -55,9 +55,9 @@ impl<'a> Parser<'a> {
             interner,
             iter: iter.peekable(),
             result: ParserResult::default(),
-            args_stack: Vec::with_capacity(16),
-            params_stack: Vec::with_capacity(16),
-            block_items_stack: Vec::with_capacity(16),
+            expr_stack: Vec::with_capacity(16),
+            decl_stack: Vec::with_capacity(16),
+            bitems_stack: Vec::with_capacity(16),
         }
     }
 
@@ -69,12 +69,6 @@ impl<'a> Parser<'a> {
             }
         }
         self.result
-    }
-
-    #[inline]
-    fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
-        self.interner
-            .intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 
     fn parse_specifiers(&mut self) -> Option<(Type, Option<StorageClass>)> {
@@ -231,9 +225,9 @@ impl<'a> Parser<'a> {
                 Slice::default()
             }
             TokenKind::KwInt => {
-                let base = self.params_stack.len();
+                let base = self.decl_stack.len();
                 if let Some(decl) = self.parse_param() {
-                    self.params_stack.push(decl);
+                    self.decl_stack.push(decl);
                 }
                 while let Some(Token {
                     kind: TokenKind::Comma,
@@ -242,10 +236,10 @@ impl<'a> Parser<'a> {
                 {
                     self.iter.next();
                     if let Some(decl) = self.parse_param() {
-                        self.params_stack.push(decl);
+                        self.decl_stack.push(decl);
                     }
                 }
-                self.result.ast.new_params(self.params_stack.drain(base..))
+                self.result.ast.new_decls(self.decl_stack.drain(base..))
             }
             _ => {
                 let diagnostic = ParserDiagnostic {
@@ -259,7 +253,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_body(&mut self) -> Slice<BlockItem> {
-        let base = self.block_items_stack.len();
+        let base = self.bitems_stack.len();
         while let Some(Token { kind, .. }) = self.iter.peek() {
             match kind {
                 TokenKind::RBrace => break,
@@ -268,17 +262,15 @@ impl<'a> Parser<'a> {
                 | TokenKind::KwStatic
                 | TokenKind::KwExtern => match self.parse_decl() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
-                    Some(decl) => self.block_items_stack.push(BlockItem::Decl(decl)),
+                    Some(decl) => self.bitems_stack.push(BlockItem::Decl(decl)),
                 },
                 _ => match self.parse_stmt() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
-                    Some(expr) => self.block_items_stack.push(BlockItem::Stmt(expr)),
+                    Some(expr) => self.bitems_stack.push(BlockItem::Stmt(expr)),
                 },
             }
         }
-        self.result
-            .ast
-            .new_block_items(self.block_items_stack.drain(base..))
+        self.result.ast.new_bitems(self.bitems_stack.drain(base..))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -641,9 +633,9 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::RParen => Slice::default(),
             _ => {
-                let base = self.args_stack.len();
+                let base = self.expr_stack.len();
                 if let Some(expr) = self.parse_expr(0) {
-                    self.args_stack.push(expr);
+                    self.expr_stack.push(expr);
                 }
                 while let Some(Token {
                     kind: TokenKind::Comma,
@@ -652,12 +644,22 @@ impl<'a> Parser<'a> {
                 {
                     self.iter.next();
                     if let Some(expr) = self.parse_expr(0) {
-                        self.args_stack.push(expr);
+                        self.expr_stack.push(expr);
                     }
                 }
-                self.result.ast.new_args(self.args_stack.drain(base..))
+                self.result.ast.new_exprs(self.expr_stack.drain(base..))
             }
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Auxiliary Methods
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn intern_span(&mut self, span: &SourceSpan) -> Symbol {
+        self.interner
+            .intern(self.file.slice(*span).expect("expected span to be valid"))
     }
 
     #[inline]
@@ -747,7 +749,9 @@ impl<'a> Parser<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Associativity {
+    /// Left associativity
     Left,
+    /// Right associativity
     Right,
 }
 
@@ -757,7 +761,9 @@ pub enum Associativity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InfixToken {
+    /// Ternary operator
     Ternary,
+    /// Binary operator
     Binary(BinaryOp),
 }
 

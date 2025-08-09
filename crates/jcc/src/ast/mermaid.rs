@@ -115,7 +115,7 @@ impl<'a> AstMermaid<'a> {
                 );
                 self.define_node(&decl_id, &label);
 
-                let params = self.ast.params(params);
+                let params = self.ast.decls(params);
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
                     self.define_node(&params_id, "Parameters");
@@ -137,7 +137,7 @@ impl<'a> AstMermaid<'a> {
                         let body_id = self.fresh_aux_node_id("func_body");
                         self.define_node(&body_id, "Function Body");
                         self.define_edge(&decl_id, &body_id, Some("body"));
-                        for (idx, item) in self.ast.block_items(body).iter().enumerate() {
+                        for (idx, item) in self.ast.bitems(body).iter().enumerate() {
                             let item_id = match item {
                                 BlockItem::Decl(decl) => self.visit_decl(*decl),
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -230,7 +230,7 @@ impl<'a> AstMermaid<'a> {
             }
             StmtKind::Compound(items) => {
                 self.define_node(&stmt_id, "CompoundStmt");
-                let items = self.ast.block_items(*items);
+                let items = self.ast.bitems(*items);
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");
                     self.define_node(&empty_marker_id, "(empty block)");
@@ -329,7 +329,7 @@ impl<'a> AstMermaid<'a> {
                 let label = format!("FunctionCall\nname: {}\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label);
 
-                let args = self.ast.args(*args);
+                let args = self.ast.exprs(*args);
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
                     self.define_node(&args_id, "Arguments");

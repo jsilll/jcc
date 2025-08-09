@@ -18,9 +18,9 @@ pub struct Ast {
     decls: Vec<Decl>,
     stmts: Vec<Stmt>,
     exprs: Vec<Expr>,
-    sliced_args: Vec<ExprRef>,
-    sliced_params: Vec<DeclRef>,
-    sliced_block_items: Vec<BlockItem>,
+    sliced_decls: Vec<DeclRef>,
+    sliced_exprs: Vec<ExprRef>,
+    sliced_bitems: Vec<BlockItem>,
     last_symbol: Cell<Option<NonZeroU32>>,
 }
 
@@ -48,9 +48,9 @@ impl Ast {
             decls: default_vec_with_capacity(capacity),
             stmts: default_vec_with_capacity(capacity),
             exprs: default_vec_with_capacity(capacity),
-            sliced_args: Vec::with_capacity(capacity),
-            sliced_params: Vec::with_capacity(capacity),
-            sliced_block_items: Vec::with_capacity(capacity),
+            sliced_decls: Vec::with_capacity(capacity),
+            sliced_exprs: Vec::with_capacity(capacity),
+            sliced_bitems: Vec::with_capacity(capacity),
         }
     }
 
@@ -59,28 +59,28 @@ impl Ast {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    pub fn root(&self) -> &[DeclRef] {
-        self.root.as_slice()
-    }
-
-    #[inline]
     pub fn decls_len(&self) -> usize {
-        &self.decls.len() - 1
+        self.decls.len() - 1
     }
 
     #[inline]
     pub fn stmts_len(&self) -> usize {
-        &self.stmts.len() - 1
+        self.stmts.len() - 1
     }
 
     #[inline]
     pub fn exprs_len(&self) -> usize {
-        &self.exprs.len() - 1
+        self.exprs.len() - 1
     }
 
     #[inline]
     pub fn symbols_len(&self) -> usize {
         self.last_symbol.get().map_or(1, |s| s.get() as usize) - 1
+    }
+
+    #[inline]
+    pub fn root(&self) -> &[DeclRef] {
+        self.root.as_slice()
     }
 
     #[inline]
@@ -99,6 +99,21 @@ impl Ast {
     }
 
     #[inline]
+    pub fn exprs(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
+        &self.sliced_exprs[slice.0 as usize..slice.1 as usize]
+    }
+
+    #[inline]
+    pub fn decls(&self, slice: Slice<DeclRef>) -> &[DeclRef] {
+        &self.sliced_decls[slice.0 as usize..slice.1 as usize]
+    }
+
+    #[inline]
+    pub fn bitems(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
+        &self.sliced_bitems[slice.0 as usize..slice.1 as usize]
+    }
+
+    #[inline]
     pub fn decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
         &mut self.decls[decl.0.get() as usize]
     }
@@ -111,21 +126,6 @@ impl Ast {
     #[inline]
     pub fn expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
         &mut self.exprs[expr.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn args(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
-        &self.sliced_args[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn params(&self, slice: Slice<DeclRef>) -> &[DeclRef] {
-        &self.sliced_params[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn block_items(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
-        &self.sliced_block_items[slice.0 as usize..slice.1 as usize]
     }
 
     // ---------------------------------------------------------------------------
@@ -163,29 +163,26 @@ impl Ast {
     }
 
     #[inline]
-    pub fn new_args(&mut self, args: impl IntoIterator<Item = ExprRef>) -> Slice<ExprRef> {
-        let begin = self.sliced_args.len() as u32;
-        self.sliced_args.extend(args);
-        let end = self.sliced_args.len() as u32;
+    pub fn new_exprs(&mut self, args: impl IntoIterator<Item = ExprRef>) -> Slice<ExprRef> {
+        let begin = self.sliced_exprs.len() as u32;
+        self.sliced_exprs.extend(args);
+        let end = self.sliced_exprs.len() as u32;
         Slice::new(begin, end)
     }
 
     #[inline]
-    pub fn new_params(&mut self, params: impl IntoIterator<Item = DeclRef>) -> Slice<DeclRef> {
-        let begin = self.sliced_params.len() as u32;
-        self.sliced_params.extend(params);
-        let end = self.sliced_params.len() as u32;
+    pub fn new_decls(&mut self, params: impl IntoIterator<Item = DeclRef>) -> Slice<DeclRef> {
+        let begin = self.sliced_decls.len() as u32;
+        self.sliced_decls.extend(params);
+        let end = self.sliced_decls.len() as u32;
         Slice::new(begin, end)
     }
 
     #[inline]
-    pub fn new_block_items(
-        &mut self,
-        items: impl IntoIterator<Item = BlockItem>,
-    ) -> Slice<BlockItem> {
-        let begin = self.sliced_block_items.len() as u32;
-        self.sliced_block_items.extend(items);
-        let end = self.sliced_block_items.len() as u32;
+    pub fn new_bitems(&mut self, items: impl IntoIterator<Item = BlockItem>) -> Slice<BlockItem> {
+        let begin = self.sliced_bitems.len() as u32;
+        self.sliced_bitems.extend(items);
+        let end = self.sliced_bitems.len() as u32;
         Slice::new(begin, end)
     }
 }

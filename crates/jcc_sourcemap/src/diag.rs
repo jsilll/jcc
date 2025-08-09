@@ -22,6 +22,20 @@ pub fn report_batch(
         .try_for_each(|d| d.report_hint(file, &mut hint, buffer))
 }
 
+/// Reports a batch of diagnostics to stderr.
+///
+/// This is a convenience function that uses `std::io::stderr()` as the buffer.
+/// The diagnostics must be from the same source file
+/// and must be sorted in ascending order by their spans.
+#[inline]
+pub fn report_batch_to_stderr(
+    file: &SourceMap,
+    diagnostics: &[impl Into<Diagnostic> + Clone],
+) -> std::io::Result<()> {
+    let mut stderr = std::io::stderr();
+    report_batch(file, &mut stderr, diagnostics)
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostic
 // ---------------------------------------------------------------------------

@@ -86,7 +86,6 @@ fn try_main() -> Result<()> {
         "Failed to create source map for {}",
         pp_path.display()
     ))?);
-
     let file = db.files().last().context(format!(
         "No source files found in the database for {}",
         pp_path.display()
@@ -99,11 +98,11 @@ fn try_main() -> Result<()> {
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
     if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
+        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to lexer errors"));
     }
     if args.verbose {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
+        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
     }
     if args.lex {
         return Ok(());
@@ -112,7 +111,7 @@ fn try_main() -> Result<()> {
     // Parse tokens
     let r = Parser::new(file, &mut interner, r.tokens.iter()).parse();
     if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
+        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
     if args.emit_ast_mermaid {
@@ -130,16 +129,16 @@ fn try_main() -> Result<()> {
     if args.parse {
         return Ok(());
     }
-    if r.ast.root().is_empty() {
-        eprintln!("Error: no declarations in the source file");
-        return Err(anyhow::anyhow!("exiting due to empty parse tree"));
-    }
 
     // Resolve the AST
     let ast = r.ast;
+    if ast.root().is_empty() {
+        eprintln!("Error: no declarations in the source file");
+        return Err(anyhow::anyhow!("exiting due to empty parse tree"));
+    }
     let r = ResolverPass::new(&ast).check();
     if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
+        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
     if args.emit_ast_mermaid {
@@ -159,12 +158,12 @@ fn try_main() -> Result<()> {
     let mut ctx = SemaCtx::new(&ast);
     let r = ControlPass::new(&ast, &mut ctx).check();
     if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
+        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
     let r = TyperPass::new(&ast, &mut ctx).check();
     if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch(file, &mut std::io::stderr(), &r.diagnostics)?;
+        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     if args.validate {

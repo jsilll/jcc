@@ -249,7 +249,7 @@ impl<'ctx> TyperPass<'ctx> {
                     assert!(!*is_defined, "function already defined");
                     *is_defined = true;
                 }
-                self.ast.params(params).iter().for_each(|param| {
+                self.ast.decls(params).iter().for_each(|param| {
                     if self.ast.decl(*param).storage.is_some() {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: self.ast.decl(*param).span,
@@ -259,7 +259,7 @@ impl<'ctx> TyperPass<'ctx> {
                     self.visit_block_scope_decl(*param)
                 });
                 self.ast
-                    .block_items(body.unwrap_or_default())
+                    .bitems(body.unwrap_or_default())
                     .iter()
                     .for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -301,13 +301,10 @@ impl<'ctx> TyperPass<'ctx> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.ast
-                    .block_items(*items)
-                    .iter()
-                    .for_each(|item| match item {
-                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                    });
+                self.ast.bitems(*items).iter().for_each(|item| match item {
+                    BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                });
             }
             StmtKind::For {
                 init,
@@ -438,7 +435,7 @@ impl<'ctx> TyperPass<'ctx> {
                             });
                         }
                         self.ast
-                            .args(*args)
+                            .exprs(*args)
                             .iter()
                             .for_each(|arg| self.visit_expr(*arg));
                     }

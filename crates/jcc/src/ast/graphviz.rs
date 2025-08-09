@@ -11,7 +11,7 @@ pub struct AstGraphviz<'a> {
     interner: &'a Interner,
     output: String,
     node_counter: u32,
-    indent_level: usize,
+    indent_level: u32,
 }
 
 impl<'a> AstGraphviz<'a> {
@@ -137,7 +137,7 @@ impl<'a> AstGraphviz<'a> {
                 );
                 self.define_node(&decl_id, &label, "palegreen");
 
-                let params = self.ast.params(params);
+                let params = self.ast.decls(params);
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
                     self.define_node(&params_id, "Parameters", "aliceblue");
@@ -161,7 +161,7 @@ impl<'a> AstGraphviz<'a> {
                         let body_id = self.fresh_aux_node_id("func_body");
                         self.define_node(&body_id, "Function Body", "whitesmoke");
                         self.define_edge(&decl_id, &body_id, Some("body"));
-                        for (idx, item) in self.ast.block_items(body).iter().enumerate() {
+                        for (idx, item) in self.ast.bitems(body).iter().enumerate() {
                             let item_id = match item {
                                 BlockItem::Decl(decl) => self.visit_decl(*decl),
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -254,7 +254,7 @@ impl<'a> AstGraphviz<'a> {
             }
             StmtKind::Compound(items) => {
                 self.define_node(&stmt_id, "CompoundStmt", "lightcyan");
-                let items = self.ast.block_items(*items);
+                let items = self.ast.bitems(*items);
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");
                     self.writeln_fmt(format_args!(
@@ -355,7 +355,7 @@ impl<'a> AstGraphviz<'a> {
                 let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label, "deepskyblue");
 
-                let args = self.ast.args(*args);
+                let args = self.ast.exprs(*args);
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
                     self.define_node(&args_id, "Arguments", "aliceblue");

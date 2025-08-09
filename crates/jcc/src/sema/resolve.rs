@@ -116,11 +116,11 @@ impl<'a> ResolverPass<'a> {
             DeclKind::Func { body, params, .. } => {
                 self.symbols.push_scope();
                 self.ast
-                    .params(params)
+                    .decls(params)
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.ast
-                    .block_items(body.unwrap_or_default())
+                    .bitems(body.unwrap_or_default())
                     .iter()
                     .for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -169,7 +169,7 @@ impl<'a> ResolverPass<'a> {
                 }
                 self.symbols.push_scope();
                 self.ast
-                    .params(*params)
+                    .decls(*params)
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.symbols.pop_scope();
@@ -217,7 +217,7 @@ impl<'a> ResolverPass<'a> {
             StmtKind::Compound(items) => {
                 self.symbols.push_scope();
                 self.ast
-                    .block_items(*items)
+                    .bitems(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -285,7 +285,7 @@ impl<'a> ResolverPass<'a> {
                     }),
                 }
                 self.ast
-                    .args(*args)
+                    .exprs(*args)
                     .iter()
                     .for_each(|arg| self.visit_expr(*arg));
             }

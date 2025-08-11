@@ -20,13 +20,17 @@ use std::{collections::HashMap, fmt, num::NonZeroU32};
 pub struct Program<'a> {
     pub interner: &'a mut Interner,
     heaps: BaseHeaps,
+
     insts: Vec<Inst>,
     insts_free: Vec<InstRef>,
-    funcs: Vec<Func>,
-    funcs_free: Vec<FuncRef>,
+
     blocks: Vec<Block>,
     blocks_free: Vec<BlockRef>,
-    static_vars: Vec<StaticVar>,
+
+    funcs: Vec<Option<Func>>,
+    funcs_free: Vec<FuncRef>,
+
+    static_vars: Vec<Option<StaticVar>>,
     static_vars_free: Vec<StaticVarRef>,
 }
 
@@ -35,10 +39,12 @@ impl<'a> Program<'a> {
         Self {
             interner,
             heaps: Default::default(),
+
             insts_free: Vec::new(),
             funcs_free: Vec::new(),
             blocks_free: Vec::new(),
             static_vars_free: Vec::new(),
+
             insts: vec![Default::default()],
             funcs: vec![Default::default()],
             blocks: vec![Default::default()],
@@ -50,67 +56,103 @@ impl<'a> Program<'a> {
     // Accessors
     // ---------------------------------------------------------------------------
 
+    #[inline]
     pub fn inst(&self, inst: InstRef) -> &Inst {
         &self.insts[inst.0.get() as usize]
     }
 
-    pub fn func(&self, func: FuncRef) -> &Func {
-        &self.funcs[func.0.get() as usize]
-    }
-
-    pub fn block(&self, block: BlockRef) -> &Block {
-        &self.blocks[block.0.get() as usize]
-    }
-
-    pub fn static_var(&self, var: StaticVarRef) -> &StaticVar {
-        &self.static_vars[var.0.get() as usize]
-    }
-
+    #[inline]
     pub fn inst_mut(&mut self, inst: InstRef) -> &mut Inst {
         &mut self.insts[inst.0.get() as usize]
     }
 
-    pub fn func_mut(&mut self, func: FuncRef) -> &mut Func {
-        &mut self.funcs[func.0.get() as usize]
+    #[inline]
+    pub fn block(&self, block: BlockRef) -> &Block {
+        &self.blocks[block.0.get() as usize]
     }
 
+    #[inline]
     pub fn block_mut(&mut self, block: BlockRef) -> &mut Block {
         &mut self.blocks[block.0.get() as usize]
     }
 
+    #[inline]
+    pub fn func(&self, func: FuncRef) -> &Func {
+        self.funcs
+            .get(func.0.get() as usize)
+            .and_then(|f| f.as_ref())
+            .expect("invalid function reference")
+    }
+
+    #[inline]
+    pub fn func_mut(&mut self, func: FuncRef) -> &mut Func {
+        self.funcs
+            .get_mut(func.0.get() as usize)
+            .and_then(|f| f.as_mut())
+            .expect("invalid function reference")
+    }
+
+    #[inline]
+    pub fn static_var(&self, var: StaticVarRef) -> &StaticVar {
+        self.static_vars
+            .get(var.0.get() as usize)
+            .and_then(|v| v.as_ref())
+            .expect("invalid static var reference")
+    }
+
+    #[inline]
     pub fn static_var_mut(&mut self, var: StaticVarRef) -> &mut StaticVar {
-        &mut self.static_vars[var.0.get() as usize]
+        self.static_vars
+            .get_mut(var.0.get() as usize)
+            .and_then(|v| v.as_mut())
+            .expect("invalid static var reference")
     }
 
     // ---------------------------------------------------------------------------
     // Creation
     // ---------------------------------------------------------------------------
 
+    #[inline]
     pub fn new_inst(&mut self, inst: Inst) -> InstRef {
-        // TODO: Reuse slots from `insts_free` for better memory efficiency
+        if let Some(r) = self.insts_free.pop() {
+            self.insts[r.0.get() as usize] = inst;
+            return r;
+        }
         let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
         self.insts.push(inst);
         r
     }
 
-    pub fn new_func(&mut self, func: Func) -> FuncRef {
-        // TODO: Reuse slots from `funcs_free` for better memory efficiency
-        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
-        self.funcs.push(func);
-        r
-    }
-
+    #[inline]
     pub fn new_block(&mut self, block: Block) -> BlockRef {
-        // TODO: Reuse slots from `blocks_free` for better memory efficiency
+        if let Some(r) = self.blocks_free.pop() {
+            self.blocks[r.0.get() as usize] = block;
+            return r;
+        }
         let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(block);
         r
     }
 
+    #[inline]
+    pub fn new_func(&mut self, func: Func) -> FuncRef {
+        if let Some(r) = self.funcs_free.pop() {
+            self.funcs[r.0.get() as usize] = Some(func);
+            return r;
+        }
+        let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
+        self.funcs.push(Some(func));
+        r
+    }
+
+    #[inline]
     pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
-        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
+        if let Some(r) = self.static_vars_free.pop() {
+            self.static_vars[r.0.get() as usize] = Some(var);
+            return r;
+        }
         let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
-        self.static_vars.push(var);
+        self.static_vars.push(Some(var));
         r
     }
 
@@ -118,96 +160,124 @@ impl<'a> Program<'a> {
     // Deletion
     // ---------------------------------------------------------------------------
 
-    pub fn delete_inst(&mut self, inst_ref: InstRef) {
-        self.insts_free.push(inst_ref);
+    #[inline]
+    pub fn delete_inst(&mut self, r: InstRef) {
+        self.insts_free.push(r);
     }
 
-    pub fn delete_func(&mut self, func_ref: FuncRef) {
-        self.funcs_free.push(func_ref);
+    #[inline]
+    pub fn delete_block(&mut self, r: BlockRef) {
+        self.blocks_free.push(r);
     }
 
-    pub fn delete_block(&mut self, block_ref: BlockRef) {
-        self.blocks_free.push(block_ref);
+    #[inline]
+    pub fn delete_func(&mut self, r: FuncRef) {
+        self.funcs[r.0.get() as usize] = None;
+        self.funcs_free.push(r);
     }
 
-    pub fn delete_static_var(&mut self, var_ref: StaticVarRef) {
-        self.static_vars_free.push(var_ref);
+    #[inline]
+    pub fn delete_static_var(&mut self, r: StaticVarRef) {
+        self.static_vars[r.0.get() as usize] = None;
+        self.static_vars_free.push(r);
     }
 
     // ---------------------------------------------------------------------------
     // Iterators
     // ---------------------------------------------------------------------------
 
-    // TODO: There's some issues with this iterators:
-    // 1. Find a better a way to skip deleted entries (maybe a use an Option)
-    // 2. The _with_refs version do not need to index into the vector, they can
-    // just iterate through it with an enumerate()
-
-    pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.insts.len()).map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
+    #[inline]
+    pub fn iter_insts(&self) -> impl Iterator<Item = &Inst> {
+        self.insts
+            .iter()
+            .skip(1)
+            .filter(|i| !matches!(i.kind, InstKind::Nop))
     }
 
-    pub fn iter_funcs(&self) -> impl Iterator<Item = FuncRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.funcs.len()).map(|i| unsafe { FuncRef(NonZeroU32::new_unchecked(i as u32)) })
+    #[inline]
+    pub fn iter_insts_with_ref(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
+        self.insts
+            .iter()
+            .skip(1)
+            .enumerate()
+            .filter_map(move |(i, inst)| match inst.kind {
+                InstKind::Nop => None,
+                _ => Some((
+                    InstRef(unsafe { NonZeroU32::new_unchecked(i as u32 + 1) }),
+                    inst,
+                )),
+            })
     }
 
-    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.blocks.len()).map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
+    #[inline]
+    pub fn iter_funcs(&self) -> impl Iterator<Item = &Func> {
+        self.funcs.iter().skip(1).filter_map(move |f| match f {
+            None => None,
+            Some(func) => Some(func),
+        })
     }
 
-    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.static_vars.len())
-            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+    #[inline]
+    pub fn iter_funcs_with_ref(&self) -> impl Iterator<Item = (FuncRef, &Func)> {
+        self.funcs.iter().skip(1).enumerate().filter_map(|(i, f)| {
+            f.as_ref().map(|func| {
+                (
+                    FuncRef(unsafe { NonZeroU32::new_unchecked(i as u32 + 1) }),
+                    func,
+                )
+            })
+        })
     }
 
-    pub fn iter_insts_with_refs(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
-        self.iter_insts().map(move |r| (r, self.inst(r)))
+    #[inline]
+    pub fn iter_static_vars(&self) -> impl Iterator<Item = &StaticVar> {
+        self.static_vars
+            .iter()
+            .skip(1)
+            .filter_map(move |v| match v {
+                None => None,
+                Some(var) => Some(var),
+            })
     }
 
-    pub fn iter_funcs_with_refs(&self) -> impl Iterator<Item = (FuncRef, &Func)> {
-        self.iter_funcs().map(move |r| (r, self.func(r)))
-    }
-
-    pub fn iter_blocks_with_refs(&self) -> impl Iterator<Item = (BlockRef, &Block)> {
-        self.iter_blocks().map(move |r| (r, self.block(r)))
-    }
-
-    pub fn iter_static_vars_with_refs(&self) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> {
-        self.iter_static_vars()
-            .map(move |r| (r, self.static_var(r)))
+    #[inline]
+    pub fn iter_static_vars_with_ref(&self) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> {
+        self.static_vars
+            .iter()
+            .skip(1)
+            .enumerate()
+            .filter_map(|(i, v)| {
+                v.as_ref().map(|var| {
+                    (
+                        StaticVarRef(unsafe { NonZeroU32::new_unchecked(i as u32 + 1) }),
+                        var,
+                    )
+                })
+            })
     }
 
     // ---------------------------------------------------------------------------
-    // Complexity Queries
+    // TODO: Complexity Queries
     // ---------------------------------------------------------------------------
 
-    pub fn get_predecessors(&self, pred: &mut HashMap<BlockRef, Vec<BlockRef>>) {
-        pred.clear();
-        for (block_ref, block) in self.iter_blocks_with_refs() {
-            for succ in &block.succs {
-                pred.entry(*succ).or_default().push(block_ref);
-            }
-        }
-    }
+    // pub fn get_predecessors(&self, _pred: &mut HashMap<BlockRef, Vec<BlockRef>>) {
+    //     unimplemented!()
+    // }
 
-    pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
-        // This is inefficient (O(N_insts)) but kept as per user request.
-        for (idx, inst) in self.insts.iter().enumerate().skip(1) {
-            if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
-                if *p == phi {
-                    // This check is important to avoid yielding deleted upsilons
-                    let inst_ref = InstRef(NonZeroU32::new(idx as u32).unwrap());
-                    if !self.insts_free.contains(&inst_ref) {
-                        args.push(inst_ref);
-                    }
-                }
-            }
-        }
-    }
+    // pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
+    //     // This is inefficient (O(N_insts)) but kept as per user request.
+    //     for (idx, inst) in self.insts.iter().enumerate().skip(1) {
+    //         if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
+    //             if *p == phi {
+    //                 // This check is important to avoid yielding deleted upsilons
+    //                 let inst_ref = InstRef(NonZeroU32::new(idx as u32).unwrap());
+    //                 if !self.insts_free.contains(&inst_ref) {
+    //                     args.push(inst_ref);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 // ---------------------------------------------------------------------------
@@ -758,7 +828,7 @@ impl fmt::Display for InstKind {
 
 impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (var_ref, var) in self.iter_static_vars_with_refs() {
+        for (var_ref, var) in self.iter_static_vars_with_ref() {
             let name_str = self.interner.lookup(var.name);
             let linkage = if var.is_global { "global" } else { "static" };
             let init = match var.init {
@@ -771,7 +841,7 @@ impl<'a> fmt::Display for Program<'a> {
                 name_str, var_ref, linkage, var.ty, init
             )?;
         }
-        for (func_ref, func) in self.iter_funcs_with_refs() {
+        for (func_ref, func) in self.iter_funcs_with_ref() {
             let func_name = self.interner.lookup(func.name);
             write!(f, "define @{}({}) ", func_name, func_ref)?;
             if func.blocks.is_empty() {

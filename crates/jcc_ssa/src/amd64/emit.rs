@@ -33,7 +33,7 @@ impl<'a> AMD64Emitter<'a> {
 
     pub fn emit(mut self) -> String {
         self.program
-            .iter_static_vars_with_refs()
+            .iter_static_vars_with_ref()
             .for_each(|(v, var)| {
                 let name = self.interner.lookup(var.name);
                 if let Some(init) = var.init {

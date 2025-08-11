@@ -52,7 +52,7 @@ impl Program {
             .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
     }
 
-    pub fn iter_static_vars_with_refs(
+    pub fn iter_static_vars_with_ref(
         &self,
     ) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> + '_ {
         self.iter_static_vars().map(|r| (r, self.static_var(r)))

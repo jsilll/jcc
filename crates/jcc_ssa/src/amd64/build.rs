@@ -38,28 +38,26 @@ impl<'a> Builder<'a> {
 
     pub fn build(mut self) -> Program {
         self.ssa.iter_static_vars().for_each(|v| {
-            let var = self.ssa.static_var(v);
             self.amd64.new_static_var(StaticVar {
-                name: var.name,
-                init: var.init,
-                span: var.span,
-                is_global: var.is_global,
+                name: v.name,
+                init: v.init,
+                span: v.span,
+                is_global: v.is_global,
             });
         });
         self.ssa.iter_funcs().for_each(|f| {
-            let func = self.ssa.func(f);
-            if func.blocks.is_empty() {
+            if f.blocks.is_empty() {
                 return;
             }
-            self.func.name = func.name;
-            self.func.span = func.span;
-            self.func.is_global = func.is_global;
-            func.blocks.iter().enumerate().for_each(|(idx, b)| {
+            self.func.name = f.name;
+            self.func.span = f.span;
+            self.func.is_global = f.is_global;
+            f.blocks.iter().enumerate().for_each(|(idx, b)| {
                 let block = self.ssa.block(*b);
                 self.block = self.get_or_make_block(*b);
                 let _ = self.func.block_mut(self.block).label.insert(block.name);
                 if idx == 0 {
-                    self.insert_inst(Inst::alloca(0, func.span));
+                    self.insert_inst(Inst::alloca(0, f.span));
                 }
                 block.insts.iter().for_each(|inst| {
                     self.visit_inst(*inst);
@@ -324,17 +322,17 @@ impl<'a> Builder<'a> {
     }
 
     #[inline]
-    fn get_operand(&self, inst: crate::InstRef) -> Operand {
-        *self.operands.get(&inst).expect("expected a variable")
-    }
-
-    #[inline]
     fn insert_inst(&mut self, mut inst: Inst) {
-        let len = self.func.block(self.block).insts.len() as u32;
-        inst.idx = InstIdx(len);
+        let len = self.func.block(self.block).insts.len();
+        inst.idx = InstIdx(len as u32);
         let inst = self.func.new_inst(inst);
         let block = self.func.block_mut(self.block);
         block.insts.push(inst);
+    }
+
+    #[inline]
+    fn get_operand(&self, inst: crate::InstRef) -> Operand {
+        *self.operands.get(&inst).expect("expected a variable")
     }
 
     #[inline]

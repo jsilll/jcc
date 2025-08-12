@@ -198,7 +198,19 @@ impl<'a> Lexer<'a> {
     }
 
     fn handle_number(&mut self) {
-        let end = self.consume_while(|c| c.is_ascii_digit());
+        self.consume_while(|c| c.is_ascii_digit());
+        let kind = match self.chars.peek() {
+            Some((_, 'l' | 'L')) => {
+                self.chars.next();
+                TokenKind::LongIntNumber
+            }
+            _ => TokenKind::IntNumber,
+        };
+        let end = self
+            .chars
+            .peek()
+            .map(|(idx, _)| *idx as u32)
+            .unwrap_or(self.file.data().len() as u32);
         if let Some((_, c)) = self.chars.peek() {
             if c.is_ascii_alphabetic() {
                 self.result.diagnostics.push(LexerDiagnostic {
@@ -208,7 +220,7 @@ impl<'a> Lexer<'a> {
             }
         }
         self.result.tokens.push(Token {
-            kind: TokenKind::Number,
+            kind,
             span: self.file.span(self.idx..end).unwrap_or_default(),
         });
     }
@@ -226,6 +238,7 @@ impl<'a> Lexer<'a> {
             "goto" => TokenKind::KwGoto,
             "if" => TokenKind::KwIf,
             "int" => TokenKind::KwInt,
+            "long" => TokenKind::KwLong,
             "return" => TokenKind::KwReturn,
             "static" => TokenKind::KwStatic,
             "switch" => TokenKind::KwSwitch,

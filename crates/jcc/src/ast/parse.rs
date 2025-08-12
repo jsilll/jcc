@@ -555,7 +555,7 @@ impl<'a> Parser<'a> {
                     .new_expr(Expr::new(ExprKind::Grouped(expr), *span));
                 Some(self.parse_expr_postfix(expr))
             }
-            TokenKind::Number => {
+            TokenKind::IntNumber => {
                 let number = self.file.slice(*span).expect("expected span to be valid");
                 let number = number.parse().expect("expected number to be valid");
                 Some(

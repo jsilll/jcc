@@ -126,6 +126,8 @@ pub enum TokenKind {
     KwIf,
     /// The `int` keyword.
     KwInt,
+    /// The `long` keyword.
+    KwLong,
     /// The `return` keyword.
     KwReturn,
     /// The `static` keyword.
@@ -136,8 +138,10 @@ pub enum TokenKind {
     KwVoid,
     /// The `while` keyword.
     KwWhile,
-    /// A number.
-    Number,
+    /// A regular integer literal.
+    IntNumber,
+    /// A long integer literal (e.g., 123L).
+    LongIntNumber,
     /// An identifier.
     Identifier,
 }
@@ -145,7 +149,9 @@ pub enum TokenKind {
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenKind::Number | TokenKind::Identifier => f.write_str(self.as_str()),
+            TokenKind::IntNumber | TokenKind::LongIntNumber | TokenKind::Identifier => {
+                f.write_str(self.as_str())
+            }
             _ => write!(f, "`{}`", self.as_str()),
         }
     }
@@ -208,12 +214,14 @@ impl TokenKind {
             TokenKind::KwGoto => "goto",
             TokenKind::KwIf => "if",
             TokenKind::KwInt => "int",
+            TokenKind::KwLong => "long",
             TokenKind::KwReturn => "return",
             TokenKind::KwStatic => "static",
             TokenKind::KwSwitch => "switch",
             TokenKind::KwVoid => "void",
             TokenKind::KwWhile => "while",
-            TokenKind::Number => "a number",
+            TokenKind::IntNumber => "a number",
+            TokenKind::LongIntNumber => "a long number",
             TokenKind::Identifier => "an identifier",
         }
     }

@@ -4,7 +4,99 @@ pub mod ty;
 
 use crate::ast::{Ast, StmtRef};
 
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{
+    collections::HashMap,
+    num::{NonZeroU16, NonZeroU32},
+    rc::Rc,
+};
+
+// ---------------------------------------------------------------------------
+// SemaCtx
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SemaCtx {
+    pub dict: TypeDict,
+    symbols: Vec<Option<SymbolInfo>>,
+    pub switches: HashMap<StmtRef, SwitchCases>,
+}
+
+impl SemaCtx {
+    pub fn new(ast: &Ast) -> Self {
+        Self {
+            dict: TypeDict::new(),
+            switches: HashMap::new(),
+            symbols: vec![Default::default(); ast.symbols_len() + 1],
+        }
+    }
+
+    #[inline]
+    pub fn symbol(&self, sym: SemaSymbol) -> Option<&SymbolInfo> {
+        self.symbols
+            .get(sym.0.get() as usize)
+            .and_then(|s| s.as_ref())
+    }
+
+    #[inline]
+    pub fn symbol_mut(&mut self, sym: SemaSymbol) -> &mut Option<SymbolInfo> {
+        self.symbols
+            .get_mut(sym.0.get() as usize)
+            .expect("Invalid symbol index")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TypeDict
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDict {
+    types: Vec<Rc<CompoundType>>,
+    cache: HashMap<Rc<CompoundType>, CompoundTypeRef>,
+}
+
+impl Default for TypeDict {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TypeDict {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            types: vec![Rc::new(CompoundType::Ptr(Type::Void))],
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.types.is_empty()
+    }
+
+    #[inline]
+    pub fn get(&self, ty: CompoundTypeRef) -> &CompoundType {
+        &self.types[ty.0.get() as usize]
+    }
+
+    #[inline]
+    pub fn intern(&mut self, ty: CompoundType) -> CompoundTypeRef {
+        if let Some(&r) = self.cache.get(&ty) {
+            return r;
+        }
+        let r = CompoundTypeRef(NonZeroU16::new(self.types.len() as u16).unwrap());
+        let ty = Rc::new(ty);
+        self.types.push(ty.clone());
+        self.cache.insert(ty, r);
+        r
+    }
+}
 
 // ---------------------------------------------------------------------------
 // SemaSymbol
@@ -17,50 +109,6 @@ impl Default for SemaSymbol {
     fn default() -> Self {
         Self(NonZeroU32::new(u32::MAX).unwrap())
     }
-}
-
-// ---------------------------------------------------------------------------
-// SemaCtx
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SemaCtx {
-    symbols: Vec<Option<SymbolInfo>>,
-    pub switches: HashMap<StmtRef, SwitchCases>,
-}
-
-impl SemaCtx {
-    pub fn new(ast: &Ast) -> Self {
-        Self {
-            switches: HashMap::new(),
-            symbols: vec![Default::default(); ast.symbols_len() + 1],
-        }
-    }
-
-    #[inline]
-    pub fn symbol(&self, sym: SemaSymbol) -> &Option<SymbolInfo> {
-        &self.symbols[sym.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn symbol_mut(&mut self, sym: SemaSymbol) -> &mut Option<SymbolInfo> {
-        &mut self.symbols[sym.0.get() as usize]
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Type
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Type {
-    /// The `void` type
-    #[default]
-    Void,
-    /// The `int` type
-    Int,
-    /// A functional type
-    Func(u32),
 }
 
 // ---------------------------------------------------------------------------
@@ -151,4 +199,38 @@ pub enum StaticValue {
     Tentative,
     /// Initialized with a value
     Initialized(i64),
+}
+
+// ---------------------------------------------------------------------------
+// Type
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Type {
+    /// The `void` type
+    #[default]
+    Void,
+    /// The `int` type
+    Int,
+    /// The `long` type
+    Long,
+    /// A compound type
+    Compound(CompoundTypeRef),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct CompoundTypeRef(NonZeroU16);
+
+impl From<CompoundTypeRef> for Type {
+    fn from(ty: CompoundTypeRef) -> Self {
+        Type::Compound(ty)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CompoundType {
+    /// A pointer type
+    Ptr(Type),
+    /// A functional type
+    Fun { ret: Type, params: Vec<Type> },
 }

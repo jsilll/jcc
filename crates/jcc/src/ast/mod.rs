@@ -477,8 +477,8 @@ impl<T> Slice<T> {
     }
 
     #[inline]
-    pub fn len(&self) -> u32 {
-        self.1 - self.0
+    pub fn len(&self) -> usize {
+        (self.1 - self.0) as usize
     }
 
     #[inline]

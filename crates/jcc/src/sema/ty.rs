@@ -3,7 +3,7 @@ use crate::{
         Ast, BinaryOp, BlockItem, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind, StmtRef,
         StorageClass, UnaryOp,
     },
-    sema::{Attribute, SemaCtx, StaticValue, SymbolInfo, Type},
+    sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
 };
 
 use jcc_ssa::sourcemap::{diag::Diagnostic, SourceSpan};
@@ -33,15 +33,15 @@ pub struct TyperDiagnostic {
 // TyperPass
 // ---------------------------------------------------------------------------
 
-pub struct TyperPass<'ctx> {
-    ast: &'ctx Ast,
-    ctx: &'ctx mut SemaCtx,
+pub struct TyperPass<'a> {
+    ast: &'a Ast,
+    ctx: &'a mut SemaCtx,
     result: TyperResult,
     switch_cases: HashSet<i64>,
 }
 
-impl<'ctx> TyperPass<'ctx> {
-    pub fn new(ast: &'ctx Ast, ctx: &'ctx mut SemaCtx) -> Self {
+impl<'a> TyperPass<'a> {
+    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
         Self {
             ast,
             ctx,
@@ -160,8 +160,10 @@ impl<'ctx> TyperPass<'ctx> {
 
                 match decl.storage {
                     None => {
-                        *self.ctx.symbol_mut(decl.name.sema.get()) =
-                            Some(SymbolInfo::local(decl.ty.get()));
+                        let _ = self
+                            .ctx
+                            .symbol_mut(decl.name.sema.get())
+                            .insert(SymbolInfo::local(decl.ty.get()));
                         if let Some(init) = init {
                             self.visit_expr(init);
                         }
@@ -219,7 +221,11 @@ impl<'ctx> TyperPass<'ctx> {
     fn visit_func_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         if let DeclKind::Func { params, body } = decl.kind {
-            decl.ty.set(Type::Func(params.len()));
+            let ty = self.ctx.dict.intern(CompoundType::Fun {
+                ret: Type::Int,
+                params: vec![Type::Int; params.len()],
+            });
+            decl.ty.set(ty.into());
 
             let decl_is_global = decl.storage != Some(StorageClass::Static);
             let entry = self
@@ -377,11 +383,14 @@ impl<'ctx> TyperPass<'ctx> {
                     .ctx
                     .symbol(name.sema.get())
                     .expect("symbol info not found");
-                if let Type::Func(_) = info.ty {
-                    self.result.diagnostics.push(TyperDiagnostic {
-                        span: expr.span,
-                        kind: TyperDiagnosticKind::FunctionUsedAsVariable,
-                    });
+                match info.ty {
+                    Type::Int | Type::Long => {}
+                    Type::Void | Type::Compound(_) => {
+                        self.result.diagnostics.push(TyperDiagnostic {
+                            span: expr.span,
+                            kind: TyperDiagnosticKind::FunctionUsedAsVariable,
+                        });
+                    }
                 }
             }
             ExprKind::Ternary {
@@ -427,18 +436,21 @@ impl<'ctx> TyperPass<'ctx> {
                     .symbol(name.sema.get())
                     .expect("symbol info not found");
                 match info.ty {
-                    Type::Func(arity) => {
-                        if arity != args.len() {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                span: expr.span,
-                                kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                            });
+                    Type::Compound(r) => match self.ctx.dict.get(r) {
+                        CompoundType::Ptr(_) => todo!("handle pointer type"),
+                        CompoundType::Fun { params, .. } => {
+                            if args.len() != params.len() {
+                                self.result.diagnostics.push(TyperDiagnostic {
+                                    span: expr.span,
+                                    kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                                });
+                            }
+                            self.ast
+                                .exprs(*args)
+                                .iter()
+                                .for_each(|arg| self.visit_expr(*arg));
                         }
-                        self.ast
-                            .exprs(*args)
-                            .iter()
-                            .for_each(|arg| self.visit_expr(*arg));
-                    }
+                    },
                     _ => {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: expr.span,

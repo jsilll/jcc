@@ -302,18 +302,20 @@ impl Expr {
 
 impl Default for ExprKind {
     fn default() -> Self {
-        Self::Const(0)
+        Self::Const(ConstValue::Int(0))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprKind {
-    /// A constant integer value.
-    Const(i64),
     /// A variable reference.
     Var(AstSymbol),
+    /// A constant integer value.
+    Const(ConstValue),
     /// A grouped expression.
     Grouped(ExprRef),
+    /// A cast expression.
+    Cast { ty: Type, expr: ExprRef },
     /// An unary expression.
     Unary { op: UnaryOp, expr: ExprRef },
     /// A binary expression.
@@ -333,6 +335,14 @@ pub enum ExprKind {
         name: AstSymbol,
         args: Slice<ExprRef>,
     },
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ConstValue {
+    /// A constant `int` value.
+    Int(i32),
+    /// A constant `long` value.
+    Long(i64),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

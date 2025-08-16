@@ -558,11 +558,10 @@ impl<'a> Parser<'a> {
             TokenKind::IntNumber => {
                 let number = self.file.slice(*span).expect("expected span to be valid");
                 let number = number.parse().expect("expected number to be valid");
-                Some(
-                    self.result
-                        .ast
-                        .new_expr(Expr::new(ExprKind::Const(number), *span)),
-                )
+                Some(self.result.ast.new_expr(Expr::new(
+                    ExprKind::Const(crate::ast::ConstValue::Int(number)),
+                    *span,
+                )))
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);

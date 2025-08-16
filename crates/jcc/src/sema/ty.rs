@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind, StmtRef,
-        StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, ConstValue, DeclKind, DeclRef, ExprKind, ExprRef, ForInit,
+        StmtKind, StmtRef, StorageClass, UnaryOp,
     },
     sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
 };
@@ -37,7 +37,7 @@ pub struct TyperPass<'a> {
     ast: &'a Ast,
     ctx: &'a mut SemaCtx,
     result: TyperResult,
-    switch_cases: HashSet<i64>,
+    switch_cases: HashSet<ConstValue>,
 }
 
 impl<'a> TyperPass<'a> {
@@ -189,7 +189,7 @@ impl<'a> TyperPass<'a> {
                     },
                     Some(StorageClass::Static) => {
                         let decl_init = match init {
-                            None => StaticValue::Initialized(0),
+                            None => StaticValue::Initialized(ConstValue::Int(0)),
                             Some(init) => {
                                 self.visit_expr(init);
                                 if decl.ty.get() != self.ast.expr(init).ty.get() {
@@ -205,7 +205,7 @@ impl<'a> TyperPass<'a> {
                                             span: self.ast.expr(init).span,
                                             kind: TyperDiagnosticKind::NotConstant,
                                         });
-                                        StaticValue::Initialized(0)
+                                        StaticValue::Initialized(ConstValue::Int(0))
                                     }
                                 }
                             }
@@ -377,6 +377,7 @@ impl<'a> TyperPass<'a> {
         expr.ty.set(Type::Int);
         match &expr.kind {
             ExprKind::Const(_) => {}
+            ExprKind::Cast { .. } => todo!("handle cast expressions"),
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Var(name) => {
                 let info = self
@@ -470,6 +471,7 @@ impl<'a> TyperPass<'a> {
 fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
     match ast.expr(expr).kind {
         ExprKind::Var { .. } => true,
+        ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => is_lvalue(ast, expr),
         ExprKind::Const(_)
         | ExprKind::Unary { .. }
@@ -479,9 +481,10 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
     }
 }
 
-fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<i64> {
+fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<ConstValue> {
     match ast.expr(expr).kind {
         ExprKind::Const(value) => Some(value),
+        ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => eval_constant(ast, expr),
         ExprKind::Var { .. }
         | ExprKind::Unary { .. }

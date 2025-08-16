@@ -2,7 +2,7 @@ pub mod control;
 pub mod resolve;
 pub mod ty;
 
-use crate::ast::{Ast, StmtRef};
+use crate::ast::{Ast, ConstValue, StmtRef};
 
 use std::{
     collections::HashMap,
@@ -198,7 +198,7 @@ pub enum StaticValue {
     /// Tentative initializer
     Tentative,
     /// Initialized with a value
-    Initialized(i64),
+    Initialized(ConstValue),
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{self, AstSymbol, StmtRef},
+    ast::{self, AstSymbol, ConstValue, StmtRef},
     sema::{Attribute, SemaCtx, SemaSymbol, StaticValue},
 };
 
@@ -49,13 +49,16 @@ impl<'a> Builder<'a> {
                         let init = match init {
                             StaticValue::Tentative => Some(0),
                             StaticValue::NoInitializer => None,
-                            StaticValue::Initialized(init) => Some(init),
+                            StaticValue::Initialized(ast::ConstValue::Int(init)) => Some(init),
+                            StaticValue::Initialized(ast::ConstValue::Long(_)) => {
+                                todo!("handle long static initializers")
+                            }
                         };
                         self.get_or_make_static(
                             Type::Int32,
                             &decl.name,
                             is_global,
-                            init,
+                            init.map(|i| i as i64),
                             decl.span,
                         );
                     }
@@ -132,13 +135,16 @@ impl<'a> Builder<'a> {
                         let init = match init {
                             StaticValue::Tentative => Some(0),
                             StaticValue::NoInitializer => None,
-                            StaticValue::Initialized(init) => Some(init),
+                            StaticValue::Initialized(ast::ConstValue::Int(init)) => Some(init),
+                            StaticValue::Initialized(ast::ConstValue::Long(_)) => {
+                                todo!("handle long static initializers")
+                            }
                         };
                         self.get_or_make_static(
                             Type::Int32,
                             &decl.name,
                             is_global,
-                            init,
+                            init.map(|i| i as i64),
                             decl.span,
                         );
                     }
@@ -476,7 +482,7 @@ impl<'a> Builder<'a> {
                         let inner = self.ast.stmt(*inner_ref);
                         if let ast::StmtKind::Case { expr, .. } = inner.kind {
                             let val = match self.ast.expr(expr).kind {
-                                ast::ExprKind::Const(c) => c,
+                                ast::ExprKind::Const(ConstValue::Int(c)) => c as i64,
                                 _ => panic!("expected a constant expression"),
                             };
                             let case_block = self.builder.new_block("switch.case", inner.span);
@@ -521,7 +527,10 @@ impl<'a> Builder<'a> {
         let expr = self.ast.expr(expr);
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
-            ast::ExprKind::Const(c) => self.builder.insert_inst(Inst::const_i32(*c, expr.span)),
+            ast::ExprKind::Const(ConstValue::Int(c)) => self
+                .builder
+                .insert_inst(Inst::const_i32(*c as i64, expr.span)),
+            ast::ExprKind::Const(ConstValue::Long(_)) => todo!("handle long constants"),
             ast::ExprKind::Var(name) => {
                 let info = self
                     .sema
@@ -565,6 +574,7 @@ impl<'a> Builder<'a> {
                 let func = self.get_or_make_function(name, is_global, expr.span);
                 self.builder.insert_inst(Inst::call(func, args, expr.span))
             }
+            ast::ExprKind::Cast { .. } => todo!("handle cast expressions"),
             ast::ExprKind::Unary { op, expr: inner } => match op {
                 ast::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, *inner, expr.span),
                 ast::UnaryOp::BitNot => self.build_unary(UnaryOp::Not, *inner, expr.span),

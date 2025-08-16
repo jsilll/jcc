@@ -284,7 +284,7 @@ impl<'a> AstMermaid<'a> {
         let expr_id = format!("expr_{}", expr.0.get());
         match &self.ast.expr(expr).kind {
             ExprKind::Const(val) => {
-                let label = format!("Const\nvalue: {val}");
+                let label = format!("Const\nvalue: {:?}", val);
                 self.define_node(&expr_id, &label);
             }
             ExprKind::Grouped(inner) => {
@@ -296,6 +296,12 @@ impl<'a> AstMermaid<'a> {
                 let n = self.interner.lookup(name.raw);
                 let label = format!("VarRef\nname: {}\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label);
+            }
+            ExprKind::Cast { ty, expr: inner } => {
+                let label = format!("Cast\ntype: {:?}", ty);
+                self.define_node(&expr_id, &label);
+                let inner_id = self.visit_expr(*inner);
+                self.define_edge(&expr_id, &inner_id, Some("expression"));
             }
             ExprKind::Unary { op, expr: inner } => {
                 let label = format!("UnaryOp\nop: {:?}", op);

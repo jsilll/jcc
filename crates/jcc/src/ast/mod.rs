@@ -196,7 +196,7 @@ pub struct DeclRef(pub(crate) NonZeroU32);
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Decl {
-    pub ty: Cell<Type>,
+    pub ty: Type,
     pub kind: DeclKind,
     pub name: AstSymbol,
     pub span: SourceSpan,

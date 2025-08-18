@@ -1,6 +1,6 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, mermaid::AstMermaid, parse::Parser},
-    sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx},
+    sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
     ssa::Builder,
     tok::lex::{Lexer, LexerDiagnosticKind},
 };
@@ -109,7 +109,8 @@ fn try_main() -> Result<()> {
     }
 
     // Parse tokens
-    let r = Parser::new(file, &mut interner, r.tokens.iter()).parse();
+    let mut dict = TypeDict::new();
+    let r = Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse();
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
@@ -155,7 +156,7 @@ fn try_main() -> Result<()> {
     }
 
     // Analyze the AST
-    let mut ctx = SemaCtx::new(&ast);
+    let mut ctx = SemaCtx::with_dict(&ast, dict);
     let r = ControlPass::new(&ast, &mut ctx).check();
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;

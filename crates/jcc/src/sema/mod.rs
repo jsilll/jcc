@@ -30,6 +30,14 @@ impl SemaCtx {
         }
     }
 
+    pub fn with_dict(ast: &Ast, dict: TypeDict) -> Self {
+        Self {
+            dict,
+            switches: HashMap::new(),
+            symbols: vec![Default::default(); ast.symbols_len() + 1],
+        }
+    }
+
     #[inline]
     pub fn symbol(&self, sym: SemaSymbol) -> Option<&SymbolInfo> {
         self.symbols

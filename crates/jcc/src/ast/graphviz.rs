@@ -116,8 +116,9 @@ impl<'a> AstGraphviz<'a> {
             DeclKind::Var(init) => {
                 let name = self.interner.lookup(decl.name.raw).escape_default();
                 let label = format!(
-                    "VarDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}\\nsema: {:?}",
+                    "VarDecl\\nname: {}\\ntype: {:?}\\n\\nstorage: {:?}\\nsema: {:?}",
                     name,
+                    decl.ty,
                     decl.storage,
                     decl.name.sema.get()
                 );
@@ -130,8 +131,9 @@ impl<'a> AstGraphviz<'a> {
             DeclKind::Func { params, body } => {
                 let name = self.interner.lookup(decl.name.raw).escape_default();
                 let label = format!(
-                    "FuncDecl\\nname: {}\\n(int assumed)\\nstorage: {:?}\\nsema: {:?}",
+                    "FuncDecl\\nname: {}\\ntype: {:?}\\n\\nstorage: {:?}\\nsema: {:?}",
                     name,
+                    decl.ty,
                     decl.storage,
                     decl.name.sema.get()
                 );

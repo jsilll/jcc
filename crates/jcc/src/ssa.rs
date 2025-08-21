@@ -14,10 +14,10 @@ use jcc_ssa::{
 };
 
 // ---------------------------------------------------------------------------
-// Builder
+// SSABuilder
 // ---------------------------------------------------------------------------
 
-pub struct Builder<'a> {
+pub struct SSABuilder<'a> {
     ast: &'a ast::Ast,
     sema: &'a SemaCtx,
     builder: IRBuilder<'a>,
@@ -25,7 +25,7 @@ pub struct Builder<'a> {
     tracked_blocks: HashMap<StmtRef, TrackedBlock>,
 }
 
-impl<'a> Builder<'a> {
+impl<'a> SSABuilder<'a> {
     pub fn new(ast: &'a ast::Ast, sema: &'a SemaCtx, interner: &'a mut Interner) -> Self {
         Self {
             ast,

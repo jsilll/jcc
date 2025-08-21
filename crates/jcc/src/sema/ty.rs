@@ -3,6 +3,7 @@ use crate::{
         Ast, BinaryOp, BlockItem, ConstValue, DeclKind, DeclRef, ExprKind, ExprRef, ForInit,
         StmtKind, StmtRef, StorageClass, UnaryOp,
     },
+    lower::{LoweringAction, LoweringActions},
     sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
 };
 
@@ -16,6 +17,7 @@ use std::collections::HashSet;
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct TyperResult {
+    pub lowering_actions: LoweringActions,
     pub diagnostics: Vec<TyperDiagnostic>,
 }
 
@@ -56,18 +58,6 @@ impl<'a> TyperPass<'a> {
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
         self.result
-    }
-
-    #[inline]
-    fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
-        if !is_lvalue(self.ast, expr) {
-            self.result.diagnostics.push(TyperDiagnostic {
-                span: self.ast.expr(expr).span,
-                kind: TyperDiagnosticKind::InvalidLValue,
-            });
-            return false;
-        }
-        true
     }
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
@@ -267,8 +257,12 @@ impl<'a> TyperPass<'a> {
             | StmtKind::Break(_)
             | StmtKind::Continue(_)
             | StmtKind::Goto { .. } => {}
-            StmtKind::Expr(expr) => self.visit_expr(*expr),
-            StmtKind::Return(expr) => self.visit_expr(*expr),
+            StmtKind::Expr(expr) => {
+                self.visit_expr(*expr);
+            }
+            StmtKind::Return(expr) => {
+                self.visit_expr(*expr);
+            }
             StmtKind::Default(stmt) => self.visit_stmt(*stmt),
             StmtKind::Case { stmt, .. } => self.visit_stmt(*stmt),
             StmtKind::Label { stmt, .. } => self.visit_stmt(*stmt),
@@ -305,7 +299,9 @@ impl<'a> TyperPass<'a> {
             } => {
                 if let Some(init) = init {
                     match init {
-                        ForInit::Expr(expr) => self.visit_expr(*expr),
+                        ForInit::Expr(expr) => {
+                            self.visit_expr(*expr);
+                        }
                         ForInit::VarDecl(decl) => {
                             if self.ast.decl(*decl).storage.is_some() {
                                 self.result.diagnostics.push(TyperDiagnostic {
@@ -357,27 +353,15 @@ impl<'a> TyperPass<'a> {
         }
     }
 
-    fn visit_expr(&mut self, expr_ref: ExprRef) {
+    fn visit_expr(&mut self, expr_ref: ExprRef) -> Type {
         let expr = self.ast.expr(expr_ref);
-        expr.ty.set(Type::Int);
-        match &expr.kind {
-            ExprKind::Const(_) => {}
-            ExprKind::Cast { .. } => todo!("handle cast expressions"),
+        let ty = match &expr.kind {
+            ExprKind::Const(ConstValue::Int(_)) => Type::Int,
+            ExprKind::Const(ConstValue::Long(_)) => Type::Long,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
-            ExprKind::Var(name) => {
-                let info = self
-                    .ctx
-                    .symbol(name.sema.get())
-                    .expect("symbol info not found");
-                match info.ty {
-                    Type::Int | Type::Long => {}
-                    Type::Void | Type::Compound(_) => {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: expr.span,
-                            kind: TyperDiagnosticKind::FunctionUsedAsVariable,
-                        });
-                    }
-                }
+            ExprKind::Cast { ty, expr } => {
+                self.visit_expr(*expr);
+                *ty
             }
             ExprKind::Ternary {
                 cond,
@@ -386,42 +370,85 @@ impl<'a> TyperPass<'a> {
             } => {
                 self.visit_expr(*cond);
                 self.visit_expr(*then);
-                self.visit_expr(*otherwise);
+                self.visit_expr(*otherwise)
             }
-            ExprKind::Unary { op, expr } => match op {
-                UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
+            ExprKind::Unary { op, expr } => {
+                let ty = self.visit_expr(*expr);
+                if matches!(op, UnaryOp::LogicalNot) {
+                    return Type::Int;
+                }
+                if matches!(
+                    op,
+                    UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec
+                ) {
                     self.assert_is_lvalue(*expr);
-                    self.visit_expr(*expr);
                 }
-                _ => self.visit_expr(*expr),
-            },
-            ExprKind::Binary { op, lhs, rhs } => match op {
-                BinaryOp::Assign
-                | BinaryOp::AddAssign
-                | BinaryOp::SubAssign
-                | BinaryOp::MulAssign
-                | BinaryOp::DivAssign
-                | BinaryOp::RemAssign
-                | BinaryOp::BitOrAssign
-                | BinaryOp::BitAndAssign
-                | BinaryOp::BitXorAssign
-                | BinaryOp::BitShlAssign
-                | BinaryOp::BitShrAssign => {
+                ty
+            }
+            ExprKind::Binary { op, lhs, rhs } => {
+                let lty = self.visit_expr(*lhs);
+                let rty = self.visit_expr(*rhs);
+                if matches!(op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
+                    return Type::Int;
+                }
+                if matches!(
+                    op,
+                    BinaryOp::Assign
+                        | BinaryOp::AddAssign
+                        | BinaryOp::SubAssign
+                        | BinaryOp::MulAssign
+                        | BinaryOp::DivAssign
+                        | BinaryOp::RemAssign
+                        | BinaryOp::BitOrAssign
+                        | BinaryOp::BitAndAssign
+                        | BinaryOp::BitXorAssign
+                        | BinaryOp::BitShlAssign
+                        | BinaryOp::BitShrAssign
+                ) {
                     self.assert_is_lvalue(*lhs);
-                    self.visit_expr(*lhs);
-                    self.visit_expr(*rhs);
                 }
-                _ => {
-                    self.visit_expr(*lhs);
-                    self.visit_expr(*rhs);
+                let common = self.get_common_type(lty, rty, expr.span);
+                if lty != common {
+                    self.result
+                        .lowering_actions
+                        .actions
+                        .push(LoweringAction::Cast {
+                            expr: *lhs,
+                            ty: common,
+                        });
                 }
-            },
-            ExprKind::Call { name, args } => {
-                let info = self
+                if rty != common {
+                    self.result
+                        .lowering_actions
+                        .actions
+                        .push(LoweringAction::Cast {
+                            expr: *rhs,
+                            ty: common,
+                        });
+                }
+                common
+            }
+            ExprKind::Var(name) => {
+                let ty = self
                     .ctx
                     .symbol(name.sema.get())
-                    .expect("symbol info not found");
-                match info.ty {
+                    .expect("symbol info not found")
+                    .ty;
+                if matches!(ty, Type::Void | Type::Compound(_)) {
+                    self.result.diagnostics.push(TyperDiagnostic {
+                        span: expr.span,
+                        kind: TyperDiagnosticKind::VariableUsedAsFunction,
+                    });
+                }
+                ty
+            }
+            ExprKind::Call { name, args } => {
+                let ty = self
+                    .ctx
+                    .symbol(name.sema.get())
+                    .expect("symbol info not found")
+                    .ty;
+                match ty {
                     Type::Compound(r) => match self.ctx.dict.get(r) {
                         CompoundType::Ptr(_) => todo!("handle pointer type"),
                         CompoundType::Fun { params, .. } => {
@@ -431,10 +458,9 @@ impl<'a> TyperPass<'a> {
                                     kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                                 });
                             }
-                            self.ast
-                                .exprs(*args)
-                                .iter()
-                                .for_each(|arg| self.visit_expr(*arg));
+                            self.ast.exprs(*args).iter().for_each(|arg| {
+                                self.visit_expr(*arg);
+                            });
                         }
                     },
                     _ => {
@@ -444,6 +470,41 @@ impl<'a> TyperPass<'a> {
                         });
                     }
                 }
+                ty
+            }
+        };
+        expr.ty.set(ty);
+        ty
+    }
+
+    // ---------------------------------------------------------------------------
+    // Auxiliary methods
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
+        if !is_lvalue(self.ast, expr) {
+            self.result.diagnostics.push(TyperDiagnostic {
+                span: self.ast.expr(expr).span,
+                kind: TyperDiagnosticKind::InvalidLValue,
+            });
+            return false;
+        }
+        true
+    }
+
+    #[inline]
+    fn get_common_type(&mut self, lhs: Type, rhs: Type, span: SourceSpan) -> Type {
+        match (lhs, rhs) {
+            (Type::Int, Type::Int) => Type::Int,
+            (Type::Long, Type::Long) => Type::Long,
+            (Type::Int, Type::Long) | (Type::Long, Type::Int) => Type::Long,
+            _ => {
+                self.result.diagnostics.push(TyperDiagnostic {
+                    span,
+                    kind: TyperDiagnosticKind::TypeMismatch,
+                });
+                Type::Void
             }
         }
     }
@@ -486,14 +547,15 @@ fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<ConstValue> {
 #[derive(Clone, PartialEq, Eq)]
 pub enum TyperDiagnosticKind {
     NotConstant,
+    TypeMismatch,
     InvalidLValue,
     DuplicateSwitchCase,
     MultipleInitializers,
     ExternLocalInitialized,
     VariableUsedAsFunction,
+    FunctionUsedAsVariable,
     InitializerTypeMismatch,
     DeclarationTypeMismatch,
-    FunctionUsedAsVariable,
     StorageClassesDisallowed,
     DeclarationVisibilityMismatch,
 }
@@ -505,6 +567,11 @@ impl From<TyperDiagnostic> for Diagnostic {
                 diagnostic.span,
                 "not a constant",
                 "this expression is not a constant",
+            ),
+            TyperDiagnosticKind::TypeMismatch => Diagnostic::error(
+                diagnostic.span,
+                "type mismatch",
+                "this expression has a different type than expected",
             ),
             TyperDiagnosticKind::InvalidLValue => Diagnostic::error(
                 diagnostic.span,

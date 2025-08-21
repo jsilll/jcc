@@ -94,8 +94,9 @@ impl<'a> AstMermaid<'a> {
             DeclKind::Var(init) => {
                 let name = self.interner.lookup(decl.name.raw);
                 let label = format!(
-                    "VarDecl\nname: {}\n(int assumed)\nstorage: {:?}\nsema: {:?}",
+                    "VarDecl\nname: {}\ntype: {:?}\nstorage: {:?}\nsema: {:?}",
                     name,
+                    decl.ty,
                     decl.storage,
                     decl.name.sema.get()
                 );
@@ -108,8 +109,9 @@ impl<'a> AstMermaid<'a> {
             DeclKind::Func { params, body } => {
                 let name = self.interner.lookup(decl.name.raw);
                 let label = format!(
-                    "FuncDecl\nname: {}\n(int assumed)\nstorage: {:?}\nsema: {:?}",
+                    "FuncDecl\nname: {}\ntype: {:?}\nstorage: {:?}\nsema: {:?}",
                     name,
+                    decl.ty,
                     decl.storage,
                     decl.name.sema.get()
                 );

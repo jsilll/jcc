@@ -219,8 +219,8 @@ impl<'a> ResolverPass<'a> {
         let expr = self.ast.expr(expr_ref);
         match &expr.kind {
             ExprKind::Const(_) => {}
-            ExprKind::Cast { .. } => todo!("Handle cast expressions"),
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
+            ExprKind::Cast { expr, .. } => self.visit_expr(*expr),
             ExprKind::Unary { expr, .. } => self.visit_expr(*expr),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.visit_expr(*lhs);

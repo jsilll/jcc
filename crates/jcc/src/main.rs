@@ -1,5 +1,5 @@
 use jcc::{
-    ast::{graphviz::AstGraphviz, mermaid::AstMermaid, parse::Parser},
+    ast::{graphviz::AstGraphviz, parse::Parser},
     lower::LoweringPass,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
     ssa::SSABuilder,
@@ -30,9 +30,6 @@ struct Args {
     /// Run until the parser and stop
     #[clap(long)]
     pub parse: bool,
-    /// Emit AST as Mermaid file and stop
-    #[clap(long)]
-    pub emit_ast_mermaid: bool,
     /// Emit AST as Graphviz DOT file and stop
     #[clap(long)]
     pub emit_ast_graphviz: bool,
@@ -116,12 +113,6 @@ fn try_main() -> Result<()> {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
     }
-    if args.emit_ast_mermaid {
-        let mmd_path = args.path.with_extension("mmd");
-        let ast_mermaid = AstMermaid::new(&r.ast, &interner);
-        let mmd = ast_mermaid.emit();
-        std::fs::write(&mmd_path, &mmd).context("Failed to write AST Mermaid file")?;
-    }
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
@@ -157,12 +148,6 @@ fn try_main() -> Result<()> {
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
     let ast = LoweringPass::new(ast, r.actions).build();
-    if args.emit_ast_mermaid {
-        let mmd_path = args.path.with_extension("mmd");
-        let ast_mermaid = AstMermaid::new(&ast, &interner);
-        let dot = ast_mermaid.emit();
-        std::fs::write(&mmd_path, &dot).context("Failed to write Mermaid file")?;
-    }
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&ast, &interner);

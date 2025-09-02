@@ -1,5 +1,4 @@
 pub mod graphviz;
-pub mod mermaid;
 pub mod parse;
 
 use crate::sema::{SemaSymbol, Type};

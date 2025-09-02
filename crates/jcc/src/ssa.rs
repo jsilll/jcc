@@ -14,10 +14,10 @@ use jcc_ssa::{
 };
 
 // ---------------------------------------------------------------------------
-// Builder
+// SSABuilder
 // ---------------------------------------------------------------------------
 
-pub struct Builder<'a> {
+pub struct SSABuilder<'a> {
     ast: &'a ast::Ast,
     sema: &'a SemaCtx,
     builder: IRBuilder<'a>,
@@ -25,7 +25,7 @@ pub struct Builder<'a> {
     tracked_blocks: HashMap<StmtRef, TrackedBlock>,
 }
 
-impl<'a> Builder<'a> {
+impl<'a> SSABuilder<'a> {
     pub fn new(ast: &'a ast::Ast, sema: &'a SemaCtx, interner: &'a mut Interner) -> Self {
         Self {
             ast,
@@ -663,11 +663,7 @@ impl<'a> Builder<'a> {
                     }
                 }
             },
-            ast::ExprKind::Ternary {
-                cond,
-                then,
-                otherwise,
-            } => {
+            ast::ExprKind::Ternary { cond, then, other } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
 
                 let then_block = self.builder.new_block("tern.then", expr.span);
@@ -690,7 +686,7 @@ impl<'a> Builder<'a> {
 
                 // === Else Block ===
                 self.builder.switch_to_block(else_block);
-                let else_val = self.visit_expr(*otherwise, ExprMode::RightValue);
+                let else_val = self.visit_expr(*other, ExprMode::RightValue);
                 self.builder
                     .insert_inst(Inst::upsilon(phi, else_val, expr.span));
                 self.builder.insert_inst(Inst::jump(cont_block, expr.span));

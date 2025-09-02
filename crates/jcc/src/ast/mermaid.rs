@@ -94,8 +94,9 @@ impl<'a> AstMermaid<'a> {
             DeclKind::Var(init) => {
                 let name = self.interner.lookup(decl.name.raw);
                 let label = format!(
-                    "VarDecl\nname: {}\n(int assumed)\nstorage: {:?}\nsema: {:?}",
+                    "VarDecl\nname: {}\ntype: {:?}\nstorage: {:?}\nsema: {:?}",
                     name,
+                    decl.ty,
                     decl.storage,
                     decl.name.sema.get()
                 );
@@ -108,8 +109,9 @@ impl<'a> AstMermaid<'a> {
             DeclKind::Func { params, body } => {
                 let name = self.interner.lookup(decl.name.raw);
                 let label = format!(
-                    "FuncDecl\nname: {}\n(int assumed)\nstorage: {:?}\nsema: {:?}",
+                    "FuncDecl\nname: {}\ntype: {:?}\nstorage: {:?}\nsema: {:?}",
                     name,
+                    decl.ty,
                     decl.storage,
                     decl.name.sema.get()
                 );
@@ -317,17 +319,13 @@ impl<'a> AstMermaid<'a> {
                 let rhs_id = self.visit_expr(*rhs);
                 self.define_edge(&expr_id, &rhs_id, Some("rhs"));
             }
-            ExprKind::Ternary {
-                cond,
-                then,
-                otherwise,
-            } => {
+            ExprKind::Ternary { cond, then, other } => {
                 self.define_node(&expr_id, "TernaryOp");
                 let cond_id = self.visit_expr(*cond);
                 self.define_edge(&expr_id, &cond_id, Some("condition"));
                 let then_id = self.visit_expr(*then);
                 self.define_edge(&expr_id, &then_id, Some("then_expr"));
-                let otherwise_id = self.visit_expr(*otherwise);
+                let otherwise_id = self.visit_expr(*other);
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"));
             }
             ExprKind::Call { name, args } => {

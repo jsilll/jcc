@@ -141,9 +141,10 @@ where
                 entry.insert(value);
                 None
             }
-            Entry::Occupied(mut entry) => match entry.get().version < self.version {
-                false => Some(entry.insert(value).value),
-                true => {
+            Entry::Occupied(mut entry) => {
+                if entry.get().version >= self.version {
+                    Some(entry.insert(value).value)
+                } else {
                     self.log.push(LogEntry::Update(
                         entry.key().clone(),
                         Some(entry.get().clone()),
@@ -151,7 +152,7 @@ where
                     entry.insert(value);
                     None
                 }
-            },
+            }
         }
     }
 }

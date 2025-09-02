@@ -328,7 +328,7 @@ pub enum ExprKind {
     Ternary {
         cond: ExprRef,
         then: ExprRef,
-        otherwise: ExprRef,
+        other: ExprRef,
     },
     /// A function call expression.
     Call {

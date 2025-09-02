@@ -3,7 +3,7 @@ use crate::{
         Ast, AstSymbol, BinaryOp, BlockItem, ConstValue, Decl, DeclKind, DeclRef, Expr, ExprKind,
         ExprRef, ForInit, Slice, Stmt, StmtKind, StmtRef, StorageClass, UnaryOp,
     },
-    sema::{CompoundType, Type, TypeDict},
+    sema::{CompoundType, CompoundTypeRef, Type, TypeDict},
     tok::{Token, TokenKind},
 };
 
@@ -211,10 +211,7 @@ impl<'a> Parser<'a> {
                     self.eat(TokenKind::RBrace)?;
                     Some(body)
                 };
-                let ty = self.dict.intern(CompoundType::Fun {
-                    ret: Type::Int,
-                    params: vec![Type::Int; params.len()],
-                });
+                let ty = self.build_func_type(params, ty);
                 Some(self.result.ast.new_decl(Decl {
                     span,
                     storage,
@@ -527,12 +524,12 @@ impl<'a> Parser<'a> {
                         InfixToken::Ternary => {
                             let then = self.parse_expr(0)?;
                             self.eat(TokenKind::Colon)?;
-                            let otherwise = self.parse_expr(prec)?;
+                            let other = self.parse_expr(prec)?;
                             lhs = self.result.ast.new_expr(Expr::new(
                                 ExprKind::Ternary {
                                     cond: lhs,
                                     then,
-                                    otherwise,
+                                    other,
                                 },
                                 *span,
                             ));
@@ -809,6 +806,15 @@ impl<'a> Parser<'a> {
             }
             self.iter.next();
         }
+    }
+
+    #[inline]
+    fn build_func_type(&mut self, params_slice: Slice<DeclRef>, ret: Type) -> CompoundTypeRef {
+        let mut params = Vec::with_capacity(params_slice.len());
+        self.result.ast.decls(params_slice).iter().for_each(|d| {
+            params.push(self.result.ast.decl(*d).ty);
+        });
+        self.dict.intern(CompoundType::Func { ret, params })
     }
 }
 

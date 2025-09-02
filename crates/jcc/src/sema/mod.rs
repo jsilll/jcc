@@ -74,7 +74,7 @@ impl TypeDict {
     pub fn new() -> Self {
         Self {
             cache: HashMap::new(),
-            types: vec![Rc::new(CompoundType::Ptr(Type::Void))],
+            types: vec![Rc::new(CompoundType::Ptr(Type::default()))],
         }
     }
 
@@ -240,5 +240,5 @@ pub enum CompoundType {
     /// A pointer type
     Ptr(Type),
     /// A functional type
-    Fun { ret: Type, params: Vec<Type> },
+    Func { ret: Type, params: Vec<Type> },
 }

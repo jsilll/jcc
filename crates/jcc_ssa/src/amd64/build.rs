@@ -151,12 +151,11 @@ impl<'a> Builder<'a> {
             }
             crate::InstKind::Call { func, ref args } => {
                 let stack_args = args.len().saturating_sub(ARG_REGS.len());
-                let stack_padding = match stack_args % 2 == 1 {
-                    false => 0,
-                    true => {
-                        self.insert_inst(Inst::alloca(8, inst.span));
-                        8
-                    }
+                let stack_padding = if stack_args % 2 == 0 {
+                    0
+                } else {
+                    self.insert_inst(Inst::alloca(8, inst.span));
+                    8
                 };
                 for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
                     let src = self.get_operand(*arg);

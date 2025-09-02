@@ -219,21 +219,17 @@ impl<'a> ResolverPass<'a> {
         let expr = self.ast.expr(expr_ref);
         match &expr.kind {
             ExprKind::Const(_) => {}
-            ExprKind::Cast { .. } => todo!("Handle cast expressions"),
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
+            ExprKind::Cast { expr, .. } => self.visit_expr(*expr),
             ExprKind::Unary { expr, .. } => self.visit_expr(*expr),
             ExprKind::Binary { lhs, rhs, .. } => {
                 self.visit_expr(*lhs);
                 self.visit_expr(*rhs);
             }
-            ExprKind::Ternary {
-                cond,
-                then,
-                otherwise,
-            } => {
+            ExprKind::Ternary { cond, then, other } => {
                 self.visit_expr(*cond);
                 self.visit_expr(*then);
-                self.visit_expr(*otherwise);
+                self.visit_expr(*other);
             }
             ExprKind::Var(name) => match self.scope.get(&name.raw) {
                 Some(entry) => name.sema.set(entry.symbol),
@@ -274,14 +270,13 @@ impl<'a> ResolverPass<'a> {
     }
 
     fn get_or_create_scoped_symbol(&mut self, decl: DeclRef, name: &AstSymbol, has_linkage: bool) {
-        let entry = match has_linkage {
-            true => SymbolInfo::with_linkage(self.get_or_create_global_symbol(name)),
-            false => {
-                let symbol = SemaSymbol(self.symbol_count);
-                self.symbol_count = self.symbol_count.saturating_add(1);
-                name.sema.set(symbol);
-                SymbolInfo::no_linkage(symbol)
-            }
+        let entry = if has_linkage {
+            SymbolInfo::with_linkage(self.get_or_create_global_symbol(name))
+        } else {
+            let symbol = SemaSymbol(self.symbol_count);
+            self.symbol_count = self.symbol_count.saturating_add(1);
+            name.sema.set(symbol);
+            SymbolInfo::no_linkage(symbol)
         };
         if let Some(prev) = self.scope.insert(name.raw, entry) {
             if !(entry.has_linkage && prev.has_linkage) {

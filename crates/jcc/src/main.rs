@@ -1,7 +1,8 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, mermaid::AstMermaid, parse::Parser},
+    lower::LoweringPass,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
-    ssa::Builder,
+    ssa::SSABuilder,
     tok::lex::{Lexer, LexerDiagnosticKind},
 };
 
@@ -142,18 +143,6 @@ fn try_main() -> Result<()> {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
     }
-    if args.emit_ast_mermaid {
-        let mmd_path = args.path.with_extension("mmd");
-        let ast_mermaid = AstMermaid::new(&ast, &interner);
-        let dot = ast_mermaid.emit();
-        std::fs::write(&mmd_path, &dot).context("Failed to write Mermaid file")?;
-    }
-    if args.emit_ast_graphviz {
-        let dot_path = args.path.with_extension("dot");
-        let ast_graphviz = AstGraphviz::new(&ast, &interner);
-        let dot = ast_graphviz.emit();
-        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
-    }
 
     // Analyze the AST
     let mut ctx = SemaCtx::with_dict(&ast, dict);
@@ -167,12 +156,25 @@ fn try_main() -> Result<()> {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
+    let ast = LoweringPass::new(ast, r.actions).build();
+    if args.emit_ast_mermaid {
+        let mmd_path = args.path.with_extension("mmd");
+        let ast_mermaid = AstMermaid::new(&ast, &interner);
+        let dot = ast_mermaid.emit();
+        std::fs::write(&mmd_path, &dot).context("Failed to write Mermaid file")?;
+    }
+    if args.emit_ast_graphviz {
+        let dot_path = args.path.with_extension("dot");
+        let ast_graphviz = AstGraphviz::new(&ast, &interner);
+        let dot = ast_graphviz.emit();
+        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
+    }
     if args.validate {
         return Ok(());
     }
 
     // Generate SSA
-    let ssa = Builder::new(&ast, &ctx, &mut interner).build();
+    let ssa = SSABuilder::new(&ast, &ctx, &mut interner).build();
     if args.verbose {
         println!("{}", ssa);
     }

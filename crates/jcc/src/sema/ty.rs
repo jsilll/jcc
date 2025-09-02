@@ -1,8 +1,9 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, ConstValue, DeclKind, DeclRef, ExprKind, ExprRef, ForInit,
+        Ast, BinaryOp, BlockItem, ConstValue, Decl, DeclKind, DeclRef, ExprKind, ExprRef, ForInit,
         StmtKind, StmtRef, StorageClass, UnaryOp,
     },
+    lower::LoweringActions,
     sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
 };
 
@@ -16,6 +17,7 @@ use std::collections::HashSet;
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct TyperResult {
+    pub actions: LoweringActions,
     pub diagnostics: Vec<TyperDiagnostic>,
 }
 
@@ -36,6 +38,7 @@ pub struct TyperDiagnostic {
 pub struct TyperPass<'a> {
     ast: &'a Ast,
     ctx: &'a mut SemaCtx,
+    curr_ret: Type,
     result: TyperResult,
     switch_cases: HashSet<ConstValue>,
 }
@@ -45,6 +48,7 @@ impl<'a> TyperPass<'a> {
         Self {
             ast,
             ctx,
+            curr_ret: Type::default(),
             switch_cases: HashSet::new(),
             result: TyperResult::default(),
         }
@@ -58,22 +62,10 @@ impl<'a> TyperPass<'a> {
         self.result
     }
 
-    #[inline]
-    fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
-        if !is_lvalue(self.ast, expr) {
-            self.result.diagnostics.push(TyperDiagnostic {
-                span: self.ast.expr(expr).span,
-                kind: TyperDiagnosticKind::InvalidLValue,
-            });
-            return false;
-        }
-        true
-    }
-
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
-            DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
+            DeclKind::Func { .. } => self.visit_func_decl(decl),
             DeclKind::Var(init) => {
                 let decl_is_global = decl.storage != Some(StorageClass::Static);
                 let decl_init = match init {
@@ -82,12 +74,9 @@ impl<'a> TyperPass<'a> {
                         _ => StaticValue::Tentative,
                     },
                     Some(init) => {
-                        self.visit_expr(init);
-                        if decl.ty != self.ast.expr(init).ty.get() {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                span: self.ast.expr(init).span,
-                                kind: TyperDiagnosticKind::InitializerTypeMismatch,
-                            });
+                        let ty = self.visit_expr(init);
+                        if ty != decl.ty {
+                            self.result.actions.schedule_cast(init, decl.ty);
                         }
                         match eval_constant(self.ast, init) {
                             Some(value) => StaticValue::Initialized(value),
@@ -149,7 +138,7 @@ impl<'a> TyperPass<'a> {
     fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
         let decl = self.ast.decl(decl_ref);
         match decl.kind {
-            DeclKind::Func { .. } => self.visit_func_decl(decl_ref),
+            DeclKind::Func { .. } => self.visit_func_decl(decl),
             DeclKind::Var(init) => match decl.storage {
                 None => {
                     let _ = self
@@ -157,7 +146,10 @@ impl<'a> TyperPass<'a> {
                         .symbol_mut(decl.name.sema.get())
                         .insert(SymbolInfo::local(decl.ty));
                     if let Some(init) = init {
-                        self.visit_expr(init);
+                        let ty = self.visit_expr(init);
+                        if ty != decl.ty {
+                            self.result.actions.schedule_cast(init, decl.ty);
+                        }
                     }
                 }
                 Some(StorageClass::Extern) => match init {
@@ -183,12 +175,9 @@ impl<'a> TyperPass<'a> {
                     let decl_init = match init {
                         None => StaticValue::Initialized(ConstValue::Int(0)),
                         Some(init) => {
-                            self.visit_expr(init);
-                            if decl.ty != self.ast.expr(init).ty.get() {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    span: self.ast.expr(init).span,
-                                    kind: TyperDiagnosticKind::InitializerTypeMismatch,
-                                });
+                            let ty = self.visit_expr(init);
+                            if ty != decl.ty {
+                                self.result.actions.schedule_cast(init, decl.ty);
                             }
                             match eval_constant(self.ast, init) {
                                 Some(value) => StaticValue::Initialized(value),
@@ -209,8 +198,7 @@ impl<'a> TyperPass<'a> {
         }
     }
 
-    fn visit_func_decl(&mut self, decl_ref: DeclRef) {
-        let decl = self.ast.decl(decl_ref);
+    fn visit_func_decl(&mut self, decl: &Decl) {
         if let DeclKind::Func { params, body } = decl.kind {
             let decl_is_global = decl.storage != Some(StorageClass::Static);
             let entry = self
@@ -249,13 +237,13 @@ impl<'a> TyperPass<'a> {
                     }
                     self.visit_block_scope_decl(*param)
                 });
-                self.ast
-                    .bitems(body.unwrap_or_default())
-                    .iter()
-                    .for_each(|item| match item {
+                if let Some(body) = body {
+                    self.curr_ret = self.get_return_type(decl).unwrap_or_default();
+                    self.ast.bitems(body).iter().for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
+                }
             }
         }
     }
@@ -267,8 +255,15 @@ impl<'a> TyperPass<'a> {
             | StmtKind::Break(_)
             | StmtKind::Continue(_)
             | StmtKind::Goto { .. } => {}
-            StmtKind::Expr(expr) => self.visit_expr(*expr),
-            StmtKind::Return(expr) => self.visit_expr(*expr),
+            StmtKind::Expr(expr) => {
+                self.visit_expr(*expr);
+            }
+            StmtKind::Return(expr) => {
+                let ty = self.visit_expr(*expr);
+                if ty != self.curr_ret {
+                    self.result.actions.schedule_cast(*expr, self.curr_ret);
+                }
+            }
             StmtKind::Default(stmt) => self.visit_stmt(*stmt),
             StmtKind::Case { stmt, .. } => self.visit_stmt(*stmt),
             StmtKind::Label { stmt, .. } => self.visit_stmt(*stmt),
@@ -305,7 +300,9 @@ impl<'a> TyperPass<'a> {
             } => {
                 if let Some(init) = init {
                     match init {
-                        ForInit::Expr(expr) => self.visit_expr(*expr),
+                        ForInit::Expr(expr) => {
+                            self.visit_expr(*expr);
+                        }
                         ForInit::VarDecl(decl) => {
                             if self.ast.decl(*decl).storage.is_some() {
                                 self.result.diagnostics.push(TyperDiagnostic {
@@ -357,84 +354,125 @@ impl<'a> TyperPass<'a> {
         }
     }
 
-    fn visit_expr(&mut self, expr_ref: ExprRef) {
+    fn visit_expr(&mut self, expr_ref: ExprRef) -> Type {
         let expr = self.ast.expr(expr_ref);
-        expr.ty.set(Type::Int);
-        match &expr.kind {
-            ExprKind::Const(_) => {}
-            ExprKind::Cast { .. } => todo!("handle cast expressions"),
+        let ty = match &expr.kind {
+            ExprKind::Const(ConstValue::Int(_)) => Type::Int,
+            ExprKind::Const(ConstValue::Long(_)) => Type::Long,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
-            ExprKind::Var(name) => {
-                let info = self
-                    .ctx
-                    .symbol(name.sema.get())
-                    .expect("symbol info not found");
-                match info.ty {
-                    Type::Int | Type::Long => {}
-                    Type::Void | Type::Compound(_) => {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: expr.span,
-                            kind: TyperDiagnosticKind::FunctionUsedAsVariable,
-                        });
+            ExprKind::Cast { ty, expr } => {
+                self.visit_expr(*expr);
+                *ty
+            }
+            ExprKind::Ternary { cond, then, other } => {
+                self.visit_expr(*cond);
+                let tty = self.visit_expr(*then);
+                let oty = self.visit_expr(*other);
+                let common = self.get_common_type(tty, oty, expr.span);
+                if tty != common {
+                    self.result.actions.schedule_cast(*then, common);
+                }
+                if oty != common {
+                    self.result.actions.schedule_cast(*other, common);
+                }
+                common
+            }
+            ExprKind::Unary { op, expr } => {
+                let ty = self.visit_expr(*expr);
+                match op {
+                    UnaryOp::LogicalNot => Type::Int,
+                    UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
+                        self.assert_is_lvalue(*expr);
+                        ty
+                    }
+                    _ => ty,
+                }
+            }
+            ExprKind::Binary { op, lhs, rhs } => {
+                let lty = self.visit_expr(*lhs);
+                let rty = self.visit_expr(*rhs);
+                match op {
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => Type::Int,
+                    BinaryOp::Assign
+                    | BinaryOp::AddAssign
+                    | BinaryOp::SubAssign
+                    | BinaryOp::MulAssign
+                    | BinaryOp::DivAssign
+                    | BinaryOp::RemAssign
+                    | BinaryOp::BitOrAssign
+                    | BinaryOp::BitAndAssign
+                    | BinaryOp::BitXorAssign
+                    | BinaryOp::BitShlAssign
+                    | BinaryOp::BitShrAssign => {
+                        self.assert_is_lvalue(*lhs);
+                        if lty != rty {
+                            self.result.actions.schedule_cast(*rhs, lty);
+                        }
+                        lty
+                    }
+                    _ => {
+                        let common = self.get_common_type(lty, rty, expr.span);
+                        if lty != common {
+                            self.result.actions.schedule_cast(*lhs, common);
+                        }
+                        if rty != common {
+                            self.result.actions.schedule_cast(*rhs, common);
+                        }
+                        match op {
+                            BinaryOp::Equal
+                            | BinaryOp::NotEqual
+                            | BinaryOp::LessThan
+                            | BinaryOp::LessEqual
+                            | BinaryOp::GreaterThan
+                            | BinaryOp::GreaterEqual => Type::Int,
+                            _ => common,
+                        }
                     }
                 }
             }
-            ExprKind::Ternary {
-                cond,
-                then,
-                otherwise,
-            } => {
-                self.visit_expr(*cond);
-                self.visit_expr(*then);
-                self.visit_expr(*otherwise);
-            }
-            ExprKind::Unary { op, expr } => match op {
-                UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
-                    self.assert_is_lvalue(*expr);
-                    self.visit_expr(*expr);
-                }
-                _ => self.visit_expr(*expr),
-            },
-            ExprKind::Binary { op, lhs, rhs } => match op {
-                BinaryOp::Assign
-                | BinaryOp::AddAssign
-                | BinaryOp::SubAssign
-                | BinaryOp::MulAssign
-                | BinaryOp::DivAssign
-                | BinaryOp::RemAssign
-                | BinaryOp::BitOrAssign
-                | BinaryOp::BitAndAssign
-                | BinaryOp::BitXorAssign
-                | BinaryOp::BitShlAssign
-                | BinaryOp::BitShrAssign => {
-                    self.assert_is_lvalue(*lhs);
-                    self.visit_expr(*lhs);
-                    self.visit_expr(*rhs);
-                }
-                _ => {
-                    self.visit_expr(*lhs);
-                    self.visit_expr(*rhs);
-                }
-            },
-            ExprKind::Call { name, args } => {
-                let info = self
+            ExprKind::Var(name) => {
+                let ty = self
                     .ctx
                     .symbol(name.sema.get())
-                    .expect("symbol info not found");
-                match info.ty {
+                    .expect("symbol info not found")
+                    .ty;
+                if matches!(ty, Type::Void | Type::Compound(_)) {
+                    self.result.diagnostics.push(TyperDiagnostic {
+                        span: expr.span,
+                        kind: TyperDiagnosticKind::VariableUsedAsFunction,
+                    });
+                }
+                ty
+            }
+            ExprKind::Call { name, args } => {
+                self.ast.exprs(*args).iter().for_each(|arg| {
+                    self.visit_expr(*arg);
+                });
+                let ty = self
+                    .ctx
+                    .symbol(name.sema.get())
+                    .expect("symbol info not found")
+                    .ty;
+                match ty {
                     Type::Compound(r) => match self.ctx.dict.get(r) {
                         CompoundType::Ptr(_) => todo!("handle pointer type"),
-                        CompoundType::Fun { params, .. } => {
+                        CompoundType::Func { ret, params } => {
                             if args.len() != params.len() {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: expr.span,
-                                    kind: TyperDiagnosticKind::DeclarationTypeMismatch,
+                                    kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
                                 });
                             }
                             self.ast
                                 .exprs(*args)
                                 .iter()
-                                .for_each(|arg| self.visit_expr(*arg));
+                                .zip(params)
+                                .for_each(|(arg, ty)| {
+                                    if self.ast.expr(*arg).ty.get() != *ty {
+                                        self.result.actions.schedule_cast(*arg, *ty);
+                                    }
+                                });
+                            *ret
                         }
                     },
                     _ => {
@@ -442,8 +480,54 @@ impl<'a> TyperPass<'a> {
                             span: expr.span,
                             kind: TyperDiagnosticKind::VariableUsedAsFunction,
                         });
+                        Type::default()
                     }
                 }
+            }
+        };
+        expr.ty.set(ty);
+        ty
+    }
+
+    // ---------------------------------------------------------------------------
+    // Auxiliary methods
+    // ---------------------------------------------------------------------------
+
+    #[inline]
+    fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
+        if !is_lvalue(self.ast, expr) {
+            self.result.diagnostics.push(TyperDiagnostic {
+                span: self.ast.expr(expr).span,
+                kind: TyperDiagnosticKind::InvalidLValue,
+            });
+            return false;
+        }
+        true
+    }
+
+    #[inline]
+    fn get_return_type(&self, decl: &Decl) -> Option<Type> {
+        match decl.ty {
+            Type::Compound(r) => match self.ctx.dict.get(r) {
+                CompoundType::Func { ret, .. } => Some(*ret),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    #[inline]
+    fn get_common_type(&mut self, lhs: Type, rhs: Type, span: SourceSpan) -> Type {
+        match (lhs, rhs) {
+            (Type::Int, Type::Int) => Type::Int,
+            (Type::Long, Type::Long) => Type::Long,
+            (Type::Int, Type::Long) | (Type::Long, Type::Int) => Type::Long,
+            _ => {
+                self.result.diagnostics.push(TyperDiagnostic {
+                    span,
+                    kind: TyperDiagnosticKind::TypeMismatch,
+                });
+                Type::Void
             }
         }
     }
@@ -485,76 +569,82 @@ fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<ConstValue> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum TyperDiagnosticKind {
-    NotConstant,
-    InvalidLValue,
-    DuplicateSwitchCase,
-    MultipleInitializers,
-    ExternLocalInitialized,
-    VariableUsedAsFunction,
-    InitializerTypeMismatch,
     DeclarationTypeMismatch,
-    FunctionUsedAsVariable,
-    StorageClassesDisallowed,
     DeclarationVisibilityMismatch,
+    DuplicateSwitchCase,
+    ExternLocalInitialized,
+    FunctionCalledWithWrongArgsNumber,
+    FunctionUsedAsVariable,
+    InvalidLValue,
+    MultipleInitializers,
+    NotConstant,
+    StorageClassesDisallowed,
+    TypeMismatch,
+    VariableUsedAsFunction,
 }
 
 impl From<TyperDiagnostic> for Diagnostic {
     fn from(diagnostic: TyperDiagnostic) -> Self {
         match diagnostic.kind {
-            TyperDiagnosticKind::NotConstant => Diagnostic::error(
+            TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error(
                 diagnostic.span,
-                "not a constant",
-                "this expression is not a constant",
+                "declaration type mismatch",
+                "this declaration has a different type than expected",
             ),
-            TyperDiagnosticKind::InvalidLValue => Diagnostic::error(
+            TyperDiagnosticKind::DeclarationVisibilityMismatch => Diagnostic::error(
                 diagnostic.span,
-                "invalid lvalue",
-                "this expression is not a valid lvalue",
+                "declaration visibility mismatch",
+                "this declaration has a different visibility than expected",
             ),
             TyperDiagnosticKind::DuplicateSwitchCase => Diagnostic::error(
                 diagnostic.span,
                 "duplicate switch case",
                 "this case value is already defined",
             ),
-            TyperDiagnosticKind::MultipleInitializers => Diagnostic::error(
-                diagnostic.span,
-                "multiple initializers",
-                "this variable is already initialized",
-            ),
             TyperDiagnosticKind::ExternLocalInitialized => Diagnostic::error(
                 diagnostic.span,
                 "local extern variable initialized",
                 "local extern variable cannot have an initializer",
             ),
-            TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error(
+            TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber => Diagnostic::error(
                 diagnostic.span,
-                "declaration type mismatch",
-                "this declaration has a different type than expected",
+                "function called with wrong number of arguments",
+                "this function is being called with a wrong number of arguments",
             ),
             TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error(
                 diagnostic.span,
                 "function used as variable",
                 "this function is being used as a variable",
             ),
-            TyperDiagnosticKind::VariableUsedAsFunction => Diagnostic::error(
+            TyperDiagnosticKind::InvalidLValue => Diagnostic::error(
                 diagnostic.span,
-                "variable used as function",
-                "this variable is being used as a function",
+                "invalid lvalue",
+                "this expression is not a valid lvalue",
             ),
-            TyperDiagnosticKind::InitializerTypeMismatch => Diagnostic::error(
+            TyperDiagnosticKind::MultipleInitializers => Diagnostic::error(
                 diagnostic.span,
-                "initializer type mismatch",
-                "this initializer has a different type than expected",
+                "multiple initializers",
+                "this variable is already initialized",
+            ),
+            TyperDiagnosticKind::NotConstant => Diagnostic::error(
+                diagnostic.span,
+                "not a constant",
+                "this expression is not a constant",
             ),
             TyperDiagnosticKind::StorageClassesDisallowed => Diagnostic::error(
                 diagnostic.span,
                 "storage classes disallowed",
                 "storage classes are disallowed in this context",
             ),
-            TyperDiagnosticKind::DeclarationVisibilityMismatch => Diagnostic::error(
+            TyperDiagnosticKind::TypeMismatch => Diagnostic::error(
                 diagnostic.span,
-                "declaration visibility mismatch",
-                "this declaration has a different visibility than expected",
+                "type mismatch",
+                "this expression has a different type than expected",
+            ),
+            TyperDiagnosticKind::VariableUsedAsFunction => Diagnostic::error(
+                diagnostic.span,
+                "variable used as function",
+                "this variable is being used as a function",
             ),
         }
     }

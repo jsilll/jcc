@@ -1,6 +1,7 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser},
     lower::LoweringPass,
+    profile::{Pass, Profiler},
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
     ssa::SSABuilder,
     tok::lex::{Lexer, LexerDiagnosticKind},
@@ -24,6 +25,9 @@ struct Args {
     /// Run the compiler in verbose mode
     #[clap(long)]
     pub verbose: bool,
+    /// Run the compiler in profile mode
+    #[clap(long)]
+    pub profile: bool,
     /// Run until the lexer and stop
     #[clap(long)]
     pub lex: bool,
@@ -53,29 +57,36 @@ struct Args {
 }
 
 fn main() {
-    if let Err(e) = try_main() {
+    let args = Args::parse();
+    let mut profiler = Profiler::new(args.profile);
+    let r = try_main(&args, &mut profiler);
+    profiler
+        .report(&mut std::io::stdout())
+        .expect("Failed to write profile report");
+    if let Err(e) = r {
         println!("{:?}", e);
         std::process::exit(1)
     }
 }
 
-fn try_main() -> Result<()> {
-    let args = Args::parse();
-
+fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     // Run the preprocessor with `gcc -E -P`
     let pp_path = args.path.with_extension("i");
-    let pp_output = Command::new("gcc")
-        .arg("-E")
-        .arg("-P")
-        .arg(&args.path)
-        .arg("-o")
-        .arg(&pp_path)
-        .output()
-        .context("Failed to run preprocessor (gcc -E -P)")?;
-    if !pp_output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&pp_output.stderr));
-        return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
-    }
+    profiler.time(Pass::Preprocessor, || -> Result<()> {
+        let pp_output = Command::new("gcc")
+            .arg("-E")
+            .arg("-P")
+            .arg(&args.path)
+            .arg("-o")
+            .arg(&pp_path)
+            .output()
+            .context("Failed to run preprocessor (gcc -E -P)")?;
+        if !pp_output.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&pp_output.stderr));
+            return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
+        }
+        Ok(())
+    })?;
 
     // Initialize source database and interner
     let mut db = SourceDb::new();
@@ -90,7 +101,7 @@ fn try_main() -> Result<()> {
     ))?;
 
     // Lex file
-    let mut r = Lexer::new(file).lex();
+    let mut r = profiler.time(Pass::Lexer, || Lexer::new(file).lex());
     if args.lex {
         r.diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
@@ -108,7 +119,9 @@ fn try_main() -> Result<()> {
 
     // Parse tokens
     let mut dict = TypeDict::new();
-    let r = Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse();
+    let r = profiler.time(Pass::Parser, || {
+        Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse()
+    });
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to parser errors"));
@@ -129,7 +142,7 @@ fn try_main() -> Result<()> {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
-    let r = ResolverPass::new(&ast).check();
+    let r = profiler.time(Pass::Resolver, || ResolverPass::new(&ast).check());
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
@@ -137,17 +150,17 @@ fn try_main() -> Result<()> {
 
     // Analyze the AST
     let mut ctx = SemaCtx::with_dict(&ast, dict);
-    let r = ControlPass::new(&ast, &mut ctx).check();
+    let r = profiler.time(Pass::Control, || ControlPass::new(&ast, &mut ctx).check());
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let r = TyperPass::new(&ast, &mut ctx).check();
+    let r = profiler.time(Pass::Typer, || TyperPass::new(&ast, &mut ctx).check());
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
-    let ast = LoweringPass::new(ast, r.actions).build();
+    let ast = profiler.time(Pass::Lowering, || LoweringPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&ast, &interner);
@@ -159,7 +172,9 @@ fn try_main() -> Result<()> {
     }
 
     // Generate SSA
-    let ssa = SSABuilder::new(&ast, &ctx, &mut interner).build();
+    let ssa = profiler.time(Pass::SSABuild, || {
+        SSABuilder::new(&ast, &ctx, &mut interner).build()
+    });
     if args.verbose {
         println!("{}", ssa);
     }
@@ -173,12 +188,14 @@ fn try_main() -> Result<()> {
     }
 
     // Generate Assembly
-    let mut amd64 = ssa::amd64::build::Builder::new(&ssa).build();
+    let mut amd64 = profiler.time(Pass::AMD64Build, || {
+        ssa::amd64::build::Builder::new(&ssa).build()
+    });
     if args.verbose {
         let asm = AMD64Emitter::new(&amd64, &interner).emit();
         println!("{}", asm);
     }
-    AMD64Fixer::new().fix(&mut amd64);
+    profiler.time(Pass::AMD64Fixer, || AMD64Fixer::new().fix(&mut amd64));
     if args.verbose {
         let asm = AMD64Emitter::new(&amd64, &interner).emit();
         println!("{}", asm);
@@ -189,27 +206,32 @@ fn try_main() -> Result<()> {
 
     // Emit final assembly
     let asm_path = args.path.with_extension("s");
-    let asm = AMD64Emitter::new(&amd64, &interner).emit();
+    let asm = profiler.time(Pass::AssemblyEmission, || {
+        AMD64Emitter::new(&amd64, &interner).emit()
+    });
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.assembly {
         return Ok(());
     }
 
     // Run the assembler and linker with `gcc`
-    let mut extension = "";
-    let mut cmd = Command::new("gcc");
-    if args.no_link {
-        cmd.arg("-c");
-        extension = "o";
-    }
-    cmd.arg(&asm_path)
-        .arg("-o")
-        .arg(args.path.with_extension(extension));
-    let output = cmd.output()?;
-    if !output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        return Err(anyhow::anyhow!("exiting due to assembler errors"));
-    }
+    profiler.time(Pass::AssemblerAndLinker, || -> Result<()> {
+        let mut extension = "";
+        let mut cmd = Command::new("gcc");
+        if args.no_link {
+            cmd.arg("-c");
+            extension = "o";
+        }
+        cmd.arg(&asm_path)
+            .arg("-o")
+            .arg(args.path.with_extension(extension));
+        let output = cmd.output()?;
+        if !output.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+            return Err(anyhow::anyhow!("exiting due to assembler errors"));
+        }
+        Ok(())
+    })?;
 
     Ok(())
 }

@@ -2,7 +2,6 @@ pub mod amd64;
 pub mod builder;
 pub mod effects;
 pub mod infra;
-pub mod verify;
 
 pub use jcc_interner as interner;
 pub use jcc_sourcemap as sourcemap;
@@ -187,29 +186,6 @@ impl<'a> Program<'a> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    pub fn iter_insts(&self) -> impl Iterator<Item = &Inst> {
-        self.insts
-            .iter()
-            .skip(1)
-            .filter(|i| !matches!(i.kind, InstKind::Nop))
-    }
-
-    #[inline]
-    pub fn iter_insts_with_ref(&self) -> impl Iterator<Item = (InstRef, &Inst)> {
-        self.insts
-            .iter()
-            .skip(1)
-            .enumerate()
-            .filter_map(move |(i, inst)| match inst.kind {
-                InstKind::Nop => None,
-                _ => Some((
-                    InstRef(unsafe { NonZeroU32::new_unchecked(i as u32 + 1) }),
-                    inst,
-                )),
-            })
-    }
-
-    #[inline]
     pub fn iter_funcs(&self) -> impl Iterator<Item = &Func> {
         self.funcs.iter().skip(1).filter_map(move |f| match f {
             None => None,
@@ -255,29 +231,6 @@ impl<'a> Program<'a> {
                 })
             })
     }
-
-    // ---------------------------------------------------------------------------
-    // TODO: Complexity Queries
-    // ---------------------------------------------------------------------------
-
-    // pub fn get_predecessors(&self, _pred: &mut HashMap<BlockRef, Vec<BlockRef>>) {
-    //     unimplemented!()
-    // }
-
-    // pub fn get_phi_args(&self, phi: InstRef, args: &mut Vec<InstRef>) {
-    //     // This is inefficient (O(N_insts)) but kept as per user request.
-    //     for (idx, inst) in self.insts.iter().enumerate().skip(1) {
-    //         if let InstKind::Upsilon { phi: p, .. } = &inst.kind {
-    //             if *p == phi {
-    //                 // This check is important to avoid yielding deleted upsilons
-    //                 let inst_ref = InstRef(NonZeroU32::new(idx as u32).unwrap());
-    //                 if !self.insts_free.contains(&inst_ref) {
-    //                     args.push(inst_ref);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 // ---------------------------------------------------------------------------

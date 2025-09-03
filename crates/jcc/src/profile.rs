@@ -1,45 +1,10 @@
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Pass {
-    Preprocessor,
-    Lexer,
-    Parser,
-    Resolver,
-    Control,
-    Typer,
-    Lowering,
-    SSABuild,
-    AMD64Build,
-    AMD64Fixer,
-    AssemblyEmission,
-    AssemblerAndLinker,
+pub struct Profiler<T> {
+    passes: Option<Vec<(T, Duration)>>,
 }
 
-impl std::fmt::Display for Pass {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Pass::Preprocessor => write!(f, "Preprocessor (gcc -E)"),
-            Pass::Lexer => write!(f, "Lexer"),
-            Pass::Parser => write!(f, "Parser"),
-            Pass::Resolver => write!(f, "Resolver"),
-            Pass::Control => write!(f, "Control Pass"),
-            Pass::Typer => write!(f, "Typer Pass"),
-            Pass::Lowering => write!(f, "Lowering Pass"),
-            Pass::SSABuild => write!(f, "SSA Build"),
-            Pass::AMD64Build => write!(f, "AMD64 Build"),
-            Pass::AMD64Fixer => write!(f, "AMD64 Fixer"),
-            Pass::AssemblyEmission => write!(f, "Assembly Emission"),
-            Pass::AssemblerAndLinker => write!(f, "Assembler & Linker (gcc)"),
-        }
-    }
-}
-
-pub struct Profiler {
-    passes: Option<Vec<(Pass, Duration)>>,
-}
-
-impl Profiler {
+impl<T: std::fmt::Display> Profiler<T> {
     pub fn new(enabled: bool) -> Self {
         Self {
             passes: if !enabled {
@@ -50,7 +15,8 @@ impl Profiler {
         }
     }
 
-    pub fn time<F, R>(&mut self, pass: Pass, f: F) -> R
+    #[inline]
+    pub fn time<F, R>(&mut self, pass: T, f: F) -> R
     where
         F: FnOnce() -> R,
     {

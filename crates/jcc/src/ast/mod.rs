@@ -3,7 +3,7 @@ pub mod parse;
 
 use crate::sema::{SemaSymbol, Type};
 
-use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan};
+use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan, ConstValue};
 
 use std::{cell::Cell, num::NonZeroU32};
 
@@ -301,7 +301,7 @@ impl Expr {
 
 impl Default for ExprKind {
     fn default() -> Self {
-        Self::Const(ConstValue::Int(0))
+        Self::Const(ConstValue::Int32(0))
     }
 }
 
@@ -334,14 +334,6 @@ pub enum ExprKind {
         name: AstSymbol,
         args: Slice<ExprRef>,
     },
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ConstValue {
-    /// A constant `int` value.
-    Int(i32),
-    /// A constant `long` value.
-    Long(i64),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

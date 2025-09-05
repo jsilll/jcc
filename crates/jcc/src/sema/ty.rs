@@ -1,13 +1,16 @@
 use crate::{
     ast::{
-        Ast, BinaryOp, BlockItem, ConstValue, Decl, DeclKind, DeclRef, ExprKind, ExprRef, ForInit,
-        StmtKind, StmtRef, StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind,
+        StmtRef, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
     sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
 };
 
-use jcc_ssa::sourcemap::{diag::Diagnostic, SourceSpan};
+use jcc_ssa::{
+    sourcemap::{diag::Diagnostic, SourceSpan},
+    ConstValue,
+};
 
 use std::collections::HashSet;
 
@@ -173,7 +176,7 @@ impl<'a> TyperPass<'a> {
                 },
                 Some(StorageClass::Static) => {
                     let decl_init = match init {
-                        None => StaticValue::Initialized(ConstValue::Int(0)),
+                        None => StaticValue::Tentative,
                         Some(init) => {
                             let ty = self.visit_expr(init);
                             if ty != decl.ty {
@@ -186,7 +189,7 @@ impl<'a> TyperPass<'a> {
                                         span: self.ast.expr(init).span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
-                                    StaticValue::Initialized(ConstValue::Int(0))
+                                    StaticValue::Tentative
                                 }
                             }
                         }
@@ -357,8 +360,8 @@ impl<'a> TyperPass<'a> {
     fn visit_expr(&mut self, expr_ref: ExprRef) -> Type {
         let expr = self.ast.expr(expr_ref);
         let ty = match &expr.kind {
-            ExprKind::Const(ConstValue::Int(_)) => Type::Int,
-            ExprKind::Const(ConstValue::Long(_)) => Type::Long,
+            ExprKind::Const(ConstValue::Int32(_)) => Type::Int,
+            ExprKind::Const(ConstValue::Int64(_)) => Type::Long,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);

@@ -2,7 +2,9 @@ pub mod control;
 pub mod resolve;
 pub mod ty;
 
-use crate::ast::{Ast, ConstValue, StmtRef};
+use crate::ast::{Ast, StmtRef};
+
+use jcc_ssa::ConstValue;
 
 use std::{
     collections::HashMap,

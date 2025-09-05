@@ -570,7 +570,7 @@ impl<'a> Parser<'a> {
                 Some(
                     self.result
                         .ast
-                        .new_expr(Expr::new(ExprKind::Const(ConstValue::Long(n)), *span)),
+                        .new_expr(Expr::new(ExprKind::Const(ConstValue::Int64(n)), *span)),
                 )
             }
             TokenKind::IntNumber => {
@@ -579,14 +579,14 @@ impl<'a> Parser<'a> {
                     Ok(n) => Some(
                         self.result
                             .ast
-                            .new_expr(Expr::new(ExprKind::Const(ConstValue::Int(n)), *span)),
+                            .new_expr(Expr::new(ExprKind::Const(ConstValue::Int32(n)), *span)),
                     ),
                     Err(_) => {
                         let n = n.parse::<i64>().expect("expected number to be valid");
                         Some(
                             self.result
                                 .ast
-                                .new_expr(Expr::new(ExprKind::Const(ConstValue::Long(n)), *span)),
+                                .new_expr(Expr::new(ExprKind::Const(ConstValue::Int64(n)), *span)),
                         )
                     }
                 }

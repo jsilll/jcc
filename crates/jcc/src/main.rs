@@ -68,10 +68,10 @@ fn main() {
     }
 }
 
-fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
+fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     // Run the preprocessor with `gcc -E -P`
     let pp_path = args.path.with_extension("i");
-    profiler.time(Pass::Preprocessor, || -> Result<()> {
+    profiler.time("Preprocessor (gcc -E)", || -> Result<()> {
         let pp_output = Command::new("gcc")
             .arg("-E")
             .arg("-P")
@@ -100,7 +100,7 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
     ))?;
 
     // Lex file
-    let mut r = profiler.time(Pass::Lexer, || Lexer::new(file).lex());
+    let mut r = profiler.time("Lexer", || Lexer::new(file).lex());
     if args.lex {
         r.diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
@@ -118,7 +118,7 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
 
     // Parse tokens
     let mut dict = TypeDict::new();
-    let r = profiler.time(Pass::Parser, || {
+    let r = profiler.time("Parser", || {
         Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse()
     });
     if !r.diagnostics.is_empty() {
@@ -141,7 +141,7 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
-    let r = profiler.time(Pass::Resolver, || ResolverPass::new(&ast).check());
+    let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to resolver errors"));
@@ -149,17 +149,17 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
 
     // Analyze the AST
     let mut ctx = SemaCtx::with_dict(&ast, dict);
-    let r = profiler.time(Pass::Control, || ControlPass::new(&ast, &mut ctx).check());
+    let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to control errors"));
     }
-    let r = profiler.time(Pass::Typer, || TyperPass::new(&ast, &mut ctx).check());
+    let r = profiler.time("Typer", || TyperPass::new(&ast, &mut ctx).check());
     if !r.diagnostics.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
         return Err(anyhow::anyhow!("exiting due to typer errors"));
     }
-    let ast = profiler.time(Pass::Lowering, || LoweringPass::new(ast, r.actions).build());
+    let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&ast, &interner);
@@ -171,7 +171,7 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
     }
 
     // Generate SSA
-    let ssa = profiler.time(Pass::SSABuild, || {
+    let ssa = profiler.time("SSA Build", || {
         SSABuilder::new(&ast, &ctx, &mut interner).build()
     });
     if args.verbose {
@@ -182,14 +182,14 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
     }
 
     // Generate Assembly
-    let mut amd64 = profiler.time(Pass::AMD64Build, || {
+    let mut amd64 = profiler.time("AMD64 Build", || {
         ssa::amd64::build::Builder::new(&ssa).build()
     });
     if args.verbose {
         let asm = AMD64Emitter::new(&amd64, &interner).emit();
         println!("{}", asm);
     }
-    profiler.time(Pass::AMD64Fixer, || AMD64Fixer::new().fix(&mut amd64));
+    profiler.time("AMD64 Fixer", || AMD64Fixer::new().fix(&mut amd64));
     if args.verbose {
         let asm = AMD64Emitter::new(&amd64, &interner).emit();
         println!("{}", asm);
@@ -200,7 +200,7 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
 
     // Emit final assembly
     let asm_path = args.path.with_extension("s");
-    let asm = profiler.time(Pass::AssemblyEmission, || {
+    let asm = profiler.time("Assembly Emission", || {
         AMD64Emitter::new(&amd64, &interner).emit()
     });
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
@@ -209,7 +209,7 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
     }
 
     // Run the assembler and linker with `gcc`
-    profiler.time(Pass::AssemblerAndLinker, || -> Result<()> {
+    profiler.time("Assembler & Linker (gcc)", || -> Result<()> {
         let mut extension = "";
         let mut cmd = Command::new("gcc");
         if args.no_link {
@@ -228,39 +228,4 @@ fn try_main(args: &Args, profiler: &mut Profiler<Pass>) -> Result<()> {
     })?;
 
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Pass {
-    Preprocessor,
-    Lexer,
-    Parser,
-    Resolver,
-    Control,
-    Typer,
-    Lowering,
-    SSABuild,
-    AMD64Build,
-    AMD64Fixer,
-    AssemblyEmission,
-    AssemblerAndLinker,
-}
-
-impl std::fmt::Display for Pass {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Pass::Preprocessor => write!(f, "Preprocessor (gcc -E)"),
-            Pass::Lexer => write!(f, "Lexer"),
-            Pass::Parser => write!(f, "Parser"),
-            Pass::Resolver => write!(f, "Resolver"),
-            Pass::Control => write!(f, "Control Pass"),
-            Pass::Typer => write!(f, "Typer Pass"),
-            Pass::Lowering => write!(f, "Lowering Pass"),
-            Pass::SSABuild => write!(f, "SSA Build"),
-            Pass::AMD64Build => write!(f, "AMD64 Build"),
-            Pass::AMD64Fixer => write!(f, "AMD64 Fixer"),
-            Pass::AssemblyEmission => write!(f, "Assembly Emission"),
-            Pass::AssemblerAndLinker => write!(f, "Assembler & Linker (gcc)"),
-        }
-    }
 }

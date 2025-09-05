@@ -1,13 +1,13 @@
 use std::time::{Duration, Instant};
 
-pub struct Profiler<T> {
-    passes: Option<Vec<(T, Duration)>>,
+pub struct Profiler {
+    log: Option<Vec<(&'static str, Duration)>>,
 }
 
-impl<T: std::fmt::Display> Profiler<T> {
+impl Profiler {
     pub fn new(enabled: bool) -> Self {
         Self {
-            passes: if !enabled {
+            log: if !enabled {
                 None
             } else {
                 Some(Vec::with_capacity(16))
@@ -16,33 +16,29 @@ impl<T: std::fmt::Display> Profiler<T> {
     }
 
     #[inline]
-    pub fn time<F, R>(&mut self, pass: T, f: F) -> R
+    pub fn time<F, R>(&mut self, label: &'static str, f: F) -> R
     where
         F: FnOnce() -> R,
     {
-        match &mut self.passes {
+        match &mut self.log {
             None => f(),
             Some(passes) => {
                 let start = Instant::now();
                 let result = f();
                 let duration = start.elapsed();
-                passes.push((pass, duration));
+                passes.push((label, duration));
                 result
             }
         }
     }
 
     pub fn report<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match &self.passes {
+        match &self.log {
             None => Ok(()),
             Some(passes) => {
-                let max_name_len = passes
-                    .iter()
-                    .map(|(p, _)| p.to_string().len())
-                    .max()
-                    .unwrap_or(0);
+                let max_name_len = passes.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
                 writeln!(writer, "{}", "-".repeat(max_name_len + 28))?;
-                writeln!(writer, "Pass Timing Report")?;
+                writeln!(writer, "Profiler Report")?;
                 writeln!(writer, "{}", "-".repeat(max_name_len + 28))?;
                 let total_duration: Duration = passes.iter().map(|(_, d)| *d).sum();
                 for (pass, duration) in passes {

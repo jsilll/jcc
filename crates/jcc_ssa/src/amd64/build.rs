@@ -1,6 +1,9 @@
-use crate::amd64::{
-    BinaryOp, Block, BlockRef, CondCode, Func, Inst, InstIdx, Operand, Program, Reg, StaticVar,
-    StaticVarRef, UnaryOp,
+use crate::{
+    amd64::{
+        BinaryOp, Block, BlockRef, CondCode, Func, Inst, InstIdx, Operand, Program, Reg, StaticVar,
+        StaticVarRef, UnaryOp,
+    },
+    ConstValue,
 };
 
 use std::collections::HashMap;
@@ -103,6 +106,8 @@ impl<'a> Builder<'a> {
             crate::InstKind::Identity(val) => {
                 self.operands.insert(inst_ref, self.get_operand(val));
             }
+            crate::InstKind::Truncate(_) => todo!("handle truncate"),
+            crate::InstKind::SignExtend(_) => todo!("handle sign extend"),
             crate::InstKind::Static(v) => {
                 self.operands
                     .insert(inst_ref, Operand::Data(StaticVarRef(v.0)));
@@ -148,40 +153,6 @@ impl<'a> Builder<'a> {
                 });
                 let default = self.get_or_make_block(default);
                 self.insert_inst(Inst::jmp(default, inst.span));
-            }
-            crate::InstKind::Call { func, ref args } => {
-                let stack_args = args.len().saturating_sub(ARG_REGS.len());
-                let stack_padding = if stack_args % 2 == 0 {
-                    0
-                } else {
-                    self.insert_inst(Inst::alloca(8, inst.span));
-                    8
-                };
-                for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
-                    let src = self.get_operand(*arg);
-                    self.insert_inst(Inst::mov(src, Operand::Reg(*reg), inst.span));
-                }
-                for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
-                    let arg = self.get_operand(*arg);
-                    match arg {
-                        Operand::Imm(_) | Operand::Reg(_) => {
-                            self.insert_inst(Inst::push(arg, inst.span));
-                        }
-                        _ => {
-                            self.insert_inst(Inst::mov(arg, Operand::Reg(Reg::Rax), inst.span));
-                            self.insert_inst(Inst::push(Operand::Reg(Reg::Rax), inst.span));
-                        }
-                    }
-                }
-                let name = self.ssa.func(func).name;
-                self.insert_inst(Inst::call(name, inst.span));
-                let stack_size = stack_args as i32 * 8 + stack_padding;
-                if stack_size > 0 {
-                    self.insert_inst(Inst::dealloca(stack_size, inst.span));
-                }
-                let dst = self.make_pseudo();
-                self.operands.insert(inst_ref, dst);
-                self.insert_inst(Inst::mov(Operand::Reg(Reg::Rax), dst, inst.span));
             }
             crate::InstKind::Unary { op, val } => {
                 let dst = self.make_pseudo();
@@ -246,6 +217,40 @@ impl<'a> Builder<'a> {
                     crate::BinaryOp::Rem => self.build_div_or_rem(false, lhs, rhs, dst, inst.span),
                 }
             }
+            crate::InstKind::Call { func, ref args } => {
+                let stack_args = args.len().saturating_sub(ARG_REGS.len());
+                let stack_padding = if stack_args % 2 == 0 {
+                    0
+                } else {
+                    self.insert_inst(Inst::alloca(8, inst.span));
+                    8
+                };
+                for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
+                    let src = self.get_operand(*arg);
+                    self.insert_inst(Inst::mov(src, Operand::Reg(*reg), inst.span));
+                }
+                for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
+                    let arg = self.get_operand(*arg);
+                    match arg {
+                        Operand::Imm(_) | Operand::Reg(_) => {
+                            self.insert_inst(Inst::push(arg, inst.span));
+                        }
+                        _ => {
+                            self.insert_inst(Inst::mov(arg, Operand::Reg(Reg::Rax), inst.span));
+                            self.insert_inst(Inst::push(Operand::Reg(Reg::Rax), inst.span));
+                        }
+                    }
+                }
+                let name = self.ssa.func(func).name;
+                self.insert_inst(Inst::call(name, inst.span));
+                let stack_size = stack_args as i32 * 8 + stack_padding;
+                if stack_size > 0 {
+                    self.insert_inst(Inst::dealloca(stack_size, inst.span));
+                }
+                let dst = self.make_pseudo();
+                self.operands.insert(inst_ref, dst);
+                self.insert_inst(Inst::mov(Operand::Reg(Reg::Rax), dst, inst.span));
+            }
         }
     }
 
@@ -281,7 +286,7 @@ impl<'a> Builder<'a> {
         dst: Operand,
         span: crate::SourceSpan,
     ) {
-        self.insert_inst(Inst::mov(Operand::Imm(0), dst, span));
+        self.insert_inst(Inst::mov(Operand::Imm(ConstValue::Int32(0)), dst, span));
         self.insert_inst(Inst::cmp(rhs, lhs, span));
         self.insert_inst(Inst::setcc(cond_code, dst, span));
     }

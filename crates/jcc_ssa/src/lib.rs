@@ -293,13 +293,28 @@ impl Inst {
     }
 
     #[inline]
-    pub fn const_i32(val: i64, span: SourceSpan) -> Self {
-        Self::new(Type::Int32, InstKind::Const(val), span)
+    pub fn identity(ty: Type, val: InstRef, span: SourceSpan) -> Self {
+        Self::new(ty, InstKind::Identity(val), span)
+    }
+
+    #[inline]
+    pub fn truncate(val: InstRef, span: SourceSpan) -> Self {
+        Self::new(Type::Int32, InstKind::Truncate(val), span)
+    }
+
+    #[inline]
+    pub fn sign_extend(val: InstRef, span: SourceSpan) -> Self {
+        Self::new(Type::Int64, InstKind::SignExtend(val), span)
+    }
+
+    #[inline]
+    pub fn const_i32(val: i32, span: SourceSpan) -> Self {
+        Self::new(Type::Int32, InstKind::Const(ConstValue::Int32(val)), span)
     }
 
     #[inline]
     pub fn const_i64(val: i64, span: SourceSpan) -> Self {
-        Self::new(Type::Int64, InstKind::Const(val), span)
+        Self::new(Type::Int64, InstKind::Const(ConstValue::Int64(val)), span)
     }
 
     #[inline]
@@ -362,7 +377,7 @@ impl Inst {
     pub fn switch(
         cond: InstRef,
         default: BlockRef,
-        cases: Vec<(i64, BlockRef)>,
+        cases: Vec<(ConstValue, BlockRef)>,
         span: SourceSpan,
     ) -> Self {
         Self::new(
@@ -381,8 +396,13 @@ impl Inst {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    pub fn is_const(&self, val: i64) -> bool {
-        matches!(self.kind, InstKind::Const(v) if v == val)
+    pub fn is_const_i32(&self, val: i32) -> bool {
+        matches!(self.kind, InstKind::Const(ConstValue::Int32(v)) if v == val)
+    }
+
+    #[inline]
+    pub fn is_const_i64(&self, val: i64) -> bool {
+        matches!(self.kind, InstKind::Const(ConstValue::Int64(v)) if v == val)
     }
 
     pub fn has_side_effects(&self) -> bool {
@@ -413,6 +433,8 @@ impl Inst {
             InstKind::Ret(val)
             | InstKind::Load(val)
             | InstKind::Identity(val)
+            | InstKind::Truncate(val)
+            | InstKind::SignExtend(val)
             | InstKind::Unary { val, .. } => args.push(*val),
             InstKind::Call { args: vals, .. } => args.extend(vals),
             InstKind::Store { ptr, val } => args.extend([*ptr, *val]),
@@ -441,6 +463,8 @@ impl Inst {
             InstKind::Ret(val)
             | InstKind::Load(val)
             | InstKind::Identity(val)
+            | InstKind::Truncate(val)
+            | InstKind::SignExtend(val)
             | InstKind::Unary { val, .. } => replace(val),
             InstKind::Store { ptr, val } => {
                 replace(ptr);
@@ -533,8 +557,79 @@ pub struct StaticVar {
     pub ty: Type,
     pub name: Symbol,
     pub is_global: bool,
-    pub init: Option<i64>,
+    pub init: Option<ConstValue>,
     pub span: SourceSpan,
+}
+
+impl StaticVar {
+    #[inline]
+    pub fn int32(name: Symbol, is_global: bool, init: Option<i32>, span: SourceSpan) -> Self {
+        Self {
+            span,
+            name,
+            is_global,
+            ty: Type::Int32,
+            init: init.map(ConstValue::Int32),
+        }
+    }
+
+    #[inline]
+    pub fn int64(name: Symbol, is_global: bool, init: Option<i64>, span: SourceSpan) -> Self {
+        Self {
+            span,
+            name,
+            is_global,
+            ty: Type::Int64,
+            init: init.map(ConstValue::Int64),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Type
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Type {
+    #[default]
+    Void,
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    IntPtr,
+}
+
+impl Type {
+    pub fn size(&self) -> u32 {
+        match self {
+            Type::Void => 0,
+            Type::Int8 => 1,
+            Type::Int16 => 2,
+            Type::Int32 => 4,
+            Type::Int64 => 8,
+            Type::IntPtr => 8,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ConstValue
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum ConstValue {
+    /// A 32-bit const value.
+    Int32(i32),
+    /// A 64-bit const value.
+    Int64(i64),
+}
+
+impl ConstValue {
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        matches!(ConstValue::Int32(0), ConstValue::Int64(0))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -548,11 +643,13 @@ pub enum InstKind {
     Phi,
     Arg,
     Alloca,
-    Const(i64),
     Ret(InstRef),
     Load(InstRef),
     Jump(BlockRef),
+    Const(ConstValue),
     Identity(InstRef),
+    Truncate(InstRef),
+    SignExtend(InstRef),
     Static(StaticVarRef),
     Store {
         ptr: InstRef,
@@ -584,7 +681,7 @@ pub enum InstKind {
     Switch {
         cond: InstRef,
         default: BlockRef,
-        cases: Vec<(i64, BlockRef)>,
+        cases: Vec<(ConstValue, BlockRef)>,
     },
     Call {
         func: FuncRef,
@@ -618,34 +715,6 @@ pub enum BinaryOp {
     LessEqual,
     GreaterThan,
     GreaterEqual,
-}
-
-// ---------------------------------------------------------------------------
-// Type
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Type {
-    #[default]
-    Void,
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    IntPtr,
-}
-
-impl Type {
-    pub fn size(&self) -> u32 {
-        match self {
-            Type::Void => 0,
-            Type::Int8 => 1,
-            Type::Int16 => 2,
-            Type::Int32 => 4,
-            Type::Int64 => 8,
-            Type::IntPtr => 8,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -736,16 +805,19 @@ impl fmt::Display for BinaryOp {
 impl fmt::Display for InstKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            InstKind::Const(ConstValue::Int32(i)) => write!(f, "{}", i),
+            InstKind::Const(ConstValue::Int64(i)) => write!(f, "{}", i),
             InstKind::Nop => write!(f, "nop"),
             InstKind::Phi => write!(f, "phi"),
             InstKind::Arg => write!(f, "arg"),
             InstKind::Alloca => write!(f, "alloca"),
             InstKind::Ret(i) => write!(f, "ret {}", i),
             InstKind::Jump(b) => write!(f, "jump {}", b),
-            InstKind::Const(i) => write!(f, "const {}", i),
             InstKind::Load(ptr) => write!(f, "load {}", ptr),
             InstKind::Static(v) => write!(f, "static {}", v),
             InstKind::Identity(i) => write!(f, "identity {}", i),
+            InstKind::Truncate(i) => write!(f, "truncate {}", i),
+            InstKind::SignExtend(i) => write!(f, "sext {}", i),
             InstKind::Unary { op, val } => write!(f, "{} {}", op, val),
             InstKind::Store { val, ptr } => write!(f, "store {}, {}", ptr, val),
             InstKind::Upsilon { phi, val } => write!(f, "upsilon {}, {}", phi, val),
@@ -786,7 +858,8 @@ impl<'a> fmt::Display for Program<'a> {
             let linkage = if var.is_global { "global" } else { "static" };
             let init = match var.init {
                 None => "_".to_string(),
-                Some(v) => v.to_string(),
+                Some(ConstValue::Int32(v)) => v.to_string(),
+                Some(ConstValue::Int64(v)) => v.to_string(),
             };
             writeln!(
                 f,

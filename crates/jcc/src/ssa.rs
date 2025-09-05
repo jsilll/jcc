@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{self, AstSymbol, ConstValue, StmtRef},
-    sema::{Attribute, SemaCtx, SemaSymbol, StaticValue},
+    ast::{self, AstSymbol, StmtRef},
+    sema::{self, Attribute, SemaCtx, SemaSymbol, StaticValue},
 };
 
 use jcc_ssa::{
     builder::IRBuilder,
     interner::{Interner, Symbol},
     sourcemap::SourceSpan,
-    BinaryOp, BlockRef, Func, FuncRef, Inst, InstRef, Program, StaticVar, StaticVarRef, Type,
-    UnaryOp,
+    BinaryOp, BlockRef, ConstValue, Func, FuncRef, Inst, InstRef, Program, StaticVar, StaticVarRef,
+    Type, UnaryOp,
 };
 
 // ---------------------------------------------------------------------------
@@ -45,22 +45,40 @@ impl<'a> SSABuilder<'a> {
                         .sema
                         .symbol(decl.name.sema.get())
                         .expect("expected a sema symbol");
-                    if let Attribute::Static { init, is_global } = info.attr {
-                        let init = match init {
-                            StaticValue::Tentative => Some(0),
-                            StaticValue::NoInitializer => None,
-                            StaticValue::Initialized(ast::ConstValue::Int(init)) => Some(init),
-                            StaticValue::Initialized(ast::ConstValue::Long(_)) => {
-                                todo!("handle long static initializers")
-                            }
-                        };
-                        self.get_or_make_static(
-                            Type::Int32,
-                            &decl.name,
-                            is_global,
-                            init.map(|i| i as i64),
-                            decl.span,
-                        );
+
+                    match info.attr {
+                        Attribute::Local => panic!("unexpected local attribute"),
+                        Attribute::Function { .. } => panic!("unexpected function attribute"),
+                        Attribute::Static { is_global, init } => {
+                            let raw = decl.name.raw;
+                            let v = match init {
+                                StaticValue::NoInitializer => match decl.ty {
+                                    sema::Type::Int => {
+                                        StaticVar::int32(raw, is_global, None, decl.span)
+                                    }
+                                    sema::Type::Long => {
+                                        StaticVar::int64(raw, is_global, None, decl.span)
+                                    }
+                                    _ => todo!("handle other types"),
+                                },
+                                StaticValue::Tentative => match decl.ty {
+                                    sema::Type::Int => {
+                                        StaticVar::int32(raw, is_global, Some(0), decl.span)
+                                    }
+                                    sema::Type::Long => {
+                                        StaticVar::int64(raw, is_global, Some(0), decl.span)
+                                    }
+                                    _ => todo!("handle other types"),
+                                },
+                                StaticValue::Initialized(ConstValue::Int32(init)) => {
+                                    StaticVar::int32(raw, is_global, Some(init), decl.span)
+                                }
+                                StaticValue::Initialized(ConstValue::Int64(init)) => {
+                                    StaticVar::int64(raw, is_global, Some(init), decl.span)
+                                }
+                            };
+                            self.get_or_make_static(&decl.name, v);
+                        }
                     }
                 }
                 ast::DeclKind::Func { params, body } => {
@@ -132,21 +150,34 @@ impl<'a> SSABuilder<'a> {
                         }
                     }
                     Attribute::Static { is_global, init } => {
-                        let init = match init {
-                            StaticValue::Tentative => Some(0),
-                            StaticValue::NoInitializer => None,
-                            StaticValue::Initialized(ast::ConstValue::Int(init)) => Some(init),
-                            StaticValue::Initialized(ast::ConstValue::Long(_)) => {
-                                todo!("handle long static initializers")
+                        let raw = decl.name.raw;
+                        let v = match init {
+                            StaticValue::NoInitializer => match decl.ty {
+                                sema::Type::Int => {
+                                    StaticVar::int32(raw, is_global, None, decl.span)
+                                }
+                                sema::Type::Long => {
+                                    StaticVar::int64(raw, is_global, None, decl.span)
+                                }
+                                _ => todo!("handle other types"),
+                            },
+                            StaticValue::Tentative => match decl.ty {
+                                sema::Type::Int => {
+                                    StaticVar::int32(raw, is_global, Some(0), decl.span)
+                                }
+                                sema::Type::Long => {
+                                    StaticVar::int64(raw, is_global, Some(0), decl.span)
+                                }
+                                _ => todo!("handle other types"),
+                            },
+                            StaticValue::Initialized(ConstValue::Int32(init)) => {
+                                StaticVar::int32(raw, is_global, Some(init), decl.span)
+                            }
+                            StaticValue::Initialized(ConstValue::Int64(init)) => {
+                                StaticVar::int64(raw, is_global, Some(init), decl.span)
                             }
                         };
-                        self.get_or_make_static(
-                            Type::Int32,
-                            &decl.name,
-                            is_global,
-                            init.map(|i| i as i64),
-                            decl.span,
-                        );
+                        self.get_or_make_static(&decl.name, v);
                     }
                 }
             }
@@ -482,7 +513,7 @@ impl<'a> SSABuilder<'a> {
                         let inner = self.ast.stmt(*inner_ref);
                         if let ast::StmtKind::Case { expr, .. } = inner.kind {
                             let val = match self.ast.expr(expr).kind {
-                                ast::ExprKind::Const(ConstValue::Int(c)) => c as i64,
+                                ast::ExprKind::Const(c) => c,
                                 _ => panic!("expected a constant expression"),
                             };
                             let case_block = self.builder.new_block("switch.case", inner.span);
@@ -527,10 +558,12 @@ impl<'a> SSABuilder<'a> {
         let expr = self.ast.expr(expr);
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
-            ast::ExprKind::Const(ConstValue::Int(c)) => self
-                .builder
-                .insert_inst(Inst::const_i32(*c as i64, expr.span)),
-            ast::ExprKind::Const(ConstValue::Long(_)) => todo!("handle long constants"),
+            ast::ExprKind::Const(ConstValue::Int32(c)) => {
+                self.builder.insert_inst(Inst::const_i32(*c, expr.span))
+            }
+            ast::ExprKind::Const(ConstValue::Int64(c)) => {
+                self.builder.insert_inst(Inst::const_i64(*c, expr.span))
+            }
             ast::ExprKind::Var(name) => {
                 let info = self
                     .sema
@@ -559,6 +592,19 @@ impl<'a> SSABuilder<'a> {
                     }
                 }
             }
+            ast::ExprKind::Cast { ty, expr: inner } => {
+                let expr_ty = self.ast.expr(*inner).ty.get();
+                let val = self.visit_expr(*inner, ExprMode::RightValue);
+                match (ty, expr_ty) {
+                    (sema::Type::Int, sema::Type::Long) => {
+                        self.builder.insert_inst(Inst::truncate(val, expr.span))
+                    }
+                    (sema::Type::Long, sema::Type::Int) => {
+                        self.builder.insert_inst(Inst::sign_extend(val, expr.span))
+                    }
+                    _ => val,
+                }
+            }
             ast::ExprKind::Call { name, args, .. } => {
                 let args = self
                     .ast
@@ -574,7 +620,6 @@ impl<'a> SSABuilder<'a> {
                 let func = self.get_or_make_function(name, is_global, expr.span);
                 self.builder.insert_inst(Inst::call(func, args, expr.span))
             }
-            ast::ExprKind::Cast { .. } => todo!("handle cast expressions"),
             ast::ExprKind::Unary { op, expr: inner } => match op {
                 ast::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, *inner, expr.span),
                 ast::UnaryOp::BitNot => self.build_unary(UnaryOp::Not, *inner, expr.span),
@@ -918,22 +963,14 @@ impl<'a> SSABuilder<'a> {
     }
 
     #[inline]
-    pub fn get_or_make_static(
-        &mut self,
-        ty: Type,
-        name: &AstSymbol,
-        is_global: bool,
-        init: Option<i64>,
-        span: SourceSpan,
-    ) -> StaticVarRef {
+    pub fn get_or_make_static(&mut self, name: &AstSymbol, mut v: StaticVar) -> StaticVarRef {
         let idx = name.sema.get().0.get() as usize;
         match self.symbols[idx] {
             SymbolEntry::Inst(_) | SymbolEntry::Function(_) => panic!("expected a static"),
             SymbolEntry::Static(v) => v,
             SymbolEntry::None => {
-                let func = self.builder.func();
-                let name = match func {
-                    Some(func) if !is_global => {
+                let name = match self.builder.func() {
+                    Some(func) if !v.is_global => {
                         let fname = self.builder.prog.func(func).name;
                         let fname = self.builder.prog.interner.lookup(fname);
                         let name = self.builder.prog.interner.lookup(name.raw);
@@ -942,13 +979,8 @@ impl<'a> SSABuilder<'a> {
                     }
                     _ => name.raw,
                 };
-                let v = self.builder.prog.new_static_var(StaticVar {
-                    ty,
-                    name,
-                    init,
-                    span,
-                    is_global,
-                });
+                v.name = name;
+                let v = self.builder.prog.new_static_var(v);
                 self.symbols[idx] = SymbolEntry::Static(v);
                 v
             }

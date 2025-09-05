@@ -1,6 +1,6 @@
 use crate::{
     amd64::{InstKind, InstRef},
-    Interner,
+    ConstValue, Interner,
 };
 
 use super::{BinaryOp, CondCode, Func, Operand, Program, Reg, UnaryOp};
@@ -41,7 +41,7 @@ impl<'a> AMD64Emitter<'a> {
                         if var.is_global {
                             e.writeln(&format!(".globl {name}"))
                         }
-                        if init == 0 {
+                        if init.is_zero() {
                             e.writeln(".bss");
                         } else {
                             e.writeln(".data");
@@ -54,10 +54,17 @@ impl<'a> AMD64Emitter<'a> {
                         self.writeln(&format!("{name}{}:", v.0));
                     }
                     self.with_indent(|e| {
-                        if init == 0 {
+                        if init.is_zero() {
                             e.writeln(".zero 4");
                         } else {
-                            e.writeln(&format!(".long {init}"));
+                            match init {
+                                ConstValue::Int32(v) => {
+                                    e.writeln(&format!(".long {v}"));
+                                }
+                                ConstValue::Int64(v) => {
+                                    e.writeln(&format!(".long {v}"));
+                                }
+                            }
                         }
                     });
                 }
@@ -218,7 +225,6 @@ impl<'a> AMD64Emitter<'a> {
     fn emit_operand_8(&mut self, oper: &Operand) -> String {
         match oper {
             Operand::Data(_) => todo!(),
-            Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%al".to_string(),
                 Reg::Rbx => "%bl".to_string(),
@@ -231,16 +237,19 @@ impl<'a> AMD64Emitter<'a> {
                 Reg::Rg10 => "%r10b".to_string(),
                 Reg::Rg11 => "%r11b".to_string(),
             },
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
             Operand::Pseudo(id) => format!("pseudo({})", id),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
+            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
         }
     }
 
     fn emit_operand_32(&mut self, oper: &Operand) -> String {
         match oper {
-            Operand::Imm(value) => format!("${}", value),
             Operand::Pseudo(id) => format!("pseudo({})", id),
             Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
+            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
             Operand::Data(v) => {
                 let var = self.program.static_var(*v);
                 let name = self.interner.lookup(var.name);
@@ -268,7 +277,6 @@ impl<'a> AMD64Emitter<'a> {
     fn emit_operand_64(&mut self, oper: &Operand) -> String {
         match oper {
             Operand::Data(_) => todo!(),
-            Operand::Imm(value) => format!("${}", value),
             Operand::Reg(reg) => match reg {
                 Reg::Rax => "%rax".to_string(),
                 Reg::Rbx => "%rbx".to_string(),
@@ -281,8 +289,10 @@ impl<'a> AMD64Emitter<'a> {
                 Reg::Rg10 => "%r10".to_string(),
                 Reg::Rg11 => "%r11".to_string(),
             },
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
             Operand::Pseudo(id) => format!("pseudo({})", id),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
+            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
         }
     }
 

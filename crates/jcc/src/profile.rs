@@ -37,9 +37,10 @@ impl Profiler {
             None => Ok(()),
             Some(passes) => {
                 let max_name_len = passes.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
-                writeln!(writer, "{}", "-".repeat(max_name_len + 28))?;
+                let line_separator = "-".repeat(max_name_len + 28);
+                writeln!(writer, "{}", line_separator)?;
                 writeln!(writer, "Profiler Report")?;
-                writeln!(writer, "{}", "-".repeat(max_name_len + 28))?;
+                writeln!(writer, "{}", line_separator)?;
                 let total_duration: Duration = passes.iter().map(|(_, d)| *d).sum();
                 for (pass, duration) in passes {
                     let percentage = if total_duration.as_nanos() > 0 {
@@ -56,7 +57,7 @@ impl Profiler {
                         width = max_name_len
                     )?;
                 }
-                writeln!(writer, "{}", "-".repeat(max_name_len + 28))?;
+                writeln!(writer, "{}", line_separator)?;
                 writeln!(
                     writer,
                     "{:<width$} : {:>10.4}ms (100.0%)",
@@ -64,7 +65,7 @@ impl Profiler {
                     total_duration.as_micros() as f64 / 1000.0,
                     width = max_name_len
                 )?;
-                writeln!(writer, "{}", "-".repeat(max_name_len + 28))?;
+                writeln!(writer, "{}", line_separator)?;
                 Ok(())
             }
         }

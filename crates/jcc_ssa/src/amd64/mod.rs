@@ -4,7 +4,7 @@ pub mod fix;
 
 use crate::{
     infra::{Indexed, IR},
-    Symbol,
+    ConstValue, Symbol,
 };
 
 use jcc_sourcemap::SourceSpan;
@@ -71,7 +71,7 @@ pub struct StaticVar {
     pub name: Symbol,
     pub is_global: bool,
     pub span: SourceSpan,
-    pub init: Option<i64>,
+    pub init: Option<ConstValue>,
 }
 
 // ---------------------------------------------------------------------------
@@ -408,14 +408,14 @@ pub enum InstKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
-    /// An immediate value.
-    Imm(i64),
     /// A register.
     Reg(Reg),
     /// A stack operand.
     Stack(i32),
     /// Pseudo register.
     Pseudo(u32),
+    /// An immediate value.
+    Imm(ConstValue),
     /// A static variable reference.
     Data(StaticVarRef),
 }

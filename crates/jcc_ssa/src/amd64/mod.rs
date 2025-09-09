@@ -9,23 +9,22 @@ use crate::{
 
 use jcc_sourcemap::SourceSpan;
 
-use std::num::NonZeroU32;
+use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
 // Program
 // ---------------------------------------------------------------------------
 
-#[derive(Clone)]
 pub struct Program {
     funcs: Vec<Func>,
-    static_vars: Vec<StaticVar>,
+    vars: Vec<StaticVar>,
 }
 
 impl Default for Program {
     fn default() -> Self {
         Program {
             funcs: vec![],
-            static_vars: vec![Default::default()],
+            vars: vec![Default::default()],
         }
     }
 }
@@ -36,20 +35,19 @@ impl Program {
     }
 
     pub fn static_var(&self, var_ref: StaticVarRef) -> &StaticVar {
-        &self.static_vars[var_ref.0.get() as usize]
+        &self.vars[var_ref.0.get() as usize]
     }
 
     pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
         // TODO: Reuse slots from `static_vars_free` for better memory efficiency
-        let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
-        self.static_vars.push(var);
+        let r = StaticVarRef(NonZeroU32::new(self.vars.len() as u32).unwrap());
+        self.vars.push(var);
         r
     }
 
     pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
         // Start from 1 to skip the default function at index 0
-        (1..self.static_vars.len())
-            .map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+        (1..self.vars.len()).map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
     }
 
     pub fn iter_static_vars_with_ref(
@@ -68,6 +66,7 @@ pub struct StaticVarRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone)]
 pub struct StaticVar {
+    pub align: u32,
     pub name: Symbol,
     pub is_global: bool,
     pub span: SourceSpan,
@@ -201,7 +200,7 @@ impl Func {
     }
 
     // ---------------------------------------------------------------------------
-    // Snapshot
+    // Helpers
     // ---------------------------------------------------------------------------
 
     fn snapshot_blocks(&self, buf: &mut Vec<BlockRef>) {
@@ -222,6 +221,12 @@ pub struct BlockRef(NonZeroU32);
 impl Default for BlockRef {
     fn default() -> Self {
         Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
+
+impl std::fmt::Display for BlockRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -248,7 +253,7 @@ impl Block {
 pub struct InstRef(NonZeroU32);
 
 #[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct InstIdx(pub(crate) u32);
+pub struct InstIdx(u32);
 
 impl From<InstIdx> for u32 {
     #[inline]
@@ -291,8 +296,8 @@ impl Inst {
     }
 
     #[inline]
-    fn cdq(span: SourceSpan) -> Self {
-        Self::new(InstKind::Cdq, span)
+    fn cdq(ty: Type, span: SourceSpan) -> Self {
+        Self::new(InstKind::Cdq(ty), span)
     }
 
     #[inline]
@@ -306,38 +311,23 @@ impl Inst {
     }
 
     #[inline]
-    fn idiv(op: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Idiv(op), span)
-    }
-
-    #[inline]
-    fn alloca(size: i32, span: SourceSpan) -> Self {
-        Self::new(InstKind::Alloca(size), span)
-    }
-
-    #[inline]
-    fn dealloca(size: i32, span: SourceSpan) -> Self {
-        Self::new(InstKind::Dealloca(size), span)
-    }
-
-    #[inline]
     fn jmp(block: BlockRef, span: SourceSpan) -> Self {
         Self::new(InstKind::Jmp(block), span)
     }
 
     #[inline]
-    fn mov(src: Operand, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Mov { src, dst }, span)
-    }
-
-    #[inline]
-    fn cmp(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Cmp { lhs, rhs }, span)
+    fn idiv(ty: Type, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Idiv { ty, dst }, span)
     }
 
     #[inline]
     fn test(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
         Self::new(InstKind::Test { lhs, rhs }, span)
+    }
+
+    #[inline]
+    fn movsx(src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Movsx { src, dst }, span)
     }
 
     #[inline]
@@ -351,19 +341,104 @@ impl Inst {
     }
 
     #[inline]
-    fn unary(op: UnaryOp, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Unary { op, dst }, span)
+    fn mov(ty: Type, src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Mov { ty, src, dst }, span)
     }
 
     #[inline]
-    fn binary(op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Binary { op, src, dst }, span)
+    fn cmp(ty: Type, lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Cmp { ty, lhs, rhs }, span)
+    }
+
+    #[inline]
+    fn unary(ty: Type, op: UnaryOp, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Unary { ty, op, dst }, span)
+    }
+
+    #[inline]
+    fn binary(ty: Type, op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
+        Self::new(InstKind::Binary { ty, op, src, dst }, span)
+    }
+
+    #[inline]
+    fn alloc_stack(size: i64, span: SourceSpan) -> Self {
+        assert!(size >= 0 && size % 8 == 0);
+        Self::new(
+            InstKind::Binary {
+                ty: Type::Quad,
+                op: BinaryOp::Sub,
+                dst: Operand::Reg(Reg::Rsp),
+                src: Operand::Imm(size),
+            },
+            span,
+        )
+    }
+
+    #[inline]
+    fn dealloc_stack(size: i64, span: SourceSpan) -> Self {
+        assert!(size >= 0 && size % 8 == 0);
+        Self::new(
+            InstKind::Binary {
+                ty: Type::Quad,
+                op: BinaryOp::Add,
+                dst: Operand::Reg(Reg::Rsp),
+                src: Operand::Imm(size),
+            },
+            span,
+        )
     }
 }
 
 // ---------------------------------------------------------------------------
 // Enum Soup
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Type {
+    /// 8-bit type.
+    #[default]
+    Byte,
+    /// 32-bit type.
+    Long,
+    /// 64-bit type.
+    Quad,
+}
+
+impl Type {
+    #[inline]
+    pub fn align(&self) -> i64 {
+        match self {
+            Type::Byte => 1,
+            Type::Long => 4,
+            Type::Quad => 8,
+        }
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Type::Byte => "b",
+            Type::Long => "l",
+            Type::Quad => "q",
+        }
+    }
+}
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<crate::Type> for Type {
+    fn from(ty: crate::Type) -> Self {
+        match ty {
+            crate::Type::Int32 => Type::Long,
+            crate::Type::Int64 => Type::Quad,
+            _ => panic!("unsupported type {:?}", ty),
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum InstKind {
@@ -373,33 +448,40 @@ pub enum InstKind {
     /// A `ret` instruction.
     Ret,
     /// A `cdq` instruction.
-    Cdq,
-    /// Stack allocation instruction.
-    Alloca(i32),
-    /// Stack deallocation instruction.
-    Dealloca(i32),
+    Cdq(Type),
     /// A call instruction.
     Call(Symbol),
     /// A push to stack instruction.
     Push(Operand),
-    /// An `idiv` instruction.
-    Idiv(Operand),
     /// A `jmp` instruction.
     Jmp(BlockRef),
-    /// A `mov` instruction.
-    Mov { src: Operand, dst: Operand },
-    /// A `cmp` instruction.
-    Cmp { lhs: Operand, rhs: Operand },
+    /// An `idiv` instruction.
+    Idiv { ty: Type, dst: Operand },
     /// A `test` instruction.
     Test { lhs: Operand, rhs: Operand },
+    /// A `movsx` instruction.
+    Movsx { src: Operand, dst: Operand },
     /// A conditional set instruction.
     SetCC { code: CondCode, dst: Operand },
     /// A conditional jump instruction.
     JmpCC { code: CondCode, target: BlockRef },
+    /// A `mov` instruction.
+    Mov {
+        ty: Type,
+        src: Operand,
+        dst: Operand,
+    },
+    /// A `cmp` instruction.
+    Cmp {
+        ty: Type,
+        lhs: Operand,
+        rhs: Operand,
+    },
     /// A unary operation instruction.
-    Unary { op: UnaryOp, dst: Operand },
+    Unary { ty: Type, op: UnaryOp, dst: Operand },
     /// A binary operation instruction.
     Binary {
+        ty: Type,
         op: BinaryOp,
         src: Operand,
         dst: Operand,
@@ -408,20 +490,22 @@ pub enum InstKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
+    /// An immediate value.
+    Imm(i64),
     /// A register.
     Reg(Reg),
     /// A stack operand.
-    Stack(i32),
+    Stack(i64),
     /// Pseudo register.
     Pseudo(u32),
-    /// An immediate value.
-    Imm(ConstValue),
     /// A static variable reference.
     Data(StaticVarRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reg {
+    /// The SP register.
+    Rsp,
     /// The RAX register.
     Rax,
     /// The RBX register.
@@ -442,6 +526,56 @@ pub enum Reg {
     Rg10,
     /// The R11 register.
     Rg11,
+}
+
+impl Reg {
+    pub fn as_str_8(&self) -> &'static str {
+        match self {
+            Reg::Rsp => "spl",
+            Reg::Rax => "al",
+            Reg::Rbx => "bl",
+            Reg::Rcx => "cl",
+            Reg::Rdx => "dl",
+            Reg::Rdi => "dil",
+            Reg::Rsi => "sil",
+            Reg::R8 => "r8b",
+            Reg::R9 => "r9b",
+            Reg::Rg10 => "r10b",
+            Reg::Rg11 => "r11b",
+        }
+    }
+
+    pub fn as_str_32(&self) -> &'static str {
+        match self {
+            Reg::Rsp => "esp",
+            Reg::Rax => "eax",
+            Reg::Rbx => "ebx",
+            Reg::Rcx => "ecx",
+            Reg::Rdx => "edx",
+            Reg::Rdi => "edi",
+            Reg::Rsi => "esi",
+            Reg::R8 => "r8d",
+            Reg::R9 => "r9d",
+            Reg::Rg10 => "r10d",
+            Reg::Rg11 => "r11d",
+        }
+    }
+
+    pub fn as_str_64(&self) -> &'static str {
+        match self {
+            Reg::Rsp => "rsp",
+            Reg::Rax => "rax",
+            Reg::Rbx => "rbx",
+            Reg::Rcx => "rcx",
+            Reg::Rdx => "rdx",
+            Reg::Rdi => "rdi",
+            Reg::Rsi => "rsi",
+            Reg::R8 => "r8",
+            Reg::R9 => "r9",
+            Reg::Rg10 => "r10",
+            Reg::Rg11 => "r11",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -479,41 +613,71 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CondCode {
     /// The `sete` condition.
-    Equal,
+    Eq,
     /// The `setne` condition.
-    NotEqual,
+    Neq,
     /// The `setl` condition.
-    LessThan,
+    Lt,
     /// The `setle` condition.
-    LessEqual,
+    Le,
     /// The `setg` condition.
-    GreaterThan,
+    Gt,
     /// The `setge` condition.
-    GreaterEqual,
+    Ge,
+}
+
+impl std::fmt::Display for CondCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl CondCode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CondCode::Eq => "e",
+            CondCode::Neq => "ne",
+            CondCode::Lt => "l",
+            CondCode::Le => "le",
+            CondCode::Gt => "g",
+            CondCode::Ge => "ge",
+        }
+    }
 }
 
 impl TryFrom<crate::BinaryOp> for CondCode {
     type Error = ();
-
     fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
         match op {
-            crate::BinaryOp::Equal => Ok(Self::Equal),
-            crate::BinaryOp::NotEqual => Ok(Self::NotEqual),
-            crate::BinaryOp::LessThan => Ok(Self::LessThan),
-            crate::BinaryOp::LessEqual => Ok(Self::LessEqual),
-            crate::BinaryOp::GreaterThan => Ok(Self::GreaterThan),
-            crate::BinaryOp::GreaterEqual => Ok(Self::GreaterEqual),
+            crate::BinaryOp::Equal => Ok(Self::Eq),
+            crate::BinaryOp::NotEqual => Ok(Self::Neq),
+            crate::BinaryOp::LessThan => Ok(Self::Lt),
+            crate::BinaryOp::LessEqual => Ok(Self::Le),
+            crate::BinaryOp::GreaterThan => Ok(Self::Gt),
+            crate::BinaryOp::GreaterEqual => Ok(Self::Ge),
             _ => Err(()),
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Display
+// Symbol Table
 // ---------------------------------------------------------------------------
 
-impl std::fmt::Display for BlockRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SymbolTable {
+    pseudos: Vec<PseudoEntry>,
+    funcs: HashMap<Symbol, FuncEntry>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PseudoEntry {
+    pub ty: Type,
+    pub is_static: bool,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FuncEntry {
+    pub is_static: bool,
+    pub frame_size: i64,
 }

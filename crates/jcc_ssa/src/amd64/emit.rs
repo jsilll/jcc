@@ -1,9 +1,9 @@
 use crate::{
-    amd64::{InstKind, InstRef},
+    amd64::{InstKind, InstRef, Type},
     ConstValue, Interner,
 };
 
-use super::{BinaryOp, CondCode, Func, Operand, Program, Reg, UnaryOp};
+use super::{BinaryOp, Func, Operand, Program, UnaryOp};
 
 // ---------------------------------------------------------------------------
 // AMD64Emitter
@@ -46,26 +46,18 @@ impl<'a> AMD64Emitter<'a> {
                         } else {
                             e.writeln(".data");
                         }
-                        e.writeln(".align 4");
+                        e.writeln(&format!(".align {}", var.align))
                     });
                     if var.is_global {
                         self.writeln(&format!("{name}:"));
                     } else {
                         self.writeln(&format!("{name}{}:", v.0));
                     }
-                    self.with_indent(|e| {
-                        if init.is_zero() {
-                            e.writeln(".zero 4");
-                        } else {
-                            match init {
-                                ConstValue::Int32(v) => {
-                                    e.writeln(&format!(".long {v}"));
-                                }
-                                ConstValue::Int64(v) => {
-                                    e.writeln(&format!(".long {v}"));
-                                }
-                            }
-                        }
+                    self.with_indent(|e| match init {
+                        ConstValue::Int32(0) => e.writeln(".zero 4"),
+                        ConstValue::Int64(0) => e.writeln(".zero 8"),
+                        ConstValue::Int32(v) => e.writeln(&format!(".long {v}")),
+                        ConstValue::Int64(v) => e.writeln(&format!(".quad {v}")),
                     });
                 }
             });
@@ -119,23 +111,11 @@ impl<'a> AMD64Emitter<'a> {
                 self.writeln("popq %rbp");
                 self.writeln("ret");
             }
-            InstKind::Cdq => self.writeln("cdq"),
-            InstKind::Alloca(size) => {
-                if size > 0 {
-                    self.writeln(&format!("subq ${size}, %rsp"));
-                }
-            }
-            InstKind::Dealloca(size) => {
-                if size > 0 {
-                    self.writeln(&format!("addq ${size}, %rsp"));
-                }
-            }
-            InstKind::Idiv(oper) => {
-                let oper = self.emit_operand_32(&oper);
-                self.writeln(&format!("idivl {oper}"));
-            }
+            InstKind::Cdq(Type::Byte) => self.writeln("cbtw"),
+            InstKind::Cdq(Type::Long) => self.writeln("cdq"),
+            InstKind::Cdq(Type::Quad) => self.writeln("cqo"),
             InstKind::Push(oper) => {
-                let oper = self.emit_operand_64(&oper);
+                let oper = self.emit_operand(&oper, Type::Quad);
                 self.writeln(&format!("pushq {oper}"));
             }
             InstKind::Call(name) => {
@@ -160,96 +140,84 @@ impl<'a> AMD64Emitter<'a> {
                     }
                 }
             }
-            InstKind::Mov { src, dst } => {
-                let src = self.emit_operand_32(&src);
-                let dst = self.emit_operand_32(&dst);
-                self.writeln(&format!("movl {src}, {dst}"));
-            }
-            InstKind::Cmp { lhs, rhs } => {
-                let lhs = self.emit_operand_32(&lhs);
-                let rhs = self.emit_operand_32(&rhs);
-                self.writeln(&format!("cmpl {lhs}, {rhs}"));
+            InstKind::Idiv { ty, dst } => {
+                let oper = self.emit_operand(&dst, ty);
+                self.writeln(&format!("idiv{ty} {oper}"));
             }
             InstKind::SetCC { code, dst } => {
-                let dst = self.emit_operand_8(&dst);
-                let cond_code = self.emit_cond_code(code);
-                self.writeln(&format!("set{cond_code} {dst}"));
+                let dst = self.emit_operand(&dst, Type::Byte);
+                self.writeln(&format!("set{code} {dst}"));
             }
             InstKind::Test { lhs, rhs } => {
-                let src = self.emit_operand_32(&lhs);
-                let dst = self.emit_operand_32(&rhs);
+                let src = self.emit_operand(&lhs, Type::Long);
+                let dst = self.emit_operand(&rhs, Type::Long);
                 self.writeln(&format!("testl {src}, {dst}"));
+            }
+            InstKind::Movsx { src, dst } => {
+                let src = self.emit_operand(&src, Type::Byte);
+                let dst = self.emit_operand(&dst, Type::Long);
+                self.writeln(&format!("movslq {src}, {dst}"));
+            }
+            InstKind::Mov { ty, src, dst } => {
+                let src = self.emit_operand(&src, Type::Long);
+                let dst = self.emit_operand(&dst, Type::Long);
+                self.writeln(&format!("mov{ty} {src}, {dst}"));
+            }
+            InstKind::Cmp { ty, lhs, rhs } => {
+                let lhs = self.emit_operand(&lhs, Type::Long);
+                let rhs = self.emit_operand(&rhs, Type::Long);
+                self.writeln(&format!("cmp{ty} {lhs}, {rhs}"));
             }
             InstKind::JmpCC { code, target } => {
                 let block = self.func.block(target);
                 match block.label {
                     Some(label) => {
                         let label = self.interner.lookup(label);
-                        let cond_code = self.emit_cond_code(code);
                         let name = self.interner.lookup(self.func.name);
-                        self.writeln(&format!("j{cond_code} .L{label}{target}{name}"));
+                        self.writeln(&format!("j{code} .L{label}{target}{name}"));
                     }
                     None => {
-                        let cond_code = self.emit_cond_code(code);
-                        self.writeln(&format!("j{cond_code} .L{target}"));
+                        self.writeln(&format!("j{code} .L{target}"));
                     }
                 }
             }
-            InstKind::Unary { op, dst } => {
-                let dst = self.emit_operand_32(&dst);
+            InstKind::Unary { ty, op, dst } => {
+                let dst = self.emit_operand(&dst, ty);
                 match op {
-                    UnaryOp::Not => self.writeln(&format!("notl {dst}")),
-                    UnaryOp::Neg => self.writeln(&format!("negl {dst}")),
-                    UnaryOp::Inc => self.writeln(&format!("incl {dst}")),
-                    UnaryOp::Dec => self.writeln(&format!("decl {dst}")),
+                    UnaryOp::Not => self.writeln(&format!("not{ty} {dst}")),
+                    UnaryOp::Neg => self.writeln(&format!("neg{ty} {dst}")),
+                    UnaryOp::Inc => self.writeln(&format!("inc{ty} {dst}")),
+                    UnaryOp::Dec => self.writeln(&format!("dec{ty} {dst}")),
                 };
             }
-            InstKind::Binary { op, src, dst } => {
-                let src = self.emit_operand_32(&src);
-                let dst = self.emit_operand_32(&dst);
+            InstKind::Binary { ty, op, src, dst } => {
+                // WARN: Since we assume all values are `int`, we use arithmetic shift
+                let src = self.emit_operand(&src, Type::Long);
+                let dst = self.emit_operand(&dst, Type::Long);
                 match op {
-                    BinaryOp::Add => self.writeln(&format!("addl {src}, {dst}")),
-                    BinaryOp::Sub => self.writeln(&format!("subl {src}, {dst}")),
-                    BinaryOp::Mul => self.writeln(&format!("imull {src}, {dst}")),
-                    BinaryOp::Or => self.writeln(&format!("orl {src}, {dst}")),
-                    BinaryOp::And => self.writeln(&format!("andl {src}, {dst}")),
-                    BinaryOp::Xor => self.writeln(&format!("xorl {src}, {dst}")),
-                    // WARN: Since we assume all values are `int`, we use arithmetic shift
-                    BinaryOp::Shl => self.writeln(&format!("sall {src}, {dst}")),
-                    BinaryOp::Shr => self.writeln(&format!("sarl {src}, {dst}")),
+                    BinaryOp::Or => self.writeln(&format!("or{ty} {src}, {dst}")),
+                    BinaryOp::Add => self.writeln(&format!("add{ty} {src}, {dst}")),
+                    BinaryOp::Sub => self.writeln(&format!("sub{ty} {src}, {dst}")),
+                    BinaryOp::And => self.writeln(&format!("and{ty} {src}, {dst}")),
+                    BinaryOp::Xor => self.writeln(&format!("xor{ty} {src}, {dst}")),
+                    BinaryOp::Shl => self.writeln(&format!("sal{ty} {src}, {dst}")),
+                    BinaryOp::Shr => self.writeln(&format!("sar{ty} {src}, {dst}")),
+                    BinaryOp::Mul => self.writeln(&format!("imul{ty} {src}, {dst}")),
                 };
             }
         }
     }
 
-    fn emit_operand_8(&mut self, oper: &Operand) -> String {
+    fn emit_operand(&mut self, oper: &Operand, ty: Type) -> String {
         match oper {
-            Operand::Data(_) => todo!(),
-            Operand::Reg(reg) => match reg {
-                Reg::Rax => "%al".to_string(),
-                Reg::Rbx => "%bl".to_string(),
-                Reg::Rcx => "%cl".to_string(),
-                Reg::Rdx => "%dl".to_string(),
-                Reg::Rdi => "%dil".to_string(),
-                Reg::Rsi => "%sil".to_string(),
-                Reg::R8 => "%r8b".to_string(),
-                Reg::R9 => "%r9b".to_string(),
-                Reg::Rg10 => "%r10b".to_string(),
-                Reg::Rg11 => "%r11b".to_string(),
+            Operand::Imm(v) => format!("${}", v),
+            Operand::Pseudo(id) => format!("pseudo({})", id),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Reg(reg) => match ty {
+                Type::Byte => format!("%{}", reg.as_str_8()),
+                Type::Long => format!("%{}", reg.as_str_32()),
+                Type::Quad => format!("%{}", reg.as_str_64()),
             },
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
-            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
-        }
-    }
-
-    fn emit_operand_32(&mut self, oper: &Operand) -> String {
-        match oper {
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
-            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
             Operand::Data(v) => {
                 let var = self.program.static_var(*v);
                 let name = self.interner.lookup(var.name);
@@ -259,51 +227,6 @@ impl<'a> AMD64Emitter<'a> {
                     format!("{}{}(%rip)", name, v.0)
                 }
             }
-            Operand::Reg(reg) => match reg {
-                Reg::Rax => "%eax".to_string(),
-                Reg::Rbx => "%ebx".to_string(),
-                Reg::Rcx => "%ecx".to_string(),
-                Reg::Rdi => "%edi".to_string(),
-                Reg::Rdx => "%edx".to_string(),
-                Reg::Rsi => "%esi".to_string(),
-                Reg::R8 => "%r8d".to_string(),
-                Reg::R9 => "%r9d".to_string(),
-                Reg::Rg10 => "%r10d".to_string(),
-                Reg::Rg11 => "%r11d".to_string(),
-            },
-        }
-    }
-
-    fn emit_operand_64(&mut self, oper: &Operand) -> String {
-        match oper {
-            Operand::Data(_) => todo!(),
-            Operand::Reg(reg) => match reg {
-                Reg::Rax => "%rax".to_string(),
-                Reg::Rbx => "%rbx".to_string(),
-                Reg::Rcx => "%rcx".to_string(),
-                Reg::Rdi => "%rdi".to_string(),
-                Reg::Rdx => "%rdx".to_string(),
-                Reg::Rsi => "%rsi".to_string(),
-                Reg::R8 => "%r8".to_string(),
-                Reg::R9 => "%r9".to_string(),
-                Reg::Rg10 => "%r10".to_string(),
-                Reg::Rg11 => "%r11".to_string(),
-            },
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
-            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
-        }
-    }
-
-    fn emit_cond_code(&mut self, cond_code: CondCode) -> String {
-        match cond_code {
-            CondCode::Equal => "e".to_string(),
-            CondCode::NotEqual => "ne".to_string(),
-            CondCode::LessThan => "l".to_string(),
-            CondCode::LessEqual => "le".to_string(),
-            CondCode::GreaterThan => "g".to_string(),
-            CondCode::GreaterEqual => "ge".to_string(),
         }
     }
 

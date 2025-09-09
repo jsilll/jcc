@@ -601,14 +601,14 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn size(&self) -> u32 {
+    pub fn align(&self) -> u32 {
         match self {
-            Type::Void => 0,
             Type::Int8 => 1,
             Type::Int16 => 2,
             Type::Int32 => 4,
             Type::Int64 => 8,
             Type::IntPtr => 8,
+            Type::Void => panic!("void has no alignment"),
         }
     }
 }

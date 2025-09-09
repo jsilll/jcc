@@ -182,16 +182,16 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     }
 
     // Generate Assembly
-    let mut amd64 = profiler.time("AMD64 Build", || {
+    let mut r = profiler.time("AMD64 Build", || {
         ssa::amd64::build::Builder::new(&ssa).build()
     });
     if args.verbose {
-        let asm = AMD64Emitter::new(&amd64, &interner).emit();
+        let asm = AMD64Emitter::new(&r.program, &interner).emit();
         println!("{}", asm);
     }
-    profiler.time("AMD64 Fixer", || AMD64Fixer::new().fix(&mut amd64));
+    profiler.time("AMD64 Fixer", || AMD64Fixer::new(&r.table).fix(&mut r.program));
     if args.verbose {
-        let asm = AMD64Emitter::new(&amd64, &interner).emit();
+        let asm = AMD64Emitter::new(&r.program, &interner).emit();
         println!("{}", asm);
     }
     if args.codegen {
@@ -201,7 +201,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     // Emit final assembly
     let asm_path = args.path.with_extension("s");
     let asm = profiler.time("Assembly Emission", || {
-        AMD64Emitter::new(&amd64, &interner).emit()
+        AMD64Emitter::new(&r.program, &interner).emit()
     });
     std::fs::write(&asm_path, &asm).context("Failed to write assembly file")?;
     if args.assembly {

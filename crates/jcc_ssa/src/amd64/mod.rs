@@ -264,6 +264,7 @@ impl From<InstIdx> for u32 {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Inst {
+    pub ty: Type,
     pub idx: InstIdx,
     pub kind: InstKind,
     pub span: SourceSpan,
@@ -278,8 +279,9 @@ impl Indexed for Inst {
 
 impl Inst {
     #[inline]
-    fn new(kind: InstKind, span: SourceSpan) -> Self {
+    fn new(ty: Type, kind: InstKind, span: SourceSpan) -> Self {
         Self {
+            ty,
             kind,
             span,
             ..Default::default()
@@ -292,83 +294,83 @@ impl Inst {
 
     #[inline]
     fn ret(span: SourceSpan) -> Self {
-        Self::new(InstKind::Ret, span)
+        Self::new(Type::default(), InstKind::Ret, span)
     }
 
     #[inline]
     fn cdq(ty: Type, span: SourceSpan) -> Self {
-        Self::new(InstKind::Cdq(ty), span)
+        Self::new(ty, InstKind::Cdq, span)
     }
 
     #[inline]
     fn call(sym: Symbol, span: SourceSpan) -> Self {
-        Self::new(InstKind::Call(sym), span)
+        Self::new(Type::default(), InstKind::Call(sym), span)
     }
 
     #[inline]
     fn push(op: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Push(op), span)
+        Self::new(Type::Quad, InstKind::Push(op), span)
     }
 
     #[inline]
     fn jmp(block: BlockRef, span: SourceSpan) -> Self {
-        Self::new(InstKind::Jmp(block), span)
+        Self::new(Type::default(), InstKind::Jmp(block), span)
     }
 
     #[inline]
     fn idiv(ty: Type, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Idiv { ty, dst }, span)
+        Self::new(ty, InstKind::Idiv(dst), span)
     }
 
     #[inline]
     fn test(lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Test { lhs, rhs }, span)
+        Self::new(Type::default(), InstKind::Test { lhs, rhs }, span)
     }
 
     #[inline]
     fn movsx(src: Operand, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Movsx { src, dst }, span)
+        Self::new(Type::Long, InstKind::Movsx { src, dst }, span)
     }
 
     #[inline]
     fn setcc(code: CondCode, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::SetCC { dst, code }, span)
+        Self::new(Type::default(), InstKind::SetCC { dst, code }, span)
     }
 
     #[inline]
     fn jmpcc(code: CondCode, target: BlockRef, span: SourceSpan) -> Self {
-        Self::new(InstKind::JmpCC { target, code }, span)
+        Self::new(Type::default(), InstKind::JmpCC { target, code }, span)
     }
 
     #[inline]
     fn mov(ty: Type, src: Operand, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Mov { ty, src, dst }, span)
+        Self::new(ty, InstKind::Mov { src, dst }, span)
     }
 
     #[inline]
     fn cmp(ty: Type, lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Cmp { ty, lhs, rhs }, span)
+        Self::new(ty, InstKind::Cmp { lhs, rhs }, span)
     }
 
     #[inline]
     fn unary(ty: Type, op: UnaryOp, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Unary { ty, op, dst }, span)
+        Self::new(ty, InstKind::Unary { op, dst }, span)
     }
 
     #[inline]
     fn binary(ty: Type, op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
-        Self::new(InstKind::Binary { ty, op, src, dst }, span)
+        Self::new(ty, InstKind::Binary { op, src, dst }, span)
     }
 
     #[inline]
     fn alloc_stack(size: i64, span: SourceSpan) -> Self {
         assert!(size >= 0 && size % 8 == 0);
         Self::new(
+            Type::Quad,
             InstKind::Binary {
-                ty: Type::Quad,
                 op: BinaryOp::Sub,
-                dst: Operand::Reg(Reg::Rsp),
                 src: Operand::Imm(size),
+                dst: Operand::Reg(Reg::Rsp),
             },
             span,
         )
@@ -378,11 +380,11 @@ impl Inst {
     fn dealloc_stack(size: i64, span: SourceSpan) -> Self {
         assert!(size >= 0 && size % 8 == 0);
         Self::new(
+            Type::Quad,
             InstKind::Binary {
-                ty: Type::Quad,
                 op: BinaryOp::Add,
-                dst: Operand::Reg(Reg::Rsp),
                 src: Operand::Imm(size),
+                dst: Operand::Reg(Reg::Rsp),
             },
             span,
         )
@@ -430,12 +432,15 @@ impl std::fmt::Display for Type {
     }
 }
 
-impl From<crate::Type> for Type {
-    fn from(ty: crate::Type) -> Self {
+impl TryFrom<crate::Type> for Type {
+    type Error = ();
+    fn try_from(ty: crate::Type) -> Result<Self, Self::Error> {
         match ty {
-            crate::Type::Int32 => Type::Long,
-            crate::Type::Int64 => Type::Quad,
-            _ => panic!("unsupported type {:?}", ty),
+            crate::Type::Int8 => Ok(Self::Byte),
+            crate::Type::Int32 => Ok(Self::Long),
+            crate::Type::Int64 => Ok(Self::Quad),
+            crate::Type::IntPtr => Ok(Self::Quad),
+            _ => Err(()),
         }
     }
 }
@@ -448,7 +453,7 @@ pub enum InstKind {
     /// A `ret` instruction.
     Ret,
     /// A `cdq` instruction.
-    Cdq(Type),
+    Cdq,
     /// A call instruction.
     Call(Symbol),
     /// A push to stack instruction.
@@ -456,7 +461,9 @@ pub enum InstKind {
     /// A `jmp` instruction.
     Jmp(BlockRef),
     /// An `idiv` instruction.
-    Idiv { ty: Type, dst: Operand },
+    Idiv (Operand),
+    /// A `cmp` instruction.
+    Cmp { lhs: Operand, rhs: Operand },
     /// A `test` instruction.
     Test { lhs: Operand, rhs: Operand },
     /// A `movsx` instruction.
@@ -466,22 +473,11 @@ pub enum InstKind {
     /// A conditional jump instruction.
     JmpCC { code: CondCode, target: BlockRef },
     /// A `mov` instruction.
-    Mov {
-        ty: Type,
-        src: Operand,
-        dst: Operand,
-    },
-    /// A `cmp` instruction.
-    Cmp {
-        ty: Type,
-        lhs: Operand,
-        rhs: Operand,
-    },
+    Mov { src: Operand, dst: Operand },
     /// A unary operation instruction.
-    Unary { ty: Type, op: UnaryOp, dst: Operand },
+    Unary { op: UnaryOp, dst: Operand },
     /// A binary operation instruction.
     Binary {
-        ty: Type,
         op: BinaryOp,
         src: Operand,
         dst: Operand,

@@ -1,3 +1,4 @@
+pub mod emitter;
 pub mod inset;
 
 pub trait Indexed {

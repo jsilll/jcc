@@ -101,16 +101,21 @@ impl<'a> Builder<'a> {
             crate::InstKind::Select { .. } => todo!("handle select"),
             crate::InstKind::Nop | crate::InstKind::Phi => {}
             crate::InstKind::Alloca => {
-                let dst = self.make_pseudo(inst.ty.into());
+                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
                 self.operands.insert(inst_ref, dst);
             }
             crate::InstKind::Arg => {
-                let dst = self.make_pseudo(inst.ty.into());
+                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
                 self.operands.insert(inst_ref, dst);
                 if let Some(&reg) = ARG_REGS.get(self.arg_count as usize) {
-                    self.insert_inst(Inst::mov(inst.ty.into(), Operand::Reg(reg), dst, inst.span));
+                    self.insert_inst(Inst::mov(
+                        inst.ty.try_into().unwrap(),
+                        Operand::Reg(reg),
+                        dst,
+                        inst.span,
+                    ));
                 } else {
-                    let ty = inst.ty.into();
+                    let ty = inst.ty.try_into().unwrap();
                     let n_stack_arg = self.arg_count - ARG_REGS.len() as u32;
                     let offset = (16 + n_stack_arg * 8) as i64;
                     self.insert_inst(Inst::mov(ty, Operand::Stack(offset), dst, inst.span));
@@ -147,27 +152,32 @@ impl<'a> Builder<'a> {
                 self.insert_inst(Inst::mov(Type::Long, src, dst, inst.span));
             }
             crate::InstKind::Load(ptr) => {
-                let dst = self.make_pseudo(inst.ty.into());
-                let ty = self.ssa.inst(ptr).ty;
+                let ty = inst.ty.try_into().unwrap();
+                let dst = self.make_pseudo(ty);
                 self.operands.insert(inst_ref, dst);
-                self.insert_inst(Inst::mov(ty.into(), self.get_operand(ptr), dst, inst.span));
+                self.insert_inst(Inst::mov(ty, self.get_operand(ptr), dst, inst.span));
             }
             crate::InstKind::Ret(val) => {
                 let ty = self.ssa.inst(val).ty;
                 let src = self.get_operand(val);
-                self.insert_inst(Inst::mov(ty.into(), src, Operand::Reg(Reg::Rax), inst.span));
+                self.insert_inst(Inst::mov(
+                    ty.try_into().unwrap(),
+                    src,
+                    Operand::Reg(Reg::Rax),
+                    inst.span,
+                ));
                 self.insert_inst(Inst::ret(inst.span));
             }
             crate::InstKind::Store { ptr, val } => {
                 let ty = self.ssa.inst(val).ty;
                 let src = self.get_operand(val);
                 let dst = self.get_operand(ptr);
-                self.insert_inst(Inst::mov(ty.into(), src, dst, inst.span));
+                self.insert_inst(Inst::mov(ty.try_into().unwrap(), src, dst, inst.span));
             }
             crate::InstKind::Upsilon { phi, val } => {
                 let src = self.get_operand(val);
-                let dst = self.get_or_make_pseudo(phi, inst.ty.into());
-                self.insert_inst(Inst::mov(inst.ty.into(), src, dst, inst.span));
+                let dst = self.get_or_make_pseudo(phi, inst.ty.try_into().unwrap());
+                self.insert_inst(Inst::mov(inst.ty.try_into().unwrap(), src, dst, inst.span));
             }
             crate::InstKind::Branch { cond, then, other } => {
                 let cond = self.get_operand(cond);
@@ -190,18 +200,26 @@ impl<'a> Builder<'a> {
                         ConstValue::Int64(v) => *v,
                         ConstValue::Int32(v) => *v as i64,
                     };
-                    self.insert_inst(Inst::cmp(ty.into(), oper, Operand::Imm(v), inst.span));
+                    self.insert_inst(Inst::cmp(
+                        ty.try_into().unwrap(),
+                        oper,
+                        Operand::Imm(v),
+                        inst.span,
+                    ));
                     self.insert_inst(Inst::jmpcc(CondCode::Eq, block, inst.span));
                 });
                 let default = self.get_or_make_block(default);
                 self.insert_inst(Inst::jmp(default, inst.span));
             }
             crate::InstKind::Unary { op, val } => {
-                let dst = self.make_pseudo(inst.ty.into());
+                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
                 let src = self.get_operand(val);
                 self.operands.insert(inst_ref, dst);
-                let val_ty = self.ssa.inst(val).ty.into();
+                let val_ty = self.ssa.inst(val).ty.try_into().unwrap();
                 match op {
+                    crate::UnaryOp::Not => {
+                        self.build_unary(val_ty, UnaryOp::Not, src, dst, inst.span);
+                    }
                     crate::UnaryOp::Neg => {
                         self.build_unary(val_ty, UnaryOp::Neg, src, dst, inst.span)
                     }
@@ -211,17 +229,11 @@ impl<'a> Builder<'a> {
                     crate::UnaryOp::Dec => {
                         self.build_unary(val_ty, UnaryOp::Dec, src, dst, inst.span)
                     }
-                    crate::UnaryOp::Not => {
-                        let zero = Operand::Imm(0);
-                        self.insert_inst(Inst::cmp(val_ty, zero, src, inst.span));
-                        self.insert_inst(Inst::mov(inst.ty.into(), zero, dst, inst.span));
-                        self.insert_inst(Inst::setcc(CondCode::Eq, dst, inst.span));
-                    }
                 }
             }
             crate::InstKind::Binary { op, lhs, rhs } => {
-                let dst_ty = inst.ty.into();
-                let lhs_ty = self.ssa.inst(lhs).ty.into();
+                let dst_ty = inst.ty.try_into().unwrap();
+                let lhs_ty = self.ssa.inst(lhs).ty.try_into().unwrap();
                 let dst = self.make_pseudo(dst_ty);
                 let lhs = self.get_operand(lhs);
                 let rhs = self.get_operand(rhs);
@@ -288,7 +300,12 @@ impl<'a> Builder<'a> {
                 for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
                     let ty = self.ssa.inst(*arg).ty;
                     let src = self.get_operand(*arg);
-                    self.insert_inst(Inst::mov(ty.into(), src, Operand::Reg(*reg), inst.span));
+                    self.insert_inst(Inst::mov(
+                        ty.try_into().unwrap(),
+                        src,
+                        Operand::Reg(*reg),
+                        inst.span,
+                    ));
                 }
                 for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
                     let oper = self.get_operand(*arg);
@@ -312,8 +329,8 @@ impl<'a> Builder<'a> {
                 if stack_size > 0 {
                     self.insert_inst(Inst::dealloc_stack(stack_size, inst.span))
                 }
-                let dst = self.make_pseudo(inst.ty.into());
-                let ty = self.ssa.inst(inst_ref).ty.into();
+                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
+                let ty = self.ssa.inst(inst_ref).ty.try_into().unwrap();
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::mov(ty, Operand::Reg(Reg::Rax), dst, inst.span));
             }

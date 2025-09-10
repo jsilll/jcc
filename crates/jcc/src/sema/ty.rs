@@ -457,7 +457,7 @@ impl<'a> TyperPass<'a> {
                     .expect("symbol info not found")
                     .ty;
                 match ty {
-                    Type::Compound(r) => match self.ctx.dict.get(r) {
+                    Type::Compound(r) => match self.ctx.dict.get_compound(r) {
                         CompoundType::Ptr(_) => todo!("handle pointer type"),
                         CompoundType::Func { ret, params } => {
                             if args.len() != params.len() {
@@ -511,7 +511,7 @@ impl<'a> TyperPass<'a> {
     #[inline]
     fn get_return_type(&self, decl: &Decl) -> Option<Type> {
         match decl.ty {
-            Type::Compound(r) => match self.ctx.dict.get(r) {
+            Type::Compound(r) => match self.ctx.dict.get_compound(r) {
                 CompoundType::Func { ret, .. } => Some(*ret),
                 _ => None,
             },

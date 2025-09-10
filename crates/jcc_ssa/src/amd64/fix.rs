@@ -44,7 +44,6 @@ impl<'a> AMD64Fixer<'a> {
                 if let Some(inst) = block.insts.first() {
                     let inst = func.inst_mut(*inst);
                     if let InstKind::Binary {
-                        ty: Type::Quad,
                         op: BinaryOp::Sub,
                         dst: Operand::Reg(Reg::Rsp),
                         src: Operand::Imm(ref mut size),
@@ -62,18 +61,16 @@ impl<'a> AMD64Fixer<'a> {
         match &mut inst.kind {
             InstKind::Nop
             | InstKind::Ret
-            | InstKind::Cdq(_)
+            | InstKind::Cdq
             | InstKind::Jmp(_)
             | InstKind::Call(_)
             | InstKind::JmpCC { .. } => {}
-            InstKind::Push(oper)
-            | InstKind::SetCC { dst: oper, .. }
-            | InstKind::Unary { dst: oper, .. } => {
-                self.fix_operand(oper);
-            }
-            InstKind::Idiv { ty, dst } => {
+            InstKind::Push(dst) | InstKind::SetCC { dst, .. } | InstKind::Unary { dst, .. } => {
                 self.fix_operand(dst);
-                if let Operand::Imm(_) = dst {
+            }
+            InstKind::Idiv(oper) => {
+                self.fix_operand(oper);
+                if let Operand::Imm(_) = oper {
                     // NOTE
                     //
                     // The `idiv` doesn't support
@@ -84,16 +81,16 @@ impl<'a> AMD64Fixer<'a> {
                     //
                     // movl $3, %r10d
                     // idivl %r10d
-                    let tmp = *dst;
-                    *dst = Operand::Reg(Reg::Rg10);
+                    let tmp = *oper;
+                    *oper = Operand::Reg(Reg::Rg10);
                     self.inset.before(
                         inst.idx,
-                        Inst::mov(*ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
+                        Inst::mov(inst.ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
                     );
                 }
             }
             InstKind::Movsx { src, dst } => {
-                let src_ty = self.fix_operand(src);
+                self.fix_operand(src);
                 let dst_ty = self.fix_operand(dst);
                 if matches!(src, Operand::Imm(_)) {
                     // NOTE
@@ -107,9 +104,8 @@ impl<'a> AMD64Fixer<'a> {
                     // movsx %r10d, %eax
                     let tmp = *src;
                     *src = Operand::Reg(Reg::Rg10);
-                    let ty = src_ty.expect("expected src type");
                     self.inset
-                        .before(inst.idx, Inst::mov(ty, tmp, *src, inst.span));
+                        .before(inst.idx, Inst::mov(inst.ty, tmp, *src, inst.span));
                 }
                 if matches!(dst, Operand::Stack(_)) {
                     // NOTE
@@ -128,7 +124,7 @@ impl<'a> AMD64Fixer<'a> {
                         .after(inst.idx, Inst::mov(ty, *dst, tmp, inst.span));
                 }
             }
-            InstKind::Mov { ty, src, dst } => {
+            InstKind::Mov { src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
                 if matches!(dst, Operand::Stack(_) | Operand::Data(_))
@@ -149,51 +145,49 @@ impl<'a> AMD64Fixer<'a> {
                     *dst = Operand::Reg(Reg::Rg10);
                     self.inset.after(
                         inst.idx,
-                        Inst::mov(*ty, Operand::Reg(Reg::Rg10), tmp, inst.span),
+                        Inst::mov(inst.ty, Operand::Reg(Reg::Rg10), tmp, inst.span),
                     );
-                } else if matches!(dst, Operand::Stack(_)) {
-                    if let Operand::Imm(c) = src {
-                        if c.abs() > i32::MAX as i64 {
-                            match ty {
-                                Type::Byte => {}
-                                Type::Long => {
-                                    // NOTE
-                                    //
-                                    // Since `movl` can’t use 8-byte immediate values, the assembler
-                                    // automatically truncates these values to 32 bits. When this happens
-                                    // the GNU assembler issues a warning, although the LLVM assembler doesn’t.
-                                    //
-                                    // To avoid these warnings, we truncate 8-byte immediate values in movl instructions ourselves.
-                                    //
-                                    // movl $4294967299, %r10d
-                                    //
-                                    // movl $3, %r10d
-                                    *c = *c as i32 as i64;
-                                }
-                                Type::Quad => {
-                                    // NOTE
-                                    //
-                                    // The `movq` instruction can move these very large immediate
-                                    // values into registers, but not directly into memory.
-                                    //
-                                    // movq $4294967295, -16(%rbp)
-                                    //
-                                    // movq $4294967295, %r10
-                                    // movq %r10, -16(%rbp)
-                                    let tmp = *src;
-                                    *src = Operand::Reg(Reg::Rg10);
-                                    self.inset.before(
-                                        inst.idx,
-                                        Inst::mov(*ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
-                                    );
-                                }
+                }
+                if let Operand::Imm(c) = src {
+                    if c.abs() > i32::MAX as i64 {
+                        match inst.ty {
+                            Type::Byte => {}
+                            Type::Long => {
+                                // NOTE
+                                //
+                                // Since `movl` can’t use 8-byte immediate values, the assembler
+                                // automatically truncates these values to 32 bits. When this happens
+                                // the GNU assembler issues a warning, although the LLVM assembler doesn’t.
+                                //
+                                // To avoid these warnings, we truncate 8-byte immediate values in movl instructions ourselves.
+                                //
+                                // movl $4294967299, %r10d
+                                //
+                                // movl $3, %r10d
+                                *c = *c as i32 as i64;
+                            }
+                            Type::Quad => {
+                                // NOTE
+                                //
+                                // The `movq` instruction can move these very large immediate
+                                // values into registers, but not directly into memory.
+                                //
+                                // movq $4294967295, -16(%rbp)
+                                //
+                                // movq $4294967295, %r10
+                                // movq %r10, -16(%rbp)
+                                let tmp = *src;
+                                *src = Operand::Reg(Reg::Rg10);
+                                self.inset.before(
+                                    inst.idx,
+                                    Inst::mov(inst.ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
+                                );
                             }
                         }
                     }
-                    // matches!(src, Operand::Imm(c) if c.abs() > i32::MAX as i64)
                 }
             }
-            InstKind::Cmp { ty, lhs, rhs } => {
+            InstKind::Cmp { lhs, rhs } => {
                 self.fix_operand(lhs);
                 self.fix_operand(rhs);
                 if matches!(rhs, Operand::Imm(_)) {
@@ -212,7 +206,7 @@ impl<'a> AMD64Fixer<'a> {
                     *rhs = Operand::Reg(Reg::Rg11);
                     self.inset.before(
                         inst.idx,
-                        Inst::mov(*ty, tmp, Operand::Reg(Reg::Rg11), inst.span),
+                        Inst::mov(inst.ty, tmp, Operand::Reg(Reg::Rg11), inst.span),
                     );
                 } else if matches!(lhs, Operand::Stack(_)) && matches!(rhs, Operand::Stack(_)) {
                     // NOTE
@@ -229,13 +223,13 @@ impl<'a> AMD64Fixer<'a> {
                     *lhs = Operand::Reg(Reg::Rg10);
                     self.inset.before(
                         inst.idx,
-                        Inst::mov(*ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
+                        Inst::mov(inst.ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
                     );
                 }
             }
             InstKind::Test { lhs, rhs } => {
                 let lhs_ty = self.fix_operand(lhs);
-                let rhs_ty = self.fix_operand(rhs);
+                self.fix_operand(rhs);
                 if matches!(lhs, Operand::Stack(_)) && matches!(rhs, Operand::Stack(_)) {
                     // NOTE
                     //
@@ -267,14 +261,13 @@ impl<'a> AMD64Fixer<'a> {
                     // testl $1, %r10d
                     let tmp = *rhs;
                     *rhs = Operand::Reg(Reg::Rg10);
-                    let ty = rhs_ty.expect("expected rhs type");
                     self.inset.before(
                         inst.idx,
-                        Inst::mov(ty, tmp, Operand::Reg(Reg::Rg10), inst.span),
+                        Inst::mov(Type::Long, tmp, Operand::Reg(Reg::Rg10), inst.span),
                     );
                 }
             }
-            InstKind::Binary { ty, op, src, dst } => {
+            InstKind::Binary { op, src, dst } => {
                 let src_ty = self.fix_operand(src);
                 self.fix_operand(dst);
                 match *op {
@@ -296,11 +289,11 @@ impl<'a> AMD64Fixer<'a> {
                             *dst = Operand::Reg(Reg::Rg11);
                             self.inset.before(
                                 inst.idx,
-                                Inst::mov(*ty, tmp, Operand::Reg(Reg::Rg11), inst.span),
+                                Inst::mov(inst.ty, tmp, Operand::Reg(Reg::Rg11), inst.span),
                             );
                             self.inset.after(
                                 inst.idx,
-                                Inst::mov(*ty, Operand::Reg(Reg::Rg11), tmp, inst.span),
+                                Inst::mov(inst.ty, Operand::Reg(Reg::Rg11), tmp, inst.span),
                             );
                         }
                     }

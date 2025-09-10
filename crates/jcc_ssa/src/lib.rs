@@ -38,12 +38,10 @@ impl<'a> Program<'a> {
         Self {
             interner,
             heaps: Default::default(),
-
             insts_free: Vec::new(),
             funcs_free: Vec::new(),
             blocks_free: Vec::new(),
             static_vars_free: Vec::new(),
-
             insts: vec![Default::default()],
             funcs: vec![Default::default()],
             blocks: vec![Default::default()],
@@ -338,18 +336,18 @@ impl Inst {
     }
 
     #[inline]
-    pub fn upsilon(phi: InstRef, val: InstRef, span: SourceSpan) -> Self {
-        Self::new(Type::Void, InstKind::Upsilon { phi, val }, span)
-    }
-
-    #[inline]
-    pub fn call(func: FuncRef, args: Vec<InstRef>, span: SourceSpan) -> Self {
-        Self::new(Type::Void, InstKind::Call { func, args }, span)
+    pub fn call(ty: Type, func: FuncRef, args: Vec<InstRef>, span: SourceSpan) -> Self {
+        Self::new(ty, InstKind::Call { func, args }, span)
     }
 
     #[inline]
     pub fn unary(ty: Type, op: UnaryOp, val: InstRef, span: SourceSpan) -> Self {
         Self::new(ty, InstKind::Unary { op, val }, span)
+    }
+
+    #[inline]
+    pub fn upsilon(ty: Type, phi: InstRef, val: InstRef, span: SourceSpan) -> Self {
+        Self::new(ty, InstKind::Upsilon { phi, val }, span)
     }
 
     #[inline]

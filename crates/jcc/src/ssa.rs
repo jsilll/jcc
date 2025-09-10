@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{self, AstSymbol, StmtRef},
-    sema::{self, Attribute, SemaCtx, SemaSymbol, StaticValue},
+    sema::{self, Attribute, CompoundType, SemaCtx, SemaSymbol, StaticValue},
 };
 
 use jcc_ssa::{
@@ -612,13 +612,29 @@ impl<'a> SSABuilder<'a> {
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
-                let is_global = self
+                let symbol = self
                     .sema
                     .symbol(name.sema.get())
-                    .expect("expected a sema symbol")
-                    .is_global();
-                let func = self.get_or_make_function(name, is_global, expr.span);
-                self.builder.insert_inst(Inst::call(func, args, expr.span))
+                    .expect("expected a sema symbol");
+                let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
+                let ty = match self.sema.dict.get(symbol.ty) {
+                    CompoundType::Func {
+                        ret: sema::Type::Void,
+                        ..
+                    } => Type::Void,
+                    CompoundType::Func {
+                        ret: sema::Type::Int,
+                        ..
+                    } => Type::Int32,
+                    CompoundType::Func {
+                        ret: sema::Type::Long,
+                        ..
+                    } => Type::Int64,
+                    CompoundType::Func { .. } => todo!("handle other return types"),
+                    _ => panic!("expected a function type"),
+                };
+                self.builder
+                    .insert_inst(Inst::call(ty, func, args, expr.span))
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
                 ast::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, *inner, expr.span),
@@ -726,14 +742,14 @@ impl<'a> SSABuilder<'a> {
                 self.builder.switch_to_block(then_block);
                 let then_val = self.visit_expr(*then, ExprMode::RightValue);
                 self.builder
-                    .insert_inst(Inst::upsilon(phi, then_val, expr.span));
+                    .insert_inst(Inst::upsilon(Type::Int32, phi, then_val, expr.span));
                 self.builder.insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Else Block ===
                 self.builder.switch_to_block(else_block);
                 let else_val = self.visit_expr(*other, ExprMode::RightValue);
                 self.builder
-                    .insert_inst(Inst::upsilon(phi, else_val, expr.span));
+                    .insert_inst(Inst::upsilon(Type::Int32, phi, else_val, expr.span));
                 self.builder.insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Merge Block ===
@@ -843,7 +859,7 @@ impl<'a> SSABuilder<'a> {
             LogicalOp::And => Inst::const_i32(0, span),
         });
         self.builder
-            .insert_inst(Inst::upsilon(phi, short_circuit_val, span));
+            .insert_inst(Inst::upsilon(Type::Int32, phi, short_circuit_val, span));
         let (true_target, false_target) = match op {
             LogicalOp::Or => (cont_block, rhs_block),
             LogicalOp::And => (rhs_block, cont_block),
@@ -863,7 +879,7 @@ impl<'a> SSABuilder<'a> {
             span,
         ));
         self.builder
-            .insert_inst(Inst::upsilon(phi, is_nonzero, span));
+            .insert_inst(Inst::upsilon(Type::Int32, phi, is_nonzero, span));
         self.builder.insert_inst(Inst::jump(cont_block, span));
 
         // === Merge Block ===

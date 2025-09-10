@@ -91,8 +91,17 @@ impl TypeDict {
     }
 
     #[inline]
-    pub fn get(&self, ty: CompoundTypeRef) -> &CompoundType {
-        &self.types[ty.0.get() as usize]
+    pub fn get(&self, ty: Type) -> &CompoundType {
+        match ty {
+            Type::Compound(t) => &self.types[t.0.get() as usize],
+            _ => panic!("not a compound type"),
+        }
+        
+    }
+
+    #[inline]
+    pub fn get_compound(&self, r: CompoundTypeRef) -> &CompoundType {
+        &self.types[r.0.get() as usize]
     }
 
     #[inline]

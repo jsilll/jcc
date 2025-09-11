@@ -316,13 +316,13 @@ impl Inst {
     }
 
     #[inline]
-    pub fn load(ptr: InstRef, span: SourceSpan) -> Self {
-        Self::new(Type::Int32, InstKind::Load(ptr), span)
+    pub fn jump(block: BlockRef, span: SourceSpan) -> Self {
+        Self::new(Type::Void, InstKind::Jump(block), span)
     }
 
     #[inline]
-    pub fn jump(block: BlockRef, span: SourceSpan) -> Self {
-        Self::new(Type::Void, InstKind::Jump(block), span)
+    pub fn load(ty: Type, ptr: InstRef, span: SourceSpan) -> Self {
+        Self::new(ty, InstKind::Load(ptr), span)
     }
 
     #[inline]

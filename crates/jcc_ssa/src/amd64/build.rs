@@ -105,20 +105,20 @@ impl<'a> Builder<'a> {
                 self.operands.insert(inst_ref, dst);
             }
             crate::InstKind::Arg => {
+                let ty = inst.ty.try_into().unwrap();
                 let dst = self.make_pseudo(inst.ty.try_into().unwrap());
                 self.operands.insert(inst_ref, dst);
-                if let Some(&reg) = ARG_REGS.get(self.arg_count as usize) {
-                    self.insert_inst(Inst::mov(
-                        inst.ty.try_into().unwrap(),
-                        Operand::Reg(reg),
-                        dst,
-                        inst.span,
-                    ));
-                } else {
-                    let ty = inst.ty.try_into().unwrap();
-                    let n_stack_arg = self.arg_count - ARG_REGS.len() as u32;
-                    let offset = (16 + n_stack_arg * 8) as i64;
-                    self.insert_inst(Inst::mov(ty, Operand::Stack(offset), dst, inst.span));
+                match ARG_REGS.get(self.arg_count as usize) {
+                    Some(&reg) => {
+                        println!("1. ty: {:?}", ty);
+                        self.insert_inst(Inst::mov(ty, Operand::Reg(reg), dst, inst.span));
+                    }
+                    None => {
+                        println!("2. ty: {:?}", ty);
+                        let n_stack_arg = self.arg_count - ARG_REGS.len() as u32;
+                        let offset = (16 + n_stack_arg * 8) as i64;
+                        self.insert_inst(Inst::mov(ty, Operand::Stack(offset), dst, inst.span));
+                    }
                 }
                 self.arg_count += 1;
             }
@@ -184,7 +184,7 @@ impl<'a> Builder<'a> {
                 let then = self.get_or_make_block(then);
                 let other = self.get_or_make_block(other);
                 self.insert_inst(Inst::test(cond, cond, inst.span));
-                self.insert_inst(Inst::jmpcc(CondCode::Neq, then, inst.span));
+                self.insert_inst(Inst::jmpcc(CondCode::Ne, then, inst.span));
                 self.insert_inst(Inst::jmp(other, inst.span));
             }
             crate::InstKind::Switch {
@@ -193,19 +193,14 @@ impl<'a> Builder<'a> {
                 ref cases,
             } => {
                 let oper = self.get_operand(cond);
+                let ty = self.ssa.inst(cond).ty.try_into().unwrap();
                 cases.iter().for_each(|(v, block)| {
-                    let ty = self.ssa.inst(cond).ty;
-                    let block = self.get_or_make_block(*block);
                     let v = match v {
                         ConstValue::Int64(v) => *v,
                         ConstValue::Int32(v) => *v as i64,
                     };
-                    self.insert_inst(Inst::cmp(
-                        ty.try_into().unwrap(),
-                        oper,
-                        Operand::Imm(v),
-                        inst.span,
-                    ));
+                    let block = self.get_or_make_block(*block);
+                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(v), inst.span));
                     self.insert_inst(Inst::jmpcc(CondCode::Eq, block, inst.span));
                 });
                 let default = self.get_or_make_block(default);
@@ -273,7 +268,7 @@ impl<'a> Builder<'a> {
                         self.build_cmp(lhs_ty, dst_ty, CondCode::Eq, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::NotEqual => {
-                        self.build_cmp(lhs_ty, dst_ty, CondCode::Neq, lhs, rhs, dst, inst.span)
+                        self.build_cmp(lhs_ty, dst_ty, CondCode::Ne, lhs, rhs, dst, inst.span)
                     }
                     crate::BinaryOp::LessThan => {
                         self.build_cmp(lhs_ty, dst_ty, CondCode::Lt, lhs, rhs, dst, inst.span)
@@ -379,8 +374,8 @@ impl<'a> Builder<'a> {
         dst: Operand,
         span: crate::SourceSpan,
     ) {
-        self.insert_inst(Inst::mov(lhs_ty, Operand::Imm(0), dst, span));
-        self.insert_inst(Inst::cmp(dst_ty, rhs, lhs, span));
+        self.insert_inst(Inst::cmp(lhs_ty, rhs, lhs, span));
+        self.insert_inst(Inst::mov(dst_ty, Operand::Imm(0), dst, span));
         self.insert_inst(Inst::setcc(cond_code, dst, span));
     }
 

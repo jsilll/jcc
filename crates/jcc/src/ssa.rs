@@ -101,7 +101,12 @@ impl<'a> SSABuilder<'a> {
 
                         self.ast.decls(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
-                            let arg = self.builder.insert_inst(Inst::arg(Type::Int32, param.span));
+                            let ty = match param.ty {
+                                sema::Type::Int => Type::Int32,
+                                sema::Type::Long => Type::Int64,
+                                _ => todo!(),
+                            };
+                            let arg = self.builder.insert_inst(Inst::arg(ty, param.span));
                             self.insert_var(param.name.sema.get(), arg);
                         });
 
@@ -565,6 +570,7 @@ impl<'a> SSABuilder<'a> {
                 self.builder.insert_inst(Inst::const_i64(*c, expr.span))
             }
             ast::ExprKind::Var(name) => {
+                let span = expr.span;
                 let info = self
                     .sema
                     .symbol(name.sema.get())
@@ -576,18 +582,30 @@ impl<'a> SSABuilder<'a> {
                         let ptr = self.builder.insert_inst(Inst::static_addr(var, expr.span));
                         match mode {
                             ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => {
-                                self.builder.insert_inst(Inst::load(ptr, expr.span))
-                            }
+                            ExprMode::RightValue => match info.ty {
+                                sema::Type::Int => {
+                                    self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
+                                }
+                                sema::Type::Long => {
+                                    self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
+                                }
+                                _ => todo!("handle other types"),
+                            },
                         }
                     }
                     Attribute::Local => {
                         let ptr = self.get_var(name.sema.get());
                         match mode {
                             ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => {
-                                self.builder.insert_inst(Inst::load(ptr, expr.span))
-                            }
+                            ExprMode::RightValue => match info.ty {
+                                sema::Type::Int => {
+                                    self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
+                                }
+                                sema::Type::Long => {
+                                    self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
+                                }
+                                _ => todo!("handle other types"),
+                            },
                         }
                     }
                 }

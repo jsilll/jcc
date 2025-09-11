@@ -461,7 +461,7 @@ pub enum InstKind {
     /// A `jmp` instruction.
     Jmp(BlockRef),
     /// An `idiv` instruction.
-    Idiv (Operand),
+    Idiv(Operand),
     /// A `cmp` instruction.
     Cmp { lhs: Operand, rhs: Operand },
     /// A `test` instruction.
@@ -611,7 +611,7 @@ pub enum CondCode {
     /// The `sete` condition.
     Eq,
     /// The `setne` condition.
-    Neq,
+    Ne,
     /// The `setl` condition.
     Lt,
     /// The `setle` condition.
@@ -632,7 +632,7 @@ impl CondCode {
     fn as_str(&self) -> &'static str {
         match self {
             CondCode::Eq => "e",
-            CondCode::Neq => "ne",
+            CondCode::Ne => "ne",
             CondCode::Lt => "l",
             CondCode::Le => "le",
             CondCode::Gt => "g",
@@ -646,7 +646,7 @@ impl TryFrom<crate::BinaryOp> for CondCode {
     fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
         match op {
             crate::BinaryOp::Equal => Ok(Self::Eq),
-            crate::BinaryOp::NotEqual => Ok(Self::Neq),
+            crate::BinaryOp::NotEqual => Ok(Self::Ne),
             crate::BinaryOp::LessThan => Ok(Self::Lt),
             crate::BinaryOp::LessEqual => Ok(Self::Le),
             crate::BinaryOp::GreaterThan => Ok(Self::Gt),

@@ -110,11 +110,9 @@ impl<'a> Builder<'a> {
                 self.operands.insert(inst_ref, dst);
                 match ARG_REGS.get(self.arg_count as usize) {
                     Some(&reg) => {
-                        println!("1. ty: {:?}", ty);
                         self.insert_inst(Inst::mov(ty, Operand::Reg(reg), dst, inst.span));
                     }
                     None => {
-                        println!("2. ty: {:?}", ty);
                         let n_stack_arg = self.arg_count - ARG_REGS.len() as u32;
                         let offset = (16 + n_stack_arg * 8) as i64;
                         self.insert_inst(Inst::mov(ty, Operand::Stack(offset), dst, inst.span));

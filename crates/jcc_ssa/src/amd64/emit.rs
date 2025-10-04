@@ -1,83 +1,77 @@
 use crate::{
-    amd64::{InstKind, InstRef},
+    amd64::{InstKind, InstRef, Type},
+    infra::emitter::IndentedEmitter,
     ConstValue, Interner,
 };
 
-use super::{BinaryOp, CondCode, Func, Operand, Program, Reg, UnaryOp};
+use super::{BinaryOp, Func, Operand, Program, UnaryOp};
+
+use std::fmt::Write;
 
 // ---------------------------------------------------------------------------
 // AMD64Emitter
 // ---------------------------------------------------------------------------
 
 pub struct AMD64Emitter<'a> {
-    output: String,
-    indent_level: usize,
     func: &'a Func,
     program: &'a Program,
     interner: &'a Interner,
+    e: IndentedEmitter<String>,
 }
 
 impl<'a> AMD64Emitter<'a> {
     pub fn new(program: &'a Program, interner: &'a Interner) -> Self {
+        let func = program
+            .funcs
+            .first()
+            .expect("No function definitions found");
         Self {
+            func,
             program,
             interner,
-            indent_level: 0,
-            output: String::with_capacity(1024),
-            func: program
-                .funcs
-                .first()
-                .expect("No function definitions found"),
+            e: IndentedEmitter::new(String::with_capacity(1024)),
         }
     }
 
-    pub fn emit(mut self) -> String {
-        self.program
-            .iter_static_vars_with_ref()
-            .for_each(|(v, var)| {
-                let name = self.interner.lookup(var.name);
-                if let Some(init) = var.init {
-                    self.with_indent(|e| {
-                        if var.is_global {
-                            e.writeln(&format!(".globl {name}"))
-                        }
-                        if init.is_zero() {
-                            e.writeln(".bss");
-                        } else {
-                            e.writeln(".data");
-                        }
-                        e.writeln(".align 4");
-                    });
+    pub fn emit(mut self) -> Result<String, std::fmt::Error> {
+        for (v, var) in self.program.iter_static_vars_with_ref() {
+            let name = self.interner.lookup(var.name);
+            if let Some(init) = var.init {
+                self.indented(|s| {
                     if var.is_global {
-                        self.writeln(&format!("{name}:"));
-                    } else {
-                        self.writeln(&format!("{name}{}:", v.0));
+                        writeln!(s.e, ".globl {name}")?;
                     }
-                    self.with_indent(|e| {
-                        if init.is_zero() {
-                            e.writeln(".zero 4");
-                        } else {
-                            match init {
-                                ConstValue::Int32(v) => {
-                                    e.writeln(&format!(".long {v}"));
-                                }
-                                ConstValue::Int64(v) => {
-                                    e.writeln(&format!(".long {v}"));
-                                }
-                            }
-                        }
-                    });
+                    if init.is_zero() {
+                        writeln!(s.e, ".bss")?;
+                    } else {
+                        writeln!(s.e, ".data")?;
+                    }
+                    // TODO: On macOS, the alignment directive is `.balign` instead of `.align`
+                    writeln!(s.e, ".align {}", var.align)?;
+                    Ok(())
+                })?;
+                if var.is_global {
+                    writeln!(self.e, "{name}:")?;
+                } else {
+                    writeln!(self.e, "{name}{}:", v.0)?;
                 }
-            });
-        self.program.funcs.iter().for_each(|func| {
+                self.indented(|s| match init {
+                    ConstValue::Int32(0) => writeln!(s.e, ".zero 4"),
+                    ConstValue::Int64(0) => writeln!(s.e, ".zero 8"),
+                    ConstValue::Int32(v) => writeln!(s.e, ".long {v}"),
+                    ConstValue::Int64(v) => writeln!(s.e, ".quad {v}"),
+                })?;
+            }
+        }
+        for func in self.program.funcs.iter() {
             self.func = func;
-            self.emit_func(func);
-        });
-        self.with_indent(|e| e.writeln(".section .note.GNU-stack,\"\",@progbits"));
-        self.output
+            self.emit_func(func)?;
+        }
+        self.indented(|s| writeln!(s.e, ".section .note.GNU-stack,\"\",@progbits"))?;
+        Ok(self.e.into_inner())
     }
 
-    fn emit_func(&mut self, func: &Func) {
+    fn emit_func(&mut self, func: &Func) -> std::fmt::Result {
         // TODO: Use interner data for function names
         // If in macOS, use .globl _name instead of .globl name
         // All user-defined labels are prefixed with `_` on macOS
@@ -85,171 +79,144 @@ impl<'a> AMD64Emitter<'a> {
         if func.is_global {
             // If the function is `main`, we don't need to prefix it with `_`
             // on macOS, but we do on Linux.
-            self.with_indent(|e| e.writeln(&format!(".globl {name}")));
+            self.indented(|s| writeln!(s.e, ".globl {name}"))?;
         }
-        self.with_indent(|e| {
-            e.writeln(".text");
-        });
-        self.writeln(&format!("{name}:"));
-        self.with_indent(|e| {
-            e.writeln("pushq %rbp");
-            e.writeln("movq %rsp, %rbp");
-        });
-        func.blocks[1..]
-            .iter()
-            .enumerate()
-            .for_each(|(idx, block)| {
-                if let Some(label) = block.label {
-                    // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
-                    let label = self.interner.lookup(label);
-                    self.writeln(&format!(".L{label}{}{name}:", idx + 1));
+        self.indented(|s| writeln!(s.e, ".text"))?;
+        writeln!(self.e, "{name}:")?;
+        self.indented(|s| {
+            writeln!(s.e, "pushq %rbp")?;
+            writeln!(s.e, "movq %rsp, %rbp")
+        })?;
+        for (idx, block) in func.blocks[1..].iter().enumerate() {
+            if let Some(label) = block.label {
+                // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
+                let label = self.interner.lookup(label);
+                writeln!(self.e, ".L{label}{}{name}:", idx + 1)?;
+            }
+            self.indented(|s| {
+                for inst in block.insts.iter() {
+                    s.emit_inst(*inst)?;
                 }
-                self.with_indent(|e| {
-                    block.insts.iter().for_each(|inst| e.emit_inst(*inst));
-                });
-            });
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
 
-    fn emit_inst(&mut self, inst: InstRef) {
+    fn emit_inst(&mut self, inst: InstRef) -> std::fmt::Result {
         let inst = self.func.inst(inst);
         match inst.kind {
-            InstKind::Nop => {}
+            InstKind::Nop => Ok(()),
             InstKind::Ret => {
-                self.writeln("movq %rbp, %rsp");
-                self.writeln("popq %rbp");
-                self.writeln("ret");
+                writeln!(self.e, "movq %rbp, %rsp")?;
+                writeln!(self.e, "popq %rbp")?;
+                writeln!(self.e, "ret")
             }
-            InstKind::Cdq => self.writeln("cdq"),
-            InstKind::Alloca(size) => {
-                if size > 0 {
-                    self.writeln(&format!("subq ${size}, %rsp"));
-                }
-            }
-            InstKind::Dealloca(size) => {
-                if size > 0 {
-                    self.writeln(&format!("addq ${size}, %rsp"));
-                }
+            InstKind::Cdq => match inst.ty {
+                Type::Byte => writeln!(self.e, "cbtw"),
+                Type::Long => writeln!(self.e, "cdq"),
+                Type::Quad => writeln!(self.e, "cqo"),
+            },
+            InstKind::Push(oper) => {
+                let oper = self.emit_operand(&oper, inst.ty);
+                writeln!(self.e, "pushq {oper}")
             }
             InstKind::Idiv(oper) => {
-                let oper = self.emit_operand_32(&oper);
-                self.writeln(&format!("idivl {oper}"));
-            }
-            InstKind::Push(oper) => {
-                let oper = self.emit_operand_64(&oper);
-                self.writeln(&format!("pushq {oper}"));
+                let oper = self.emit_operand(&oper, inst.ty);
+                writeln!(self.e, "idiv{} {oper}", inst.ty)
             }
             InstKind::Call(name) => {
-                let name = self.interner.lookup(name);
                 // TODO: on macOS, we need to prefix the function name with `_`
                 // TODO: on Linux, if the function is not defined in the same file,
                 // we need to use `@plt` to call it. Ideally we should check if the
                 // function is defined in the same file or not and use `@plt` only if it's not.
                 // For now, we assume all functions are defined not in the same file.
-                self.writeln(&format!("call {name}@plt"));
+                let name = self.interner.lookup(name);
+                writeln!(self.e, "call {name}@plt")
             }
             InstKind::Jmp(target) => {
                 let block = self.func.block(target);
                 match block.label {
+                    None => writeln!(self.e, "jmp .L{target}"),
                     Some(label) => {
                         let label = self.interner.lookup(label);
                         let name = self.interner.lookup(self.func.name);
-                        self.writeln(&format!("jmp .L{label}{target}{name}"));
-                    }
-                    None => {
-                        self.writeln(&format!("jmp .L{target}"));
+                        writeln!(self.e, "jmp .L{label}{target}{name}")
                     }
                 }
             }
-            InstKind::Mov { src, dst } => {
-                let src = self.emit_operand_32(&src);
-                let dst = self.emit_operand_32(&dst);
-                self.writeln(&format!("movl {src}, {dst}"));
-            }
-            InstKind::Cmp { lhs, rhs } => {
-                let lhs = self.emit_operand_32(&lhs);
-                let rhs = self.emit_operand_32(&rhs);
-                self.writeln(&format!("cmpl {lhs}, {rhs}"));
-            }
             InstKind::SetCC { code, dst } => {
-                let dst = self.emit_operand_8(&dst);
-                let cond_code = self.emit_cond_code(code);
-                self.writeln(&format!("set{cond_code} {dst}"));
+                let dst = self.emit_operand(&dst, Type::Byte);
+                writeln!(self.e, "set{code} {dst}")
             }
             InstKind::Test { lhs, rhs } => {
-                let src = self.emit_operand_32(&lhs);
-                let dst = self.emit_operand_32(&rhs);
-                self.writeln(&format!("testl {src}, {dst}"));
+                let src = self.emit_operand(&lhs, inst.ty);
+                let dst = self.emit_operand(&rhs, inst.ty);
+                writeln!(self.e, "test{} {src}, {dst}", inst.ty)
+            }
+            InstKind::Movsx { src, dst } => {
+                let src = self.emit_operand(&src, Type::Long);
+                let dst = self.emit_operand(&dst, Type::Quad);
+                writeln!(self.e, "movslq {src}, {dst}")
+            }
+            InstKind::Mov { src, dst } => {
+                let src = self.emit_operand(&src, inst.ty);
+                let dst = self.emit_operand(&dst, inst.ty);
+                writeln!(self.e, "mov{} {src}, {dst}", inst.ty)
+            }
+            InstKind::Cmp { lhs, rhs } => {
+                let lhs = self.emit_operand(&lhs, inst.ty);
+                let rhs = self.emit_operand(&rhs, inst.ty);
+                writeln!(self.e, "cmp{} {lhs}, {rhs}", inst.ty)
             }
             InstKind::JmpCC { code, target } => {
                 let block = self.func.block(target);
                 match block.label {
+                    None => writeln!(self.e, "j{code} .L{target}"),
                     Some(label) => {
                         let label = self.interner.lookup(label);
-                        let cond_code = self.emit_cond_code(code);
                         let name = self.interner.lookup(self.func.name);
-                        self.writeln(&format!("j{cond_code} .L{label}{target}{name}"));
-                    }
-                    None => {
-                        let cond_code = self.emit_cond_code(code);
-                        self.writeln(&format!("j{cond_code} .L{target}"));
+                        writeln!(self.e, "j{code} .L{label}{target}{name}")
                     }
                 }
             }
             InstKind::Unary { op, dst } => {
-                let dst = self.emit_operand_32(&dst);
+                let dst = self.emit_operand(&dst, inst.ty);
                 match op {
-                    UnaryOp::Not => self.writeln(&format!("notl {dst}")),
-                    UnaryOp::Neg => self.writeln(&format!("negl {dst}")),
-                    UnaryOp::Inc => self.writeln(&format!("incl {dst}")),
-                    UnaryOp::Dec => self.writeln(&format!("decl {dst}")),
-                };
+                    UnaryOp::Not => writeln!(self.e, "not{} {dst}", inst.ty),
+                    UnaryOp::Neg => writeln!(self.e, "neg{} {dst}", inst.ty),
+                    UnaryOp::Inc => writeln!(self.e, "inc{} {dst}", inst.ty),
+                    UnaryOp::Dec => writeln!(self.e, "dec{} {dst}", inst.ty),
+                }
             }
             InstKind::Binary { op, src, dst } => {
-                let src = self.emit_operand_32(&src);
-                let dst = self.emit_operand_32(&dst);
+                // WARN: Since we assume all values are `int`, we use arithmetic shift
+                let src = self.emit_operand(&src, inst.ty);
+                let dst = self.emit_operand(&dst, inst.ty);
                 match op {
-                    BinaryOp::Add => self.writeln(&format!("addl {src}, {dst}")),
-                    BinaryOp::Sub => self.writeln(&format!("subl {src}, {dst}")),
-                    BinaryOp::Mul => self.writeln(&format!("imull {src}, {dst}")),
-                    BinaryOp::Or => self.writeln(&format!("orl {src}, {dst}")),
-                    BinaryOp::And => self.writeln(&format!("andl {src}, {dst}")),
-                    BinaryOp::Xor => self.writeln(&format!("xorl {src}, {dst}")),
-                    // WARN: Since we assume all values are `int`, we use arithmetic shift
-                    BinaryOp::Shl => self.writeln(&format!("sall {src}, {dst}")),
-                    BinaryOp::Shr => self.writeln(&format!("sarl {src}, {dst}")),
-                };
+                    BinaryOp::Or => writeln!(self.e, "or{} {src}, {dst}", inst.ty),
+                    BinaryOp::Add => writeln!(self.e, "add{} {src}, {dst}", inst.ty),
+                    BinaryOp::Sub => writeln!(self.e, "sub{} {src}, {dst}", inst.ty),
+                    BinaryOp::And => writeln!(self.e, "and{} {src}, {dst}", inst.ty),
+                    BinaryOp::Xor => writeln!(self.e, "xor{} {src}, {dst}", inst.ty),
+                    BinaryOp::Shl => writeln!(self.e, "sal{} {src}, {dst}", inst.ty),
+                    BinaryOp::Shr => writeln!(self.e, "sar{} {src}, {dst}", inst.ty),
+                    BinaryOp::Mul => writeln!(self.e, "imul{} {src}, {dst}", inst.ty),
+                }
             }
         }
     }
 
-    fn emit_operand_8(&mut self, oper: &Operand) -> String {
+    fn emit_operand(&mut self, oper: &Operand, ty: Type) -> String {
         match oper {
-            Operand::Data(_) => todo!(),
-            Operand::Reg(reg) => match reg {
-                Reg::Rax => "%al".to_string(),
-                Reg::Rbx => "%bl".to_string(),
-                Reg::Rcx => "%cl".to_string(),
-                Reg::Rdx => "%dl".to_string(),
-                Reg::Rdi => "%dil".to_string(),
-                Reg::Rsi => "%sil".to_string(),
-                Reg::R8 => "%r8b".to_string(),
-                Reg::R9 => "%r9b".to_string(),
-                Reg::Rg10 => "%r10b".to_string(),
-                Reg::Rg11 => "%r11b".to_string(),
+            Operand::Imm(v) => format!("${}", v),
+            Operand::Pseudo(id) => format!("pseudo({})", id),
+            Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Reg(reg) => match ty {
+                Type::Byte => format!("%{}", reg.as_str_8()),
+                Type::Long => format!("%{}", reg.as_str_32()),
+                Type::Quad => format!("%{}", reg.as_str_64()),
             },
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
-            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
-        }
-    }
-
-    fn emit_operand_32(&mut self, oper: &Operand) -> String {
-        match oper {
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
-            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
             Operand::Data(v) => {
                 let var = self.program.static_var(*v);
                 let name = self.interner.lookup(var.name);
@@ -259,51 +226,6 @@ impl<'a> AMD64Emitter<'a> {
                     format!("{}{}(%rip)", name, v.0)
                 }
             }
-            Operand::Reg(reg) => match reg {
-                Reg::Rax => "%eax".to_string(),
-                Reg::Rbx => "%ebx".to_string(),
-                Reg::Rcx => "%ecx".to_string(),
-                Reg::Rdi => "%edi".to_string(),
-                Reg::Rdx => "%edx".to_string(),
-                Reg::Rsi => "%esi".to_string(),
-                Reg::R8 => "%r8d".to_string(),
-                Reg::R9 => "%r9d".to_string(),
-                Reg::Rg10 => "%r10d".to_string(),
-                Reg::Rg11 => "%r11d".to_string(),
-            },
-        }
-    }
-
-    fn emit_operand_64(&mut self, oper: &Operand) -> String {
-        match oper {
-            Operand::Data(_) => todo!(),
-            Operand::Reg(reg) => match reg {
-                Reg::Rax => "%rax".to_string(),
-                Reg::Rbx => "%rbx".to_string(),
-                Reg::Rcx => "%rcx".to_string(),
-                Reg::Rdi => "%rdi".to_string(),
-                Reg::Rdx => "%rdx".to_string(),
-                Reg::Rsi => "%rsi".to_string(),
-                Reg::R8 => "%r8".to_string(),
-                Reg::R9 => "%r9".to_string(),
-                Reg::Rg10 => "%r10".to_string(),
-                Reg::Rg11 => "%r11".to_string(),
-            },
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
-            Operand::Imm(ConstValue::Int32(v)) => format!("${}", v),
-            Operand::Imm(ConstValue::Int64(v)) => format!("${}", v),
-        }
-    }
-
-    fn emit_cond_code(&mut self, cond_code: CondCode) -> String {
-        match cond_code {
-            CondCode::Equal => "e".to_string(),
-            CondCode::NotEqual => "ne".to_string(),
-            CondCode::LessThan => "l".to_string(),
-            CondCode::LessEqual => "le".to_string(),
-            CondCode::GreaterThan => "g".to_string(),
-            CondCode::GreaterEqual => "ge".to_string(),
         }
     }
 
@@ -312,21 +234,13 @@ impl<'a> AMD64Emitter<'a> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn with_indent<F>(&mut self, f: F)
+    pub fn indented<F>(&mut self, f: F) -> std::fmt::Result
     where
-        F: FnOnce(&mut Self),
+        F: FnOnce(&mut Self) -> std::fmt::Result,
     {
-        self.indent_level += 1;
-        f(self);
-        self.indent_level -= 1;
-    }
-
-    #[inline]
-    fn writeln(&mut self, s: &str) {
-        if !s.is_empty() {
-            self.output.push_str(&"    ".repeat(self.indent_level));
-            self.output.push_str(s);
-        }
-        self.output.push('\n');
+        self.e.indent();
+        let res = f(self);
+        self.e.unindent();
+        res
     }
 }

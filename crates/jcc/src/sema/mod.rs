@@ -91,8 +91,16 @@ impl TypeDict {
     }
 
     #[inline]
-    pub fn get(&self, ty: CompoundTypeRef) -> &CompoundType {
-        &self.types[ty.0.get() as usize]
+    pub fn get(&self, ty: Type) -> &CompoundType {
+        match ty {
+            Type::Compound(t) => &self.types[t.0.get() as usize],
+            _ => panic!("not a compound type"),
+        }
+    }
+
+    #[inline]
+    pub fn get_compound(&self, r: CompoundTypeRef) -> &CompoundType {
+        &self.types[r.0.get() as usize]
     }
 
     #[inline]
@@ -226,6 +234,19 @@ pub enum Type {
     Long,
     /// A compound type
     Compound(CompoundTypeRef),
+}
+
+impl TryInto<jcc_ssa::Type> for Type {
+    type Error = ();
+
+    fn try_into(self) -> Result<jcc_ssa::Type, Self::Error> {
+        match self {
+            Type::Void => Ok(jcc_ssa::Type::Void),
+            Type::Int => Ok(jcc_ssa::Type::Int32),
+            Type::Long => Ok(jcc_ssa::Type::Int64),
+            Type::Compound(_) => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

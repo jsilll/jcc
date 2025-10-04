@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{self, AstSymbol, StmtRef},
-    sema::{self, Attribute, SemaCtx, SemaSymbol, StaticValue},
+    sema::{self, Attribute, CompoundType, SemaCtx, SemaSymbol, StaticValue},
 };
 
 use jcc_ssa::{
@@ -101,7 +101,12 @@ impl<'a> SSABuilder<'a> {
 
                         self.ast.decls(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
-                            let arg = self.builder.insert_inst(Inst::arg(Type::Int32, param.span));
+                            let ty = match param.ty {
+                                sema::Type::Int => Type::Int32,
+                                sema::Type::Long => Type::Int64,
+                                _ => todo!(),
+                            };
+                            let arg = self.builder.insert_inst(Inst::arg(ty, param.span));
                             self.insert_var(param.name.sema.get(), arg);
                         });
 
@@ -565,6 +570,7 @@ impl<'a> SSABuilder<'a> {
                 self.builder.insert_inst(Inst::const_i64(*c, expr.span))
             }
             ast::ExprKind::Var(name) => {
+                let span = expr.span;
                 let info = self
                     .sema
                     .symbol(name.sema.get())
@@ -576,18 +582,30 @@ impl<'a> SSABuilder<'a> {
                         let ptr = self.builder.insert_inst(Inst::static_addr(var, expr.span));
                         match mode {
                             ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => {
-                                self.builder.insert_inst(Inst::load(ptr, expr.span))
-                            }
+                            ExprMode::RightValue => match info.ty {
+                                sema::Type::Int => {
+                                    self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
+                                }
+                                sema::Type::Long => {
+                                    self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
+                                }
+                                _ => todo!("handle other types"),
+                            },
                         }
                     }
                     Attribute::Local => {
                         let ptr = self.get_var(name.sema.get());
                         match mode {
                             ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => {
-                                self.builder.insert_inst(Inst::load(ptr, expr.span))
-                            }
+                            ExprMode::RightValue => match info.ty {
+                                sema::Type::Int => {
+                                    self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
+                                }
+                                sema::Type::Long => {
+                                    self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
+                                }
+                                _ => todo!("handle other types"),
+                            },
                         }
                     }
                 }
@@ -612,21 +630,67 @@ impl<'a> SSABuilder<'a> {
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
-                let is_global = self
+                let symbol = self
                     .sema
                     .symbol(name.sema.get())
-                    .expect("expected a sema symbol")
-                    .is_global();
-                let func = self.get_or_make_function(name, is_global, expr.span);
-                self.builder.insert_inst(Inst::call(func, args, expr.span))
+                    .expect("expected a sema symbol");
+                let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
+                let ty = match self.sema.dict.get(symbol.ty) {
+                    CompoundType::Func {
+                        ret: sema::Type::Void,
+                        ..
+                    } => Type::Void,
+                    CompoundType::Func {
+                        ret: sema::Type::Int,
+                        ..
+                    } => Type::Int32,
+                    CompoundType::Func {
+                        ret: sema::Type::Long,
+                        ..
+                    } => Type::Int64,
+                    CompoundType::Func { .. } => todo!("handle other return types"),
+                    _ => panic!("expected a function type"),
+                };
+                self.builder
+                    .insert_inst(Inst::call(ty, func, args, expr.span))
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
-                ast::UnaryOp::Neg => self.build_unary(UnaryOp::Neg, *inner, expr.span),
-                ast::UnaryOp::BitNot => self.build_unary(UnaryOp::Not, *inner, expr.span),
-                ast::UnaryOp::PreInc => self.build_prefix_unary(UnaryOp::Inc, *inner, expr.span),
-                ast::UnaryOp::PreDec => self.build_prefix_unary(UnaryOp::Dec, *inner, expr.span),
-                ast::UnaryOp::PostInc => self.build_postfix_unary(UnaryOp::Inc, *inner, expr.span),
-                ast::UnaryOp::PostDec => self.build_postfix_unary(UnaryOp::Dec, *inner, expr.span),
+                ast::UnaryOp::Neg => self.build_unary(
+                    expr.ty.get().try_into().unwrap(),
+                    UnaryOp::Neg,
+                    *inner,
+                    expr.span,
+                ),
+                ast::UnaryOp::BitNot => self.build_unary(
+                    expr.ty.get().try_into().unwrap(),
+                    UnaryOp::Not,
+                    *inner,
+                    expr.span,
+                ),
+                ast::UnaryOp::PreInc => self.build_prefix_unary(
+                    expr.ty.get().try_into().unwrap(),
+                    UnaryOp::Inc,
+                    *inner,
+                    expr.span,
+                ),
+                ast::UnaryOp::PreDec => self.build_prefix_unary(
+                    expr.ty.get().try_into().unwrap(),
+                    UnaryOp::Dec,
+                    *inner,
+                    expr.span,
+                ),
+                ast::UnaryOp::PostInc => self.build_postfix_unary(
+                    expr.ty.get().try_into().unwrap(),
+                    UnaryOp::Inc,
+                    *inner,
+                    expr.span,
+                ),
+                ast::UnaryOp::PostDec => self.build_postfix_unary(
+                    expr.ty.get().try_into().unwrap(),
+                    UnaryOp::Dec,
+                    *inner,
+                    expr.span,
+                ),
                 ast::UnaryOp::LogicalNot => {
                     let val = self.visit_expr(*inner, ExprMode::RightValue);
                     let zero = self.builder.insert_inst(Inst::const_i32(0, expr.span));
@@ -642,62 +706,188 @@ impl<'a> SSABuilder<'a> {
             ast::ExprKind::Binary { op, lhs, rhs } => match op {
                 ast::BinaryOp::LogicalOr => self.build_sc(LogicalOp::Or, *lhs, *rhs, expr.span),
                 ast::BinaryOp::LogicalAnd => self.build_sc(LogicalOp::And, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Equal => self.build_bin(BinaryOp::Equal, *lhs, *rhs, expr.span),
-                ast::BinaryOp::NotEqual => {
-                    self.build_bin(BinaryOp::NotEqual, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::LessThan => {
-                    self.build_bin(BinaryOp::LessThan, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::LessEqual => {
-                    self.build_bin(BinaryOp::LessEqual, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::GreaterThan => {
-                    self.build_bin(BinaryOp::GreaterThan, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::GreaterEqual => {
-                    self.build_bin(BinaryOp::GreaterEqual, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::Add => self.build_bin(BinaryOp::Add, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Sub => self.build_bin(BinaryOp::Sub, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Mul => self.build_bin(BinaryOp::Mul, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Div => self.build_bin(BinaryOp::Div, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Rem => self.build_bin(BinaryOp::Rem, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitOr => self.build_bin(BinaryOp::Or, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitAnd => self.build_bin(BinaryOp::And, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitXor => self.build_bin(BinaryOp::Xor, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitShl => self.build_bin(BinaryOp::Shl, *lhs, *rhs, expr.span),
-                ast::BinaryOp::BitShr => self.build_bin(BinaryOp::Shr, *lhs, *rhs, expr.span),
-                ast::BinaryOp::AddAssign => {
-                    self.build_bin_asgn(BinaryOp::Add, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::SubAssign => {
-                    self.build_bin_asgn(BinaryOp::Sub, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::MulAssign => {
-                    self.build_bin_asgn(BinaryOp::Mul, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::DivAssign => {
-                    self.build_bin_asgn(BinaryOp::Div, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::RemAssign => {
-                    self.build_bin_asgn(BinaryOp::Rem, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitOrAssign => {
-                    self.build_bin_asgn(BinaryOp::Or, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitAndAssign => {
-                    self.build_bin_asgn(BinaryOp::And, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitXorAssign => {
-                    self.build_bin_asgn(BinaryOp::Xor, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitShlAssign => {
-                    self.build_bin_asgn(BinaryOp::Shl, *lhs, *rhs, expr.span)
-                }
-                ast::BinaryOp::BitShrAssign => {
-                    self.build_bin_asgn(BinaryOp::Shr, *lhs, *rhs, expr.span)
-                }
+                ast::BinaryOp::Equal => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Equal,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::NotEqual => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::NotEqual,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::LessThan => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::LessThan,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::LessEqual => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::LessEqual,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::GreaterThan => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::GreaterThan,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::GreaterEqual => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::GreaterEqual,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::Add => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Add,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::Sub => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Sub,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::Mul => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Mul,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::Div => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Div,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::Rem => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Rem,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitOr => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Or,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitAnd => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::And,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitXor => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Xor,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitShl => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Shl,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitShr => self.build_bin(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Shr,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::AddAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Add,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::SubAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Sub,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::MulAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Mul,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::DivAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Div,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::RemAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Rem,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitOrAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Or,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitAndAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::And,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitXorAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Xor,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitShlAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Shl,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
+                ast::BinaryOp::BitShrAssign => self.build_bin_asgn(
+                    expr.ty.get().try_into().unwrap(),
+                    BinaryOp::Shr,
+                    *lhs,
+                    *rhs,
+                    expr.span,
+                ),
                 ast::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
@@ -717,7 +907,7 @@ impl<'a> SSABuilder<'a> {
 
                 let phi = self
                     .builder
-                    .insert_inst_skip(Inst::phi(Type::Int32, expr.span));
+                    .insert_inst_skip(Inst::phi(expr.ty.get().try_into().unwrap(), expr.span));
 
                 self.builder
                     .insert_inst(Inst::branch(cond_val, then_block, else_block, expr.span));
@@ -725,15 +915,23 @@ impl<'a> SSABuilder<'a> {
                 // === Then Block ===
                 self.builder.switch_to_block(then_block);
                 let then_val = self.visit_expr(*then, ExprMode::RightValue);
-                self.builder
-                    .insert_inst(Inst::upsilon(phi, then_val, expr.span));
+                self.builder.insert_inst(Inst::upsilon(
+                    expr.ty.get().try_into().unwrap(),
+                    phi,
+                    then_val,
+                    expr.span,
+                ));
                 self.builder.insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Else Block ===
                 self.builder.switch_to_block(else_block);
                 let else_val = self.visit_expr(*other, ExprMode::RightValue);
-                self.builder
-                    .insert_inst(Inst::upsilon(phi, else_val, expr.span));
+                self.builder.insert_inst(Inst::upsilon(
+                    expr.ty.get().try_into().unwrap(),
+                    phi,
+                    else_val,
+                    expr.span,
+                ));
                 self.builder.insert_inst(Inst::jump(cont_block, expr.span));
 
                 // === Merge Block ===
@@ -745,18 +943,27 @@ impl<'a> SSABuilder<'a> {
     }
 
     #[inline]
-    fn build_unary(&mut self, op: UnaryOp, expr: ast::ExprRef, span: SourceSpan) -> InstRef {
+    fn build_unary(
+        &mut self,
+        ty: Type,
+        op: UnaryOp,
+        expr: ast::ExprRef,
+        span: SourceSpan,
+    ) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        self.builder
-            .insert_inst(Inst::unary(Type::Int32, op, val, span))
+        self.builder.insert_inst(Inst::unary(ty, op, val, span))
     }
 
     #[inline]
-    fn build_prefix_unary(&mut self, op: UnaryOp, expr: ast::ExprRef, span: SourceSpan) -> InstRef {
+    fn build_prefix_unary(
+        &mut self,
+        ty: Type,
+        op: UnaryOp,
+        expr: ast::ExprRef,
+        span: SourceSpan,
+    ) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        let inst = self
-            .builder
-            .insert_inst(Inst::unary(Type::Int32, op, val, span));
+        let inst = self.builder.insert_inst(Inst::unary(ty, op, val, span));
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
         self.builder.insert_inst(Inst::store(ptr, inst, span));
         inst
@@ -765,14 +972,13 @@ impl<'a> SSABuilder<'a> {
     #[inline]
     fn build_postfix_unary(
         &mut self,
+        ty: Type,
         op: UnaryOp,
         expr: ast::ExprRef,
         span: SourceSpan,
     ) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        let inst = self
-            .builder
-            .insert_inst(Inst::unary(Type::Int32, op, val, span));
+        let inst = self.builder.insert_inst(Inst::unary(ty, op, val, span));
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
         self.builder.insert_inst(Inst::store(ptr, inst, span));
         val
@@ -781,6 +987,7 @@ impl<'a> SSABuilder<'a> {
     #[inline]
     fn build_bin(
         &mut self,
+        ty: Type,
         op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
@@ -789,12 +996,13 @@ impl<'a> SSABuilder<'a> {
         let lhs = self.visit_expr(lhs, ExprMode::RightValue);
         let rhs = self.visit_expr(rhs, ExprMode::RightValue);
         self.builder
-            .insert_inst(Inst::binary(Type::Int32, op, lhs, rhs, span))
+            .insert_inst(Inst::binary(ty, op, lhs, rhs, span))
     }
 
     #[inline]
     fn build_bin_asgn(
         &mut self,
+        ty: Type,
         op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
@@ -802,9 +1010,7 @@ impl<'a> SSABuilder<'a> {
     ) -> InstRef {
         let l = self.visit_expr(lhs, ExprMode::RightValue);
         let r = self.visit_expr(rhs, ExprMode::RightValue);
-        let inst = self
-            .builder
-            .insert_inst(Inst::binary(Type::Int32, op, l, r, span));
+        let inst = self.builder.insert_inst(Inst::binary(ty, op, l, r, span));
 
         let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
         self.builder.insert_inst(Inst::store(ptr, inst, span));
@@ -843,7 +1049,7 @@ impl<'a> SSABuilder<'a> {
             LogicalOp::And => Inst::const_i32(0, span),
         });
         self.builder
-            .insert_inst(Inst::upsilon(phi, short_circuit_val, span));
+            .insert_inst(Inst::upsilon(Type::Int32, phi, short_circuit_val, span));
         let (true_target, false_target) = match op {
             LogicalOp::Or => (cont_block, rhs_block),
             LogicalOp::And => (rhs_block, cont_block),
@@ -863,7 +1069,7 @@ impl<'a> SSABuilder<'a> {
             span,
         ));
         self.builder
-            .insert_inst(Inst::upsilon(phi, is_nonzero, span));
+            .insert_inst(Inst::upsilon(Type::Int32, phi, is_nonzero, span));
         self.builder.insert_inst(Inst::jump(cont_block, span));
 
         // === Merge Block ===

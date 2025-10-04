@@ -819,75 +819,103 @@ impl<'a> SSABuilder<'a> {
                     expr.span,
                 ),
                 ast::BinaryOp::AddAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Add,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::SubAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Sub,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::MulAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Mul,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::DivAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Div,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::RemAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Rem,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitOrAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Or,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitAndAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::And,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitXorAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
+                    mode,
+                    self.ast.expr(*rhs).ty.get(),
                     BinaryOp::Xor,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
-                ast::BinaryOp::BitShlAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
-                    BinaryOp::Shl,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitShrAssign => self.build_bin_asgn(
-                    expr.ty.get().try_into().unwrap(),
-                    BinaryOp::Shr,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
+                ast::BinaryOp::BitShlAssign => {
+                    let l = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let r = self.visit_expr(*rhs, ExprMode::RightValue);
+                    let inst = self.builder.insert_inst(Inst::binary(
+                        expr.ty.get().try_into().unwrap(),
+                        BinaryOp::Shl,
+                        l,
+                        r,
+                        expr.span,
+                    ));
+                    let ptr = self.visit_expr(*lhs, ExprMode::LeftValue);
+                    self.builder.insert_inst(Inst::store(ptr, inst, expr.span));
+                    match mode {
+                        ExprMode::LeftValue => ptr,
+                        ExprMode::RightValue => inst,
+                    }
+                }
+                ast::BinaryOp::BitShrAssign => {
+                    let l = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let r = self.visit_expr(*rhs, ExprMode::RightValue);
+                    let inst = self.builder.insert_inst(Inst::binary(
+                        expr.ty.get().try_into().unwrap(),
+                        BinaryOp::Shr,
+                        l,
+                        r,
+                        expr.span,
+                    ));
+                    let ptr = self.visit_expr(*lhs, ExprMode::LeftValue);
+                    self.builder.insert_inst(Inst::store(ptr, inst, expr.span));
+                    match mode {
+                        ExprMode::LeftValue => ptr,
+                        ExprMode::RightValue => inst,
+                    }
+                }
                 ast::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
@@ -1002,20 +1030,35 @@ impl<'a> SSABuilder<'a> {
     #[inline]
     fn build_bin_asgn(
         &mut self,
-        ty: Type,
+        mode: ExprMode,
+        ty: sema::Type,
         op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
         span: SourceSpan,
     ) -> InstRef {
-        let l = self.visit_expr(lhs, ExprMode::RightValue);
+        let lty = self.ast.expr(lhs).ty.get();
+        let mut l = self.visit_expr(lhs, ExprMode::RightValue);
+        if matches!((lty, ty), (sema::Type::Int, sema::Type::Long)) {
+            l = self.builder.insert_inst(Inst::sign_extend(l, span));
+        }
+
+        let rty = self.ast.expr(rhs).ty.get();
         let r = self.visit_expr(rhs, ExprMode::RightValue);
-        let inst = self.builder.insert_inst(Inst::binary(ty, op, l, r, span));
+        let mut inst =
+            self.builder
+                .insert_inst(Inst::binary(rty.try_into().unwrap(), op, l, r, span));
+        if matches!((lty, rty), (sema::Type::Int, sema::Type::Long)) {
+            inst = self.builder.insert_inst(Inst::truncate(inst, span));
+        }
 
         let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
         self.builder.insert_inst(Inst::store(ptr, inst, span));
 
-        inst
+        match mode {
+            ExprMode::LeftValue => ptr,
+            ExprMode::RightValue => inst,
+        }
     }
 
     fn build_sc(

@@ -419,21 +419,6 @@ impl<'a> TyperPass<'a> {
                         self.assert_is_lvalue(*lhs);
                         lty
                     }
-                    BinaryOp::Assign
-                    | BinaryOp::AddAssign
-                    | BinaryOp::SubAssign
-                    | BinaryOp::MulAssign
-                    | BinaryOp::DivAssign
-                    | BinaryOp::RemAssign
-                    | BinaryOp::BitOrAssign
-                    | BinaryOp::BitAndAssign
-                    | BinaryOp::BitXorAssign => {
-                        self.assert_is_lvalue(*lhs);
-                        if lty != rty {
-                            self.result.actions.schedule_cast(*rhs, lty);
-                        }
-                        lty
-                    }
                     BinaryOp::Equal
                     | BinaryOp::NotEqual
                     | BinaryOp::LessThan
@@ -448,6 +433,22 @@ impl<'a> TyperPass<'a> {
                             self.result.actions.schedule_cast(*rhs, common);
                         }
                         Type::Int
+                    }
+                    BinaryOp::Assign
+                    | BinaryOp::AddAssign
+                    | BinaryOp::SubAssign
+                    | BinaryOp::MulAssign
+                    | BinaryOp::DivAssign
+                    | BinaryOp::RemAssign
+                    | BinaryOp::BitOrAssign
+                    | BinaryOp::BitAndAssign
+                    | BinaryOp::BitXorAssign => {
+                        self.assert_is_lvalue(*lhs);
+                        let common = self.get_common_type(lty, rty, expr.span);
+                        if rty != common {
+                            self.result.actions.schedule_cast(*rhs, common);
+                        }
+                        lty
                     }
                     BinaryOp::Add
                     | BinaryOp::Sub

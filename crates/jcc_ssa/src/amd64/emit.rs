@@ -1,7 +1,7 @@
 use crate::{
     amd64::{InstKind, InstRef, Type},
     infra::emitter::IndentedEmitter,
-    ConstValue, Interner,
+    ConstValue, Interner, TargetOs,
 };
 
 use super::{BinaryOp, Func, Operand, Program, UnaryOp};
@@ -14,19 +14,21 @@ use std::fmt::Write;
 
 pub struct AMD64Emitter<'a> {
     func: &'a Func,
+    target: TargetOs,
     program: &'a Program,
     interner: &'a Interner,
     e: IndentedEmitter<String>,
 }
 
 impl<'a> AMD64Emitter<'a> {
-    pub fn new(program: &'a Program, interner: &'a Interner) -> Self {
+    pub fn new(program: &'a Program, interner: &'a Interner, target: TargetOs) -> Self {
         let func = program
             .funcs
             .first()
             .expect("No function definitions found");
         Self {
             func,
+            target,
             program,
             interner,
             e: IndentedEmitter::new(String::with_capacity(1024)),
@@ -37,6 +39,7 @@ impl<'a> AMD64Emitter<'a> {
         for (v, var) in self.program.iter_static_vars_with_ref() {
             let name = self.interner.lookup(var.name);
             if let Some(init) = var.init {
+                let target = self.target;
                 self.indented(|s| {
                     if var.is_global {
                         writeln!(s.e, ".globl {name}")?;
@@ -46,8 +49,11 @@ impl<'a> AMD64Emitter<'a> {
                     } else {
                         writeln!(s.e, ".data")?;
                     }
-                    // TODO: On macOS, the alignment directive is `.balign` instead of `.align`
-                    writeln!(s.e, ".align {}", var.align)?;
+                    if target == TargetOs::Macos {
+                        writeln!(s.e, ".balign {}", var.align)?;
+                    } else {
+                        writeln!(s.e, ".align {}", var.align)?;
+                    }
                     Ok(())
                 })?;
                 if var.is_global {
@@ -72,26 +78,40 @@ impl<'a> AMD64Emitter<'a> {
     }
 
     fn emit_func(&mut self, func: &Func) -> std::fmt::Result {
-        // TODO: Use interner data for function names
-        // If in macOS, use .globl _name instead of .globl name
-        // All user-defined labels are prefixed with `_` on macOS
         let name = self.interner.lookup(func.name);
         if func.is_global {
-            // If the function is `main`, we don't need to prefix it with `_`
-            // on macOS, but we do on Linux.
-            self.indented(|s| writeln!(s.e, ".globl {name}"))?;
+            if self.target == TargetOs::Macos {
+                if name == "main" {
+                    self.indented(|s| writeln!(s.e, ".globl main"))?;
+                } else {
+                    self.indented(|s| writeln!(s.e, ".globl _{name}"))?;
+                }
+            } else {
+                self.indented(|s| writeln!(s.e, ".globl {name}"))?;
+            }
         }
         self.indented(|s| writeln!(s.e, ".text"))?;
-        writeln!(self.e, "{name}:")?;
+        if self.target == TargetOs::Macos {
+            if name == "main" {
+                writeln!(self.e, "main:")?;
+            } else {
+                writeln!(self.e, "_{name}:")?;
+            }
+        } else {
+            writeln!(self.e, "{name}:")?;
+        }
         self.indented(|s| {
             writeln!(s.e, "pushq %rbp")?;
             writeln!(s.e, "movq %rsp, %rbp")
         })?;
         for (idx, block) in func.blocks[1..].iter().enumerate() {
             if let Some(label) = block.label {
-                // TODO: The local label prefix on Linux is `.L` and on macOS is `L`
                 let label = self.interner.lookup(label);
-                writeln!(self.e, ".L{label}{}{name}:", idx + 1)?;
+                if self.target == TargetOs::Macos {
+                    writeln!(self.e, "L{label}{}{name}:", idx + 1)?;
+                } else {
+                    writeln!(self.e, ".L{label}{}{name}:", idx + 1)?;
+                }
             }
             self.indented(|s| {
                 for inst in block.insts.iter() {
@@ -126,22 +146,35 @@ impl<'a> AMD64Emitter<'a> {
                 writeln!(self.e, "idiv{} {oper}", inst.ty)
             }
             InstKind::Call(name) => {
-                // TODO: on macOS, we need to prefix the function name with `_`
-                // TODO: on Linux, if the function is not defined in the same file,
-                // we need to use `@plt` to call it. Ideally we should check if the
-                // function is defined in the same file or not and use `@plt` only if it's not.
-                // For now, we assume all functions are defined not in the same file.
                 let name = self.interner.lookup(name);
-                writeln!(self.e, "call {name}@plt")
+                if self.target == TargetOs::Macos {
+                    if name == "main" {
+                        writeln!(self.e, "call main")
+                    } else {
+                        writeln!(self.e, "call _{name}")
+                    }
+                } else {
+                    writeln!(self.e, "call {name}@plt")
+                }
             }
             InstKind::Jmp(target) => {
                 let block = self.func.block(target);
                 match block.label {
-                    None => writeln!(self.e, "jmp .L{target}"),
+                    None => {
+                        if self.target == TargetOs::Macos {
+                            writeln!(self.e, "jmp L{target}")
+                        } else {
+                            writeln!(self.e, "jmp .L{target}")
+                        }
+                    }
                     Some(label) => {
                         let label = self.interner.lookup(label);
                         let name = self.interner.lookup(self.func.name);
-                        writeln!(self.e, "jmp .L{label}{target}{name}")
+                        if self.target == TargetOs::Macos {
+                            writeln!(self.e, "jmp L{label}{target}{name}")
+                        } else {
+                            writeln!(self.e, "jmp .L{label}{target}{name}")
+                        }
                     }
                 }
             }
@@ -172,11 +205,21 @@ impl<'a> AMD64Emitter<'a> {
             InstKind::JmpCC { code, target } => {
                 let block = self.func.block(target);
                 match block.label {
-                    None => writeln!(self.e, "j{code} .L{target}"),
+                    None => {
+                        if self.target == TargetOs::Macos {
+                            writeln!(self.e, "j{code} L{target}")
+                        } else {
+                            writeln!(self.e, "j{code} .L{target}")
+                        }
+                    }
                     Some(label) => {
                         let label = self.interner.lookup(label);
                         let name = self.interner.lookup(self.func.name);
-                        writeln!(self.e, "j{code} .L{label}{target}{name}")
+                        if self.target == TargetOs::Macos {
+                            writeln!(self.e, "j{code} L{label}{target}{name}")
+                        } else {
+                            writeln!(self.e, "j{code} .L{label}{target}{name}")
+                        }
                     }
                 }
             }
@@ -209,9 +252,9 @@ impl<'a> AMD64Emitter<'a> {
 
     fn emit_operand(&mut self, oper: &Operand, ty: Type) -> String {
         match oper {
-            Operand::Imm(v) => format!("${}", v),
-            Operand::Pseudo(id) => format!("pseudo({})", id),
-            Operand::Stack(offset) => format!("{}(%rbp)", offset),
+            Operand::Imm(v) => format!("${v}"),
+            Operand::Pseudo(id) => format!("pseudo({id})"),
+            Operand::Stack(offset) => format!("{offset}(%rbp)"),
             Operand::Reg(reg) => match ty {
                 Type::Byte => format!("%{}", reg.as_str_8()),
                 Type::Long => format!("%{}", reg.as_str_32()),
@@ -221,7 +264,7 @@ impl<'a> AMD64Emitter<'a> {
                 let var = self.program.static_var(*v);
                 let name = self.interner.lookup(var.name);
                 if var.is_global {
-                    format!("{}(%rip)", name)
+                    format!("{name}(%rip)")
                 } else {
                     format!("{}{}(%rip)", name, v.0)
                 }

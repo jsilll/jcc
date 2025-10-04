@@ -1,5 +1,6 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser},
+    cli::Args,
     lower::LoweringPass,
     profile::Profiler,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
@@ -15,48 +16,9 @@ use jcc_ssa::{
 };
 
 use anyhow::{Context, Result};
-use clap::Parser as ClapParser;
-
-use std::{path::PathBuf, process::Command};
-
-#[derive(ClapParser)]
-struct Args {
-    /// Run the compiler in verbose mode
-    #[clap(long)]
-    pub verbose: bool,
-    /// Run the compiler in profile mode
-    #[clap(long)]
-    pub profile: bool,
-    /// Run until the lexer and stop
-    #[clap(long)]
-    pub lex: bool,
-    /// Run until the parser and stop
-    #[clap(long)]
-    pub parse: bool,
-    /// Emit AST as Graphviz DOT file and stop
-    #[clap(long)]
-    pub emit_ast_graphviz: bool,
-    /// Run until the semantic analyzer and stop
-    #[clap(long)]
-    pub validate: bool,
-    /// Run until the tacky generator and stop
-    #[clap(long)]
-    pub tacky: bool,
-    /// Run until the codegen and stop
-    #[clap(long)]
-    pub codegen: bool,
-    /// Do not link the source files
-    #[clap(long, short = 'c')]
-    pub no_link: bool,
-    /// Emit an assembly file but not an executable
-    #[clap(long, short = 'S')]
-    pub assembly: bool,
-    /// The path to the source file to compile
-    pub path: PathBuf,
-}
 
 fn main() {
-    let args = Args::parse();
+    let args = Args::from_cli();
     let mut profiler = Profiler::new(args.profile);
     let r = try_main(&args, &mut profiler);
     profiler
@@ -71,8 +33,8 @@ fn main() {
 fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     // Run the preprocessor with `gcc -E -P`
     let pp_path = args.path.with_extension("i");
-    profiler.time("Preprocessor (gcc -E)", || -> Result<()> {
-        let pp_output = Command::new("gcc")
+    profiler.time("Preprocessor (gcc -E)", || {
+        let pp_output = std::process::Command::new("gcc")
             .arg("-E")
             .arg("-P")
             .arg(&args.path)
@@ -186,7 +148,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         ssa::amd64::build::Builder::new(&ssa).build()
     });
     if args.verbose {
-        let asm = AMD64Emitter::new(&r.program, &interner).emit();
+        let asm = AMD64Emitter::new(&r.program, &interner, args.target.into()).emit();
         match asm {
             Ok(asm) => println!("{}", asm),
             Err(e) => eprintln!("Failed to emit assembly: {:?}", e),
@@ -196,7 +158,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         AMD64Fixer::new(&r.table).fix(&mut r.program)
     });
     if args.verbose {
-        let asm = AMD64Emitter::new(&r.program, &interner).emit();
+        let asm = AMD64Emitter::new(&r.program, &interner, args.target.into()).emit();
         match asm {
             Ok(asm) => println!("{}", asm),
             Err(e) => eprintln!("Failed to emit assembly: {:?}", e),
@@ -209,7 +171,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     // Emit final assembly
     let asm_path = args.path.with_extension("s");
     let asm = profiler.time("Assembly Emission", || {
-        AMD64Emitter::new(&r.program, &interner).emit()
+        AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()
     });
     std::fs::write(&asm_path, asm.unwrap()).context("Failed to write assembly file")?;
     if args.assembly {
@@ -219,7 +181,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     // Run the assembler and linker with `gcc`
     profiler.time("Assembler & Linker (gcc)", || -> Result<()> {
         let mut extension = "";
-        let mut cmd = Command::new("gcc");
+        let mut cmd = std::process::Command::new("gcc");
         if args.no_link {
             cmd.arg("-c");
             extension = "o";

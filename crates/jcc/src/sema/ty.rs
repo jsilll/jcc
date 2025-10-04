@@ -326,6 +326,7 @@ impl<'a> TyperPass<'a> {
                 self.visit_stmt(*body);
             }
             StmtKind::Switch { cond, body } => {
+                let cty = self.visit_expr(*cond);
                 if let Some(switch) = self.ctx.switches.get(&stmt_ref) {
                     switch
                         .cases
@@ -338,8 +339,26 @@ impl<'a> TyperPass<'a> {
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
-                                Some(value) => {
-                                    if !self.switch_cases.insert(value) {
+                                Some(ConstValue::Int32(v)) => {
+                                    let v = match cty {
+                                        Type::Int => ConstValue::Int32(v),
+                                        Type::Long => ConstValue::Int64(v as i64),
+                                        _ => panic!("invalid switch condition type"),
+                                    };
+                                    if !self.switch_cases.insert(v) {
+                                        self.result.diagnostics.push(TyperDiagnostic {
+                                            span: self.ast.expr(*expr).span,
+                                            kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                        });
+                                    }
+                                }
+                                Some(ConstValue::Int64(v)) => {
+                                    let v = match cty {
+                                        Type::Int => ConstValue::Int32(v as i32),
+                                        Type::Long => ConstValue::Int64(v),
+                                        _ => panic!("invalid switch condition type"),
+                                    };
+                                    if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
                                             span: self.ast.expr(*expr).span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
@@ -351,7 +370,6 @@ impl<'a> TyperPass<'a> {
                         });
                     self.switch_cases.clear();
                 }
-                self.visit_expr(*cond);
                 self.visit_stmt(*body);
             }
         }
@@ -396,6 +414,11 @@ impl<'a> TyperPass<'a> {
                 let rty = self.visit_expr(*rhs);
                 match op {
                     BinaryOp::LogicalAnd | BinaryOp::LogicalOr => Type::Int,
+                    BinaryOp::BitShl | BinaryOp::BitShr => lty,
+                    BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
+                        self.assert_is_lvalue(*lhs);
+                        lty
+                    }
                     BinaryOp::Assign
                     | BinaryOp::AddAssign
                     | BinaryOp::SubAssign
@@ -404,16 +427,19 @@ impl<'a> TyperPass<'a> {
                     | BinaryOp::RemAssign
                     | BinaryOp::BitOrAssign
                     | BinaryOp::BitAndAssign
-                    | BinaryOp::BitXorAssign
-                    | BinaryOp::BitShlAssign
-                    | BinaryOp::BitShrAssign => {
+                    | BinaryOp::BitXorAssign => {
                         self.assert_is_lvalue(*lhs);
                         if lty != rty {
                             self.result.actions.schedule_cast(*rhs, lty);
                         }
                         lty
                     }
-                    _ => {
+                    BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::LessThan
+                    | BinaryOp::LessEqual
+                    | BinaryOp::GreaterThan
+                    | BinaryOp::GreaterEqual => {
                         let common = self.get_common_type(lty, rty, expr.span);
                         if lty != common {
                             self.result.actions.schedule_cast(*lhs, common);
@@ -421,15 +447,24 @@ impl<'a> TyperPass<'a> {
                         if rty != common {
                             self.result.actions.schedule_cast(*rhs, common);
                         }
-                        match op {
-                            BinaryOp::Equal
-                            | BinaryOp::NotEqual
-                            | BinaryOp::LessThan
-                            | BinaryOp::LessEqual
-                            | BinaryOp::GreaterThan
-                            | BinaryOp::GreaterEqual => Type::Int,
-                            _ => common,
+                        Type::Int
+                    }
+                    BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem
+                    | BinaryOp::BitOr
+                    | BinaryOp::BitAnd
+                    | BinaryOp::BitXor => {
+                        let common = self.get_common_type(lty, rty, expr.span);
+                        if lty != common {
+                            self.result.actions.schedule_cast(*lhs, common);
                         }
+                        if rty != common {
+                            self.result.actions.schedule_cast(*rhs, common);
+                        }
+                        common
                     }
                 }
             }

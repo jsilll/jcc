@@ -12,6 +12,13 @@ use sourcemap::SourceSpan;
 
 use std::{collections::HashMap, fmt, num::NonZeroU32};
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TargetOs {
+    #[default]
+    Linux,
+    Macos,
+}
+
 // ---------------------------------------------------------------------------
 // Program
 // ---------------------------------------------------------------------------
@@ -19,18 +26,10 @@ use std::{collections::HashMap, fmt, num::NonZeroU32};
 pub struct Program<'a> {
     pub interner: &'a mut Interner,
     heaps: BaseHeaps,
-
     insts: Vec<Inst>,
-    insts_free: Vec<InstRef>,
-
     blocks: Vec<Block>,
-    blocks_free: Vec<BlockRef>,
-
     funcs: Vec<Option<Func>>,
-    funcs_free: Vec<FuncRef>,
-
     static_vars: Vec<Option<StaticVar>>,
-    static_vars_free: Vec<StaticVarRef>,
 }
 
 impl<'a> Program<'a> {
@@ -38,10 +37,6 @@ impl<'a> Program<'a> {
         Self {
             interner,
             heaps: Default::default(),
-            insts_free: Vec::new(),
-            funcs_free: Vec::new(),
-            blocks_free: Vec::new(),
-            static_vars_free: Vec::new(),
             insts: vec![Default::default()],
             funcs: vec![Default::default()],
             blocks: vec![Default::default()],
@@ -111,10 +106,6 @@ impl<'a> Program<'a> {
 
     #[inline]
     pub fn new_inst(&mut self, inst: Inst) -> InstRef {
-        if let Some(r) = self.insts_free.pop() {
-            self.insts[r.0.get() as usize] = inst;
-            return r;
-        }
         let r = InstRef(NonZeroU32::new(self.insts.len() as u32).unwrap());
         self.insts.push(inst);
         r
@@ -122,10 +113,6 @@ impl<'a> Program<'a> {
 
     #[inline]
     pub fn new_block(&mut self, block: Block) -> BlockRef {
-        if let Some(r) = self.blocks_free.pop() {
-            self.blocks[r.0.get() as usize] = block;
-            return r;
-        }
         let r = BlockRef(NonZeroU32::new(self.blocks.len() as u32).unwrap());
         self.blocks.push(block);
         r
@@ -133,10 +120,6 @@ impl<'a> Program<'a> {
 
     #[inline]
     pub fn new_func(&mut self, func: Func) -> FuncRef {
-        if let Some(r) = self.funcs_free.pop() {
-            self.funcs[r.0.get() as usize] = Some(func);
-            return r;
-        }
         let r = FuncRef(NonZeroU32::new(self.funcs.len() as u32).unwrap());
         self.funcs.push(Some(func));
         r
@@ -144,39 +127,9 @@ impl<'a> Program<'a> {
 
     #[inline]
     pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
-        if let Some(r) = self.static_vars_free.pop() {
-            self.static_vars[r.0.get() as usize] = Some(var);
-            return r;
-        }
         let r = StaticVarRef(NonZeroU32::new(self.static_vars.len() as u32).unwrap());
         self.static_vars.push(Some(var));
         r
-    }
-
-    // ---------------------------------------------------------------------------
-    // Deletion
-    // ---------------------------------------------------------------------------
-
-    #[inline]
-    pub fn delete_inst(&mut self, r: InstRef) {
-        self.insts_free.push(r);
-    }
-
-    #[inline]
-    pub fn delete_block(&mut self, r: BlockRef) {
-        self.blocks_free.push(r);
-    }
-
-    #[inline]
-    pub fn delete_func(&mut self, r: FuncRef) {
-        self.funcs[r.0.get() as usize] = None;
-        self.funcs_free.push(r);
-    }
-
-    #[inline]
-    pub fn delete_static_var(&mut self, r: StaticVarRef) {
-        self.static_vars[r.0.get() as usize] = None;
-        self.static_vars_free.push(r);
     }
 
     // ---------------------------------------------------------------------------
@@ -873,9 +826,6 @@ impl<'a> fmt::Display for Program<'a> {
             } else {
                 writeln!(f, "{{")?;
                 for block_ref in &func.blocks {
-                    if self.blocks_free.contains(block_ref) {
-                        continue;
-                    }
                     let block = self.block(*block_ref);
                     let block_name = self.interner.lookup(block.name);
                     writeln!(f, "{}({}): ; preds: []", block_name, block_ref)?;

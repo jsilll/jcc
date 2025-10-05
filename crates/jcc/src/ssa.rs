@@ -26,13 +26,18 @@ pub struct SSABuilder<'a> {
 }
 
 impl<'a> SSABuilder<'a> {
-    pub fn new(ast: &'a ast::Ast, sema: &'a SemaCtx, interner: &'a mut Interner) -> Self {
+    pub fn new(
+        ast: &'a ast::Ast,
+        sema: &'a SemaCtx,
+        interner: &'a mut Interner,
+        symbol_count: u32,
+    ) -> Self {
         Self {
             ast,
             sema,
             tracked_blocks: HashMap::new(),
             builder: IRBuilder::new(interner),
-            symbols: vec![Default::default(); ast.symbols_len() + 1],
+            symbols: vec![Default::default(); symbol_count as usize],
         }
     }
 
@@ -146,7 +151,9 @@ impl<'a> SSABuilder<'a> {
                 match info.attr {
                     Attribute::Function { .. } => panic!("unexpected function attribute"),
                     Attribute::Local => {
-                        let alloca = self.builder.insert_inst(Inst::alloca(decl.span));
+                        let alloca = self
+                            .builder
+                            .insert_inst(Inst::alloca(decl.ty.try_into().unwrap(), decl.span));
                         self.insert_var(decl.name.sema.get(), alloca);
                         if let Some(init) = init {
                             let val = self.visit_expr(init, ExprMode::RightValue);

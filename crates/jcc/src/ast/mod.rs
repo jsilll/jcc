@@ -20,7 +20,6 @@ pub struct Ast {
     sliced_decls: Vec<DeclRef>,
     sliced_exprs: Vec<ExprRef>,
     sliced_bitems: Vec<BlockItem>,
-    last_symbol: Cell<Option<NonZeroU32>>,
 }
 
 impl Default for Ast {
@@ -42,7 +41,6 @@ impl Ast {
             v
         }
         Ast {
-            last_symbol: Cell::new(None),
             root: Vec::with_capacity(capacity),
             decls: default_vec_with_capacity(capacity),
             stmts: default_vec_with_capacity(capacity),
@@ -70,11 +68,6 @@ impl Ast {
     #[inline]
     pub fn exprs_len(&self) -> usize {
         self.exprs.len() - 1
-    }
-
-    #[inline]
-    pub fn symbols_len(&self) -> usize {
-        self.last_symbol.get().map_or(1, |s| s.get() as usize) - 1
     }
 
     #[inline]
@@ -130,11 +123,6 @@ impl Ast {
     // ---------------------------------------------------------------------------
     // Setters
     // ---------------------------------------------------------------------------
-
-    #[inline]
-    pub fn set_last_symbol(&self, count: NonZeroU32) {
-        self.last_symbol.set(Some(count));
-    }
 
     // ---------------------------------------------------------------------------
     // Creation

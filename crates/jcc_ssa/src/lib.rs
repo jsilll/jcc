@@ -224,8 +224,8 @@ impl Inst {
     }
 
     #[inline]
-    pub fn alloca(span: SourceSpan) -> Self {
-        Self::new(Type::IntPtr, InstKind::Alloca, span)
+    pub fn alloca(ty: Type, span: SourceSpan) -> Self {
+        Self::new(Type::IntPtr, InstKind::Alloca(ty), span)
     }
 
     #[inline]
@@ -396,7 +396,7 @@ impl Inst {
             InstKind::Nop
             | InstKind::Phi
             | InstKind::Arg
-            | InstKind::Alloca
+            | InstKind::Alloca(_)
             | InstKind::Const(_)
             | InstKind::Jump(_)
             | InstKind::Static(_) => {}
@@ -443,7 +443,7 @@ impl Inst {
             InstKind::Nop
             | InstKind::Phi
             | InstKind::Arg
-            | InstKind::Alloca
+            | InstKind::Alloca(_)
             | InstKind::Jump(_)
             | InstKind::Const(_)
             | InstKind::Static(_) => {}
@@ -593,7 +593,7 @@ pub enum InstKind {
     Nop,
     Phi,
     Arg,
-    Alloca,
+    Alloca(Type),
     Ret(InstRef),
     Load(InstRef),
     Jump(BlockRef),
@@ -761,7 +761,7 @@ impl fmt::Display for InstKind {
             InstKind::Nop => write!(f, "nop"),
             InstKind::Phi => write!(f, "phi"),
             InstKind::Arg => write!(f, "arg"),
-            InstKind::Alloca => write!(f, "alloca"),
+            InstKind::Alloca(ty) => write!(f, "alloca {:?}", ty),
             InstKind::Ret(i) => write!(f, "ret {}", i),
             InstKind::Jump(b) => write!(f, "jump {}", b),
             InstKind::Load(ptr) => write!(f, "load {}", ptr),

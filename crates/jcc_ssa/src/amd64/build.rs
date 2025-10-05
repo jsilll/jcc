@@ -100,8 +100,8 @@ impl<'a> Builder<'a> {
         match inst.kind {
             crate::InstKind::Select { .. } => todo!("handle select"),
             crate::InstKind::Nop | crate::InstKind::Phi => {}
-            crate::InstKind::Alloca => {
-                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
+            crate::InstKind::Alloca(ty) => {
+                let dst = self.make_pseudo(ty.try_into().unwrap());
                 self.operands.insert(inst_ref, dst);
             }
             crate::InstKind::Arg => {

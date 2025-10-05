@@ -5,7 +5,8 @@ use crate::{
     infra::inset::InsertionSet,
 };
 
-use super::{BinaryOp, Inst, Operand, Program, Reg};
+use super::{BinaryOp, Inst, Operand, Reg};
+use crate::amd64::Program;
 
 // ---------------------------------------------------------------------------
 // AMD64Fixer
@@ -400,7 +401,7 @@ impl<'a> AMD64Fixer<'a> {
         if let Operand::Pseudo(id) = oper {
             let entry = &self.table.pseudos[*id as usize];
             *oper = Operand::Stack(*self.offsets.entry(*id).or_insert_with(|| {
-                self.offset = (self.offset + entry.ty.align() + 15) & !15;
+                self.offset += entry.ty.align();
                 -self.offset
             }));
         }

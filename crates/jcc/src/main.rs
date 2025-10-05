@@ -31,7 +31,7 @@ fn main() {
 }
 
 fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
-    // Run the preprocessor with `gcc -E -P`
+    // === Run the preprocessor ===
     let pp_path = args.path.with_extension("i");
     profiler.time("Preprocessor (gcc -E)", || {
         let pp_output = std::process::Command::new("gcc")
@@ -49,7 +49,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         Ok(())
     })?;
 
-    // Initialize source database and interner
+    // === Initialization ===
     let mut db = SourceDb::new();
     let mut interner = Interner::new();
     db.add(SourceMap::new(&pp_path).context(format!(
@@ -61,16 +61,13 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         pp_path.display()
     ))?;
 
-    // Lex file
+    // === Lex ===
     let mut r = profiler.time("Lexer", || Lexer::new(file).lex());
     if args.lex {
         r.diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
-    if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
-        return Err(anyhow::anyhow!("exiting due to lexer errors"));
-    }
+    check_diags("lexer", &r, file)?;
     if args.verbose {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
     }
@@ -78,15 +75,12 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         return Ok(());
     }
 
-    // Parse tokens
+    // === Parse ===
     let mut dict = TypeDict::new();
     let r = profiler.time("Parser", || {
         Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse()
     });
-    if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
-        return Err(anyhow::anyhow!("exiting due to parser errors"));
-    }
+    check_diags("parser", &r, file)?;
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
@@ -97,30 +91,21 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         return Ok(());
     }
 
-    // Resolve the AST
+    // === Resolve ===
     let ast = r.ast;
     if ast.root().is_empty() {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
     let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
-    if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
-        return Err(anyhow::anyhow!("exiting due to resolver errors"));
-    }
+    check_diags("resolver", &r, file)?;
 
-    // Analyze the AST
+    // === Semantic Analysis ===
     let mut ctx = SemaCtx::with_dict(&ast, dict);
     let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
-    if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
-        return Err(anyhow::anyhow!("exiting due to control errors"));
-    }
+    check_diags("control", &r, file)?;
     let r = profiler.time("Typer", || TyperPass::new(&ast, &mut ctx).check());
-    if !r.diagnostics.is_empty() {
-        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
-        return Err(anyhow::anyhow!("exiting due to typer errors"));
-    }
+    check_diags("typer", &r, file)?;
     let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
@@ -132,7 +117,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         return Ok(());
     }
 
-    // Generate SSA
+    // === Build SSA ===
     let ssa = profiler.time("SSA Build", || {
         SSABuilder::new(&ast, &ctx, &mut interner).build()
     });
@@ -143,7 +128,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         return Ok(());
     }
 
-    // Generate Assembly
+    // === Codegen ===
     let mut r = profiler.time("AMD64 Build", || {
         ssa::amd64::build::Builder::new(&ssa).build()
     });
@@ -168,7 +153,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         return Ok(());
     }
 
-    // Emit final assembly
+    // === Emit & Link ===
     let asm_path = args.path.with_extension("s");
     let asm = profiler.time("Assembly Emission", || {
         AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()
@@ -177,8 +162,6 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     if args.assembly {
         return Ok(());
     }
-
-    // Run the assembler and linker with `gcc`
     profiler.time("Assembler & Linker (gcc)", || -> Result<()> {
         let mut extension = "";
         let mut cmd = std::process::Command::new("gcc");
@@ -197,5 +180,14 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         Ok(())
     })?;
 
+    Ok(())
+}
+
+fn check_diags<T: jcc::PassResult>(name: &str, res: &T, file: &SourceMap) -> Result<()> {
+    let diags = res.diagnostics();
+    if !diags.is_empty() {
+        sourcemap::diag::report_batch_to_stderr(file, diags)?;
+        return Err(anyhow::anyhow!("exiting due to {} errors", name));
+    }
     Ok(())
 }

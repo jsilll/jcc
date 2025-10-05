@@ -4,6 +4,7 @@ use crate::{
         StmtRef, StorageClass,
     },
     sema::SemaSymbol,
+    PassResult,
 };
 
 use jcc_ssa::{
@@ -20,6 +21,12 @@ use std::{collections::HashMap, num::NonZeroU32};
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ResolverResult {
     pub diagnostics: Vec<ResolverDiagnostic>,
+}
+
+impl PassResult for ResolverResult {
+    fn diagnostics(&self) -> &[impl Into<jcc_ssa::sourcemap::diag::Diagnostic> + Clone] {
+        &self.diagnostics
+    }
 }
 
 // ---------------------------------------------------------------------------

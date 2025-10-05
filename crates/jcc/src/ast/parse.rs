@@ -5,6 +5,7 @@ use crate::{
     },
     sema::{CompoundType, CompoundTypeRef, Type, TypeDict},
     tok::{Token, TokenKind},
+    PassResult,
 };
 
 use jcc_ssa::{
@@ -22,6 +23,12 @@ use std::{iter::Peekable, slice::Iter};
 pub struct ParserResult {
     pub ast: Ast,
     pub diagnostics: Vec<ParserDiagnostic>,
+}
+
+impl PassResult for ParserResult {
+    fn diagnostics(&self) -> &[impl Into<jcc_ssa::sourcemap::diag::Diagnostic> + Clone] {
+        &self.diagnostics
+    }
 }
 
 // ---------------------------------------------------------------------------

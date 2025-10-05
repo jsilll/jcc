@@ -349,165 +349,57 @@ impl<'a> SSABuilder<'a> {
             }
             ast::StmtKind::For {
                 init,
-                cond: None,
-                step: None,
+                cond,
+                step,
                 body,
             } => {
                 let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
+                let exit_block = self.builder.new_block("for.exit", stmt.span);
+                let cond_block = cond.map(|_| self.builder.new_block("for.cond", stmt.span));
+                let step_block = step.map(|_| self.builder.new_block("for.step", stmt.span));
+                let after_body_target = step_block.or(cond_block).unwrap_or(body_block);
 
                 self.tracked_blocks.insert(
                     stmt_ref,
-                    TrackedBlock::BreakAndContinue(cont_block, body_block),
+                    TrackedBlock::BreakAndContinue(exit_block, after_body_target),
                 );
 
+                // === Initializer ===
                 if let Some(init) = init {
                     match init {
-                        ast::ForInit::VarDecl(decl) => {
-                            self.visit_decl(*decl);
-                        }
+                        ast::ForInit::VarDecl(decl) => self.visit_decl(*decl),
                         ast::ForInit::Expr(expr) => {
                             self.visit_expr(*expr, ExprMode::RightValue);
                         }
                     }
                 }
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
-
-                // === Body Block ===
-                self.builder.switch_to_block(body_block);
-                self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
-
-                // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
-            }
-            ast::StmtKind::For {
-                init,
-                cond: Some(cond),
-                step: None,
-                body,
-            } => {
-                let cond_block = self.builder.new_block("for.cond", stmt.span);
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
-
-                self.tracked_blocks.insert(
-                    stmt_ref,
-                    TrackedBlock::BreakAndContinue(cont_block, cond_block),
-                );
-
-                if let Some(init) = init {
-                    match init {
-                        ast::ForInit::VarDecl(decl) => {
-                            self.visit_decl(*decl);
-                        }
-                        ast::ForInit::Expr(expr) => {
-                            self.visit_expr(*expr, ExprMode::RightValue);
-                        }
-                    }
-                }
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
-
-                // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                 self.builder
-                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
+                    .insert_inst(Inst::jump(cond_block.unwrap_or(body_block), stmt.span));
 
-                // === Body Block ===
-                self.builder.switch_to_block(body_block);
-                self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
-
-                // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
-            }
-            ast::StmtKind::For {
-                init,
-                cond: None,
-                step: Some(step),
-                body,
-            } => {
-                let step_block = self.builder.new_block("for.step", stmt.span);
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
-
-                self.tracked_blocks.insert(
-                    stmt_ref,
-                    TrackedBlock::BreakAndContinue(cont_block, step_block),
-                );
-
-                if let Some(init) = init {
-                    match init {
-                        ast::ForInit::VarDecl(decl) => {
-                            self.visit_decl(*decl);
-                        }
-                        ast::ForInit::Expr(expr) => {
-                            self.visit_expr(*expr, ExprMode::RightValue);
-                        }
-                    }
+                // === Condition Block ===
+                if let (Some(cond), Some(cond_block)) = (cond, cond_block) {
+                    self.builder.switch_to_block(cond_block);
+                    let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                    self.builder
+                        .insert_inst(Inst::branch(cond_val, body_block, exit_block, stmt.span));
                 }
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
 
                 // === Step Block ===
-                self.builder.switch_to_block(step_block);
-                self.visit_expr(*step, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::jump(body_block, stmt.span));
-
-                // === Body Block ===
-                self.builder.switch_to_block(body_block);
-                self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(step_block, stmt.span));
-
-                // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
-            }
-            ast::StmtKind::For {
-                init,
-                cond: Some(cond),
-                step: Some(step),
-                body,
-            } => {
-                let cond_block = self.builder.new_block("for.cond", stmt.span);
-                let step_block = self.builder.new_block("for.step", stmt.span);
-                let body_block = self.builder.new_block("for.body", stmt.span);
-                let cont_block = self.builder.new_block("for.cont", stmt.span);
-
-                self.tracked_blocks.insert(
-                    stmt_ref,
-                    TrackedBlock::BreakAndContinue(cont_block, step_block),
-                );
-
-                if let Some(init) = init {
-                    match init {
-                        ast::ForInit::VarDecl(decl) => {
-                            self.visit_decl(*decl);
-                        }
-                        ast::ForInit::Expr(expr) => {
-                            self.visit_expr(*expr, ExprMode::RightValue);
-                        }
-                    }
+                if let (Some(step), Some(step_block)) = (step, step_block) {
+                    self.builder.switch_to_block(step_block);
+                    self.visit_expr(*step, ExprMode::RightValue);
+                    self.builder
+                        .insert_inst(Inst::jump(cond_block.unwrap_or(body_block), stmt.span));
                 }
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
-
-                // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder
-                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, stmt.span));
-
-                // === Step Block ===
-                self.builder.switch_to_block(step_block);
-                self.visit_expr(*step, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::jump(cond_block, stmt.span));
 
                 // === Body Block ===
                 self.builder.switch_to_block(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(step_block, stmt.span));
+                self.builder
+                    .insert_inst(Inst::jump(after_body_target, stmt.span));
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.builder.switch_to_block(exit_block);
             }
             ast::StmtKind::Switch { cond, body } => {
                 let mut cases = Vec::new();

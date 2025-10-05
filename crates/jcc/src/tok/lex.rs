@@ -1,3 +1,5 @@
+use crate::PassResult;
+
 use super::{Token, TokenKind};
 
 use jcc_ssa::sourcemap::{diag::Diagnostic, SourceMap, SourceSpan};
@@ -12,6 +14,12 @@ use std::{iter::Peekable, str::CharIndices};
 pub struct LexerResult {
     pub tokens: Vec<Token>,
     pub diagnostics: Vec<LexerDiagnostic>,
+}
+
+impl PassResult for LexerResult {
+    fn diagnostics(&self) -> &[impl Into<jcc_ssa::sourcemap::diag::Diagnostic> + Clone] {
+        &self.diagnostics
+    }
 }
 
 // ---------------------------------------------------------------------------

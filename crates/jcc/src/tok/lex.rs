@@ -195,7 +195,7 @@ impl<'a> Lexer<'a> {
         match self.chars.peek() {
             Some((_, c)) if *c == kind1.0 => {
                 self.chars.next();
-                self.push_token(kind1.1, 1);
+                self.push_token(kind1.1, 2);
             }
             Some((_, c)) if *c == kind2.0 => {
                 self.chars.next();

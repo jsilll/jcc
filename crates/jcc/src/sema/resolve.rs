@@ -21,6 +21,7 @@ use std::{collections::HashMap, num::NonZeroU32};
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ResolverResult {
     pub diagnostics: Vec<ResolverDiagnostic>,
+    pub symbol_count: u32,
 }
 
 impl PassResult for ResolverResult {
@@ -67,7 +68,7 @@ impl<'a> ResolverPass<'a> {
             .root()
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
-        self.ast.set_last_symbol(self.symbol_count);
+        self.result.symbol_count = self.symbol_count.get();
         self.result
     }
 

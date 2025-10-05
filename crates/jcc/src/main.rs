@@ -97,13 +97,13 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
-    let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
-    check_diags("resolver", &r, file)?;
+    let resolver_result = profiler.time("Resolver", || ResolverPass::new(&ast).check());
+    check_diags("resolver", &resolver_result, file)?;
 
     // === Semantic Analysis ===
-    let mut ctx = SemaCtx::with_dict(&ast, dict);
-    let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
-    check_diags("control", &r, file)?;
+    let mut ctx = SemaCtx::with_dict(dict, resolver_result.symbol_count);
+    let control_result = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
+    check_diags("control", &control_result, file)?;
     let r = profiler.time("Typer", || TyperPass::new(&ast, &mut ctx).check());
     check_diags("typer", &r, file)?;
     let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
@@ -119,7 +119,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Build SSA ===
     let ssa = profiler.time("SSA Build", || {
-        SSABuilder::new(&ast, &ctx, &mut interner).build()
+        SSABuilder::new(&ast, &ctx, &mut interner, resolver_result.symbol_count).build()
     });
     if args.verbose {
         println!("{}", ssa);

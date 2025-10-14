@@ -1,7 +1,6 @@
 use crate::{
     ast::{Ast, BlockItem, DeclKind, StmtKind, StmtRef},
     sema::SemaCtx,
-    PassResult,
 };
 
 use jcc_ssa::{
@@ -18,12 +17,6 @@ use std::{cell::Cell, collections::HashMap};
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ControlResult {
     pub diagnostics: Vec<ControlDiagnostic>,
-}
-
-impl PassResult for ControlResult {
-    fn diagnostics(&self) -> &[impl Into<jcc_ssa::sourcemap::diag::Diagnostic> + Clone] {
-        &self.diagnostics
-    }
 }
 
 // ---------------------------------------------------------------------------

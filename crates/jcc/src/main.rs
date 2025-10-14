@@ -12,7 +12,7 @@ use jcc_ssa::{
     self as ssa,
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
     interner::Interner,
-    sourcemap::{self, SourceDb, SourceMap},
+    sourcemap::{self, diag::Diagnostic, SourceDb, SourceMap},
 };
 
 use anyhow::{Context, Result};
@@ -67,7 +67,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         r.diagnostics
             .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
     }
-    check_diags("lexer", &r, file)?;
+    check_diags("lexer", file, &r.diagnostics)?;
     if args.verbose {
         sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
     }
@@ -80,7 +80,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     let r = profiler.time("Parser", || {
         Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse()
     });
-    check_diags("parser", &r, file)?;
+    check_diags("parser", file, &r.diagnostics)?;
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
@@ -97,15 +97,15 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
-    let resolver_result = profiler.time("Resolver", || ResolverPass::new(&ast).check());
-    check_diags("resolver", &resolver_result, file)?;
+    let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
+    check_diags("resolver", file, &r.diagnostics)?;
 
     // === Semantic Analysis ===
-    let mut ctx = SemaCtx::with_dict(dict, resolver_result.symbol_count);
-    let control_result = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
-    check_diags("control", &control_result, file)?;
+    let mut ctx = SemaCtx::with_dict(dict, r.symbol_count);
+    let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
+    check_diags("control", file, &r.diagnostics)?;
     let r = profiler.time("Typer", || TyperPass::new(&ast, &mut ctx).check());
-    check_diags("typer", &r, file)?;
+    check_diags("typer", file, &r.diagnostics)?;
     let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
@@ -119,7 +119,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Build SSA ===
     let ssa = profiler.time("SSA Build", || {
-        SSABuilder::new(&ast, &ctx, &mut interner, resolver_result.symbol_count).build()
+        SSABuilder::new(&ast, &ctx, &mut interner).build()
     });
     if args.verbose {
         println!("{}", ssa);
@@ -183,11 +183,18 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     Ok(())
 }
 
-fn check_diags<T: jcc::PassResult>(name: &str, res: &T, file: &SourceMap) -> Result<()> {
-    let diags = res.diagnostics();
+// ---------------------------------------------------------------------------
+// Auxiliary functions
+// ---------------------------------------------------------------------------
+
+fn check_diags(
+    pass: &str,
+    file: &SourceMap,
+    diags: &[impl Into<Diagnostic> + Clone],
+) -> Result<()> {
     if !diags.is_empty() {
         sourcemap::diag::report_batch_to_stderr(file, diags)?;
-        return Err(anyhow::anyhow!("exiting due to {} errors", name));
+        return Err(anyhow::anyhow!("exiting due to {} errors", pass));
     }
     Ok(())
 }

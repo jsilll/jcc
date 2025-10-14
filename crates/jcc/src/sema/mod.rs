@@ -24,20 +24,17 @@ pub struct SemaCtx {
 }
 
 impl SemaCtx {
-    pub fn new(symbol_count: u32) -> Self {
-        Self {
-            dict: TypeDict::new(),
-            switches: HashMap::new(),
-            symbols: vec![Default::default(); symbol_count as usize],
-        }
-    }
-
-    pub fn with_dict(dict: TypeDict, symbol_count: u32) -> Self {
+    pub fn with_dict(dict: TypeDict, symbol_count: usize) -> Self {
         Self {
             dict,
             switches: HashMap::new(),
-            symbols: vec![Default::default(); symbol_count as usize],
+            symbols: vec![Default::default(); symbol_count],
         }
+    }
+
+    #[inline]
+    pub fn symbol_count(&self) -> usize {
+        self.symbols.len()
     }
 
     #[inline]

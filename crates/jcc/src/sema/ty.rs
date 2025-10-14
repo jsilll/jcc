@@ -5,7 +5,6 @@ use crate::{
     },
     lower::LoweringActions,
     sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
-    PassResult,
 };
 
 use jcc_ssa::{
@@ -23,12 +22,6 @@ use std::collections::HashSet;
 pub struct TyperResult {
     pub actions: LoweringActions,
     pub diagnostics: Vec<TyperDiagnostic>,
-}
-
-impl PassResult for TyperResult {
-    fn diagnostics(&self) -> &[impl Into<jcc_ssa::sourcemap::diag::Diagnostic> + Clone] {
-        &self.diagnostics
-    }
 }
 
 // ---------------------------------------------------------------------------

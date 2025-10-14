@@ -26,18 +26,13 @@ pub struct SSABuilder<'a> {
 }
 
 impl<'a> SSABuilder<'a> {
-    pub fn new(
-        ast: &'a ast::Ast,
-        sema: &'a SemaCtx,
-        interner: &'a mut Interner,
-        symbol_count: u32,
-    ) -> Self {
+    pub fn new(ast: &'a ast::Ast, sema: &'a SemaCtx, interner: &'a mut Interner) -> Self {
         Self {
             ast,
             sema,
             tracked_blocks: HashMap::new(),
             builder: IRBuilder::new(interner),
-            symbols: vec![Default::default(); symbol_count as usize],
+            symbols: vec![Default::default(); sema.symbol_count()],
         }
     }
 

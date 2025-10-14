@@ -4,7 +4,6 @@ use crate::{
         StmtRef, StorageClass,
     },
     sema::SemaSymbol,
-    PassResult,
 };
 
 use jcc_ssa::{
@@ -20,14 +19,8 @@ use std::{collections::HashMap, num::NonZeroU32};
 
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct ResolverResult {
+    pub symbol_count: usize,
     pub diagnostics: Vec<ResolverDiagnostic>,
-    pub symbol_count: u32,
-}
-
-impl PassResult for ResolverResult {
-    fn diagnostics(&self) -> &[impl Into<jcc_ssa::sourcemap::diag::Diagnostic> + Clone] {
-        &self.diagnostics
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +61,7 @@ impl<'a> ResolverPass<'a> {
             .root()
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
-        self.result.symbol_count = self.symbol_count.get();
+        self.result.symbol_count = self.symbol_count.get() as usize;
         self.result
     }
 

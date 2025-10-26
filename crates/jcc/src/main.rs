@@ -5,7 +5,7 @@ use jcc::{
     profile::Profiler,
     sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
     ssa::SSABuilder,
-    tok::lex::{Lexer, LexerDiagnosticKind},
+    tok::lex::Lexer,
 };
 
 use jcc_ssa::{
@@ -51,6 +51,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Initialization ===
     let mut db = SourceDb::new();
+    let mut dict = TypeDict::new();
     let mut interner = Interner::new();
     db.add(SourceMap::new(&pp_path).context(format!(
         "Failed to create source map for {}",
@@ -61,26 +62,16 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         pp_path.display()
     ))?;
 
-    // === Lex ===
-    let mut r = profiler.time("Lexer", || Lexer::new(file).lex());
-    if args.lex {
-        r.diagnostics
-            .retain(|d| !matches!(d.kind, LexerDiagnosticKind::UnbalancedToken(_)));
-    }
-    check_diags("lexer", file, &r.diagnostics)?;
-    if args.verbose {
-        sourcemap::diag::report_batch_to_stderr(file, &r.diagnostics)?;
-    }
+    // === Lexing & Parsing ===
+    let lexer = Lexer::new(file);
+    let r = profiler.time("Parser", || {
+        Parser::new(lexer, file, &mut dict, &mut interner).parse()
+    });
+    check_diags("lexer", file, &r.lexer_diagnostics)?;
     if args.lex {
         return Ok(());
     }
-
-    // === Parse ===
-    let mut dict = TypeDict::new();
-    let r = profiler.time("Parser", || {
-        Parser::new(file, &mut dict, &mut interner, r.tokens.iter()).parse()
-    });
-    check_diags("parser", file, &r.diagnostics)?;
+    check_diags("parser", file, &r.parser_diagnostics)?;
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&r.ast, &interner);

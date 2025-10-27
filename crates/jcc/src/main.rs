@@ -49,10 +49,8 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         Ok(())
     })?;
 
-    // === Initialization ===
+    // === Source Database ===
     let mut db = SourceDb::new();
-    let mut dict = TypeDict::new();
-    let mut interner = Interner::new();
     db.add(SourceMap::new(&pp_path).context(format!(
         "Failed to create source map for {}",
         pp_path.display()
@@ -64,6 +62,8 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Lexing & Parsing ===
     let lexer = Lexer::new(file);
+    let mut dict = TypeDict::new();
+    let mut interner = Interner::new();
     let r = profiler.time("Parser", || {
         Parser::new(lexer, file, &mut dict, &mut interner).parse()
     });
@@ -75,7 +75,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
-        let dot = ast_graphviz.emit();
+        let dot = ast_graphviz.emit().context("Failed to emit AST graphviz")?;
         std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
     }
     if args.parse {
@@ -101,7 +101,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&ast, &interner);
-        let dot = ast_graphviz.emit();
+        let dot = ast_graphviz.emit().context("Failed to emit AST graphviz")?;
         std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
     }
     if args.validate {
@@ -124,21 +124,19 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         ssa::amd64::build::Builder::new(&ssa).build()
     });
     if args.verbose {
-        let asm = AMD64Emitter::new(&r.program, &interner, args.target.into()).emit();
-        match asm {
-            Ok(asm) => println!("{}", asm),
-            Err(e) => eprintln!("Failed to emit assembly: {:?}", e),
-        }
+        println!(
+            "{}",
+            AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()?
+        );
     }
     profiler.time("AMD64 Fixer", || {
         AMD64Fixer::new(&r.table).fix(&mut r.program)
     });
     if args.verbose {
-        let asm = AMD64Emitter::new(&r.program, &interner, args.target.into()).emit();
-        match asm {
-            Ok(asm) => println!("{}", asm),
-            Err(e) => eprintln!("Failed to emit assembly: {:?}", e),
-        }
+        println!(
+            "{}",
+            AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()?
+        );
     }
     if args.codegen {
         return Ok(());

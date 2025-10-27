@@ -79,7 +79,7 @@ impl<'a> TyperPass<'a> {
                     Some(init) => {
                         let ty = self.visit_expr(init);
                         if ty != decl.ty {
-                            self.result.actions.schedule_cast(init, decl.ty);
+                            self.result.actions.cast(decl.ty, init);
                         }
                         match eval_constant(self.ast, init) {
                             Some(value) => StaticValue::Initialized(value),
@@ -151,7 +151,7 @@ impl<'a> TyperPass<'a> {
                     if let Some(init) = init {
                         let ty = self.visit_expr(init);
                         if ty != decl.ty {
-                            self.result.actions.schedule_cast(init, decl.ty);
+                            self.result.actions.cast(decl.ty, init);
                         }
                     }
                 }
@@ -180,7 +180,7 @@ impl<'a> TyperPass<'a> {
                         Some(init) => {
                             let ty = self.visit_expr(init);
                             if ty != decl.ty {
-                                self.result.actions.schedule_cast(init, decl.ty);
+                                self.result.actions.cast(decl.ty, init);
                             }
                             match eval_constant(self.ast, init) {
                                 Some(value) => StaticValue::Initialized(value),
@@ -264,7 +264,7 @@ impl<'a> TyperPass<'a> {
             StmtKind::Return(expr) => {
                 let ty = self.visit_expr(*expr);
                 if ty != self.curr_ret {
-                    self.result.actions.schedule_cast(*expr, self.curr_ret);
+                    self.result.actions.cast(self.curr_ret, *expr);
                 }
             }
             StmtKind::Default(stmt) => self.visit_stmt(*stmt),
@@ -391,10 +391,10 @@ impl<'a> TyperPass<'a> {
                 let oty = self.visit_expr(*other);
                 let common = self.get_common_type(tty, oty, expr.span);
                 if tty != common {
-                    self.result.actions.schedule_cast(*then, common);
+                    self.result.actions.cast(common, *then);
                 }
                 if oty != common {
-                    self.result.actions.schedule_cast(*other, common);
+                    self.result.actions.cast(common, *other);
                 }
                 common
             }
@@ -427,10 +427,10 @@ impl<'a> TyperPass<'a> {
                     | BinaryOp::GreaterEqual => {
                         let common = self.get_common_type(lty, rty, expr.span);
                         if lty != common {
-                            self.result.actions.schedule_cast(*lhs, common);
+                            self.result.actions.cast(common, *lhs);
                         }
                         if rty != common {
-                            self.result.actions.schedule_cast(*rhs, common);
+                            self.result.actions.cast(common, *rhs);
                         }
                         Type::Int
                     }
@@ -446,7 +446,7 @@ impl<'a> TyperPass<'a> {
                         self.assert_is_lvalue(*lhs);
                         let common = self.get_common_type(lty, rty, expr.span);
                         if rty != common {
-                            self.result.actions.schedule_cast(*rhs, common);
+                            self.result.actions.cast(common, *rhs);
                         }
                         lty
                     }
@@ -460,10 +460,10 @@ impl<'a> TyperPass<'a> {
                     | BinaryOp::BitXor => {
                         let common = self.get_common_type(lty, rty, expr.span);
                         if lty != common {
-                            self.result.actions.schedule_cast(*lhs, common);
+                            self.result.actions.cast(common, *lhs);
                         }
                         if rty != common {
-                            self.result.actions.schedule_cast(*rhs, common);
+                            self.result.actions.cast(common, *rhs);
                         }
                         common
                     }
@@ -508,7 +508,7 @@ impl<'a> TyperPass<'a> {
                                 .zip(params)
                                 .for_each(|(arg, ty)| {
                                     if self.ast.expr(*arg).ty.get() != *ty {
-                                        self.result.actions.schedule_cast(*arg, *ty);
+                                        self.result.actions.cast(*ty, *arg);
                                     }
                                 });
                             *ret

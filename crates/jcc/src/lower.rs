@@ -9,7 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweringAction {
-    Cast { expr: ExprRef, ty: Type },
+    Cast { ty: Type, expr: ExprRef },
 }
 
 // ---------------------------------------------------------------------------
@@ -23,8 +23,13 @@ pub struct LoweringActions {
 
 impl LoweringActions {
     #[inline]
-    pub fn schedule_cast(&mut self, expr: ExprRef, ty: Type) {
-        self.actions.push(LoweringAction::Cast { expr, ty })
+    fn schedule(&mut self, action: LoweringAction) {
+        self.actions.push(action)
+    }
+
+    #[inline]
+    pub fn cast(&mut self, ty: Type, expr: ExprRef) {
+        self.schedule(LoweringAction::Cast { ty, expr })
     }
 }
 
@@ -44,7 +49,7 @@ impl LoweringPass {
 
     pub fn build(mut self) -> Ast {
         self.actions.actions.iter().for_each(|action| match action {
-            LoweringAction::Cast { expr, ty } => {
+            LoweringAction::Cast { ty, expr } => {
                 let copy = self.ast.new_expr(self.ast.expr(*expr).clone());
                 let cast = self.ast.expr_mut(*expr);
                 cast.ty = (*ty).into();

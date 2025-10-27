@@ -32,7 +32,7 @@ impl<'a> AstGraphviz<'a> {
                 "node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10];",
             )?;
             writeln!(s.e, "edge [fontname=\"Helvetica\", fontsize=9];")?;
-            s.define_node("ast_root", "ASTRoot", "lightblue")?;
+            s.define_node("ast_root", "ASTRoot", Some(Color::LightBlue))?;
             s.ast.root().iter().try_for_each(|decl_ref| {
                 let id = s.visit_decl(*decl_ref)?;
                 s.define_edge("ast_root", &id, None)
@@ -56,7 +56,7 @@ impl<'a> AstGraphviz<'a> {
                     decl.storage,
                     decl.name.sema.get()
                 );
-                self.define_node(&decl_id, &label, "lightgoldenrodyellow")?;
+                self.define_node(&decl_id, &label, Some(Color::LightGoldenrodYellow))?;
                 if let Some(init) = init {
                     let init_id = self.visit_expr(init)?;
                     self.define_edge(&decl_id, &init_id, Some("initializer"))?;
@@ -71,12 +71,12 @@ impl<'a> AstGraphviz<'a> {
                     decl.storage,
                     decl.name.sema.get()
                 );
-                self.define_node(&decl_id, &label, "palegreen")?;
+                self.define_node(&decl_id, &label, Some(Color::PaleGreen))?;
 
                 let params = self.ast.decls(params);
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
-                    self.define_node(&params_id, "Parameters", "aliceblue")?;
+                    self.define_node(&params_id, "Parameters", Some(Color::AliceBlue))?;
                     self.define_edge(&decl_id, &params_id, Some("params"))?;
                     for (idx, param) in params.iter().enumerate() {
                         let param_id = self.visit_decl(*param)?;
@@ -88,12 +88,12 @@ impl<'a> AstGraphviz<'a> {
                 match body {
                     None => {
                         let fwd_decl_id = format!("{decl_id}_fwd");
-                        writeln!(self.e, "{fwd_decl_id} [label=\"Forward Declaration\", shape=plaintext, fillcolor=none];")?;
+                        self.define_node(&fwd_decl_id, "Forward Declaration", None)?;
                         self.define_edge_dotted(&decl_id, &fwd_decl_id, Some("body (forward)"))?;
                     }
                     Some(body) => {
                         let body_id = self.fresh_aux_node_id("func_body");
-                        self.define_node(&body_id, "Function Body", "whitesmoke")?;
+                        self.define_node(&body_id, "Function Body", Some(Color::WhiteSmoke))?;
                         self.define_edge(&decl_id, &body_id, Some("body"))?;
                         for (idx, item) in self.ast.bitems(body).iter().enumerate() {
                             let item_id = match item {
@@ -113,59 +113,63 @@ impl<'a> AstGraphviz<'a> {
     fn visit_stmt(&mut self, stmt: StmtRef) -> Result<String, std::fmt::Error> {
         let stmt_id = format!("stmt_{}", stmt.0.get());
         match &self.ast.stmt(stmt).kind {
-            StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt", "gray90")?,
-            StmtKind::Break(_) => self.define_node(&stmt_id, "BreakStmt", "lightcoral")?,
-            StmtKind::Continue(_) => self.define_node(&stmt_id, "ContinueStmt", "lightsalmon")?,
+            StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt", Some(Color::Gray90))?,
             StmtKind::Expr(expr) => {
-                self.define_node(&stmt_id, "ExprStmt", "azure")?;
+                self.define_node(&stmt_id, "ExprStmt", Some(Color::Azure))?;
                 let expr_id = self.visit_expr(*expr)?;
                 self.define_edge(&stmt_id, &expr_id, None)?;
             }
+            StmtKind::Break(_) => {
+                self.define_node(&stmt_id, "BreakStmt", Some(Color::LightCoral))?
+            }
+            StmtKind::Continue(_) => {
+                self.define_node(&stmt_id, "ContinueStmt", Some(Color::LightSalmon))?
+            }
             StmtKind::Return(expr) => {
-                self.define_node(&stmt_id, "ReturnStmt", "mediumpurple1")?;
+                self.define_node(&stmt_id, "ReturnStmt", Some(Color::MediumPurple1))?;
                 let expr_id = self.visit_expr(*expr)?;
                 self.define_edge(&stmt_id, &expr_id, Some("value"))?;
             }
             StmtKind::Default(inner) => {
-                self.define_node(&stmt_id, "DefaultStmt (Switch)", "khaki")?;
+                self.define_node(&stmt_id, "DefaultStmt (Switch)", Some(Color::Khaki))?;
                 let inner_id = self.visit_stmt(*inner)?;
                 self.define_edge(&stmt_id, &inner_id, Some("stmt"))?;
             }
             StmtKind::Goto { label, stmt } => {
                 let label = self.interner.lookup(*label).escape_default();
                 let label = format!("GotoStmt\\nlabel: {}\\nstmt: {:?}", label, stmt.get());
-                self.define_node(&stmt_id, &label, "sandybrown")?;
+                self.define_node(&stmt_id, &label, Some(Color::SandyBrown))?;
             }
             StmtKind::Label { label, stmt: inner } => {
                 let label = self.interner.lookup(*label).escape_default();
                 let label = format!("LabelStmt\\nlabel: {}", label);
-                self.define_node(&stmt_id, &label, "beige")?;
+                self.define_node(&stmt_id, &label, Some(Color::Beige))?;
                 let inner_id = self.visit_stmt(*inner)?;
                 self.define_edge(&stmt_id, &inner_id, None)?;
             }
-            StmtKind::Case { expr, stmt: inner } => {
-                self.define_node(&stmt_id, "CaseStmt (Switch)", "khaki")?;
-                let expr_id = self.visit_expr(*expr)?;
-                self.define_edge(&stmt_id, &expr_id, Some("condition"))?;
-                let inner_id = self.visit_stmt(*inner)?;
-                self.define_edge(&stmt_id, &inner_id, Some("stmt"))?;
-            }
             StmtKind::Switch { cond, body } => {
-                self.define_node(&stmt_id, "SwitchStmt", "lightpink")?;
+                self.define_node(&stmt_id, "SwitchStmt", Some(Color::LightPink))?;
                 let cond_id = self.visit_expr(*cond)?;
                 self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
                 let body_id = self.visit_stmt(*body)?;
                 self.define_edge(&stmt_id, &body_id, Some("body"))?;
             }
+            StmtKind::Case { expr, stmt: inner } => {
+                self.define_node(&stmt_id, "CaseStmt (Switch)", Some(Color::Khaki))?;
+                let expr_id = self.visit_expr(*expr)?;
+                self.define_edge(&stmt_id, &expr_id, Some("condition"))?;
+                let inner_id = self.visit_stmt(*inner)?;
+                self.define_edge(&stmt_id, &inner_id, Some("stmt"))?;
+            }
             StmtKind::While { cond, body } => {
-                self.define_node(&stmt_id, "WhileStmt", "paleturquoise")?;
+                self.define_node(&stmt_id, "WhileStmt", Some(Color::PaleTurquoise))?;
                 let cond_id = self.visit_expr(*cond)?;
                 self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
                 let body_id = self.visit_stmt(*body)?;
                 self.define_edge(&stmt_id, &body_id, Some("body"))?;
             }
             StmtKind::DoWhile { body, cond } => {
-                self.define_node(&stmt_id, "DoWhileStmt", "paleturquoise1")?;
+                self.define_node(&stmt_id, "DoWhileStmt", Some(Color::PaleTurquoise1))?;
                 let body_id = self.visit_stmt(*body)?;
                 self.define_edge(&stmt_id, &body_id, Some("body"))?;
                 let cond_id = self.visit_expr(*cond)?;
@@ -176,7 +180,7 @@ impl<'a> AstGraphviz<'a> {
                 then,
                 otherwise,
             } => {
-                self.define_node(&stmt_id, "IfStmt", "skyblue")?;
+                self.define_node(&stmt_id, "IfStmt", Some(Color::SkyBlue))?;
                 let cond_id = self.visit_expr(*cond)?;
                 self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
                 let then_id = self.visit_stmt(*then)?;
@@ -187,14 +191,11 @@ impl<'a> AstGraphviz<'a> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.define_node(&stmt_id, "CompoundStmt", "lightcyan")?;
+                self.define_node(&stmt_id, "CompoundStmt", Some(Color::LightCyan))?;
                 let items = self.ast.bitems(*items);
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");
-                    writeln!(
-                        self.e,
-                        "{empty_marker_id} [label=\"(empty block)\", shape=plaintext, fillcolor=none];"
-                    )?;
+                    self.define_node(&empty_marker_id, "(empty block)", None)?;
                     self.define_edge(&stmt_id, &empty_marker_id, None)?;
                 } else {
                     for (idx, item) in items.iter().enumerate() {
@@ -213,7 +214,7 @@ impl<'a> AstGraphviz<'a> {
                 step,
                 body,
             } => {
-                self.define_node(&stmt_id, "ForStmt", "thistle")?;
+                self.define_node(&stmt_id, "ForStmt", Some(Color::Thistle))?;
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => {
@@ -246,40 +247,40 @@ impl<'a> AstGraphviz<'a> {
         match &self.ast.expr(expr).kind {
             ExprKind::Const(val) => {
                 let label = format!("Const\\nvalue: {:?}", val);
-                self.define_node(&expr_id, &label, "gold")?;
+                self.define_node(&expr_id, &label, Some(Color::Gold))?;
             }
             ExprKind::Grouped(inner) => {
-                self.define_node(&expr_id, "GroupedExpr", "lightgrey")?;
+                self.define_node(&expr_id, "GroupedExpr", Some(Color::LightGrey))?;
                 let inner_id = self.visit_expr(*inner)?;
                 self.define_edge(&expr_id, &inner_id, None)?;
             }
             ExprKind::Var(name) => {
                 let n = self.interner.lookup(name.raw).escape_default();
                 let label = format!("VarRef\\nname: {}\\nsema: {:?}", n, name.sema.get());
-                self.define_node(&expr_id, &label, "olivedrab1")?;
+                self.define_node(&expr_id, &label, Some(Color::OliveDrab1))?;
             }
             ExprKind::Cast { ty, expr: inner } => {
                 let label = format!("Cast\\nto: {:?}", ty);
-                self.define_node(&expr_id, &label, "lightyellow")?;
+                self.define_node(&expr_id, &label, Some(Color::LightYellow))?;
                 let inner_id = self.visit_expr(*inner)?;
                 self.define_edge(&expr_id, &inner_id, Some("operand"))?;
             }
             ExprKind::Unary { op, expr: inner } => {
                 let label = format!("UnaryOp\\nop: {:?}", op);
-                self.define_node(&expr_id, &label, "coral")?;
+                self.define_node(&expr_id, &label, Some(Color::Coral))?;
                 let inner_id = self.visit_expr(*inner)?;
                 self.define_edge(&expr_id, &inner_id, Some("operand"))?;
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let label = format!("BinaryOp\\nop: {:?}", op);
-                self.define_node(&expr_id, &label, "orchid")?;
+                self.define_node(&expr_id, &label, Some(Color::Orchid))?;
                 let lhs_id = self.visit_expr(*lhs)?;
                 self.define_edge(&expr_id, &lhs_id, Some("lhs"))?;
                 let rhs_id = self.visit_expr(*rhs)?;
                 self.define_edge(&expr_id, &rhs_id, Some("rhs"))?;
             }
             ExprKind::Ternary { cond, then, other } => {
-                self.define_node(&expr_id, "TernaryOp", "mediumspringgreen")?;
+                self.define_node(&expr_id, "TernaryOp", Some(Color::MediumSpringGreen))?;
                 let cond_id = self.visit_expr(*cond)?;
                 self.define_edge(&expr_id, &cond_id, Some("condition"))?;
                 let then_id = self.visit_expr(*then)?;
@@ -290,12 +291,12 @@ impl<'a> AstGraphviz<'a> {
             ExprKind::Call { name, args } => {
                 let n = self.interner.lookup(name.raw).escape_default();
                 let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.sema.get());
-                self.define_node(&expr_id, &label, "deepskyblue")?;
+                self.define_node(&expr_id, &label, Some(Color::DeepSkyBlue))?;
 
                 let args = self.ast.exprs(*args);
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
-                    self.define_node(&args_id, "Arguments", "aliceblue")?;
+                    self.define_node(&args_id, "Arguments", Some(Color::AliceBlue))?;
                     self.define_edge(&expr_id, &args_id, Some("args"))?;
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_id = self.visit_expr(*arg)?;
@@ -304,10 +305,7 @@ impl<'a> AstGraphviz<'a> {
                     }
                 } else {
                     let no_args_id = format!("{expr_id}_no_args_marker");
-                    writeln!(
-                        self.e,
-                        "{no_args_id} [label=\"(no arguments)\", shape=plaintext, fillcolor=none];"
-                    )?;
+                    self.define_node(&no_args_id, "(no arguments)", None)?;
                     self.define_edge_dotted(&expr_id, &no_args_id, None)?;
                 }
             }
@@ -338,8 +336,18 @@ impl<'a> AstGraphviz<'a> {
     }
 
     #[inline]
-    fn define_node(&mut self, id: &str, label: &str, fillcolor: &str) -> std::fmt::Result {
-        writeln!(self.e, "{id} [label=\"{label}\", fillcolor={fillcolor}];")
+    fn define_node(&mut self, id: &str, label: &str, color: Option<Color>) -> std::fmt::Result {
+        match color {
+            Some(color) => writeln!(
+                self.e,
+                "{id} [label=\"{label}\", fillcolor={}];",
+                color.as_str()
+            ),
+            None => writeln!(
+                self.e,
+                "{id} [label=\"{label}\", shape=plaintext, fillcolor=none];"
+            ),
+        }
     }
 
     #[inline]
@@ -363,6 +371,74 @@ impl<'a> AstGraphviz<'a> {
                 self.e,
                 "{from_id} -> {to_id} [label=\"{label}\", style=dotted];"
             ),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Color
+// ---------------------------------------------------------------------------
+
+enum Color {
+    AliceBlue,
+    Azure,
+    Beige,
+    Coral,
+    DeepSkyBlue,
+    Gold,
+    Gray90,
+    Khaki,
+    LightBlue,
+    LightCoral,
+    LightCyan,
+    LightGoldenrodYellow,
+    LightGrey,
+    LightPink,
+    LightSalmon,
+    LightYellow,
+    MediumPurple1,
+    MediumSpringGreen,
+    OliveDrab1,
+    Orchid,
+    PaleGreen,
+    PaleTurquoise,
+    PaleTurquoise1,
+    SandyBrown,
+    SkyBlue,
+    Thistle,
+    WhiteSmoke,
+}
+
+impl Color {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Color::AliceBlue => "aliceblue",
+            Color::Azure => "azure",
+            Color::Beige => "beige",
+            Color::Coral => "coral",
+            Color::DeepSkyBlue => "deepskyblue",
+            Color::Gold => "gold",
+            Color::Gray90 => "gray90",
+            Color::Khaki => "khaki",
+            Color::LightBlue => "lightblue",
+            Color::LightCoral => "lightcoral",
+            Color::LightCyan => "lightcyan",
+            Color::LightGoldenrodYellow => "lightgoldenrodyellow",
+            Color::LightGrey => "lightgrey",
+            Color::LightPink => "lightpink",
+            Color::LightSalmon => "lightsalmon",
+            Color::LightYellow => "lightyellow",
+            Color::MediumPurple1 => "mediumpurple1",
+            Color::MediumSpringGreen => "mediumspringgreen",
+            Color::OliveDrab1 => "olivedrab1",
+            Color::Orchid => "orchid",
+            Color::PaleGreen => "palegreen",
+            Color::PaleTurquoise => "paleturquoise",
+            Color::PaleTurquoise1 => "paleturquoise1",
+            Color::SandyBrown => "sandybrown",
+            Color::SkyBlue => "skyblue",
+            Color::Thistle => "thistle",
+            Color::WhiteSmoke => "whitesmoke",
         }
     }
 }

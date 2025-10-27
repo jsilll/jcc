@@ -267,7 +267,7 @@ impl<'a> Parser<'a> {
                 },
             }
         }
-        self.result.ast.new_bitems(self.items_stack.drain(base..))
+        self.result.ast.new_items(self.items_stack.drain(base..))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {

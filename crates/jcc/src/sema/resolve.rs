@@ -83,7 +83,7 @@ impl<'a> ResolverPass<'a> {
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.ast
-                    .bitems(body.unwrap_or_default())
+                    .items(body.unwrap_or_default())
                     .iter()
                     .for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -183,7 +183,7 @@ impl<'a> ResolverPass<'a> {
             StmtKind::Compound(items) => {
                 self.scope.push_scope();
                 self.ast
-                    .bitems(*items)
+                    .items(*items)
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),

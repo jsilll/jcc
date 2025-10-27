@@ -110,12 +110,12 @@ impl<'a> SSABuilder<'a> {
                             self.insert_var(param.name.sema.get(), arg);
                         });
 
-                        self.ast.bitems(body).iter().for_each(|item| match item {
+                        self.ast.items(body).iter().for_each(|item| match item {
                             ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                             ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
                         });
 
-                        let append_return = match self.ast.bitems(body).last() {
+                        let append_return = match self.ast.items(body).last() {
                             Some(ast::BlockItem::Stmt(stmt)) => {
                                 !matches!(self.ast.stmt(*stmt).kind, ast::StmtKind::Return(_))
                             }
@@ -218,7 +218,7 @@ impl<'a> SSABuilder<'a> {
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Compound(items) => {
-                self.ast.bitems(*items).iter().for_each(|item| match item {
+                self.ast.items(*items).iter().for_each(|item| match item {
                     ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
                     ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                 });

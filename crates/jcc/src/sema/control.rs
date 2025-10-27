@@ -60,7 +60,7 @@ impl<'a> ControlPass<'a> {
                 DeclKind::Var(_) => {}
                 DeclKind::Func { body, .. } => {
                     if let Some(body) = body {
-                        self.ast.bitems(body).iter().for_each(|block_item| {
+                        self.ast.items(body).iter().for_each(|block_item| {
                             if let BlockItem::Stmt(stmt) = block_item {
                                 self.visit_stmt(*stmt)
                             }
@@ -117,7 +117,7 @@ impl<'a> ControlPass<'a> {
             }
             StmtKind::Compound(stmt) => {
                 self.ast
-                    .bitems(*stmt)
+                    .items(*stmt)
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Decl(_) => {}

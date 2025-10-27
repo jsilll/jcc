@@ -22,7 +22,7 @@ pub struct SSABuilder<'a> {
     sema: &'a SemaCtx,
     builder: IRBuilder<'a>,
     symbols: Vec<SymbolEntry>,
-    tracked_blocks: HashMap<StmtRef, TrackedBlock>,
+    tracked: HashMap<StmtRef, TrackedBlock>,
 }
 
 impl<'a> SSABuilder<'a> {
@@ -30,7 +30,7 @@ impl<'a> SSABuilder<'a> {
         Self {
             ast,
             sema,
-            tracked_blocks: HashMap::new(),
+            tracked: HashMap::new(),
             builder: IRBuilder::new(interner),
             symbols: vec![Default::default(); sema.symbol_count()],
         }
@@ -97,7 +97,7 @@ impl<'a> SSABuilder<'a> {
                     }
 
                     if let Some(body) = body {
-                        self.tracked_blocks.clear();
+                        self.tracked.clear();
 
                         self.ast.decls(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
@@ -251,47 +251,28 @@ impl<'a> SSABuilder<'a> {
             ast::StmtKind::If {
                 cond,
                 then,
-                otherwise: None,
+                otherwise,
             } => {
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-
                 let then_block = self.builder.new_block("if.then", stmt.span);
                 let cont_block = self.builder.new_block("if.cont", stmt.span);
+                let else_block = otherwise.map(|_| self.builder.new_block("if.else", stmt.span));
+                let false_target = else_block.unwrap_or(cont_block);
 
-                self.builder
-                    .insert_inst(Inst::branch(cond_val, then_block, cont_block, stmt.span));
+                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let branch = Inst::branch(cond_val, then_block, false_target, stmt.span);
+                self.builder.insert_inst(branch);
 
                 // === Then Block ===
                 self.builder.switch_to_block(then_block);
                 self.visit_stmt(*then);
                 self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
 
-                // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
-            }
-            ast::StmtKind::If {
-                cond,
-                then,
-                otherwise: Some(otherwise),
-            } => {
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-
-                let then_block = self.builder.new_block("if.then", stmt.span);
-                let else_block = self.builder.new_block("if.else", stmt.span);
-                let cont_block = self.builder.new_block("if.cont", stmt.span);
-
-                self.builder
-                    .insert_inst(Inst::branch(cond_val, then_block, else_block, stmt.span));
-
-                // === Then Block ===
-                self.builder.switch_to_block(then_block);
-                self.visit_stmt(*then);
-                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
-
-                // === Else Block ===
-                self.builder.switch_to_block(else_block);
-                self.visit_stmt(*otherwise);
-                self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
+                if let (Some(otherwise), Some(else_block)) = (otherwise, else_block) {
+                    // === Else Block ===
+                    self.builder.switch_to_block(else_block);
+                    self.visit_stmt(*otherwise);
+                    self.builder.insert_inst(Inst::jump(cont_block, stmt.span));
+                }
 
                 // === Merge Block ===
                 self.builder.switch_to_block(cont_block);
@@ -301,7 +282,7 @@ impl<'a> SSABuilder<'a> {
                 let body_block = self.builder.new_block("while.body", stmt.span);
                 let cont_block = self.builder.new_block("while.cont", stmt.span);
 
-                self.tracked_blocks.insert(
+                self.tracked.insert(
                     stmt_ref,
                     TrackedBlock::BreakAndContinue(cont_block, cond_block),
                 );
@@ -327,7 +308,7 @@ impl<'a> SSABuilder<'a> {
                 let cond_block = self.builder.new_block("do.cond", stmt.span);
                 let cont_block = self.builder.new_block("do.cont", stmt.span);
 
-                self.tracked_blocks.insert(
+                self.tracked.insert(
                     stmt_ref,
                     TrackedBlock::BreakAndContinue(cont_block, cond_block),
                 );
@@ -361,7 +342,7 @@ impl<'a> SSABuilder<'a> {
                 let step_block = step.map(|_| self.builder.new_block("for.step", stmt.span));
                 let after_body_target = step_block.or(cond_block).unwrap_or(body_block);
 
-                self.tracked_blocks.insert(
+                self.tracked.insert(
                     stmt_ref,
                     TrackedBlock::BreakAndContinue(exit_block, after_body_target),
                 );
@@ -416,7 +397,7 @@ impl<'a> SSABuilder<'a> {
                                 _ => panic!("expected a constant expression"),
                             };
                             let case_block = self.builder.new_block("switch.case", inner.span);
-                            self.tracked_blocks
+                            self.tracked
                                 .insert(*inner_ref, TrackedBlock::Case(case_block));
                             cases.push((val, case_block));
                         }
@@ -425,13 +406,13 @@ impl<'a> SSABuilder<'a> {
                         let block = self
                             .builder
                             .new_block("switch.default", self.ast.stmt(inner).span);
-                        self.tracked_blocks.insert(inner, TrackedBlock::Case(block));
+                        self.tracked.insert(inner, TrackedBlock::Case(block));
                         default_block = Some(block);
                     }
                 }
 
                 let cont_block = self.builder.new_block("switch.cont", stmt.span);
-                self.tracked_blocks.insert(
+                self.tracked.insert(
                     stmt_ref,
                     TrackedBlock::BreakAndContinue(cont_block, cont_block),
                 );
@@ -1042,7 +1023,7 @@ impl<'a> SSABuilder<'a> {
 
     #[inline]
     pub fn get_break_block(&self, stmt: StmtRef) -> BlockRef {
-        match self.tracked_blocks.get(&stmt) {
+        match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
             _ => panic!("expected a break block"),
         }
@@ -1050,7 +1031,7 @@ impl<'a> SSABuilder<'a> {
 
     #[inline]
     pub fn get_continue_block(&self, stmt: StmtRef) -> BlockRef {
-        match self.tracked_blocks.get(&stmt) {
+        match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
             _ => panic!("expected a break block"),
         }
@@ -1058,7 +1039,7 @@ impl<'a> SSABuilder<'a> {
 
     #[inline]
     pub fn remove_case_block(&mut self, stmt: StmtRef) -> BlockRef {
-        match self.tracked_blocks.remove(&stmt) {
+        match self.tracked.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
             _ => panic!("expected a break block"),
         }
@@ -1072,7 +1053,7 @@ impl<'a> SSABuilder<'a> {
         span: SourceSpan,
     ) -> BlockRef {
         let entry = self
-            .tracked_blocks
+            .tracked
             .entry(stmt)
             .or_insert_with(|| TrackedBlock::Label(self.builder.new_block_interned(name, span)));
         match entry {

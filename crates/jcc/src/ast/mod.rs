@@ -1,5 +1,8 @@
 pub mod graphviz;
 pub mod parse;
+pub mod slice;
+
+use crate::ast::slice::Slice;
 
 use crate::sema::{SemaSymbol, Type};
 
@@ -19,7 +22,7 @@ pub struct Ast {
     exprs: Vec<Expr>,
     sliced_decls: Vec<DeclRef>,
     sliced_exprs: Vec<ExprRef>,
-    sliced_bitems: Vec<BlockItem>,
+    sliced_items: Vec<BlockItem>,
 }
 
 impl Default for Ast {
@@ -47,7 +50,7 @@ impl Ast {
             exprs: default_vec_with_capacity(capacity),
             sliced_decls: Vec::with_capacity(capacity),
             sliced_exprs: Vec::with_capacity(capacity),
-            sliced_bitems: Vec::with_capacity(capacity),
+            sliced_items: Vec::with_capacity(capacity),
         }
     }
 
@@ -91,21 +94,6 @@ impl Ast {
     }
 
     #[inline]
-    pub fn exprs(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
-        &self.sliced_exprs[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn decls(&self, slice: Slice<DeclRef>) -> &[DeclRef] {
-        &self.sliced_decls[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn bitems(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
-        &self.sliced_bitems[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
     pub fn decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
         &mut self.decls[decl.0.get() as usize]
     }
@@ -120,9 +108,20 @@ impl Ast {
         &mut self.exprs[expr.0.get() as usize]
     }
 
-    // ---------------------------------------------------------------------------
-    // Setters
-    // ---------------------------------------------------------------------------
+    #[inline]
+    pub fn exprs(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
+        &self.sliced_exprs[slice.0 as usize..slice.1 as usize]
+    }
+
+    #[inline]
+    pub fn decls(&self, slice: Slice<DeclRef>) -> &[DeclRef] {
+        &self.sliced_decls[slice.0 as usize..slice.1 as usize]
+    }
+
+    #[inline]
+    pub fn items(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
+        &self.sliced_items[slice.0 as usize..slice.1 as usize]
+    }
 
     // ---------------------------------------------------------------------------
     // Creation
@@ -166,16 +165,16 @@ impl Ast {
     }
 
     #[inline]
-    pub fn new_bitems(&mut self, items: impl IntoIterator<Item = BlockItem>) -> Slice<BlockItem> {
-        let begin = self.sliced_bitems.len() as u32;
-        self.sliced_bitems.extend(items);
-        let end = self.sliced_bitems.len() as u32;
+    pub fn new_items(&mut self, items: impl IntoIterator<Item = BlockItem>) -> Slice<BlockItem> {
+        let begin = self.sliced_items.len() as u32;
+        self.sliced_items.extend(items);
+        let end = self.sliced_items.len() as u32;
         Slice::new(begin, end)
     }
 }
 
 // ---------------------------------------------------------------------------
-// Ast Nodes
+// Decl
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -206,6 +205,10 @@ impl Default for DeclKind {
         DeclKind::Var(None)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Stmt
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct StmtRef(pub(crate) NonZeroU32);
@@ -266,6 +269,10 @@ pub enum StmtKind {
     },
 }
 
+// ---------------------------------------------------------------------------
+// Expr
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ExprRef(pub(crate) NonZeroU32);
 
@@ -323,6 +330,10 @@ pub enum ExprKind {
         args: Slice<ExprRef>,
     },
 }
+
+// ---------------------------------------------------------------------------
+// Support enums
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StorageClass {
@@ -411,6 +422,7 @@ pub enum BinaryOp {
     /// The `>>=` operator.
     BitShrAssign,
 }
+
 // ---------------------------------------------------------------------------
 // Auxiliary structures
 // ---------------------------------------------------------------------------
@@ -444,34 +456,4 @@ pub enum ForInit {
     Expr(ExprRef),
     /// A variable declaration.
     VarDecl(DeclRef),
-}
-
-// ---------------------------------------------------------------------------
-// Slice
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Slice<T>(u32, u32, std::marker::PhantomData<T>);
-
-impl<T> Default for Slice<T> {
-    fn default() -> Self {
-        Slice(0, 0, std::marker::PhantomData)
-    }
-}
-
-impl<T> Slice<T> {
-    #[inline]
-    pub fn new(begin: u32, end: u32) -> Self {
-        Slice(begin, end, std::marker::PhantomData)
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        (self.1 - self.0) as usize
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.0 == self.1
-    }
 }

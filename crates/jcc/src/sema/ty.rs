@@ -242,7 +242,7 @@ impl<'a> TyperPass<'a> {
                 });
                 if let Some(body) = body {
                     self.curr_ret = self.get_return_type(decl).unwrap_or_default();
-                    self.ast.bitems(body).iter().for_each(|item| match item {
+                    self.ast.items(body).iter().for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                     });
@@ -290,7 +290,7 @@ impl<'a> TyperPass<'a> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.ast.bitems(*items).iter().for_each(|item| match item {
+                self.ast.items(*items).iter().for_each(|item| match item {
                     BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                     BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
                 });

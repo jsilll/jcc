@@ -95,7 +95,7 @@ impl<'a> AstGraphviz<'a> {
                         let body_id = self.fresh_aux_node_id("func_body");
                         self.define_node(&body_id, "Function Body", Some(Color::WhiteSmoke))?;
                         self.define_edge(&decl_id, &body_id, Some("body"))?;
-                        for (idx, item) in self.ast.bitems(body).iter().enumerate() {
+                        for (idx, item) in self.ast.items(body).iter().enumerate() {
                             let item_id = match item {
                                 BlockItem::Decl(decl) => self.visit_decl(*decl)?,
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt)?,
@@ -192,7 +192,7 @@ impl<'a> AstGraphviz<'a> {
             }
             StmtKind::Compound(items) => {
                 self.define_node(&stmt_id, "CompoundStmt", Some(Color::LightCyan))?;
-                let items = self.ast.bitems(*items);
+                let items = self.ast.items(*items);
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");
                     self.define_node(&empty_marker_id, "(empty block)", None)?;

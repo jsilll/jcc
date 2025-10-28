@@ -22,14 +22,23 @@ use std::iter::Peekable;
 // ---------------------------------------------------------------------------
 
 pub struct Parser<'a> {
+    /// The source file being parsed.
     file: &'a SourceMap,
+    /// The type dictionary used for interning compound types.
     dict: &'a mut TypeDict,
+    /// The lexer that provides a stream of tokens.
     lexer: Peekable<Lexer<'a>>,
+    /// The interner for string interning.
     interner: &'a mut Interner,
+    /// A temporary buffer for collecting type specifiers.
     types: Vec<Type>,
+    /// The result of the parsing process, containing the AST and diagnostics.
     result: ParserResult,
+    /// A stack used for building expression lists, like function arguments.
     expr_stack: Vec<ExprRef>,
+    /// A stack used for building declaration lists, like function parameters.
     decl_stack: Vec<DeclRef>,
+    /// A stack used for building block item lists, like function bodies.
     items_stack: Vec<BlockItem>,
 }
 
@@ -64,26 +73,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Type {
-        let ty = match self.types[..] {
+        let ty = match self.types.as_slice() {
             [Type::Int] => Type::Int,
             [Type::Long] => Type::Long,
             [Type::Void] => Type::Void,
             [Type::Int, Type::Long] => Type::Long,
             [Type::Long, Type::Int] => Type::Long,
-            [] => {
-                let span = self.peek().map(|t| t.span).unwrap_or(self.file.end_span());
-                self.result.parser_diagnostics.push(ParserDiagnostic {
+            t => {
+                let is_empty = t.is_empty();
+                let span = self.peek_span();
+                self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                    if is_empty {
+                        ParserDiagnosticKind::MissingTypeSpecifier
+                    } else {
+                        ParserDiagnosticKind::InvalidTypeSpecifier
+                    },
                     span,
-                    kind: ParserDiagnosticKind::MissingTypeSpecifier,
-                });
-                Type::default()
-            }
-            _ => {
-                let span = self.peek().map(|t| t.span).unwrap_or(self.file.end_span());
-                self.result.parser_diagnostics.push(ParserDiagnostic {
-                    span,
-                    kind: ParserDiagnosticKind::InvalidTypeSpecifier,
-                });
+                ));
                 Type::default()
             }
         };
@@ -94,6 +100,8 @@ impl<'a> Parser<'a> {
     fn parse_specifiers(&mut self) -> Option<(Type, Option<StorageClass>)> {
         let mut count = 0;
         let mut storage = None;
+        let start_span = self.peek_span();
+        let mut end_span = start_span;
         while let Some(t) = self.peek() {
             match t.kind {
                 TokenKind::KwInt => {
@@ -115,13 +123,14 @@ impl<'a> Parser<'a> {
                 }
                 _ => break,
             }
+            end_span = t.span;
             self.next();
         }
         if count > 1 {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::MultipleStorageClasses,
-            });
+            self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                ParserDiagnosticKind::MultipleStorageClasses,
+                start_span.merge(end_span),
+            ));
         }
         Some((self.parse_type(), storage))
     }
@@ -198,11 +207,10 @@ impl<'a> Parser<'a> {
                 }))
             }
             _ => {
-                let diagnostic = ParserDiagnostic {
-                    span: token.span,
-                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
-                };
-                self.result.parser_diagnostics.push(diagnostic);
+                self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                    ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
+                    token.span,
+                ));
                 None
             }
         }
@@ -525,27 +533,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_prefix(&mut self) -> Option<ExprRef> {
-        #[inline]
-        fn parse_prefix_operator(
-            parser: &mut Parser,
-            op: UnaryOp,
-            span: SourceSpan,
-        ) -> Option<ExprRef> {
-            let expr = parser.parse_expr_prefix()?;
-            Some(
-                parser
-                    .result
+        let Token { kind, span } = self.eat_some()?;
+        if let Some(op) = match kind {
+            TokenKind::Minus => Some(UnaryOp::Neg),
+            TokenKind::Tilde => Some(UnaryOp::BitNot),
+            TokenKind::Bang => Some(UnaryOp::LogicalNot),
+            TokenKind::PlusPlus => Some(UnaryOp::PreInc),
+            TokenKind::MinusMinus => Some(UnaryOp::PreDec),
+            _ => None,
+        } {
+            let expr = self.parse_expr_prefix()?;
+            return Some(
+                self.result
                     .ast
                     .new_expr(Expr::new(ExprKind::Unary { op, expr }, span)),
-            )
+            );
         }
-        let Token { kind, span } = self.eat_some()?;
         match kind {
-            TokenKind::Minus => parse_prefix_operator(self, UnaryOp::Neg, span),
-            TokenKind::Tilde => parse_prefix_operator(self, UnaryOp::BitNot, span),
-            TokenKind::Bang => parse_prefix_operator(self, UnaryOp::LogicalNot, span),
-            TokenKind::PlusPlus => parse_prefix_operator(self, UnaryOp::PreInc, span),
-            TokenKind::MinusMinus => parse_prefix_operator(self, UnaryOp::PreDec, span),
             TokenKind::LongIntNumber => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 let n = &n[0..n.len() - 1]; // remove 'L' suffix
@@ -621,38 +625,27 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
+                self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                    ParserDiagnosticKind::UnexpectedToken,
                     span,
-                    kind: ParserDiagnosticKind::UnexpectedToken,
-                });
+                ));
                 None
             }
         }
     }
 
     fn parse_expr_postfix(&mut self, mut expr: ExprRef) -> ExprRef {
-        fn parse_postfix_operator(
-            parser: &mut Parser,
-            expr: &mut ExprRef,
-            op: UnaryOp,
-            span: SourceSpan,
-        ) {
-            parser.next();
-            *expr = parser
+        while let Some(Token { kind, span }) = self.peek() {
+            let op = match kind {
+                TokenKind::PlusPlus => UnaryOp::PostInc,
+                TokenKind::MinusMinus => UnaryOp::PostDec,
+                _ => break,
+            };
+            self.next();
+            expr = self
                 .result
                 .ast
-                .new_expr(Expr::new(ExprKind::Unary { op, expr: *expr }, span));
-        }
-        while let Some(Token { kind, span }) = self.peek() {
-            match kind {
-                TokenKind::PlusPlus => {
-                    parse_postfix_operator(self, &mut expr, UnaryOp::PostInc, span)
-                }
-                TokenKind::MinusMinus => {
-                    parse_postfix_operator(self, &mut expr, UnaryOp::PostDec, span)
-                }
-                _ => break,
-            }
+                .new_expr(Expr::new(ExprKind::Unary { op, expr }, span));
         }
         expr
     }
@@ -766,14 +759,21 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
+    fn peek_span(&mut self) -> SourceSpan {
+        self.peek()
+            .map(|t| t.span)
+            .unwrap_or_else(|| self.file.end_span())
+    }
+
+    #[inline]
     fn peek_some(&mut self) -> Option<Token> {
         if let Some(token) = self.peek() {
             Some(token)
         } else {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
+            self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                ParserDiagnosticKind::UnexpectedEof,
+                self.file.end_span(),
+            ));
             None
         }
     }
@@ -783,10 +783,10 @@ impl<'a> Parser<'a> {
         if token.kind == kind {
             self.next()
         } else {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                span: token.span,
-                kind: ParserDiagnosticKind::ExpectedToken(kind),
-            });
+            self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                ParserDiagnosticKind::ExpectedToken(kind),
+                token.span,
+            ));
             None
         }
     }
@@ -794,10 +794,10 @@ impl<'a> Parser<'a> {
     #[inline]
     fn eat_some(&mut self) -> Option<Token> {
         self.next().or_else(|| {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                span: self.file.end_span(),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
+            self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                ParserDiagnosticKind::UnexpectedEof,
+                self.file.end_span(),
+            ));
             None
         })
     }
@@ -812,10 +812,10 @@ impl<'a> Parser<'a> {
                 Some((span, symbol))
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
-                    span: token.span,
-                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier),
-                });
+                self.result.parser_diagnostics.push(ParserDiagnostic::new(
+                    ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier),
+                    token.span,
+                ));
                 None
             }
         }
@@ -979,6 +979,12 @@ pub struct ParserResult {
 pub struct ParserDiagnostic {
     span: SourceSpan,
     kind: ParserDiagnosticKind,
+}
+
+impl ParserDiagnostic {
+    pub fn new(kind: ParserDiagnosticKind, span: SourceSpan) -> Self {
+        Self { kind, span }
+    }
 }
 
 // ---------------------------------------------------------------------------

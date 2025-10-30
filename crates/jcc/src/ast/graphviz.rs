@@ -6,6 +6,10 @@ use jcc_ssa::{infra::emitter::IndentedEmitter, interner::Interner};
 
 use std::fmt::Write;
 
+// ---------------------------------------------------------------------------
+// AstGraphviz
+// ---------------------------------------------------------------------------
+
 pub struct AstGraphviz<'a> {
     ast: &'a Ast,
     node_counter: u32,

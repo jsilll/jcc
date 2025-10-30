@@ -11,33 +11,19 @@ use jcc_ssa::{
 use std::{cell::Cell, collections::HashMap};
 
 // ---------------------------------------------------------------------------
-// ControlResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct ControlResult {
-    pub diagnostics: Vec<ControlDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// ControlDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct ControlDiagnostic {
-    pub span: SourceSpan,
-    pub kind: ControlDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
 // ControlPass
 // ---------------------------------------------------------------------------
 
 pub struct ControlPass<'a> {
+    /// The AST being analyzed
     ast: &'a Ast,
+    /// The semantic analysis context
     ctx: &'a mut SemaCtx,
+    /// The result of the control flow analysis
     result: ControlResult,
+    /// The stack of currently tracked statements
     tracked_stmts: Vec<TrackedStmt>,
+    /// The currently tracked labels
     tracked_labels: HashMap<Symbol, TrackedLabel<'a>>,
 }
 
@@ -136,29 +122,6 @@ impl<'a> ControlPass<'a> {
                     target.set(*stmt);
                 }
             }
-            StmtKind::Label { label, stmt: inner } => {
-                let entry = self
-                    .tracked_labels
-                    .entry(*label)
-                    .or_insert(TrackedLabel::Resolved(stmt_ref));
-                match entry {
-                    TrackedLabel::Unresolved(v) => {
-                        v.iter().for_each(|(target, _)| {
-                            target.set(stmt_ref);
-                        });
-                        *entry = TrackedLabel::Resolved(stmt_ref);
-                    }
-                    TrackedLabel::Resolved(s) => {
-                        if stmt_ref != *s {
-                            self.result.diagnostics.push(ControlDiagnostic {
-                                span: stmt.span,
-                                kind: ControlDiagnosticKind::RedeclaredLabel,
-                            });
-                        }
-                    }
-                }
-                self.visit_stmt(*inner);
-            }
             StmtKind::Break(target) => match self.tracked_stmts.last() {
                 Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
                     target.set(*stmt)
@@ -220,6 +183,29 @@ impl<'a> ControlPass<'a> {
                         span: stmt.span,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
+                }
+                self.visit_stmt(*inner);
+            }
+            StmtKind::Label { label, stmt: inner } => {
+                let entry = self
+                    .tracked_labels
+                    .entry(*label)
+                    .or_insert(TrackedLabel::Resolved(stmt_ref));
+                match entry {
+                    TrackedLabel::Unresolved(v) => {
+                        v.iter().for_each(|(target, _)| {
+                            target.set(stmt_ref);
+                        });
+                        *entry = TrackedLabel::Resolved(stmt_ref);
+                    }
+                    TrackedLabel::Resolved(s) => {
+                        if stmt_ref != *s {
+                            self.result.diagnostics.push(ControlDiagnostic {
+                                span: stmt.span,
+                                kind: ControlDiagnosticKind::RedeclaredLabel,
+                            });
+                        }
+                    }
                 }
                 self.visit_stmt(*inner);
             }
@@ -296,4 +282,23 @@ impl From<ControlDiagnostic> for Diagnostic {
             ),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// ControlResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct ControlResult {
+    pub diagnostics: Vec<ControlDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
+// ControlDiagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ControlDiagnostic {
+    pub span: SourceSpan,
+    pub kind: ControlDiagnosticKind,
 }

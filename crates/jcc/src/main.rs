@@ -3,7 +3,7 @@ use jcc::{
     cli::Args,
     lower::LoweringPass,
     profile::Profiler,
-    sema::{control::ControlPass, resolve::ResolverPass, ty::TyperPass, SemaCtx, TypeDict},
+    sema::{control::ControlPass, resolve::ResolverPass, typing::TyperPass, SemaCtx, TypeDict},
     ssa::SSABuilder,
     tok::lex::Lexer,
 };

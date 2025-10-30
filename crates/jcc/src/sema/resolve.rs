@@ -14,34 +14,19 @@ use jcc_ssa::{
 use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
-// ResolverResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct ResolverResult {
-    pub symbol_count: usize,
-    pub diagnostics: Vec<ResolverDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// ResolverDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct ResolverDiagnostic {
-    pub span: SourceSpan,
-    pub kind: ResolverDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
 // ResolverPass
 // ---------------------------------------------------------------------------
 
 pub struct ResolverPass<'a> {
+    /// The AST being analyzed
     ast: &'a Ast,
+    /// The result of the name resolution
     result: ResolverResult,
+    /// The current symbol count
     symbol_count: NonZeroU32,
+    /// The current scope symbol table
     scope: SymbolTable<SymbolInfo>,
+    /// The global symbols map
     globals: HashMap<Symbol, SemaSymbol>,
 }
 
@@ -373,4 +358,24 @@ impl From<ResolverDiagnostic> for Diagnostic {
             ),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// ResolverResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct ResolverResult {
+    pub symbol_count: usize,
+    pub diagnostics: Vec<ResolverDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
+// ResolverDiagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ResolverDiagnostic {
+    pub span: SourceSpan,
+    pub kind: ResolverDiagnosticKind,
 }

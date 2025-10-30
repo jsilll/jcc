@@ -15,34 +15,19 @@ use jcc_ssa::{
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
-// TyperResult
-// ---------------------------------------------------------------------------
-
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct TyperResult {
-    pub actions: LoweringActions,
-    pub diagnostics: Vec<TyperDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// TyperDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct TyperDiagnostic {
-    pub span: SourceSpan,
-    pub kind: TyperDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
 // TyperPass
 // ---------------------------------------------------------------------------
 
 pub struct TyperPass<'a> {
+    /// The AST being analyzed
     ast: &'a Ast,
+    /// The semantic analysis context
     ctx: &'a mut SemaCtx,
+    /// The current function return type
     curr_ret: Type,
+    /// The result of the type checking
     result: TyperResult,
+    /// The set of switch case values encountered
     switch_cases: HashSet<ConstValue>,
 }
 
@@ -73,7 +58,7 @@ impl<'a> TyperPass<'a> {
                 let decl_is_global = decl.storage != Some(StorageClass::Static);
                 let decl_init = match init {
                     None => match decl.storage {
-                        Some(StorageClass::Extern) => StaticValue::NoInitializer,
+                        Some(StorageClass::Extern) => StaticValue::NoInit,
                         _ => StaticValue::Tentative,
                     },
                     Some(init) => {
@@ -82,13 +67,13 @@ impl<'a> TyperPass<'a> {
                             self.result.actions.cast(decl.ty, init);
                         }
                         match eval_constant(self.ast, init) {
-                            Some(value) => StaticValue::Initialized(value),
+                            Some(value) => StaticValue::Init(value),
                             None => {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: self.ast.expr(init).span,
                                     kind: TyperDiagnosticKind::NotConstant,
                                 });
-                                StaticValue::NoInitializer
+                                StaticValue::NoInit
                             }
                         }
                     }
@@ -118,14 +103,14 @@ impl<'a> TyperPass<'a> {
                         });
                     }
                     match init {
-                        StaticValue::NoInitializer => *init = decl_init,
+                        StaticValue::NoInit => *init = decl_init,
                         StaticValue::Tentative => {
-                            if matches!(decl_init, StaticValue::Initialized(_)) {
+                            if matches!(decl_init, StaticValue::Init(_)) {
                                 *init = decl_init
                             }
                         }
-                        StaticValue::Initialized(_) => {
-                            if occupied && matches!(decl_init, StaticValue::Initialized(_)) {
+                        StaticValue::Init(_) => {
+                            if occupied && matches!(decl_init, StaticValue::Init(_)) {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: decl.span,
                                     kind: TyperDiagnosticKind::MultipleInitializers,
@@ -163,9 +148,10 @@ impl<'a> TyperPass<'a> {
                         });
                     }
                     None => {
-                        let info = self.ctx.symbol_mut(decl.name.sema.get()).get_or_insert(
-                            SymbolInfo::statik(decl.ty, true, StaticValue::NoInitializer),
-                        );
+                        let info = self
+                            .ctx
+                            .symbol_mut(decl.name.sema.get())
+                            .get_or_insert(SymbolInfo::statik(decl.ty, true, StaticValue::NoInit));
                         if info.ty != decl.ty {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: decl.span,
@@ -183,7 +169,7 @@ impl<'a> TyperPass<'a> {
                                 self.result.actions.cast(decl.ty, init);
                             }
                             match eval_constant(self.ast, init) {
-                                Some(value) => StaticValue::Initialized(value),
+                                Some(value) => StaticValue::Init(value),
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
                                         span: self.ast.expr(init).span,
@@ -687,4 +673,24 @@ impl From<TyperDiagnostic> for Diagnostic {
             ),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TyperResult
+// ---------------------------------------------------------------------------
+
+#[derive(Default, Clone, PartialEq, Eq)]
+pub struct TyperResult {
+    pub actions: LoweringActions,
+    pub diagnostics: Vec<TyperDiagnostic>,
+}
+
+// ---------------------------------------------------------------------------
+// TyperDiagnostic
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct TyperDiagnostic {
+    pub span: SourceSpan,
+    pub kind: TyperDiagnosticKind,
 }

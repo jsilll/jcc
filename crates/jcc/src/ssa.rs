@@ -52,7 +52,7 @@ impl<'a> SSABuilder<'a> {
                         Attribute::Static { is_global, init } => {
                             let raw = decl.name.raw;
                             let v = match init {
-                                StaticValue::NoInitializer => match decl.ty {
+                                StaticValue::NoInit => match decl.ty {
                                     sema::Type::Int => {
                                         StaticVar::int32(raw, is_global, None, decl.span)
                                     }
@@ -70,10 +70,10 @@ impl<'a> SSABuilder<'a> {
                                     }
                                     _ => todo!("handle other types"),
                                 },
-                                StaticValue::Initialized(ConstValue::Int32(init)) => {
+                                StaticValue::Init(ConstValue::Int32(init)) => {
                                     StaticVar::int32(raw, is_global, Some(init), decl.span)
                                 }
-                                StaticValue::Initialized(ConstValue::Int64(init)) => {
+                                StaticValue::Init(ConstValue::Int64(init)) => {
                                     StaticVar::int64(raw, is_global, Some(init), decl.span)
                                 }
                             };
@@ -159,7 +159,7 @@ impl<'a> SSABuilder<'a> {
                     Attribute::Static { is_global, init } => {
                         let raw = decl.name.raw;
                         let v = match init {
-                            StaticValue::NoInitializer => match decl.ty {
+                            StaticValue::NoInit => match decl.ty {
                                 sema::Type::Int => {
                                     StaticVar::int32(raw, is_global, None, decl.span)
                                 }
@@ -177,10 +177,10 @@ impl<'a> SSABuilder<'a> {
                                 }
                                 _ => todo!("handle other types"),
                             },
-                            StaticValue::Initialized(ConstValue::Int32(init)) => {
+                            StaticValue::Init(ConstValue::Int32(init)) => {
                                 StaticVar::int32(raw, is_global, Some(init), decl.span)
                             }
-                            StaticValue::Initialized(ConstValue::Int64(init)) => {
+                            StaticValue::Init(ConstValue::Int64(init)) => {
                                 StaticVar::int64(raw, is_global, Some(init), decl.span)
                             }
                         };

@@ -1,6 +1,6 @@
 pub mod control;
 pub mod resolve;
-pub mod ty;
+pub mod typing;
 
 use crate::ast::StmtRef;
 
@@ -11,6 +11,19 @@ use std::{
     num::{NonZeroU16, NonZeroU32},
     rc::Rc,
 };
+
+// ---------------------------------------------------------------------------
+// SemaSymbol
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SemaSymbol(pub(crate) NonZeroU32);
+
+impl Default for SemaSymbol {
+    fn default() -> Self {
+        Self(NonZeroU32::new(u32::MAX).unwrap())
+    }
+}
 
 // ---------------------------------------------------------------------------
 // SemaCtx
@@ -105,24 +118,12 @@ impl TypeDict {
         if let Some(&r) = self.cache.get(&ty) {
             return r;
         }
+
         let r = CompoundTypeRef(NonZeroU16::new(self.types.len() as u16).unwrap());
         let ty = Rc::new(ty);
         self.types.push(ty.clone());
         self.cache.insert(ty, r);
         r
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SemaSymbol
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SemaSymbol(pub(crate) NonZeroU32);
-
-impl Default for SemaSymbol {
-    fn default() -> Self {
-        Self(NonZeroU32::new(u32::MAX).unwrap())
     }
 }
 
@@ -209,16 +210,19 @@ pub enum Attribute {
 pub enum StaticValue {
     /// No initializer
     #[default]
-    NoInitializer,
+    NoInit,
     /// Tentative initializer
     Tentative,
     /// Initialized with a value
-    Initialized(ConstValue),
+    Init(ConstValue),
 }
 
 // ---------------------------------------------------------------------------
 // Type
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct CompoundTypeRef(NonZeroU16);
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -231,6 +235,12 @@ pub enum Type {
     Long,
     /// A compound type
     Compound(CompoundTypeRef),
+}
+
+impl From<CompoundTypeRef> for Type {
+    fn from(ty: CompoundTypeRef) -> Self {
+        Type::Compound(ty)
+    }
 }
 
 impl TryInto<jcc_ssa::Type> for Type {
@@ -246,14 +256,9 @@ impl TryInto<jcc_ssa::Type> for Type {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct CompoundTypeRef(NonZeroU16);
-
-impl From<CompoundTypeRef> for Type {
-    fn from(ty: CompoundTypeRef) -> Self {
-        Type::Compound(ty)
-    }
-}
+// ---------------------------------------------------------------------------
+// CompoundType
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CompoundType {

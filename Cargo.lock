@@ -154,6 +154,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "jcc_arena"
+version = "0.1.0"
+
+[[package]]
 name = "jcc_interner"
 version = "0.1.0"
 

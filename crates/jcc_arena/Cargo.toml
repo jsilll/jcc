@@ -1,0 +1,9 @@
+[package]
+name = "jcc_arena"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = []

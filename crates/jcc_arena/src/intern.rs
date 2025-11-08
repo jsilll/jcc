@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use crate::{frozen::FrozenVec, ArenaRef};
+use crate::{frozen::FrozenVec, Interned};
 
 /// An arena allocator that deduplicates equal values (also known as interning).
 ///
@@ -28,7 +28,7 @@ use crate::{frozen::FrozenVec, ArenaRef};
 /// references.
 pub struct InternArena<T> {
     vec: FrozenVec<Box<T>>,
-    set: RefCell<HashSet<PtrWrapper<T>>>,
+    set: RefCell<HashSet<UnsafePtr<T>>>,
 }
 
 impl<T> Default for InternArena<T>
@@ -109,37 +109,36 @@ where
     /// Panics if called while already borrowed mutably (e.g., if `T::eq` or
     /// `T::hash` somehow calls back into `intern()`).
     #[inline]
-    pub fn intern(&'arena self, v: T) -> ArenaRef<'arena, T> {
+    pub fn intern(&'arena self, v: T) -> Interned<'arena, T> {
         let mut set = self.set.borrow_mut();
-        let ptr = PtrWrapper(&v as *const T);
-        if let Some(&PtrWrapper(existing_ptr)) = set.get(&ptr) {
+        let ptr = UnsafePtr(&v as *const T);
+        if let Some(&UnsafePtr(existing_ptr)) = set.get(&ptr) {
             // Safety: pointer came from FrozenVec, so it's valid for 'arena
-            return unsafe { &*existing_ptr };
+            return Interned(unsafe { &*existing_ptr });
         }
         let reference = self.vec.push_get(Box::new(v));
-        set.insert(PtrWrapper(reference as *const T));
-        reference
+        set.insert(UnsafePtr(reference as *const T));
+        Interned(reference)
     }
 }
 
 /// Wrapper type that implements Hash and Eq by dereferencing the pointer
-struct PtrWrapper<T>(*const T);
+struct UnsafePtr<T>(*const T);
 
-impl<T: Hash> Hash for PtrWrapper<T> {
+impl<T: Hash> Hash for UnsafePtr<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Safety: pointer is always valid (from FrozenVec)
         unsafe { (*self.0).hash(state) }
     }
 }
 
-impl<T: Eq> PartialEq for PtrWrapper<T> {
+impl<T: Eq> Eq for UnsafePtr<T> {}
+impl<T: PartialEq> PartialEq for UnsafePtr<T> {
     fn eq(&self, other: &Self) -> bool {
         // Safety: pointers are always valid (from FrozenVec)
         unsafe { *self.0 == *other.0 }
     }
 }
-
-impl<T: Eq> Eq for PtrWrapper<T> {}
 
 #[cfg(test)]
 mod tests {
@@ -149,9 +148,9 @@ mod tests {
     #[derive(Debug, PartialEq, Eq, Hash)]
     struct SimpleValue(i32);
 
-    pub type Ty<'ctx> = &'ctx TyKind<'ctx>;
+    pub type Ty<'ctx> = Interned<'ctx, TyKind<'ctx>>;
 
-    #[derive(Debug, PartialEq, Eq, Hash)]
+    #[derive(PartialEq, Eq, Hash)]
     pub enum TyKind<'ctx> {
         Void,
         Int,
@@ -222,9 +221,9 @@ mod tests {
         let v3 = arena.intern(SimpleValue(43));
 
         // Same values should have same pointer
-        assert!(std::ptr::eq(v1, v2));
+        assert!(v1 == v2);
         // Different values should have different pointers
-        assert!(!std::ptr::eq(v1, v3));
+        assert!(v1 != v3);
 
         // Should only have 2 unique values
         assert_eq!(arena.len(), 2);
@@ -237,11 +236,11 @@ mod tests {
         let s2 = arena.intern("hello".to_string());
         let s3 = arena.intern("world".to_string());
 
-        assert!(std::ptr::eq(s1, s2));
-        assert!(!std::ptr::eq(s1, s3));
+        assert!(s1 == s2);
+        assert!(s1 != s3);
         assert_eq!(arena.len(), 2);
-        assert_eq!(s1, "hello");
-        assert_eq!(s3, "world");
+        assert_eq!(*s1, "hello");
+        assert_eq!(*s3, "world");
     }
 
     #[test]
@@ -275,10 +274,10 @@ mod tests {
         let v3 = arena.intern(SimpleValue(1)); // Same as v1
 
         // Can hold multiple references at once
-        assert_eq!(v1.0, 1);
-        assert_eq!(v2.0, 2);
-        assert_eq!(v3.0, 1);
-        assert!(std::ptr::eq(v1, v3));
+        assert_eq!((*v1).0, 1);
+        assert_eq!((*v2).0, 2);
+        assert_eq!((*v3).0, 1);
+        assert!(v1 == v3);
     }
 
     #[test]
@@ -291,9 +290,9 @@ mod tests {
         let int2 = ctx.int();
 
         // Same types should be interned to same pointer
-        assert!(std::ptr::eq(void1, void2));
-        assert!(std::ptr::eq(int1, int2));
-        assert!(!std::ptr::eq(void1, int1));
+        assert!(void1 == void2);
+        assert!(int1 == int2);
+        assert!(void1 != int1);
 
         // Should only have 2 unique types
         assert_eq!(ctx.len(), 2);
@@ -308,13 +307,13 @@ mod tests {
         let ptr_int2 = ctx.ptr(int);
 
         // Same pointer types should be interned
-        assert!(std::ptr::eq(ptr_int1, ptr_int2));
+        assert!(ptr_int1 == ptr_int2);
 
         let long = ctx.long();
         let ptr_long = ctx.ptr(long);
 
         // Different pointer types should not be interned
-        assert!(!std::ptr::eq(ptr_int1, ptr_long));
+        assert!(ptr_int1 != ptr_long);
 
         // Should have: int, long, ptr(int), ptr(long)
         assert_eq!(ctx.len(), 4);
@@ -330,7 +329,7 @@ mod tests {
         let ptr_ptr_int2 = ctx.ptr(ptr_int);
 
         // Should deduplicate nested pointers
-        assert!(std::ptr::eq(ptr_ptr_int1, ptr_ptr_int2));
+        assert!(ptr_ptr_int1 == ptr_ptr_int2);
 
         // Should have: int, ptr(int), ptr(ptr(int))
         assert_eq!(ctx.len(), 3);
@@ -347,17 +346,17 @@ mod tests {
         let func2 = ctx.func(void, vec![]);
 
         // Same function types should be interned
-        assert!(std::ptr::eq(func1, func2));
+        assert!(func1 == func2);
 
         let func3 = ctx.func(int, vec![]);
 
         // Different return types
-        assert!(!std::ptr::eq(func1, func3));
+        assert!(func1 != func3);
 
         let func4 = ctx.func(void, vec![int]);
 
         // Different parameters
-        assert!(!std::ptr::eq(func1, func4));
+        assert!(func1 != func4);
     }
 
     #[test]
@@ -372,11 +371,11 @@ mod tests {
         let func2 = ctx.func(int, vec![long, ptr_int]);
 
         // Should deduplicate complex function types
-        assert!(std::ptr::eq(func1, func2));
+        assert!(func1 == func2);
 
         // Different parameter order should create different type
         let func3 = ctx.func(int, vec![ptr_int, long]);
-        assert!(!std::ptr::eq(func1, func3));
+        assert!(func1 != func3);
     }
 
     #[test]
@@ -393,7 +392,7 @@ mod tests {
         let outer_func1 = ctx.func(inner_func, vec![]);
         let outer_func2 = ctx.func(inner_func, vec![]);
 
-        assert!(std::ptr::eq(outer_func1, outer_func2));
+        assert!(outer_func1 == outer_func2);
     }
 
     #[test]
@@ -408,7 +407,7 @@ mod tests {
         let func2 = ctx.func(int2, vec![int2]);
 
         // Should be same because int1 and int2 are interned to same pointer
-        assert!(std::ptr::eq(func1, func2));
+        assert!(func1 == func2);
     }
 
     #[test]
@@ -420,7 +419,7 @@ mod tests {
         // Create 1000 ptr(int) - should all intern to same value
         for _ in 0..1000 {
             let ptr_int = ctx.ptr(int);
-            assert!(std::ptr::eq(ptr_int, ctx.ptr(int)));
+            assert!(ptr_int == ctx.ptr(int));
         }
 
         // Should only have 2 types: int and ptr(int)
@@ -439,7 +438,7 @@ mod tests {
         let func1 = ctx.func(int, params1.clone());
         let func2 = ctx.func(int, params1);
 
-        assert!(std::ptr::eq(func1, func2));
+        assert!(func1 == func2);
     }
 
     #[test]
@@ -449,7 +448,7 @@ mod tests {
         let _ = arena1.intern(SimpleValue(2));
         let v1_again = arena1.intern(SimpleValue(1));
 
-        assert!(std::ptr::eq(v1, v1_again));
+        assert!(v1 == v1_again);
         assert_eq!(arena1.len(), 2);
 
         let arena2 = InternArena::new();
@@ -457,7 +456,7 @@ mod tests {
         let _ = arena2.intern(SimpleValue(1));
         let v2_again = arena2.intern(SimpleValue(2));
 
-        assert!(std::ptr::eq(v2_first, v2_again));
+        assert!(v2_first == v2_again);
         assert_eq!(arena2.len(), 2);
     }
 
@@ -480,8 +479,8 @@ mod tests {
         let v1_again = arena.intern(BadHash(1));
 
         // Should still work correctly despite hash collisions
-        assert!(std::ptr::eq(v1, v1_again));
-        assert!(!std::ptr::eq(v1, v2));
+        assert!(v1 == v1_again);
+        assert!(v1 != v2);
         assert_eq!(arena.len(), 2);
     }
 }

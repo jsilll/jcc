@@ -10,15 +10,15 @@ use std::fmt::Write;
 // AstGraphviz
 // ---------------------------------------------------------------------------
 
-pub struct AstGraphviz<'a> {
-    ast: &'a Ast,
+pub struct AstGraphviz<'a, 'ctx> {
     node_counter: u32,
+    ast: &'a Ast<'ctx>,
     interner: &'a Interner,
     e: IndentedEmitter<String>,
 }
 
-impl<'a> AstGraphviz<'a> {
-    pub fn new(ast: &'a Ast, interner: &'a Interner) -> Self {
+impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
+    pub fn new(ast: &'a Ast<'ctx>, interner: &'a Interner) -> Self {
         AstGraphviz {
             ast,
             interner,

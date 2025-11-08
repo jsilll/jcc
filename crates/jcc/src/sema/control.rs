@@ -14,11 +14,11 @@ use std::{cell::Cell, collections::HashMap};
 // ControlPass
 // ---------------------------------------------------------------------------
 
-pub struct ControlPass<'a> {
+pub struct ControlPass<'a, 'ctx> {
     /// The AST being analyzed
-    ast: &'a Ast,
+    ast: &'a Ast<'ctx>,
     /// The semantic analysis context
-    ctx: &'a mut SemaCtx,
+    ctx: &'a mut SemaCtx<'ctx>,
     /// The result of the control flow analysis
     result: ControlResult,
     /// The stack of currently tracked statements
@@ -27,8 +27,8 @@ pub struct ControlPass<'a> {
     tracked_labels: HashMap<Symbol, TrackedLabel<'a>>,
 }
 
-impl<'a> ControlPass<'a> {
-    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
+impl<'a, 'ctx> ControlPass<'a, 'ctx> {
+    pub fn new(ast: &'a Ast<'ctx>, ctx: &'a mut SemaCtx<'ctx>) -> Self {
         Self {
             ast,
             ctx,

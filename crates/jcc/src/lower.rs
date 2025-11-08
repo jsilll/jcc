@@ -1,23 +1,20 @@
-use crate::{
-    ast::{Ast, ExprKind, ExprRef},
-    sema::Type,
-};
+use crate::ast::{ty::Ty, Ast, ExprKind, ExprRef};
 
 // ---------------------------------------------------------------------------
 // LoweringPass
 // ---------------------------------------------------------------------------
 
-pub struct LoweringPass {
-    ast: Ast,
-    actions: LoweringActions,
+pub struct LoweringPass<'ctx> {
+    ast: Ast<'ctx>,
+    actions: LoweringActions<'ctx>,
 }
 
-impl LoweringPass {
-    pub fn new(ast: Ast, actions: LoweringActions) -> Self {
+impl<'ctx> LoweringPass<'ctx> {
+    pub fn new(ast: Ast<'ctx>, actions: LoweringActions<'ctx>) -> Self {
         Self { ast, actions }
     }
 
-    pub fn build(mut self) -> Ast {
+    pub fn build(mut self) -> Ast<'ctx> {
         self.actions
             .schedule
             .iter()
@@ -25,7 +22,7 @@ impl LoweringPass {
                 LoweringAction::Cast { ty, expr } => {
                     let copy = self.ast.new_expr(self.ast.expr(*expr).clone());
                     let cast = self.ast.expr_mut(*expr);
-                    cast.ty = (*ty).into();
+                    cast.ty.set(*ty);
                     cast.kind = ExprKind::Cast {
                         ty: *ty,
                         expr: copy,
@@ -41,8 +38,8 @@ impl LoweringPass {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LoweringAction {
-    Cast { ty: Type, expr: ExprRef },
+pub enum LoweringAction<'ctx> {
+    Cast { ty: Ty<'ctx>, expr: ExprRef },
 }
 
 // ---------------------------------------------------------------------------
@@ -50,18 +47,13 @@ pub enum LoweringAction {
 // ---------------------------------------------------------------------------
 
 #[derive(Default, Clone, PartialEq, Eq)]
-pub struct LoweringActions {
-    schedule: Vec<LoweringAction>,
+pub struct LoweringActions<'ctx> {
+    schedule: Vec<LoweringAction<'ctx>>,
 }
 
-impl LoweringActions {
+impl<'ctx> LoweringActions<'ctx> {
     #[inline]
-    fn schedule(&mut self, action: LoweringAction) {
-        self.schedule.push(action)
-    }
-
-    #[inline]
-    pub fn cast(&mut self, ty: Type, expr: ExprRef) {
-        self.schedule(LoweringAction::Cast { ty, expr })
+    pub fn cast(&mut self, ty: Ty<'ctx>, expr: ExprRef) {
+        self.schedule.push(LoweringAction::Cast { ty, expr })
     }
 }

@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{self, AstSymbol, StmtRef},
-    sema::{self, Attribute, CompoundType, SemaCtx, SemaSymbol, StaticValue},
+    ast::{
+        self,
+        ty::{Ty, TyKind},
+        AstSymbol, StmtRef,
+    },
+    sema::{Attribute, SemaCtx, SemaSymbol, StaticValue},
 };
 
 use jcc_ssa::{
@@ -17,16 +21,20 @@ use jcc_ssa::{
 // SSABuilder
 // ---------------------------------------------------------------------------
 
-pub struct SSABuilder<'a> {
-    ast: &'a ast::Ast,
-    sema: &'a SemaCtx,
-    builder: IRBuilder<'a>,
+pub struct SSABuilder<'ctx> {
+    builder: IRBuilder<'ctx>,
+    ast: &'ctx ast::Ast<'ctx>,
+    sema: &'ctx SemaCtx<'ctx>,
     symbols: Vec<SymbolEntry>,
     tracked: HashMap<StmtRef, TrackedBlock>,
 }
 
-impl<'a> SSABuilder<'a> {
-    pub fn new(ast: &'a ast::Ast, sema: &'a SemaCtx, interner: &'a mut Interner) -> Self {
+impl<'ctx> SSABuilder<'ctx> {
+    pub fn new(
+        ast: &'ctx ast::Ast<'ctx>,
+        sema: &'ctx SemaCtx<'ctx>,
+        interner: &'ctx mut Interner,
+    ) -> Self {
         Self {
             ast,
             sema,
@@ -36,7 +44,7 @@ impl<'a> SSABuilder<'a> {
         }
     }
 
-    pub fn build(mut self) -> Program<'a> {
+    pub fn build(mut self) -> Program<'ctx> {
         self.ast.root().iter().for_each(|decl_ref| {
             let decl = self.ast.decl(*decl_ref);
             match decl.kind {
@@ -52,20 +60,20 @@ impl<'a> SSABuilder<'a> {
                         Attribute::Static { is_global, init } => {
                             let raw = decl.name.raw;
                             let v = match init {
-                                StaticValue::NoInit => match decl.ty {
-                                    sema::Type::Int => {
+                                StaticValue::NoInit => match *decl.ty {
+                                    TyKind::Int => {
                                         StaticVar::int32(raw, is_global, None, decl.span)
                                     }
-                                    sema::Type::Long => {
+                                    TyKind::Long => {
                                         StaticVar::int64(raw, is_global, None, decl.span)
                                     }
                                     _ => todo!("handle other types"),
                                 },
-                                StaticValue::Tentative => match decl.ty {
-                                    sema::Type::Int => {
+                                StaticValue::Tentative => match *decl.ty {
+                                    TyKind::Int => {
                                         StaticVar::int32(raw, is_global, Some(0), decl.span)
                                     }
-                                    sema::Type::Long => {
+                                    TyKind::Long => {
                                         StaticVar::int64(raw, is_global, Some(0), decl.span)
                                     }
                                     _ => todo!("handle other types"),
@@ -101,9 +109,9 @@ impl<'a> SSABuilder<'a> {
 
                         self.ast.decls(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
-                            let ty = match param.ty {
-                                sema::Type::Int => Type::Int32,
-                                sema::Type::Long => Type::Int64,
+                            let ty = match *param.ty {
+                                TyKind::Int => Type::Int32,
+                                TyKind::Long => Type::Int64,
                                 _ => todo!(),
                             };
                             let arg = self.builder.insert_inst(Inst::arg(ty, param.span));
@@ -148,7 +156,7 @@ impl<'a> SSABuilder<'a> {
                     Attribute::Local => {
                         let alloca = self
                             .builder
-                            .insert_inst(Inst::alloca(decl.ty.try_into().unwrap(), decl.span));
+                            .insert_inst(Inst::alloca(ty_to_ssa(decl.ty), decl.span));
                         self.insert_var(decl.name.sema.get(), alloca);
                         if let Some(init) = init {
                             let val = self.visit_expr(init, ExprMode::RightValue);
@@ -159,20 +167,14 @@ impl<'a> SSABuilder<'a> {
                     Attribute::Static { is_global, init } => {
                         let raw = decl.name.raw;
                         let v = match init {
-                            StaticValue::NoInit => match decl.ty {
-                                sema::Type::Int => {
-                                    StaticVar::int32(raw, is_global, None, decl.span)
-                                }
-                                sema::Type::Long => {
-                                    StaticVar::int64(raw, is_global, None, decl.span)
-                                }
+                            StaticValue::NoInit => match *decl.ty {
+                                TyKind::Int => StaticVar::int32(raw, is_global, None, decl.span),
+                                TyKind::Long => StaticVar::int64(raw, is_global, None, decl.span),
                                 _ => todo!("handle other types"),
                             },
-                            StaticValue::Tentative => match decl.ty {
-                                sema::Type::Int => {
-                                    StaticVar::int32(raw, is_global, Some(0), decl.span)
-                                }
-                                sema::Type::Long => {
+                            StaticValue::Tentative => match *decl.ty {
+                                TyKind::Int => StaticVar::int32(raw, is_global, Some(0), decl.span),
+                                TyKind::Long => {
                                     StaticVar::int64(raw, is_global, Some(0), decl.span)
                                 }
                                 _ => todo!("handle other types"),
@@ -457,11 +459,11 @@ impl<'a> SSABuilder<'a> {
                         let ptr = self.builder.insert_inst(Inst::static_addr(var, expr.span));
                         match mode {
                             ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => match info.ty {
-                                sema::Type::Int => {
+                            ExprMode::RightValue => match *info.ty {
+                                TyKind::Int => {
                                     self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
                                 }
-                                sema::Type::Long => {
+                                TyKind::Long => {
                                     self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
                                 }
                                 _ => todo!("handle other types"),
@@ -472,11 +474,11 @@ impl<'a> SSABuilder<'a> {
                         let ptr = self.get_var(name.sema.get());
                         match mode {
                             ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => match info.ty {
-                                sema::Type::Int => {
+                            ExprMode::RightValue => match *info.ty {
+                                TyKind::Int => {
                                     self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
                                 }
-                                sema::Type::Long => {
+                                TyKind::Long => {
                                     self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
                                 }
                                 _ => todo!("handle other types"),
@@ -488,14 +490,12 @@ impl<'a> SSABuilder<'a> {
             ast::ExprKind::Cast { ty, expr: inner } => {
                 let expr_ty = self.ast.expr(*inner).ty.get();
                 let val = self.visit_expr(*inner, ExprMode::RightValue);
-                match (ty, expr_ty) {
-                    (sema::Type::Int, sema::Type::Long) => {
-                        self.builder.insert_inst(Inst::truncate(val, expr.span))
-                    }
-                    (sema::Type::Long, sema::Type::Int) => {
-                        self.builder.insert_inst(Inst::sign_extend(val, expr.span))
-                    }
-                    _ => val,
+                if *ty == self.sema.tys.int_ty && expr_ty == self.sema.tys.long_ty {
+                    self.builder.insert_inst(Inst::truncate(val, expr.span))
+                } else if *ty == self.sema.tys.long_ty && expr_ty == self.sema.tys.int_ty {
+                    self.builder.insert_inst(Inst::sign_extend(val, expr.span))
+                } else {
+                    val
                 }
             }
             ast::ExprKind::Call { name, args, .. } => {
@@ -510,58 +510,40 @@ impl<'a> SSABuilder<'a> {
                     .symbol(name.sema.get())
                     .expect("expected a sema symbol");
                 let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
-                let ty = match self.sema.dict.get(symbol.ty) {
-                    CompoundType::Func {
-                        ret: sema::Type::Void,
-                        ..
-                    } => Type::Void,
-                    CompoundType::Func {
-                        ret: sema::Type::Int,
-                        ..
-                    } => Type::Int32,
-                    CompoundType::Func {
-                        ret: sema::Type::Long,
-                        ..
-                    } => Type::Int64,
-                    CompoundType::Func { .. } => todo!("handle other return types"),
+                let ty = match *symbol.ty {
+                    TyKind::Func { ret, .. } => ty_to_ssa(ret),
                     _ => panic!("expected a function type"),
                 };
                 self.builder
                     .insert_inst(Inst::call(ty, func, args, expr.span))
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
-                ast::UnaryOp::Neg => self.build_unary(
-                    expr.ty.get().try_into().unwrap(),
-                    UnaryOp::Neg,
-                    *inner,
-                    expr.span,
-                ),
-                ast::UnaryOp::BitNot => self.build_unary(
-                    expr.ty.get().try_into().unwrap(),
-                    UnaryOp::Not,
-                    *inner,
-                    expr.span,
-                ),
+                ast::UnaryOp::Neg => {
+                    self.build_unary(ty_to_ssa(expr.ty.get()), UnaryOp::Neg, *inner, expr.span)
+                }
+                ast::UnaryOp::BitNot => {
+                    self.build_unary(ty_to_ssa(expr.ty.get()), UnaryOp::Not, *inner, expr.span)
+                }
                 ast::UnaryOp::PreInc => self.build_prefix_unary(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     UnaryOp::Inc,
                     *inner,
                     expr.span,
                 ),
                 ast::UnaryOp::PreDec => self.build_prefix_unary(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     UnaryOp::Dec,
                     *inner,
                     expr.span,
                 ),
                 ast::UnaryOp::PostInc => self.build_postfix_unary(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     UnaryOp::Inc,
                     *inner,
                     expr.span,
                 ),
                 ast::UnaryOp::PostDec => self.build_postfix_unary(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     UnaryOp::Dec,
                     *inner,
                     expr.span,
@@ -582,112 +564,112 @@ impl<'a> SSABuilder<'a> {
                 ast::BinaryOp::LogicalOr => self.build_sc(LogicalOp::Or, *lhs, *rhs, expr.span),
                 ast::BinaryOp::LogicalAnd => self.build_sc(LogicalOp::And, *lhs, *rhs, expr.span),
                 ast::BinaryOp::Equal => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Equal,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::NotEqual => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::NotEqual,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::LessThan => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::LessThan,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::LessEqual => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::LessEqual,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::GreaterThan => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::GreaterThan,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::GreaterEqual => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::GreaterEqual,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Add => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Add,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Sub => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Sub,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Mul => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Mul,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Div => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Div,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Rem => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Rem,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitOr => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Or,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitAnd => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::And,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitXor => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Xor,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitShl => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Shl,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitShr => self.build_bin(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     BinaryOp::Shr,
                     *lhs,
                     *rhs,
@@ -761,7 +743,7 @@ impl<'a> SSABuilder<'a> {
                     let l = self.visit_expr(*lhs, ExprMode::RightValue);
                     let r = self.visit_expr(*rhs, ExprMode::RightValue);
                     let inst = self.builder.insert_inst(Inst::binary(
-                        expr.ty.get().try_into().unwrap(),
+                        ty_to_ssa(expr.ty.get()),
                         BinaryOp::Shl,
                         l,
                         r,
@@ -778,7 +760,7 @@ impl<'a> SSABuilder<'a> {
                     let l = self.visit_expr(*lhs, ExprMode::RightValue);
                     let r = self.visit_expr(*rhs, ExprMode::RightValue);
                     let inst = self.builder.insert_inst(Inst::binary(
-                        expr.ty.get().try_into().unwrap(),
+                        ty_to_ssa(expr.ty.get()),
                         BinaryOp::Shr,
                         l,
                         r,
@@ -810,7 +792,7 @@ impl<'a> SSABuilder<'a> {
 
                 let phi = self
                     .builder
-                    .insert_inst_skip(Inst::phi(expr.ty.get().try_into().unwrap(), expr.span));
+                    .insert_inst_skip(Inst::phi(ty_to_ssa(expr.ty.get()), expr.span));
 
                 self.builder
                     .insert_inst(Inst::branch(cond_val, then_block, else_block, expr.span));
@@ -819,7 +801,7 @@ impl<'a> SSABuilder<'a> {
                 self.builder.switch_to_block(then_block);
                 let then_val = self.visit_expr(*then, ExprMode::RightValue);
                 self.builder.insert_inst(Inst::upsilon(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     phi,
                     then_val,
                     expr.span,
@@ -830,7 +812,7 @@ impl<'a> SSABuilder<'a> {
                 self.builder.switch_to_block(else_block);
                 let else_val = self.visit_expr(*other, ExprMode::RightValue);
                 self.builder.insert_inst(Inst::upsilon(
-                    expr.ty.get().try_into().unwrap(),
+                    ty_to_ssa(expr.ty.get()),
                     phi,
                     else_val,
                     expr.span,
@@ -906,7 +888,7 @@ impl<'a> SSABuilder<'a> {
     fn build_bin_asgn(
         &mut self,
         mode: ExprMode,
-        ty: sema::Type,
+        ty: Ty<'ctx>,
         op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
@@ -914,16 +896,16 @@ impl<'a> SSABuilder<'a> {
     ) -> InstRef {
         let lty = self.ast.expr(lhs).ty.get();
         let mut l = self.visit_expr(lhs, ExprMode::RightValue);
-        if matches!((lty, ty), (sema::Type::Int, sema::Type::Long)) {
+        if lty == self.sema.tys.int_ty && ty == self.sema.tys.long_ty {
             l = self.builder.insert_inst(Inst::sign_extend(l, span));
         }
 
         let rty = self.ast.expr(rhs).ty.get();
         let r = self.visit_expr(rhs, ExprMode::RightValue);
-        let mut inst =
-            self.builder
-                .insert_inst(Inst::binary(rty.try_into().unwrap(), op, l, r, span));
-        if matches!((lty, rty), (sema::Type::Int, sema::Type::Long)) {
+        let mut inst = self
+            .builder
+            .insert_inst(Inst::binary(ty_to_ssa(rty), op, l, r, span));
+        if lty == self.sema.tys.int_ty && rty == self.sema.tys.long_ty {
             inst = self.builder.insert_inst(Inst::truncate(inst, span));
         }
 
@@ -1109,6 +1091,16 @@ impl<'a> SSABuilder<'a> {
                 v
             }
         }
+    }
+}
+
+fn ty_to_ssa(ty: Ty) -> Type {
+    match *ty {
+        TyKind::Void => Type::Void,
+        TyKind::Int => Type::Int32,
+        TyKind::Long => Type::Int64,
+        TyKind::Ptr(_) => Type::IntPtr,
+        TyKind::Func { .. } => panic!("Functions do not have a direct SSA type representation"),
     }
 }
 

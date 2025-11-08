@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 jcc_ssa = { path = "../jcc_ssa" }
+jcc_arena = { path = "../jcc_arena" }
 
 anyhow = "1.0.93"
 phf = { version = "0.11.2", features = ["macros"] }

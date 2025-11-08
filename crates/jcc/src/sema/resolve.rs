@@ -17,9 +17,9 @@ use std::{collections::HashMap, num::NonZeroU32};
 // ResolverPass
 // ---------------------------------------------------------------------------
 
-pub struct ResolverPass<'a> {
+pub struct ResolverPass<'a, 'ctx> {
     /// The AST being analyzed
-    ast: &'a Ast,
+    ast: &'a Ast<'ctx>,
     /// The result of the name resolution
     result: ResolverResult,
     /// The current symbol count
@@ -30,8 +30,8 @@ pub struct ResolverPass<'a> {
     globals: HashMap<Symbol, SemaSymbol>,
 }
 
-impl<'a> ResolverPass<'a> {
-    pub fn new(ast: &'a Ast) -> Self {
+impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
+    pub fn new(ast: &'a Ast<'ctx>) -> Self {
         Self {
             ast,
             globals: HashMap::new(),

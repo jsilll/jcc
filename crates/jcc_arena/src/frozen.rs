@@ -162,6 +162,7 @@ impl<T: Clone> Clone for FrozenVec<T> {
     ///
     /// This clones all elements in the vector.
     fn clone(&self) -> Self {
+        // Safety: We do not mutate the original vector during cloning.
         let vec = unsafe { self.vec.get().as_ref().unwrap() };
         Self {
             vec: vec.clone().into(),
@@ -364,6 +365,8 @@ impl<T: StableDeref> FrozenVec<T> {
         let mut right = size;
         while left < right {
             let mid = left + size / 2;
+            // Safety: mid is guaranteed to be in bounds because
+            // pred can only cause the vector to grow, never shrink.
             let cmp = f(unsafe { self.get_unchecked(mid) });
             if cmp == Ordering::Less {
                 left = mid + 1;
@@ -395,6 +398,8 @@ impl<T: StableDeref> FrozenVec<T> {
         let mut right = self.len();
         while left != right {
             let mid = left + (right - left) / 2;
+            // Safety: mid is guaranteed to be in bounds because
+            // pred can only cause the vector to grow, never shrink.
             let value = unsafe { self.get_unchecked(mid) };
             if pred(value) {
                 left = mid + 1;

@@ -39,9 +39,9 @@ impl Interner {
     /// * `capacity` - The initial capacity of the internal string buffer.
     pub fn with_capacity(capacity: usize) -> Self {
         Interner {
+            vec: Vec::new(),
             full: Vec::new(),
             map: HashMap::new(),
-            vec: vec![Default::default()],
             buf: String::with_capacity(capacity),
         }
     }
@@ -53,7 +53,7 @@ impl Interner {
     /// The number of unique strings stored in the interner.
     #[inline]
     pub fn len(&self) -> usize {
-        self.vec[1..].len()
+        self.vec.len()
     }
 
     /// Checks if the interner is empty (i.e., no strings have been interned).
@@ -63,7 +63,7 @@ impl Interner {
     /// `true` if the interner is empty, `false` otherwise.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.vec[1..].is_empty()
+        self.vec.is_empty()
     }
 
     /// Retrieves the string associated with the given `Symbol`.
@@ -81,7 +81,7 @@ impl Interner {
     /// Panics if the `Symbol` is invalid or out of bounds.
     #[inline]
     pub fn lookup(&self, id: Symbol) -> &str {
-        self.vec[id.0.get() as usize]
+        self.vec[id.0.get() as usize - 1]
     }
 
     /// Retrieves the string associated with the given `Symbol`, if it exists.
@@ -95,7 +95,7 @@ impl Interner {
     /// `Some(&str)` if the `Symbol` is valid, or `None` if it is invalid or out of bounds.
     #[inline]
     pub fn get(&self, id: Symbol) -> Option<&str> {
-        self.vec.get(id.0.get() as usize).copied()
+        self.vec.get(id.0.get() as usize - 1).copied()
     }
 
     /// Interns the given string and returns its associated `Symbol`.
@@ -115,7 +115,10 @@ impl Interner {
         if let Some(&id) = self.map.get(name) {
             return id;
         }
-        let symbol = unsafe { Symbol(NonZeroU32::new_unchecked(self.vec.len() as u32)) };
+        // Safety: We explicitly ensure that the NonZeroU32 is never zero by
+        // starting the count from 1 and incrementing for each new string.
+        let symbol = unsafe { Symbol(NonZeroU32::new_unchecked(self.vec.len() as u32 + 1)) };
+        // Safety: The allocated string reference is valid as long as the interner is alive.
         let name = unsafe { self.alloc(name) };
         self.map.insert(name, symbol);
         self.vec.push(name);

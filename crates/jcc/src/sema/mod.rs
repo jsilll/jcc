@@ -2,15 +2,14 @@ pub mod control;
 pub mod resolve;
 pub mod typing;
 
-use crate::ast::StmtRef;
+use crate::ast::{
+    ty::{Ty, TyCtx},
+    StmtRef,
+};
 
 use jcc_ssa::ConstValue;
 
-use std::{
-    collections::HashMap,
-    num::{NonZeroU16, NonZeroU32},
-    rc::Rc,
-};
+use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
 // SemaSymbol
@@ -29,17 +28,16 @@ impl Default for SemaSymbol {
 // SemaCtx
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct SemaCtx {
-    pub dict: TypeDict,
-    symbols: Vec<Option<SymbolInfo>>,
+pub struct SemaCtx<'ctx> {
+    pub tys: &'ctx TyCtx<'ctx>,
+    symbols: Vec<Option<SymbolInfo<'ctx>>>,
     pub switches: HashMap<StmtRef, SwitchCases>,
 }
 
-impl SemaCtx {
-    pub fn with_dict(dict: TypeDict, symbol_count: usize) -> Self {
+impl<'ctx> SemaCtx<'ctx> {
+    pub fn new(tys: &'ctx TyCtx<'ctx>, symbol_count: usize) -> Self {
         Self {
-            dict,
+            tys,
             switches: HashMap::new(),
             symbols: vec![Default::default(); symbol_count],
         }
@@ -51,79 +49,17 @@ impl SemaCtx {
     }
 
     #[inline]
-    pub fn symbol(&self, sym: SemaSymbol) -> Option<&SymbolInfo> {
+    pub fn symbol(&self, sym: SemaSymbol) -> Option<&SymbolInfo<'ctx>> {
         self.symbols
             .get(sym.0.get() as usize)
             .and_then(|s| s.as_ref())
     }
 
     #[inline]
-    pub fn symbol_mut(&mut self, sym: SemaSymbol) -> &mut Option<SymbolInfo> {
+    pub fn symbol_mut(&mut self, sym: SemaSymbol) -> &mut Option<SymbolInfo<'ctx>> {
         self.symbols
             .get_mut(sym.0.get() as usize)
             .expect("Invalid symbol index")
-    }
-}
-
-// ---------------------------------------------------------------------------
-// TypeDict
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeDict {
-    types: Vec<Rc<CompoundType>>,
-    cache: HashMap<Rc<CompoundType>, CompoundTypeRef>,
-}
-
-impl Default for TypeDict {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TypeDict {
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-            types: vec![Rc::new(CompoundType::Ptr(Type::default()))],
-        }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.types.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.types.is_empty()
-    }
-
-    #[inline]
-    pub fn get(&self, ty: Type) -> &CompoundType {
-        match ty {
-            Type::Compound(t) => &self.types[t.0.get() as usize],
-            _ => panic!("not a compound type"),
-        }
-    }
-
-    #[inline]
-    pub fn get_compound(&self, r: CompoundTypeRef) -> &CompoundType {
-        &self.types[r.0.get() as usize]
-    }
-
-    #[inline]
-    pub fn intern(&mut self, ty: CompoundType) -> CompoundTypeRef {
-        if let Some(&r) = self.cache.get(&ty) {
-            return r;
-        }
-
-        let r = CompoundTypeRef(NonZeroU16::new(self.types.len() as u16).unwrap());
-        let ty = Rc::new(ty);
-        self.types.push(ty.clone());
-        self.cache.insert(ty, r);
-        r
     }
 }
 
@@ -142,15 +78,15 @@ pub struct SwitchCases {
 // SymbolInfo
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SymbolInfo {
-    pub ty: Type,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SymbolInfo<'ctx> {
+    pub ty: Ty<'ctx>,
     pub attr: Attribute,
 }
 
-impl SymbolInfo {
+impl<'ctx> SymbolInfo<'ctx> {
     #[inline]
-    pub fn local(ty: Type) -> Self {
+    pub fn local(ty: Ty<'ctx>) -> Self {
         Self {
             ty,
             attr: Attribute::Local,
@@ -158,7 +94,7 @@ impl SymbolInfo {
     }
 
     #[inline]
-    pub fn statik(ty: Type, is_global: bool, init: StaticValue) -> Self {
+    pub fn statik(ty: Ty<'ctx>, is_global: bool, init: StaticValue) -> Self {
         Self {
             ty,
             attr: Attribute::Static { is_global, init },
@@ -166,7 +102,7 @@ impl SymbolInfo {
     }
 
     #[inline]
-    pub fn function(ty: Type, is_global: bool, is_defined: bool) -> Self {
+    pub fn function(ty: Ty<'ctx>, is_global: bool, is_defined: bool) -> Self {
         Self {
             ty,
             attr: Attribute::Function {
@@ -215,55 +151,4 @@ pub enum StaticValue {
     Tentative,
     /// Initialized with a value
     Init(ConstValue),
-}
-
-// ---------------------------------------------------------------------------
-// Type
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct CompoundTypeRef(NonZeroU16);
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Type {
-    /// The `void` type
-    #[default]
-    Void,
-    /// The `int` type
-    Int,
-    /// The `long` type
-    Long,
-    /// A compound type
-    Compound(CompoundTypeRef),
-}
-
-impl From<CompoundTypeRef> for Type {
-    fn from(ty: CompoundTypeRef) -> Self {
-        Type::Compound(ty)
-    }
-}
-
-impl TryInto<jcc_ssa::Type> for Type {
-    type Error = ();
-
-    fn try_into(self) -> Result<jcc_ssa::Type, Self::Error> {
-        match self {
-            Type::Void => Ok(jcc_ssa::Type::Void),
-            Type::Int => Ok(jcc_ssa::Type::Int32),
-            Type::Long => Ok(jcc_ssa::Type::Int64),
-            Type::Compound(_) => Err(()),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// CompoundType
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CompoundType {
-    /// A pointer type
-    Ptr(Type),
-    /// A functional type
-    Func { ret: Type, params: Vec<Type> },
 }

@@ -1,10 +1,11 @@
 use crate::{
     ast::{
+        ty::{Ty, TyKind},
         Ast, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind,
         StmtRef, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
-    sema::{Attribute, CompoundType, SemaCtx, StaticValue, SymbolInfo, Type},
+    sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 
 use jcc_ssa::{
@@ -15,34 +16,35 @@ use jcc_ssa::{
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
-// TyperPass
+// TypeChecker
 // ---------------------------------------------------------------------------
 
-pub struct TyperPass<'a> {
+pub struct TypeChecker<'a, 'ctx> {
     /// The AST being analyzed
-    ast: &'a Ast,
+    ast: &'a Ast<'ctx>,
     /// The semantic analysis context
-    ctx: &'a mut SemaCtx,
+    ctx: &'a mut SemaCtx<'ctx>,
     /// The current function return type
-    curr_ret: Type,
+    curr_ret: Ty<'ctx>,
     /// The result of the type checking
-    result: TyperResult,
+    result: TyperResult<'ctx>,
     /// The set of switch case values encountered
     switch_cases: HashSet<ConstValue>,
 }
 
-impl<'a> TyperPass<'a> {
-    pub fn new(ast: &'a Ast, ctx: &'a mut SemaCtx) -> Self {
+impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
+    pub fn new(ast: &'a Ast<'ctx>, ctx: &'a mut SemaCtx<'ctx>) -> Self {
+        let curr_ret = ctx.tys.void_ty;
         Self {
             ast,
             ctx,
-            curr_ret: Type::default(),
+            curr_ret,
             switch_cases: HashSet::new(),
             result: TyperResult::default(),
         }
     }
 
-    pub fn check(mut self) -> TyperResult {
+    pub fn check(mut self) -> TyperResult<'ctx> {
         self.ast
             .root()
             .iter()
@@ -187,7 +189,7 @@ impl<'a> TyperPass<'a> {
         }
     }
 
-    fn visit_func_decl(&mut self, decl: &Decl) {
+    fn visit_func_decl(&mut self, decl: &Decl<'ctx>) {
         if let DeclKind::Func { params, body } = decl.kind {
             let decl_is_global = decl.storage != Some(StorageClass::Static);
             let entry = self
@@ -227,7 +229,7 @@ impl<'a> TyperPass<'a> {
                     self.visit_block_scope_decl(*param)
                 });
                 if let Some(body) = body {
-                    self.curr_ret = self.get_return_type(decl).unwrap_or_default();
+                    self.curr_ret = self.get_return_type(decl).unwrap_or(self.ctx.tys.void_ty);
                     self.ast.items(body).iter().for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
@@ -326,9 +328,9 @@ impl<'a> TyperPass<'a> {
                                     });
                                 }
                                 Some(ConstValue::Int32(v)) => {
-                                    let v = match cty {
-                                        Type::Int => ConstValue::Int32(v),
-                                        Type::Long => ConstValue::Int64(v as i64),
+                                    let v = match *cty {
+                                        TyKind::Int => ConstValue::Int32(v),
+                                        TyKind::Long => ConstValue::Int64(v as i64),
                                         _ => panic!("invalid switch condition type"),
                                     };
                                     if !self.switch_cases.insert(v) {
@@ -339,9 +341,9 @@ impl<'a> TyperPass<'a> {
                                     }
                                 }
                                 Some(ConstValue::Int64(v)) => {
-                                    let v = match cty {
-                                        Type::Int => ConstValue::Int32(v as i32),
-                                        Type::Long => ConstValue::Int64(v),
+                                    let v = match *cty {
+                                        TyKind::Int => ConstValue::Int32(v as i32),
+                                        TyKind::Long => ConstValue::Int64(v),
                                         _ => panic!("invalid switch condition type"),
                                     };
                                     if !self.switch_cases.insert(v) {
@@ -361,11 +363,11 @@ impl<'a> TyperPass<'a> {
         }
     }
 
-    fn visit_expr(&mut self, expr_ref: ExprRef) -> Type {
+    fn visit_expr(&mut self, expr_ref: ExprRef) -> Ty<'ctx> {
         let expr = self.ast.expr(expr_ref);
         let ty = match &expr.kind {
-            ExprKind::Const(ConstValue::Int32(_)) => Type::Int,
-            ExprKind::Const(ConstValue::Int64(_)) => Type::Long,
+            ExprKind::Const(ConstValue::Int32(_)) => self.ctx.tys.int_ty,
+            ExprKind::Const(ConstValue::Int64(_)) => self.ctx.tys.long_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);
@@ -387,7 +389,7 @@ impl<'a> TyperPass<'a> {
             ExprKind::Unary { op, expr } => {
                 let ty = self.visit_expr(*expr);
                 match op {
-                    UnaryOp::LogicalNot => Type::Int,
+                    UnaryOp::LogicalNot => self.ctx.tys.int_ty,
                     UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
                         self.assert_is_lvalue(*expr);
                         ty
@@ -399,7 +401,7 @@ impl<'a> TyperPass<'a> {
                 let lty = self.visit_expr(*lhs);
                 let rty = self.visit_expr(*rhs);
                 match op {
-                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => Type::Int,
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => self.ctx.tys.int_ty,
                     BinaryOp::BitShl | BinaryOp::BitShr => lty,
                     BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
                         self.assert_is_lvalue(*lhs);
@@ -418,7 +420,7 @@ impl<'a> TyperPass<'a> {
                         if rty != common {
                             self.result.actions.cast(common, *rhs);
                         }
-                        Type::Int
+                        self.ctx.tys.int_ty
                     }
                     BinaryOp::Assign
                     | BinaryOp::AddAssign
@@ -461,7 +463,7 @@ impl<'a> TyperPass<'a> {
                     .symbol(name.sema.get())
                     .expect("symbol info not found")
                     .ty;
-                if matches!(ty, Type::Void | Type::Compound(_)) {
+                if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: expr.span,
                         kind: TyperDiagnosticKind::VariableUsedAsFunction,
@@ -478,34 +480,31 @@ impl<'a> TyperPass<'a> {
                     .symbol(name.sema.get())
                     .expect("symbol info not found")
                     .ty;
-                match ty {
-                    Type::Compound(r) => match self.ctx.dict.get_compound(r) {
-                        CompoundType::Ptr(_) => todo!("handle pointer type"),
-                        CompoundType::Func { ret, params } => {
-                            if args.len() != params.len() {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    span: expr.span,
-                                    kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
-                                });
-                            }
-                            self.ast
-                                .exprs(*args)
-                                .iter()
-                                .zip(params)
-                                .for_each(|(arg, ty)| {
-                                    if self.ast.expr(*arg).ty.get() != *ty {
-                                        self.result.actions.cast(*ty, *arg);
-                                    }
-                                });
-                            *ret
+                match *ty {
+                    TyKind::Func { ret, ref params } => {
+                        if args.len() != params.len() {
+                            self.result.diagnostics.push(TyperDiagnostic {
+                                span: expr.span,
+                                kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
+                            });
                         }
-                    },
+                        self.ast
+                            .exprs(*args)
+                            .iter()
+                            .zip(params)
+                            .for_each(|(arg, ty)| {
+                                if self.ast.expr(*arg).ty.get() != *ty {
+                                    self.result.actions.cast(*ty, *arg);
+                                }
+                            });
+                        ret
+                    }
                     _ => {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: expr.span,
                             kind: TyperDiagnosticKind::VariableUsedAsFunction,
                         });
-                        Type::default()
+                        self.ctx.tys.void_ty
                     }
                 }
             }
@@ -531,28 +530,25 @@ impl<'a> TyperPass<'a> {
     }
 
     #[inline]
-    fn get_return_type(&self, decl: &Decl) -> Option<Type> {
-        match decl.ty {
-            Type::Compound(r) => match self.ctx.dict.get_compound(r) {
-                CompoundType::Func { ret, .. } => Some(*ret),
-                _ => None,
-            },
+    fn get_return_type(&self, decl: &Decl<'ctx>) -> Option<Ty<'ctx>> {
+        match *decl.ty {
+            TyKind::Func { ret, .. } => Some(ret),
             _ => None,
         }
     }
 
     #[inline]
-    fn get_common_type(&mut self, lhs: Type, rhs: Type, span: SourceSpan) -> Type {
-        match (lhs, rhs) {
-            (Type::Int, Type::Int) => Type::Int,
-            (Type::Long, Type::Long) => Type::Long,
-            (Type::Int, Type::Long) | (Type::Long, Type::Int) => Type::Long,
+    fn get_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: SourceSpan) -> Ty<'ctx> {
+        match (&*lhs, &*rhs) {
+            (TyKind::Int, TyKind::Int) => self.ctx.tys.int_ty,
+            (TyKind::Long, TyKind::Long) => self.ctx.tys.long_ty,
+            (TyKind::Int, TyKind::Long) | (TyKind::Long, TyKind::Int) => self.ctx.tys.long_ty,
             _ => {
                 self.result.diagnostics.push(TyperDiagnostic {
                     span,
                     kind: TyperDiagnosticKind::TypeMismatch,
                 });
-                Type::Void
+                self.ctx.tys.void_ty
             }
         }
     }
@@ -679,9 +675,9 @@ impl From<TyperDiagnostic> for Diagnostic {
 // TyperResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
-pub struct TyperResult {
-    pub actions: LoweringActions,
+#[derive(Default, PartialEq, Eq)]
+pub struct TyperResult<'ctx> {
+    pub actions: LoweringActions<'ctx>,
     pub diagnostics: Vec<TyperDiagnostic>,
 }
 

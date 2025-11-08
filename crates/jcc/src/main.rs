@@ -1,11 +1,11 @@
 use jcc::{
-    ast::{graphviz::AstGraphviz, parse::Parser},
+    ast::{graphviz::AstGraphviz, parse::Parser, ty::TyCtx},
     cli::Args,
     lower::LoweringPass,
     profile::Profiler,
-    sema::{control::ControlPass, resolve::ResolverPass, typing::TyperPass, SemaCtx, TypeDict},
+    sema::{control::ControlPass, resolve::ResolverPass, typing::TypeChecker, SemaCtx},
     ssa::SSABuilder,
-    tok::lex::Lexer,
+    token::lex::Lexer,
 };
 
 use jcc_ssa::{
@@ -60,12 +60,14 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         pp_path.display()
     ))?;
 
+    // === Type Context & Interner ===
+    let tys = TyCtx::new();
+    let mut interner = Interner::new();
+
     // === Lexing & Parsing ===
     let lexer = Lexer::new(file);
-    let mut dict = TypeDict::new();
-    let mut interner = Interner::new();
     let r = profiler.time("Parser", || {
-        Parser::new(lexer, file, &mut dict, &mut interner).parse()
+        Parser::new(lexer, file, &tys, &mut interner).parse()
     });
     check_diags("lexer", file, &r.lexer_diagnostics)?;
     if args.lex {
@@ -92,10 +94,10 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     check_diags("resolver", file, &r.diagnostics)?;
 
     // === Semantic Analysis ===
-    let mut ctx = SemaCtx::with_dict(dict, r.symbol_count);
+    let mut ctx = SemaCtx::new(&tys, r.symbol_count);
     let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
     check_diags("control", file, &r.diagnostics)?;
-    let r = profiler.time("Typer", || TyperPass::new(&ast, &mut ctx).check());
+    let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());
     check_diags("typer", file, &r.diagnostics)?;
     let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {

@@ -1,10 +1,11 @@
 pub mod graphviz;
 pub mod parse;
 pub mod slice;
+pub mod ty;
 
-use crate::ast::slice::Slice;
+use crate::ast::{slice::Slice, ty::Ty};
 
-use crate::sema::{SemaSymbol, Type};
+use crate::sema::SemaSymbol;
 
 use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan, ConstValue};
 
@@ -15,39 +16,33 @@ use std::{cell::Cell, num::NonZeroU32};
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Ast {
+pub struct Ast<'ctx> {
     root: Vec<DeclRef>,
-    decls: Vec<Decl>,
     stmts: Vec<Stmt>,
-    exprs: Vec<Expr>,
+    decls: Vec<Decl<'ctx>>,
+    exprs: Vec<Expr<'ctx>>,
     sliced_decls: Vec<DeclRef>,
     sliced_exprs: Vec<ExprRef>,
     sliced_items: Vec<BlockItem>,
 }
 
-impl Default for Ast {
+impl<'ctx> Default for Ast<'ctx> {
     fn default() -> Self {
         Ast::new()
     }
 }
 
-impl Ast {
+impl<'ctx> Ast<'ctx> {
     pub fn new() -> Self {
         Self::with_capacity(256)
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        #[inline]
-        fn default_vec_with_capacity<T: Default>(capacity: usize) -> Vec<T> {
-            let mut v = Vec::with_capacity(capacity);
-            v.push(Default::default());
-            v
-        }
         Ast {
             root: Vec::with_capacity(capacity),
-            decls: default_vec_with_capacity(capacity),
-            stmts: default_vec_with_capacity(capacity),
-            exprs: default_vec_with_capacity(capacity),
+            decls: Vec::with_capacity(capacity),
+            stmts: Vec::with_capacity(capacity),
+            exprs: Vec::with_capacity(capacity),
             sliced_decls: Vec::with_capacity(capacity),
             sliced_exprs: Vec::with_capacity(capacity),
             sliced_items: Vec::with_capacity(capacity),
@@ -60,17 +55,17 @@ impl Ast {
 
     #[inline]
     pub fn decls_len(&self) -> usize {
-        self.decls.len() - 1
+        self.decls.len()
     }
 
     #[inline]
     pub fn stmts_len(&self) -> usize {
-        self.stmts.len() - 1
+        self.stmts.len()
     }
 
     #[inline]
     pub fn exprs_len(&self) -> usize {
-        self.exprs.len() - 1
+        self.exprs.len()
     }
 
     #[inline]
@@ -79,33 +74,33 @@ impl Ast {
     }
 
     #[inline]
-    pub fn decl(&self, decl: DeclRef) -> &Decl {
-        &self.decls[decl.0.get() as usize]
+    pub fn decl(&self, decl: DeclRef) -> &Decl<'ctx> {
+        &self.decls[decl.0.get() as usize - 1]
     }
 
     #[inline]
     pub fn stmt(&self, stmt: StmtRef) -> &Stmt {
-        &self.stmts[stmt.0.get() as usize]
+        &self.stmts[stmt.0.get() as usize - 1]
     }
 
     #[inline]
-    pub fn expr(&self, expr: ExprRef) -> &Expr {
-        &self.exprs[expr.0.get() as usize]
+    pub fn expr(&self, expr: ExprRef) -> &Expr<'ctx> {
+        &self.exprs[expr.0.get() as usize - 1]
     }
 
     #[inline]
-    pub fn decl_mut(&mut self, decl: DeclRef) -> &mut Decl {
-        &mut self.decls[decl.0.get() as usize]
+    pub fn decl_mut(&mut self, decl: DeclRef) -> &mut Decl<'ctx> {
+        &mut self.decls[decl.0.get() as usize - 1]
     }
 
     #[inline]
     pub fn stmt_mut(&mut self, stmt: StmtRef) -> &mut Stmt {
-        &mut self.stmts[stmt.0.get() as usize]
+        &mut self.stmts[stmt.0.get() as usize - 1]
     }
 
     #[inline]
-    pub fn expr_mut(&mut self, expr: ExprRef) -> &mut Expr {
-        &mut self.exprs[expr.0.get() as usize]
+    pub fn expr_mut(&mut self, expr: ExprRef) -> &mut Expr<'ctx> {
+        &mut self.exprs[expr.0.get() as usize - 1]
     }
 
     #[inline]
@@ -128,22 +123,22 @@ impl Ast {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    pub fn new_decl(&mut self, decl: Decl) -> DeclRef {
-        let r = DeclRef(NonZeroU32::new(self.decls.len() as u32).unwrap());
+    pub fn new_decl(&mut self, decl: Decl<'ctx>) -> DeclRef {
+        let r = DeclRef(NonZeroU32::new(self.decls.len() as u32 + 1).unwrap());
         self.decls.push(decl);
         r
     }
 
     #[inline]
     pub fn new_stmt(&mut self, stmt: Stmt) -> StmtRef {
-        let r = StmtRef(NonZeroU32::new(self.stmts.len() as u32).unwrap());
+        let r = StmtRef(NonZeroU32::new(self.stmts.len() as u32 + 1).unwrap());
         self.stmts.push(stmt);
         r
     }
 
     #[inline]
-    pub fn new_expr(&mut self, expr: Expr) -> ExprRef {
-        let r = ExprRef(NonZeroU32::new(self.exprs.len() as u32).unwrap());
+    pub fn new_expr(&mut self, expr: Expr<'ctx>) -> ExprRef {
+        let r = ExprRef(NonZeroU32::new(self.exprs.len() as u32 + 1).unwrap());
         self.exprs.push(expr);
         r
     }
@@ -180,9 +175,9 @@ impl Ast {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct DeclRef(pub(crate) NonZeroU32);
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Decl {
-    pub ty: Type,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decl<'ctx> {
+    pub ty: Ty<'ctx>,
     pub kind: DeclKind,
     pub name: AstSymbol,
     pub span: SourceSpan,
@@ -276,32 +271,32 @@ pub enum StmtKind {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ExprRef(pub(crate) NonZeroU32);
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Expr {
-    pub ty: Cell<Type>,
-    pub kind: ExprKind,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expr<'ctx> {
     pub span: SourceSpan,
+    pub ty: Cell<Ty<'ctx>>,
+    pub kind: ExprKind<'ctx>,
 }
 
-impl Expr {
+impl<'ctx> Expr<'ctx> {
     #[inline]
-    pub fn new(kind: ExprKind, span: SourceSpan) -> Self {
+    pub fn new(kind: ExprKind<'ctx>, span: SourceSpan, ty: Ty<'ctx>) -> Self {
         Expr {
             kind,
             span,
-            ..Default::default()
+            ty: Cell::new(ty),
         }
     }
 }
 
-impl Default for ExprKind {
+impl<'ctx> Default for ExprKind<'ctx> {
     fn default() -> Self {
         Self::Const(ConstValue::Int32(0))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExprKind {
+pub enum ExprKind<'ctx> {
     /// A variable reference.
     Var(AstSymbol),
     /// A constant integer value.
@@ -309,7 +304,7 @@ pub enum ExprKind {
     /// A grouped expression.
     Grouped(ExprRef),
     /// A cast expression.
-    Cast { ty: Type, expr: ExprRef },
+    Cast { ty: Ty<'ctx>, expr: ExprRef },
     /// An unary expression.
     Unary { op: UnaryOp, expr: ExprRef },
     /// A binary expression.

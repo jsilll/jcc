@@ -28,7 +28,7 @@ use crate::{frozen::FrozenVec, Interned};
 /// references.
 pub struct InternArena<T> {
     vec: FrozenVec<Box<T>>,
-    set: RefCell<HashSet<UnsafePtr<T>>>,
+    set: RefCell<HashSet<InternedPtr<T>>>,
 }
 
 impl<T> Default for InternArena<T>
@@ -111,29 +111,29 @@ where
     #[inline]
     pub fn intern(&'arena self, v: T) -> Interned<'arena, T> {
         let mut set = self.set.borrow_mut();
-        let ptr = UnsafePtr(&v as *const T);
-        if let Some(&UnsafePtr(existing_ptr)) = set.get(&ptr) {
+        let ptr = InternedPtr(&v as *const T);
+        if let Some(&InternedPtr(existing_ptr)) = set.get(&ptr) {
             // Safety: pointer came from FrozenVec, so it's valid for 'arena
             return Interned(unsafe { &*existing_ptr });
         }
         let reference = self.vec.push_get(Box::new(v));
-        set.insert(UnsafePtr(reference as *const T));
+        set.insert(InternedPtr(reference as *const T));
         Interned(reference)
     }
 }
 
 /// Wrapper type that implements Hash and Eq by dereferencing the pointer
-struct UnsafePtr<T>(*const T);
+struct InternedPtr<T>(*const T);
 
-impl<T: Hash> Hash for UnsafePtr<T> {
+impl<T: Hash> Hash for InternedPtr<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Safety: pointer is always valid (from FrozenVec)
         unsafe { (*self.0).hash(state) }
     }
 }
 
-impl<T: Eq> Eq for UnsafePtr<T> {}
-impl<T: PartialEq> PartialEq for UnsafePtr<T> {
+impl<T: Eq> Eq for InternedPtr<T> {}
+impl<T: PartialEq> PartialEq for InternedPtr<T> {
     fn eq(&self, other: &Self) -> bool {
         // Safety: pointers are always valid (from FrozenVec)
         unsafe { *self.0 == *other.0 }

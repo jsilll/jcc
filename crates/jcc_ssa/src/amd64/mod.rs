@@ -180,26 +180,6 @@ impl Func {
     }
 
     // ---------------------------------------------------------------------------
-    // Deletion
-    // ---------------------------------------------------------------------------
-
-    // TODO: Implement deletion methods if necessary.
-
-    // ---------------------------------------------------------------------------
-    // Iterators
-    // ---------------------------------------------------------------------------
-
-    pub fn iter_insts(&self) -> impl Iterator<Item = InstRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.insts.len()).map(|i| unsafe { InstRef(NonZeroU32::new_unchecked(i as u32)) })
-    }
-
-    pub fn iter_blocks(&self) -> impl Iterator<Item = BlockRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.blocks.len()).map(|i| unsafe { BlockRef(NonZeroU32::new_unchecked(i as u32)) })
-    }
-
-    // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
 

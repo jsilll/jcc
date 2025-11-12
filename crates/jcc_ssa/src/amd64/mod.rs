@@ -4,9 +4,10 @@ pub mod fix;
 
 use crate::{
     infra::{Indexed, IR},
-    ConstValue, Symbol,
+    ir,
 };
 
+use jcc_interner::Symbol;
 use jcc_sourcemap::SourceSpan;
 
 use std::{collections::HashMap, num::NonZeroU32};
@@ -17,7 +18,7 @@ use std::{collections::HashMap, num::NonZeroU32};
 
 pub struct Program {
     funcs: Vec<Func>,
-    vars: Vec<StaticVar>,
+    vars: Vec<ir::StaticVar>,
 }
 
 impl Default for Program {
@@ -34,43 +35,28 @@ impl Program {
         Default::default()
     }
 
-    pub fn static_var(&self, var_ref: StaticVarRef) -> &StaticVar {
+    pub fn static_var(&self, var_ref: ir::StaticVarRef) -> &ir::StaticVar {
         &self.vars[var_ref.0.get() as usize]
     }
 
-    pub fn new_static_var(&mut self, var: StaticVar) -> StaticVarRef {
+    pub fn new_static_var(&mut self, var: ir::StaticVar) -> ir::StaticVarRef {
         // TODO: Reuse slots from `static_vars_free` for better memory efficiency
-        let r = StaticVarRef(NonZeroU32::new(self.vars.len() as u32).unwrap());
+        let r = ir::StaticVarRef(NonZeroU32::new(self.vars.len() as u32).unwrap());
         self.vars.push(var);
         r
     }
 
-    pub fn iter_static_vars(&self) -> impl Iterator<Item = StaticVarRef> + '_ {
+    pub fn iter_static_vars(&self) -> impl Iterator<Item = ir::StaticVarRef> + '_ {
         // Start from 1 to skip the default function at index 0
-        (1..self.vars.len()).map(|i| unsafe { StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
+        (1..self.vars.len())
+            .map(|i| unsafe { ir::StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
     }
 
     pub fn iter_static_vars_with_ref(
         &self,
-    ) -> impl Iterator<Item = (StaticVarRef, &StaticVar)> + '_ {
+    ) -> impl Iterator<Item = (ir::StaticVarRef, &ir::StaticVar)> + '_ {
         self.iter_static_vars().map(|r| (r, self.static_var(r)))
     }
-}
-
-// ---------------------------------------------------------------------------
-// StaticVar
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct StaticVarRef(NonZeroU32);
-
-#[derive(Debug, Default, Clone)]
-pub struct StaticVar {
-    pub align: u32,
-    pub name: Symbol,
-    pub is_global: bool,
-    pub span: SourceSpan,
-    pub init: Option<ConstValue>,
 }
 
 // ---------------------------------------------------------------------------
@@ -412,14 +398,14 @@ impl std::fmt::Display for Type {
     }
 }
 
-impl TryFrom<crate::Type> for Type {
+impl TryFrom<ir::Ty> for Type {
     type Error = ();
-    fn try_from(ty: crate::Type) -> Result<Self, Self::Error> {
+    fn try_from(ty: ir::Ty) -> Result<Self, Self::Error> {
         match ty {
-            crate::Type::Int8 => Ok(Self::Byte),
-            crate::Type::Int32 => Ok(Self::Long),
-            crate::Type::Int64 => Ok(Self::Quad),
-            crate::Type::IntPtr => Ok(Self::Quad),
+            ir::Ty::Int8 => Ok(Self::Byte),
+            ir::Ty::Int32 => Ok(Self::Long),
+            ir::Ty::Int64 => Ok(Self::Quad),
+            ir::Ty::IntPtr => Ok(Self::Quad),
             _ => Err(()),
         }
     }
@@ -475,7 +461,7 @@ pub enum Operand {
     /// Pseudo register.
     Pseudo(u32),
     /// A static variable reference.
-    Data(StaticVarRef),
+    Data(ir::StaticVarRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -621,16 +607,16 @@ impl CondCode {
     }
 }
 
-impl TryFrom<crate::BinaryOp> for CondCode {
+impl TryFrom<ir::BinaryOp> for CondCode {
     type Error = ();
-    fn try_from(op: crate::BinaryOp) -> Result<Self, Self::Error> {
+    fn try_from(op: ir::BinaryOp) -> Result<Self, Self::Error> {
         match op {
-            crate::BinaryOp::Equal => Ok(Self::Eq),
-            crate::BinaryOp::NotEqual => Ok(Self::Ne),
-            crate::BinaryOp::LessThan => Ok(Self::Lt),
-            crate::BinaryOp::LessEqual => Ok(Self::Le),
-            crate::BinaryOp::GreaterThan => Ok(Self::Gt),
-            crate::BinaryOp::GreaterEqual => Ok(Self::Ge),
+            ir::BinaryOp::Equal => Ok(Self::Eq),
+            ir::BinaryOp::NotEqual => Ok(Self::Ne),
+            ir::BinaryOp::LessThan => Ok(Self::Lt),
+            ir::BinaryOp::LessEqual => Ok(Self::Le),
+            ir::BinaryOp::GreaterThan => Ok(Self::Gt),
+            ir::BinaryOp::GreaterEqual => Ok(Self::Ge),
             _ => Err(()),
         }
     }

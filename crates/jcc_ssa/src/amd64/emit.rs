@@ -1,7 +1,9 @@
+use jcc_interner::Interner;
+
 use crate::{
-    amd64::{InstKind, InstRef, Type},
+    amd64::{BlockRef, InstKind, InstRef, Type},
     infra::emitter::IndentedEmitter,
-    ConstValue, Interner, TargetOs,
+    ir,
 };
 
 use super::{BinaryOp, Func, Operand, Program, UnaryOp};
@@ -14,14 +16,14 @@ use std::fmt::Write;
 
 pub struct AMD64Emitter<'a> {
     func: &'a Func,
-    target: TargetOs,
+    target: ir::TargetOs,
     program: &'a Program,
     interner: &'a Interner,
     e: IndentedEmitter<String>,
 }
 
 impl<'a> AMD64Emitter<'a> {
-    pub fn new(program: &'a Program, interner: &'a Interner, target: TargetOs) -> Self {
+    pub fn new(program: &'a Program, interner: &'a Interner, target: ir::TargetOs) -> Self {
         let func = program
             .funcs
             .first()
@@ -49,10 +51,10 @@ impl<'a> AMD64Emitter<'a> {
                     } else {
                         writeln!(s.e, ".data")?;
                     }
-                    if target == TargetOs::Macos {
-                        writeln!(s.e, ".balign {}", var.align)?;
+                    if target == ir::TargetOs::Macos {
+                        writeln!(s.e, ".balign {}", var.ty.align())?;
                     } else {
-                        writeln!(s.e, ".align {}", var.align)?;
+                        writeln!(s.e, ".align {}", var.ty.align())?;
                     }
                     Ok(())
                 })?;
@@ -62,10 +64,10 @@ impl<'a> AMD64Emitter<'a> {
                     writeln!(self.e, "{name}{}:", v.0)?;
                 }
                 self.indented(|s| match init {
-                    ConstValue::Int32(0) => writeln!(s.e, ".zero 4"),
-                    ConstValue::Int64(0) => writeln!(s.e, ".zero 8"),
-                    ConstValue::Int32(v) => writeln!(s.e, ".long {v}"),
-                    ConstValue::Int64(v) => writeln!(s.e, ".quad {v}"),
+                    ir::ConstValue::Int32(0) => writeln!(s.e, ".zero 4"),
+                    ir::ConstValue::Int64(0) => writeln!(s.e, ".zero 8"),
+                    ir::ConstValue::Int32(v) => writeln!(s.e, ".long {v}"),
+                    ir::ConstValue::Int64(v) => writeln!(s.e, ".quad {v}"),
                 })?;
             }
         }
@@ -80,7 +82,7 @@ impl<'a> AMD64Emitter<'a> {
     fn emit_func(&mut self, func: &Func) -> std::fmt::Result {
         let name = self.interner.lookup(func.name);
         if func.is_global {
-            if self.target == TargetOs::Macos {
+            if self.target == ir::TargetOs::Macos {
                 if name == "main" {
                     self.indented(|s| writeln!(s.e, ".globl main"))?;
                 } else {
@@ -91,7 +93,7 @@ impl<'a> AMD64Emitter<'a> {
             }
         }
         self.indented(|s| writeln!(s.e, ".text"))?;
-        if self.target == TargetOs::Macos {
+        if self.target == ir::TargetOs::Macos {
             if name == "main" {
                 writeln!(self.e, "main:")?;
             } else {
@@ -107,7 +109,7 @@ impl<'a> AMD64Emitter<'a> {
         for (idx, block) in func.blocks[1..].iter().enumerate() {
             if let Some(label) = block.label {
                 let label = self.interner.lookup(label);
-                if self.target == TargetOs::Macos {
+                if self.target == ir::TargetOs::Macos {
                     writeln!(self.e, "L{label}{}{name}:", idx + 1)?;
                 } else {
                     writeln!(self.e, ".L{label}{}{name}:", idx + 1)?;
@@ -147,7 +149,7 @@ impl<'a> AMD64Emitter<'a> {
             }
             InstKind::Call(name) => {
                 let name = self.interner.lookup(name);
-                if self.target == TargetOs::Macos {
+                if self.target == ir::TargetOs::Macos {
                     if name == "main" {
                         writeln!(self.e, "call main")
                     } else {
@@ -158,25 +160,12 @@ impl<'a> AMD64Emitter<'a> {
                 }
             }
             InstKind::Jmp(target) => {
-                let block = self.func.block(target);
-                match block.label {
-                    None => {
-                        if self.target == TargetOs::Macos {
-                            writeln!(self.e, "jmp L{target}")
-                        } else {
-                            writeln!(self.e, "jmp .L{target}")
-                        }
-                    }
-                    Some(label) => {
-                        let label = self.interner.lookup(label);
-                        let name = self.interner.lookup(self.func.name);
-                        if self.target == TargetOs::Macos {
-                            writeln!(self.e, "jmp L{label}{target}{name}")
-                        } else {
-                            writeln!(self.e, "jmp .L{label}{target}{name}")
-                        }
-                    }
-                }
+                let label = self.emit_block_label(target);
+                writeln!(self.e, "jmp {label}")
+            }
+            InstKind::JmpCC { code, target } => {
+                let label = self.emit_block_label(target);
+                writeln!(self.e, "j{code} {label}")
             }
             InstKind::SetCC { code, dst } => {
                 let dst = self.emit_operand(&dst, Type::Byte);
@@ -202,27 +191,6 @@ impl<'a> AMD64Emitter<'a> {
                 let rhs = self.emit_operand(&rhs, inst.ty);
                 writeln!(self.e, "cmp{} {lhs}, {rhs}", inst.ty)
             }
-            InstKind::JmpCC { code, target } => {
-                let block = self.func.block(target);
-                match block.label {
-                    None => {
-                        if self.target == TargetOs::Macos {
-                            writeln!(self.e, "j{code} L{target}")
-                        } else {
-                            writeln!(self.e, "j{code} .L{target}")
-                        }
-                    }
-                    Some(label) => {
-                        let label = self.interner.lookup(label);
-                        let name = self.interner.lookup(self.func.name);
-                        if self.target == TargetOs::Macos {
-                            writeln!(self.e, "j{code} L{label}{target}{name}")
-                        } else {
-                            writeln!(self.e, "j{code} .L{label}{target}{name}")
-                        }
-                    }
-                }
-            }
             InstKind::Unary { op, dst } => {
                 let dst = self.emit_operand(&dst, inst.ty);
                 match op {
@@ -246,6 +214,23 @@ impl<'a> AMD64Emitter<'a> {
                     BinaryOp::Shr => writeln!(self.e, "sar{} {src}, {dst}", inst.ty),
                     BinaryOp::Mul => writeln!(self.e, "imul{} {src}, {dst}", inst.ty),
                 }
+            }
+        }
+    }
+
+    fn emit_block_label(&self, block_ref: BlockRef) -> String {
+        let block = self.func.block(block_ref);
+        let prefix = if self.target == ir::TargetOs::Macos {
+            "L"
+        } else {
+            ".L"
+        };
+        match block.label {
+            None => format!("{prefix}{block_ref}"),
+            Some(label) => {
+                let label = self.interner.lookup(label);
+                let name = self.interner.lookup(self.func.name);
+                format!("{prefix}{label}{block_ref}{name}")
             }
         }
     }

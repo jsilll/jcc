@@ -114,3 +114,26 @@ impl FastEffects {
         false
     }
 }
+
+// ---------------------------------------------------------------------------
+// BaseHeaps
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct BaseHeaps {
+    pub world: AbstractHeap,
+    pub memory: AbstractHeap,
+    pub control: AbstractHeap,
+    pub ssa_state: AbstractHeap,
+}
+
+impl Default for BaseHeaps {
+    fn default() -> Self {
+        Self {
+            world: AbstractHeap::new(1, 8),
+            memory: AbstractHeap::new(2, 3),
+            control: AbstractHeap::new(4, 5),
+            ssa_state: AbstractHeap::new(6, 7),
+        }
+    }
+}

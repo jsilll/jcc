@@ -3,11 +3,11 @@ pub mod parse;
 pub mod slice;
 pub mod ty;
 
-use crate::ast::{slice::Slice, ty::Ty};
+pub use ty::{Ty, TyKind};
 
-use crate::sema::SemaSymbol;
+use crate::{ast::slice::Slice, sema::SemaSymbol};
 
-use jcc_ssa::{interner::Symbol, sourcemap::SourceSpan, ConstValue};
+use jcc_ssa::{interner::Symbol, ir::ConstValue, sourcemap::SourceSpan};
 
 use std::{cell::Cell, num::NonZeroU32};
 

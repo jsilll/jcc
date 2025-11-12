@@ -1,7 +1,7 @@
 use jcc_interner::{Interner, Symbol};
 use jcc_sourcemap::SourceSpan;
 
-use crate::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program};
+use crate::ir::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program};
 
 // ---------------------------------------------------------------------------
 // IRBuilder

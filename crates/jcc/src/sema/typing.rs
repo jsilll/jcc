@@ -9,8 +9,8 @@ use crate::{
 };
 
 use jcc_ssa::{
+    ir::ConstValue,
     sourcemap::{diag::Diagnostic, SourceSpan},
-    ConstValue,
 };
 
 use std::collections::HashSet;

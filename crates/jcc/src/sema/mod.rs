@@ -7,7 +7,7 @@ use crate::ast::{
     StmtRef,
 };
 
-use jcc_ssa::ConstValue;
+use jcc_ssa::ir::ConstValue;
 
 use std::{collections::HashMap, num::NonZeroU32};
 

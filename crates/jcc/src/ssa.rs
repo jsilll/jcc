@@ -1,20 +1,17 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{
-        self,
-        ty::{Ty, TyKind},
-        AstSymbol, StmtRef,
-    },
+    ast,
     sema::{Attribute, SemaCtx, SemaSymbol, StaticValue},
 };
 
 use jcc_ssa::{
-    builder::IRBuilder,
     interner::{Interner, Symbol},
+    ir::{
+        builder::IRBuilder, BinaryOp, BlockRef, ConstValue, Func, FuncRef, Inst, InstRef, Program,
+        StaticVar, StaticVarRef, Ty, UnaryOp,
+    },
     sourcemap::SourceSpan,
-    BinaryOp, BlockRef, ConstValue, Func, FuncRef, Inst, InstRef, Program, StaticVar, StaticVarRef,
-    Type, UnaryOp,
 };
 
 // ---------------------------------------------------------------------------
@@ -26,7 +23,7 @@ pub struct SSABuilder<'ctx> {
     ast: &'ctx ast::Ast<'ctx>,
     sema: &'ctx SemaCtx<'ctx>,
     symbols: Vec<SymbolEntry>,
-    tracked: HashMap<StmtRef, TrackedBlock>,
+    tracked: HashMap<ast::StmtRef, TrackedBlock>,
 }
 
 impl<'ctx> SSABuilder<'ctx> {
@@ -61,19 +58,19 @@ impl<'ctx> SSABuilder<'ctx> {
                             let raw = decl.name.raw;
                             let v = match init {
                                 StaticValue::NoInit => match *decl.ty {
-                                    TyKind::Int => {
+                                    ast::TyKind::Int => {
                                         StaticVar::int32(raw, is_global, None, decl.span)
                                     }
-                                    TyKind::Long => {
+                                    ast::TyKind::Long => {
                                         StaticVar::int64(raw, is_global, None, decl.span)
                                     }
                                     _ => todo!("handle other types"),
                                 },
                                 StaticValue::Tentative => match *decl.ty {
-                                    TyKind::Int => {
+                                    ast::TyKind::Int => {
                                         StaticVar::int32(raw, is_global, Some(0), decl.span)
                                     }
-                                    TyKind::Long => {
+                                    ast::TyKind::Long => {
                                         StaticVar::int64(raw, is_global, Some(0), decl.span)
                                     }
                                     _ => todo!("handle other types"),
@@ -110,8 +107,8 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.ast.decls(params).iter().for_each(|param_ref| {
                             let param = self.ast.decl(*param_ref);
                             let ty = match *param.ty {
-                                TyKind::Int => Type::Int32,
-                                TyKind::Long => Type::Int64,
+                                ast::TyKind::Int => Ty::Int32,
+                                ast::TyKind::Long => Ty::Int64,
                                 _ => todo!(),
                             };
                             let arg = self.builder.insert_inst(Inst::arg(ty, param.span));
@@ -168,13 +165,19 @@ impl<'ctx> SSABuilder<'ctx> {
                         let raw = decl.name.raw;
                         let v = match init {
                             StaticValue::NoInit => match *decl.ty {
-                                TyKind::Int => StaticVar::int32(raw, is_global, None, decl.span),
-                                TyKind::Long => StaticVar::int64(raw, is_global, None, decl.span),
+                                ast::TyKind::Int => {
+                                    StaticVar::int32(raw, is_global, None, decl.span)
+                                }
+                                ast::TyKind::Long => {
+                                    StaticVar::int64(raw, is_global, None, decl.span)
+                                }
                                 _ => todo!("handle other types"),
                             },
                             StaticValue::Tentative => match *decl.ty {
-                                TyKind::Int => StaticVar::int32(raw, is_global, Some(0), decl.span),
-                                TyKind::Long => {
+                                ast::TyKind::Int => {
+                                    StaticVar::int32(raw, is_global, Some(0), decl.span)
+                                }
+                                ast::TyKind::Long => {
                                     StaticVar::int64(raw, is_global, Some(0), decl.span)
                                 }
                                 _ => todo!("handle other types"),
@@ -460,11 +463,11 @@ impl<'ctx> SSABuilder<'ctx> {
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => match *info.ty {
-                                TyKind::Int => {
-                                    self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
+                                ast::TyKind::Int => {
+                                    self.builder.insert_inst(Inst::load(Ty::Int32, ptr, span))
                                 }
-                                TyKind::Long => {
-                                    self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
+                                ast::TyKind::Long => {
+                                    self.builder.insert_inst(Inst::load(Ty::Int64, ptr, span))
                                 }
                                 _ => todo!("handle other types"),
                             },
@@ -475,11 +478,11 @@ impl<'ctx> SSABuilder<'ctx> {
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => match *info.ty {
-                                TyKind::Int => {
-                                    self.builder.insert_inst(Inst::load(Type::Int32, ptr, span))
+                                ast::TyKind::Int => {
+                                    self.builder.insert_inst(Inst::load(Ty::Int32, ptr, span))
                                 }
-                                TyKind::Long => {
-                                    self.builder.insert_inst(Inst::load(Type::Int64, ptr, span))
+                                ast::TyKind::Long => {
+                                    self.builder.insert_inst(Inst::load(Ty::Int64, ptr, span))
                                 }
                                 _ => todo!("handle other types"),
                             },
@@ -511,7 +514,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     .expect("expected a sema symbol");
                 let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
                 let ty = match *symbol.ty {
-                    TyKind::Func { ret, .. } => ty_to_ssa(ret),
+                    ast::TyKind::Func { ret, .. } => ty_to_ssa(ret),
                     _ => panic!("expected a function type"),
                 };
                 self.builder
@@ -552,7 +555,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     let val = self.visit_expr(*inner, ExprMode::RightValue);
                     let zero = self.builder.insert_inst(Inst::const_i32(0, expr.span));
                     self.builder.insert_inst(Inst::binary(
-                        Type::Int32,
+                        Ty::Int32,
                         BinaryOp::Equal,
                         val,
                         zero,
@@ -830,7 +833,7 @@ impl<'ctx> SSABuilder<'ctx> {
     #[inline]
     fn build_unary(
         &mut self,
-        ty: Type,
+        ty: Ty,
         op: UnaryOp,
         expr: ast::ExprRef,
         span: SourceSpan,
@@ -842,7 +845,7 @@ impl<'ctx> SSABuilder<'ctx> {
     #[inline]
     fn build_prefix_unary(
         &mut self,
-        ty: Type,
+        ty: Ty,
         op: UnaryOp,
         expr: ast::ExprRef,
         span: SourceSpan,
@@ -857,7 +860,7 @@ impl<'ctx> SSABuilder<'ctx> {
     #[inline]
     fn build_postfix_unary(
         &mut self,
-        ty: Type,
+        ty: Ty,
         op: UnaryOp,
         expr: ast::ExprRef,
         span: SourceSpan,
@@ -872,7 +875,7 @@ impl<'ctx> SSABuilder<'ctx> {
     #[inline]
     fn build_bin(
         &mut self,
-        ty: Type,
+        ty: Ty,
         op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
@@ -888,7 +891,7 @@ impl<'ctx> SSABuilder<'ctx> {
     fn build_bin_asgn(
         &mut self,
         mode: ExprMode,
-        ty: Ty<'ctx>,
+        ty: ast::Ty<'ctx>,
         op: BinaryOp,
         lhs: ast::ExprRef,
         rhs: ast::ExprRef,
@@ -940,7 +943,7 @@ impl<'ctx> SSABuilder<'ctx> {
             span,
         );
 
-        let phi = self.builder.insert_inst_skip(Inst::phi(Type::Int32, span));
+        let phi = self.builder.insert_inst_skip(Inst::phi(Ty::Int32, span));
 
         // === LHS Block ===
         let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
@@ -949,7 +952,7 @@ impl<'ctx> SSABuilder<'ctx> {
             LogicalOp::And => Inst::const_i32(0, span),
         });
         self.builder
-            .insert_inst(Inst::upsilon(Type::Int32, phi, short_circuit_val, span));
+            .insert_inst(Inst::upsilon(Ty::Int32, phi, short_circuit_val, span));
         let (true_target, false_target) = match op {
             LogicalOp::Or => (cont_block, rhs_block),
             LogicalOp::And => (rhs_block, cont_block),
@@ -962,14 +965,14 @@ impl<'ctx> SSABuilder<'ctx> {
         let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
         let zero_val = self.builder.insert_inst(Inst::const_i32(0, span));
         let is_nonzero = self.builder.insert_inst(Inst::binary(
-            Type::Int32,
+            Ty::Int32,
             BinaryOp::NotEqual,
             rhs_val,
             zero_val,
             span,
         ));
         self.builder
-            .insert_inst(Inst::upsilon(Type::Int32, phi, is_nonzero, span));
+            .insert_inst(Inst::upsilon(Ty::Int32, phi, is_nonzero, span));
         self.builder.insert_inst(Inst::jump(cont_block, span));
 
         // === Merge Block ===
@@ -1004,7 +1007,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    pub fn get_break_block(&self, stmt: StmtRef) -> BlockRef {
+    pub fn get_break_block(&self, stmt: ast::StmtRef) -> BlockRef {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
             _ => panic!("expected a break block"),
@@ -1012,7 +1015,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    pub fn get_continue_block(&self, stmt: StmtRef) -> BlockRef {
+    pub fn get_continue_block(&self, stmt: ast::StmtRef) -> BlockRef {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
             _ => panic!("expected a break block"),
@@ -1020,7 +1023,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    pub fn remove_case_block(&mut self, stmt: StmtRef) -> BlockRef {
+    pub fn remove_case_block(&mut self, stmt: ast::StmtRef) -> BlockRef {
         match self.tracked.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
             _ => panic!("expected a break block"),
@@ -1030,7 +1033,7 @@ impl<'ctx> SSABuilder<'ctx> {
     #[inline]
     pub fn get_or_make_labeled(
         &mut self,
-        stmt: StmtRef,
+        stmt: ast::StmtRef,
         name: Symbol,
         span: SourceSpan,
     ) -> BlockRef {
@@ -1047,7 +1050,7 @@ impl<'ctx> SSABuilder<'ctx> {
     #[inline]
     pub fn get_or_make_function(
         &mut self,
-        name: &AstSymbol,
+        name: &ast::AstSymbol,
         is_global: bool,
         span: SourceSpan,
     ) -> FuncRef {
@@ -1069,7 +1072,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    pub fn get_or_make_static(&mut self, name: &AstSymbol, mut v: StaticVar) -> StaticVarRef {
+    pub fn get_or_make_static(&mut self, name: &ast::AstSymbol, mut v: StaticVar) -> StaticVarRef {
         let idx = name.sema.get().0.get() as usize;
         match self.symbols[idx] {
             SymbolEntry::Inst(_) | SymbolEntry::Function(_) => panic!("expected a static"),
@@ -1094,13 +1097,15 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 }
 
-fn ty_to_ssa(ty: Ty) -> Type {
+fn ty_to_ssa(ty: ast::Ty) -> Ty {
     match *ty {
-        TyKind::Void => Type::Void,
-        TyKind::Int => Type::Int32,
-        TyKind::Long => Type::Int64,
-        TyKind::Ptr(_) => Type::IntPtr,
-        TyKind::Func { .. } => panic!("Functions do not have a direct SSA type representation"),
+        ast::TyKind::Void => Ty::Void,
+        ast::TyKind::Int => Ty::Int32,
+        ast::TyKind::Long => Ty::Int64,
+        ast::TyKind::Ptr(_) => Ty::IntPtr,
+        ast::TyKind::Func { .. } => {
+            panic!("Functions do not have a direct SSA type representation")
+        }
     }
 }
 

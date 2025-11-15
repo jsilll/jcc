@@ -1,13 +1,12 @@
 pub mod graphviz;
 pub mod parse;
-pub mod slice;
 pub mod ty;
 
 pub use ty::{Ty, TyKind};
 
-use crate::{ast::slice::Slice, sema::SemaSymbol};
+use crate::sema::SemaSymbol;
 
-use jcc_entity::{EntityRef, PrimaryMap};
+use jcc_entity::{EntityList, EntityRef, ListPool, PrimaryMap};
 use jcc_ssa::{interner::Symbol, ir::ConstValue, sourcemap::SourceSpan};
 
 use std::cell::Cell;
@@ -19,29 +18,35 @@ use std::cell::Cell;
 #[derive(Debug)]
 pub struct DeclMarker;
 pub type DeclRef = EntityRef<DeclMarker>;
+pub type DeclList = EntityList<DeclRef>;
 
 #[derive(Debug)]
 pub struct ExprMarker;
 pub type ExprRef = EntityRef<ExprMarker>;
+pub type ExprList = EntityList<ExprRef>;
 
 #[derive(Debug)]
 pub struct StmtMarker;
 pub type StmtRef = EntityRef<StmtMarker>;
+pub type Block = EntityList<BlockItem>;
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum BlockItem {
+    /// A declaration.
+    Decl(DeclRef),
+    /// A statement.
+    Stmt(StmtRef),
+}
+
+#[derive(Default)]
 pub struct Ast<'ctx> {
     root: Vec<DeclRef>,
+    pub sliced_decls: ListPool<DeclRef>,
+    pub sliced_exprs: ListPool<ExprRef>,
+    pub sliced_items: ListPool<BlockItem>,
     pub stmts: PrimaryMap<StmtMarker, Stmt>,
     pub decls: PrimaryMap<DeclMarker, Decl<'ctx>>,
     pub exprs: PrimaryMap<ExprMarker, Expr<'ctx>>,
-    sliced_decls: Vec<DeclRef>,
-    sliced_exprs: Vec<ExprRef>,
-    sliced_items: Vec<BlockItem>,
-}
-
-impl<'ctx> Default for Ast<'ctx> {
-    fn default() -> Self {
-        Ast::new()
-    }
 }
 
 impl<'ctx> Ast<'ctx> {
@@ -55,62 +60,14 @@ impl<'ctx> Ast<'ctx> {
             decls: PrimaryMap::with_capacity(capacity),
             stmts: PrimaryMap::with_capacity(capacity),
             exprs: PrimaryMap::with_capacity(capacity),
-            sliced_decls: Vec::with_capacity(capacity),
-            sliced_exprs: Vec::with_capacity(capacity),
-            sliced_items: Vec::with_capacity(capacity),
+            sliced_decls: ListPool::with_capacity(capacity),
+            sliced_exprs: ListPool::with_capacity(capacity),
+            sliced_items: ListPool::with_capacity(capacity),
         }
     }
 
-    // ---------------------------------------------------------------------------
-    // Accessors
-    // ---------------------------------------------------------------------------
-
-    #[inline]
     pub fn root(&self) -> &[DeclRef] {
         self.root.as_slice()
-    }
-
-    #[inline]
-    pub fn exprs(&self, slice: Slice<ExprRef>) -> &[ExprRef] {
-        &self.sliced_exprs[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn decls(&self, slice: Slice<DeclRef>) -> &[DeclRef] {
-        &self.sliced_decls[slice.0 as usize..slice.1 as usize]
-    }
-
-    #[inline]
-    pub fn items(&self, slice: Slice<BlockItem>) -> &[BlockItem] {
-        &self.sliced_items[slice.0 as usize..slice.1 as usize]
-    }
-
-    // ---------------------------------------------------------------------------
-    // Creation
-    // ---------------------------------------------------------------------------
-
-    #[inline]
-    pub fn new_exprs(&mut self, args: impl IntoIterator<Item = ExprRef>) -> Slice<ExprRef> {
-        let begin = self.sliced_exprs.len() as u32;
-        self.sliced_exprs.extend(args);
-        let end = self.sliced_exprs.len() as u32;
-        Slice::new(begin, end)
-    }
-
-    #[inline]
-    pub fn new_decls(&mut self, params: impl IntoIterator<Item = DeclRef>) -> Slice<DeclRef> {
-        let begin = self.sliced_decls.len() as u32;
-        self.sliced_decls.extend(params);
-        let end = self.sliced_decls.len() as u32;
-        Slice::new(begin, end)
-    }
-
-    #[inline]
-    pub fn new_items(&mut self, items: impl IntoIterator<Item = BlockItem>) -> Slice<BlockItem> {
-        let begin = self.sliced_items.len() as u32;
-        self.sliced_items.extend(items);
-        let end = self.sliced_items.len() as u32;
-        Slice::new(begin, end)
     }
 }
 
@@ -133,15 +90,9 @@ pub enum DeclKind {
     Var(Option<ExprRef>),
     /// A function declaration.
     Func {
-        params: Slice<DeclRef>,
-        body: Option<Slice<BlockItem>>,
+        params: DeclList,
+        body: Option<Block>,
     },
-}
-
-impl Default for DeclKind {
-    fn default() -> Self {
-        DeclKind::Var(None)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -163,10 +114,10 @@ pub enum StmtKind {
     Expr(ExprRef),
     /// A return statement.
     Return(ExprRef),
+    /// A compound statement.
+    Compound(Block),
     /// A default statement.
     Default(StmtRef),
-    /// A compound statement.
-    Compound(Slice<BlockItem>),
     /// A break statement.
     Break(Cell<Option<StmtRef>>),
     /// A continue statement.
@@ -223,12 +174,6 @@ impl<'ctx> Expr<'ctx> {
     }
 }
 
-impl<'ctx> Default for ExprKind<'ctx> {
-    fn default() -> Self {
-        Self::Const(ConstValue::Int32(0))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprKind<'ctx> {
     /// A variable reference.
@@ -254,10 +199,7 @@ pub enum ExprKind<'ctx> {
         other: ExprRef,
     },
     /// A function call expression.
-    Call {
-        name: AstSymbol,
-        args: Slice<ExprRef>,
-    },
+    Call { name: AstSymbol, args: ExprList },
 }
 
 // ---------------------------------------------------------------------------
@@ -369,14 +311,6 @@ impl AstSymbol {
             ..Default::default()
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum BlockItem {
-    /// A declaration.
-    Decl(DeclRef),
-    /// A statement.
-    Stmt(StmtRef),
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

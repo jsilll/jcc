@@ -1,8 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyCtx},
-        Ast, AstSymbol, BinaryOp, BlockItem, ConstValue, Decl, DeclKind, DeclRef, Expr, ExprKind,
-        ExprRef, ForInit, Slice, Stmt, StmtKind, StmtRef, StorageClass, UnaryOp,
+        Ast, AstSymbol, BinaryOp, Block, BlockItem, ConstValue, Decl, DeclKind, DeclList, DeclRef,
+        Expr, ExprKind, ExprList, ExprRef, ForInit, Stmt, StmtKind, StmtRef, StorageClass, UnaryOp,
     },
     token::{
         lex::{Lexer, LexerDiagnostic},
@@ -227,16 +227,16 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         }))
     }
 
-    fn parse_params(&mut self) -> Slice<DeclRef> {
+    fn parse_params(&mut self) -> DeclList {
         let Some(token) = self.peek_some() else {
-            return Slice::default();
+            return DeclList::empty();
         };
         match token.kind {
             TokenKind::KwVoid => {
                 self.next();
-                Slice::default()
+                DeclList::empty()
             }
-            TokenKind::RParen => Slice::default(),
+            TokenKind::RParen => DeclList::default(),
             _ => {
                 self.collect_types();
                 let ty = self.parse_type();
@@ -256,12 +256,15 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         self.decl_stack.push(decl);
                     }
                 }
-                self.result.ast.new_decls(self.decl_stack.drain(base..))
+                self.result
+                    .ast
+                    .sliced_decls
+                    .extend(self.decl_stack.drain(base..))
             }
         }
     }
 
-    fn parse_body(&mut self) -> Slice<BlockItem> {
+    fn parse_body(&mut self) -> Block {
         let base = self.items_stack.len();
         while let Some(Token { kind, .. }) = self.peek() {
             match kind {
@@ -276,7 +279,10 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 },
             }
         }
-        self.result.ast.new_items(self.items_stack.drain(base..))
+        self.result
+            .ast
+            .sliced_items
+            .extend(self.items_stack.drain(base..))
     }
 
     fn parse_stmt(&mut self) -> Option<StmtRef> {
@@ -658,12 +664,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         expr
     }
 
-    fn parse_args(&mut self) -> Slice<ExprRef> {
+    fn parse_args(&mut self) -> ExprList {
         let Some(token) = self.peek_some() else {
-            return Slice::default();
+            return ExprList::default();
         };
         match token.kind {
-            TokenKind::RParen => Slice::default(),
+            TokenKind::RParen => ExprList::default(),
             _ => {
                 let base = self.expr_stack.len();
                 if let Some(expr) = self.parse_expr(0) {
@@ -679,7 +685,10 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         self.expr_stack.push(expr);
                     }
                 }
-                self.result.ast.new_exprs(self.expr_stack.drain(base..))
+                self.result
+                    .ast
+                    .sliced_exprs
+                    .extend(self.expr_stack.drain(base..))
             }
         }
     }
@@ -695,11 +704,13 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     #[inline]
-    fn build_func_type(&mut self, params_slice: Slice<DeclRef>, ret: Ty<'ctx>) -> Ty<'ctx> {
+    fn build_func_type(&mut self, params_slice: DeclList, ret: Ty<'ctx>) -> Ty<'ctx> {
         let mut params = Vec::with_capacity(params_slice.len());
-        self.result.ast.decls(params_slice).iter().for_each(|d| {
-            params.push(self.result.ast.decls[*d].ty);
-        });
+        self.result.ast.sliced_decls[params_slice]
+            .iter()
+            .for_each(|d| {
+                params.push(self.result.ast.decls[*d].ty);
+            });
         self.tys.func(ret, params)
     }
 

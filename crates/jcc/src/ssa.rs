@@ -104,7 +104,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     if let Some(body) = body {
                         self.tracked.clear();
 
-                        self.ast.decls(params).iter().for_each(|param_ref| {
+                        self.ast.sliced_decls[params].iter().for_each(|param_ref| {
                             let param = &self.ast.decls[*param_ref];
                             let ty = match *param.ty {
                                 ast::TyKind::Int => Ty::Int32,
@@ -115,12 +115,14 @@ impl<'ctx> SSABuilder<'ctx> {
                             self.insert_var(param.name.sema.get(), arg);
                         });
 
-                        self.ast.items(body).iter().for_each(|item| match item {
-                            ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                            ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                        });
+                        self.ast.sliced_items[body]
+                            .iter()
+                            .for_each(|item| match item {
+                                ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                                ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                            });
 
-                        let append_return = match self.ast.items(body).last() {
+                        let append_return = match self.ast.sliced_items[body].last() {
                             Some(ast::BlockItem::Stmt(stmt)) => {
                                 !matches!(self.ast.stmts[*stmt].kind, ast::StmtKind::Return(_))
                             }
@@ -223,10 +225,12 @@ impl<'ctx> SSABuilder<'ctx> {
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Compound(items) => {
-                self.ast.items(*items).iter().for_each(|item| match item {
-                    ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
-                    ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                });
+                self.ast.sliced_items[*items]
+                    .iter()
+                    .for_each(|item| match item {
+                        ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
+                        ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    });
             }
             ast::StmtKind::Goto {
                 label,
@@ -506,9 +510,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 }
             }
             ast::ExprKind::Call { name, args, .. } => {
-                let args = self
-                    .ast
-                    .exprs(*args)
+                let args = self.ast.sliced_exprs[*args]
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();

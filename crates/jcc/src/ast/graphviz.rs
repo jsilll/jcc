@@ -77,7 +77,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                 );
                 self.define_node(&decl_id, &label, Some(Color::PaleGreen))?;
 
-                let params = self.ast.decls(params);
+                let params = &self.ast.sliced_decls[params];
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
                     self.define_node(&params_id, "Parameters", Some(Color::AliceBlue))?;
@@ -99,7 +99,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                         let body_id = self.fresh_aux_node_id("func_body");
                         self.define_node(&body_id, "Function Body", Some(Color::WhiteSmoke))?;
                         self.define_edge(&decl_id, &body_id, Some("body"))?;
-                        for (idx, item) in self.ast.items(body).iter().enumerate() {
+                        for (idx, item) in self.ast.sliced_items[body].iter().enumerate() {
                             let item_id = match item {
                                 BlockItem::Decl(decl) => self.visit_decl(*decl)?,
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt)?,
@@ -196,7 +196,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
             }
             StmtKind::Compound(items) => {
                 self.define_node(&stmt_id, "CompoundStmt", Some(Color::LightCyan))?;
-                let items = self.ast.items(*items);
+                let items = &self.ast.sliced_items[*items];
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");
                     self.define_node(&empty_marker_id, "(empty block)", None)?;
@@ -297,7 +297,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                 let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.sema.get());
                 self.define_node(&expr_id, &label, Some(Color::DeepSkyBlue))?;
 
-                let args = self.ast.exprs(*args);
+                let args = &self.ast.sliced_exprs[*args];
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
                     self.define_node(&args_id, "Arguments", Some(Color::AliceBlue))?;

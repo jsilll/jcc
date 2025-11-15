@@ -1,6 +1,4 @@
-use crate::ast::{
-    Ast, BlockItem, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind, StmtRef,
-};
+use crate::ast::{Ast, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind};
 
 use jcc_ssa::{infra::emitter::IndentedEmitter, interner::Interner};
 
@@ -37,8 +35,8 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
             )?;
             writeln!(s.e, "edge [fontname=\"Helvetica\", fontsize=9];")?;
             s.define_node("ast_root", "ASTRoot", Some(Color::LightBlue))?;
-            s.ast.root().iter().try_for_each(|decl_ref| {
-                let id = s.visit_decl(*decl_ref)?;
+            s.ast.root.iter().try_for_each(|decl| {
+                let id = s.visit_decl(*decl)?;
                 s.define_edge("ast_root", &id, None)
             })?;
             Ok(())
@@ -47,41 +45,41 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
         Ok(self.e.into_inner())
     }
 
-    fn visit_decl(&mut self, decl_ref: DeclRef) -> Result<String, std::fmt::Error> {
-        let decl_id = format!("decl_{}", decl_ref.index());
-        let decl = &self.ast.decls[decl_ref];
-        match decl.kind {
+    fn visit_decl(&mut self, decl: Decl) -> Result<String, std::fmt::Error> {
+        let data = &self.ast.decl[decl];
+        let id = format!("decl_{}", decl.index());
+        match data.kind {
             DeclKind::Var(init) => {
-                let name = self.interner.lookup(decl.name.raw).escape_default();
+                let name = self.interner.lookup(data.name.name).escape_default();
                 let label = format!(
                     "VarDecl\\nname: {}\\ntype: {:?}\\nstorage: {:?}\\nsema: {:?}",
                     name,
-                    decl.ty,
-                    decl.storage,
-                    decl.name.sema.get()
+                    data.ty,
+                    data.storage,
+                    data.name.id.get()
                 );
-                self.define_node(&decl_id, &label, Some(Color::LightGoldenrodYellow))?;
+                self.define_node(&id, &label, Some(Color::LightGoldenrodYellow))?;
                 if let Some(init) = init {
                     let init_id = self.visit_expr(init)?;
-                    self.define_edge(&decl_id, &init_id, Some("initializer"))?;
+                    self.define_edge(&id, &init_id, Some("initializer"))?;
                 }
             }
             DeclKind::Func { params, body } => {
-                let name = self.interner.lookup(decl.name.raw).escape_default();
+                let name = self.interner.lookup(data.name.name).escape_default();
                 let label = format!(
                     "FuncDecl\\nname: {}\\ntype: {:?}\\nstorage: {:?}\\nsema: {:?}",
                     name,
-                    decl.ty,
-                    decl.storage,
-                    decl.name.sema.get()
+                    data.ty,
+                    data.storage,
+                    data.name.id.get()
                 );
-                self.define_node(&decl_id, &label, Some(Color::PaleGreen))?;
+                self.define_node(&id, &label, Some(Color::PaleGreen))?;
 
-                let params = &self.ast.sliced_decls[params];
+                let params = &self.ast.decls[params];
                 if !params.is_empty() {
                     let params_id = self.fresh_aux_node_id("params");
                     self.define_node(&params_id, "Parameters", Some(Color::AliceBlue))?;
-                    self.define_edge(&decl_id, &params_id, Some("params"))?;
+                    self.define_edge(&id, &params_id, Some("params"))?;
                     for (idx, param) in params.iter().enumerate() {
                         let param_id = self.visit_decl(*param)?;
                         let edge_label = format!("param {idx}");
@@ -91,15 +89,15 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
 
                 match body {
                     None => {
-                        let fwd_decl_id = format!("{decl_id}_fwd");
+                        let fwd_decl_id = format!("{id}_fwd");
                         self.define_node(&fwd_decl_id, "Forward Declaration", None)?;
-                        self.define_edge_dotted(&decl_id, &fwd_decl_id, Some("body (forward)"))?;
+                        self.define_edge_dotted(&id, &fwd_decl_id, Some("body (forward)"))?;
                     }
                     Some(body) => {
                         let body_id = self.fresh_aux_node_id("func_body");
                         self.define_node(&body_id, "Function Body", Some(Color::WhiteSmoke))?;
-                        self.define_edge(&decl_id, &body_id, Some("body"))?;
-                        for (idx, item) in self.ast.sliced_items[body].iter().enumerate() {
+                        self.define_edge(&id, &body_id, Some("body"))?;
+                        for (idx, item) in self.ast.items[body].iter().enumerate() {
                             let item_id = match item {
                                 BlockItem::Decl(decl) => self.visit_decl(*decl)?,
                                 BlockItem::Stmt(stmt) => self.visit_stmt(*stmt)?,
@@ -111,12 +109,12 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                 }
             }
         }
-        Ok(decl_id)
+        Ok(id)
     }
 
-    fn visit_stmt(&mut self, stmt: StmtRef) -> Result<String, std::fmt::Error> {
+    fn visit_stmt(&mut self, stmt: Stmt) -> Result<String, std::fmt::Error> {
         let stmt_id = format!("stmt_{}", stmt.index());
-        match &self.ast.stmts[stmt].kind {
+        match &self.ast.stmt[stmt].kind {
             StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt", Some(Color::Gray90))?,
             StmtKind::Expr(expr) => {
                 self.define_node(&stmt_id, "ExprStmt", Some(Color::Azure))?;
@@ -196,7 +194,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
             }
             StmtKind::Compound(items) => {
                 self.define_node(&stmt_id, "CompoundStmt", Some(Color::LightCyan))?;
-                let items = &self.ast.sliced_items[*items];
+                let items = &self.ast.items[*items];
                 if items.is_empty() {
                     let empty_marker_id = format!("{stmt_id}_empty_marker");
                     self.define_node(&empty_marker_id, "(empty block)", None)?;
@@ -246,9 +244,9 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
         Ok(stmt_id)
     }
 
-    fn visit_expr(&mut self, expr: ExprRef) -> Result<String, std::fmt::Error> {
+    fn visit_expr(&mut self, expr: Expr) -> Result<String, std::fmt::Error> {
         let expr_id = format!("expr_{}", expr.index());
-        match &self.ast.exprs[expr].kind {
+        match &self.ast.expr[expr].kind {
             ExprKind::Const(val) => {
                 let label = format!("Const\\nvalue: {:?}", val);
                 self.define_node(&expr_id, &label, Some(Color::Gold))?;
@@ -259,8 +257,8 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                 self.define_edge(&expr_id, &inner_id, None)?;
             }
             ExprKind::Var(name) => {
-                let n = self.interner.lookup(name.raw).escape_default();
-                let label = format!("VarRef\\nname: {}\\nsema: {:?}", n, name.sema.get());
+                let n = self.interner.lookup(name.name).escape_default();
+                let label = format!("VarRef\\nname: {}\\nsema: {:?}", n, name.id.get());
                 self.define_node(&expr_id, &label, Some(Color::OliveDrab1))?;
             }
             ExprKind::Cast { ty, expr: inner } => {
@@ -293,11 +291,11 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                 self.define_edge(&expr_id, &otherwise_id, Some("else_expr"))?;
             }
             ExprKind::Call { name, args } => {
-                let n = self.interner.lookup(name.raw).escape_default();
-                let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.sema.get());
+                let n = self.interner.lookup(name.name).escape_default();
+                let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.id.get());
                 self.define_node(&expr_id, &label, Some(Color::DeepSkyBlue))?;
 
-                let args = &self.ast.sliced_exprs[*args];
+                let args = &self.ast.exprs[*args];
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
                     self.define_node(&args_id, "Arguments", Some(Color::AliceBlue))?;

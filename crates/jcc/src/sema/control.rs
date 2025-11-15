@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Ast, BlockItem, DeclKind, StmtKind, StmtRef},
+    ast::{Ast, BlockItem, DeclKind, Stmt, StmtKind},
     sema::SemaCtx,
 };
 
@@ -40,13 +40,13 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
 
     pub fn check(mut self) -> ControlResult {
         self.ast
-            .root()
+            .root
             .iter()
-            .for_each(|decl| match self.ast.decls[*decl].kind {
+            .for_each(|decl| match self.ast.decl[*decl].kind {
                 DeclKind::Var(_) => {}
                 DeclKind::Func { body, .. } => {
                     if let Some(body) = body {
-                        self.ast.sliced_items[body].iter().for_each(|block_item| {
+                        self.ast.items[body].iter().for_each(|block_item| {
                             if let BlockItem::Stmt(stmt) = block_item {
                                 self.visit_stmt(*stmt)
                             }
@@ -69,9 +69,9 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
         self.result
     }
 
-    fn visit_stmt(&mut self, stmt_ref: StmtRef) {
-        let stmt = &self.ast.stmts[stmt_ref];
-        match &stmt.kind {
+    fn visit_stmt(&mut self, stmt: Stmt) {
+        let data = &self.ast.stmt[stmt];
+        match &data.kind {
             StmtKind::Empty | StmtKind::Expr(_) | StmtKind::Return(_) => {}
             StmtKind::If {
                 then, otherwise, ..
@@ -82,27 +82,27 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 }
             }
             StmtKind::While { body, .. } => {
-                self.tracked_stmts.push(TrackedStmt::Loop(stmt_ref));
+                self.tracked_stmts.push(TrackedStmt::Loop(stmt));
                 self.visit_stmt(*body);
                 self.tracked_stmts.pop();
             }
             StmtKind::DoWhile { body, .. } => {
-                self.tracked_stmts.push(TrackedStmt::Loop(stmt_ref));
+                self.tracked_stmts.push(TrackedStmt::Loop(stmt));
                 self.visit_stmt(*body);
                 self.tracked_stmts.pop();
             }
             StmtKind::For { body, .. } => {
-                self.tracked_stmts.push(TrackedStmt::Loop(stmt_ref));
+                self.tracked_stmts.push(TrackedStmt::Loop(stmt));
                 self.visit_stmt(*body);
                 self.tracked_stmts.pop();
             }
             StmtKind::Switch { body, .. } => {
-                self.tracked_stmts.push(TrackedStmt::Switch(stmt_ref));
+                self.tracked_stmts.push(TrackedStmt::Switch(stmt));
                 self.visit_stmt(*body);
                 self.tracked_stmts.pop();
             }
             StmtKind::Compound(stmt) => {
-                self.ast.sliced_items[*stmt]
+                self.ast.items[*stmt]
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Decl(_) => {}
@@ -116,7 +116,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 let entry = self
                     .tracked_labels
                     .entry(*label)
-                    .or_insert(TrackedLabel::Unresolved(vec![(target, stmt.span)]));
+                    .or_insert(TrackedLabel::Unresolved(vec![(target, data.span)]));
                 if let TrackedLabel::Resolved(stmt) = entry {
                     target.set(Some(*stmt));
                 }
@@ -126,7 +126,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     target.set(Some(*stmt))
                 }
                 None => self.result.diagnostics.push(ControlDiagnostic {
-                    span: stmt.span,
+                    span: data.span,
                     kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
                 }),
             },
@@ -139,7 +139,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         target.set(Some(stmt));
                     }
                     None => self.result.diagnostics.push(ControlDiagnostic {
-                        span: stmt.span,
+                        span: data.span,
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
@@ -155,9 +155,9 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         .entry(*switch_stmt)
                         .or_default()
                         .cases
-                        .push(stmt_ref),
+                        .push(stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: stmt.span,
+                        span: data.span,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
@@ -171,15 +171,15 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     Some(switch_stmt) => {
                         let switch = self.ctx.switches.entry(*switch_stmt).or_default();
                         match switch.default {
-                            None => switch.default = Some(stmt_ref),
+                            None => switch.default = Some(stmt),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {
-                                span: stmt.span,
+                                span: data.span,
                                 kind: ControlDiagnosticKind::DuplicateDefault,
                             }),
                         }
                     }
                     _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: stmt.span,
+                        span: data.span,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
@@ -189,18 +189,18 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 let entry = self
                     .tracked_labels
                     .entry(*label)
-                    .or_insert(TrackedLabel::Resolved(stmt_ref));
+                    .or_insert(TrackedLabel::Resolved(stmt));
                 match entry {
                     TrackedLabel::Unresolved(v) => {
                         v.iter().for_each(|(target, _)| {
-                            target.set(Some(stmt_ref));
+                            target.set(Some(stmt));
                         });
-                        *entry = TrackedLabel::Resolved(stmt_ref);
+                        *entry = TrackedLabel::Resolved(stmt);
                     }
                     TrackedLabel::Resolved(s) => {
-                        if stmt_ref != *s {
+                        if stmt != *s {
                             self.result.diagnostics.push(ControlDiagnostic {
-                                span: stmt.span,
+                                span: data.span,
                                 kind: ControlDiagnosticKind::RedeclaredLabel,
                             });
                         }
@@ -219,17 +219,17 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrackedStmt {
     /// A loop statement
-    Loop(StmtRef),
+    Loop(Stmt),
     /// A switch statement
-    Switch(StmtRef),
+    Switch(Stmt),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrackedLabel<'a> {
     /// A resolved label
-    Resolved(StmtRef),
+    Resolved(Stmt),
     /// An unresolved label
-    Unresolved(Vec<(&'a Cell<Option<StmtRef>>, SourceSpan)>),
+    Unresolved(Vec<(&'a Cell<Option<Stmt>>, SourceSpan)>),
 }
 
 // ---------------------------------------------------------------------------

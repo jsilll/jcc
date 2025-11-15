@@ -1,4 +1,4 @@
-use crate::ast::{ty::Ty, Ast, ExprKind, ExprRef};
+use crate::ast::{ty::Ty, Ast, Expr, ExprKind};
 
 // ---------------------------------------------------------------------------
 // LoweringPass
@@ -20,8 +20,8 @@ impl<'ctx> LoweringPass<'ctx> {
             .iter()
             .for_each(|action| match action {
                 LoweringAction::Cast { ty, expr } => {
-                    let copy = self.ast.exprs.push(self.ast.exprs[*expr].clone());
-                    let cast = &mut self.ast.exprs[*expr];
+                    let copy = self.ast.expr.push(self.ast.expr[*expr].clone());
+                    let cast = &mut self.ast.expr[*expr];
                     cast.ty.set(*ty);
                     cast.kind = ExprKind::Cast {
                         ty: *ty,
@@ -39,7 +39,7 @@ impl<'ctx> LoweringPass<'ctx> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoweringAction<'ctx> {
-    Cast { ty: Ty<'ctx>, expr: ExprRef },
+    Cast { ty: Ty<'ctx>, expr: Expr },
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ pub struct LoweringActions<'ctx> {
 
 impl<'ctx> LoweringActions<'ctx> {
     #[inline]
-    pub fn cast(&mut self, ty: Ty<'ctx>, expr: ExprRef) {
+    pub fn cast(&mut self, ty: Ty<'ctx>, expr: Expr) {
         self.schedule.push(LoweringAction::Cast { ty, expr })
     }
 }

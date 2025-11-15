@@ -1,8 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyKind},
-        Ast, BinaryOp, BlockItem, Decl, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind,
-        StmtRef, StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
+        StmtKind, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
@@ -46,33 +46,33 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 
     pub fn check(mut self) -> TyperResult<'ctx> {
         self.ast
-            .root()
+            .root
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
         self.result
     }
 
-    fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = &self.ast.decls[decl_ref];
-        match decl.kind {
-            DeclKind::Func { .. } => self.visit_func_decl(decl),
+    fn visit_file_scope_decl(&mut self, decl: Decl) {
+        let data = &self.ast.decl[decl];
+        match data.kind {
+            DeclKind::Func { .. } => self.visit_func_decl(data),
             DeclKind::Var(init) => {
-                let decl_is_global = decl.storage != Some(StorageClass::Static);
+                let decl_is_global = !matches!(data.storage, Some(StorageClass::Static));
                 let decl_init = match init {
-                    None => match decl.storage {
+                    None => match data.storage {
                         Some(StorageClass::Extern) => StaticValue::NoInit,
                         _ => StaticValue::Tentative,
                     },
                     Some(init) => {
                         let ty = self.visit_expr(init);
-                        if ty != decl.ty {
-                            self.result.actions.cast(decl.ty, init);
+                        if ty != data.ty {
+                            self.result.actions.cast(data.ty, init);
                         }
                         match eval_constant(self.ast, init) {
                             Some(value) => StaticValue::Init(value),
                             None => {
                                 self.result.diagnostics.push(TyperDiagnostic {
-                                    span: self.ast.exprs[init].span,
+                                    span: self.ast.expr[init].span,
                                     kind: TyperDiagnosticKind::NotConstant,
                                 });
                                 StaticValue::NoInit
@@ -81,14 +81,16 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     }
                 };
 
-                let info = self.ctx.symbol_mut(decl.name.sema.get());
+                let info = self
+                    .ctx
+                    .symbol_mut(data.name.id.get().expect("sema symbol not set"));
                 let occupied = info.is_some();
                 let info =
-                    info.get_or_insert(SymbolInfo::statik(decl.ty, decl_is_global, decl_init));
+                    info.get_or_insert(SymbolInfo::statik(data.ty, decl_is_global, decl_init));
 
-                if info.ty != decl.ty {
+                if info.ty != data.ty {
                     self.result.diagnostics.push(TyperDiagnostic {
-                        span: decl.span,
+                        span: data.span,
                         kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                     });
                 }
@@ -98,9 +100,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     ref mut init,
                 } = info.attr
                 {
-                    if decl.storage != Some(StorageClass::Extern) && (is_global != decl_is_global) {
+                    if (is_global != decl_is_global)
+                        && !matches!(data.storage, Some(StorageClass::Extern))
+                    {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: decl.span,
+                            span: data.span,
                             kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
                         });
                     }
@@ -114,7 +118,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         StaticValue::Init(_) => {
                             if occupied && matches!(decl_init, StaticValue::Init(_)) {
                                 self.result.diagnostics.push(TyperDiagnostic {
-                                    span: decl.span,
+                                    span: data.span,
                                     kind: TyperDiagnosticKind::MultipleInitializers,
                                 });
                             }
@@ -125,38 +129,38 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
         }
     }
 
-    fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = &self.ast.decls[decl_ref];
-        match decl.kind {
-            DeclKind::Func { .. } => self.visit_func_decl(decl),
-            DeclKind::Var(init) => match decl.storage {
+    fn visit_block_scope_decl(&mut self, decl: Decl) {
+        let data = &self.ast.decl[decl];
+        match data.kind {
+            DeclKind::Func { .. } => self.visit_func_decl(data),
+            DeclKind::Var(init) => match data.storage {
                 None => {
                     let _ = self
                         .ctx
-                        .symbol_mut(decl.name.sema.get())
-                        .insert(SymbolInfo::local(decl.ty));
+                        .symbol_mut(data.name.id.get().expect("sema symbol not set"))
+                        .insert(SymbolInfo::local(data.ty));
                     if let Some(init) = init {
                         let ty = self.visit_expr(init);
-                        if ty != decl.ty {
-                            self.result.actions.cast(decl.ty, init);
+                        if ty != data.ty {
+                            self.result.actions.cast(data.ty, init);
                         }
                     }
                 }
                 Some(StorageClass::Extern) => match init {
                     Some(init) => {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: self.ast.exprs[init].span,
+                            span: self.ast.expr[init].span,
                             kind: TyperDiagnosticKind::ExternLocalInitialized,
                         });
                     }
                     None => {
                         let info = self
                             .ctx
-                            .symbol_mut(decl.name.sema.get())
-                            .get_or_insert(SymbolInfo::statik(decl.ty, true, StaticValue::NoInit));
-                        if info.ty != decl.ty {
+                            .symbol_mut(data.name.id.get().expect("sema symbol not set"))
+                            .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
+                        if info.ty != data.ty {
                             self.result.diagnostics.push(TyperDiagnostic {
-                                span: decl.span,
+                                span: data.span,
                                 kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                             });
                         }
@@ -167,14 +171,14 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         None => StaticValue::Tentative,
                         Some(init) => {
                             let ty = self.visit_expr(init);
-                            if ty != decl.ty {
-                                self.result.actions.cast(decl.ty, init);
+                            if ty != data.ty {
+                                self.result.actions.cast(data.ty, init);
                             }
                             match eval_constant(self.ast, init) {
                                 Some(value) => StaticValue::Init(value),
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
-                                        span: self.ast.exprs[init].span,
+                                        span: self.ast.expr[init].span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                     StaticValue::Tentative
@@ -182,19 +186,21 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             }
                         }
                     };
-                    *self.ctx.symbol_mut(decl.name.sema.get()) =
-                        Some(SymbolInfo::statik(decl.ty, false, decl_init));
+                    *self
+                        .ctx
+                        .symbol_mut(data.name.id.get().expect("sema symbol not set")) =
+                        Some(SymbolInfo::statik(data.ty, false, decl_init));
                 }
             },
         }
     }
 
-    fn visit_func_decl(&mut self, decl: &Decl<'ctx>) {
+    fn visit_func_decl(&mut self, decl: &DeclData<'ctx>) {
         if let DeclKind::Func { params, body } = decl.kind {
-            let decl_is_global = decl.storage != Some(StorageClass::Static);
+            let decl_is_global = !matches!(decl.storage, Some(StorageClass::Static));
             let entry = self
                 .ctx
-                .symbol_mut(decl.name.sema.get())
+                .symbol_mut(decl.name.id.get().expect("sema symbol not set"))
                 .get_or_insert(SymbolInfo::function(decl.ty, decl_is_global, false));
 
             if entry.ty != decl.ty {
@@ -219,10 +225,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     assert!(!*is_defined, "function already defined");
                     *is_defined = true;
                 }
-                self.ast.sliced_decls[params].iter().for_each(|param| {
-                    if self.ast.decls[*param].storage.is_some() {
+                self.ast.decls[params].iter().for_each(|param| {
+                    if self.ast.decl[*param].storage.is_some() {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: self.ast.decls[*param].span,
+                            span: self.ast.decl[*param].span,
                             kind: TyperDiagnosticKind::StorageClassesDisallowed,
                         });
                     }
@@ -230,20 +236,18 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 });
                 if let Some(body) = body {
                     self.curr_ret = self.get_return_type(decl).unwrap_or(self.ctx.tys.void_ty);
-                    self.ast.sliced_items[body]
-                        .iter()
-                        .for_each(|item| match item {
-                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                            BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                        });
+                    self.ast.items[body].iter().for_each(|item| match item {
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                    });
                 }
             }
         }
     }
 
-    fn visit_stmt(&mut self, stmt_ref: StmtRef) {
-        let stmt = &self.ast.stmts[stmt_ref];
-        match &stmt.kind {
+    fn visit_stmt(&mut self, stmt: Stmt) {
+        let data = &self.ast.stmt[stmt];
+        match &data.kind {
             StmtKind::Empty
             | StmtKind::Break(_)
             | StmtKind::Continue(_)
@@ -280,12 +284,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.ast.sliced_items[*items]
-                    .iter()
-                    .for_each(|item| match item {
-                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                    });
+                self.ast.items[*items].iter().for_each(|item| match item {
+                    BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                    BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                });
             }
             StmtKind::For {
                 init,
@@ -299,9 +301,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             self.visit_expr(*expr);
                         }
                         ForInit::VarDecl(decl) => {
-                            if self.ast.decls[*decl].storage.is_some() {
+                            if self.ast.decl[*decl].storage.is_some() {
                                 self.result.diagnostics.push(TyperDiagnostic {
-                                    span: self.ast.decls[*decl].span,
+                                    span: self.ast.decl[*decl].span,
                                     kind: TyperDiagnosticKind::StorageClassesDisallowed,
                                 });
                             }
@@ -319,15 +321,15 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             }
             StmtKind::Switch { cond, body } => {
                 let cty = self.visit_expr(*cond);
-                if let Some(switch) = self.ctx.switches.get(&stmt_ref) {
+                if let Some(switch) = self.ctx.switches.get(&stmt) {
                     switch
                         .cases
                         .iter()
-                        .for_each(|stmt| match &self.ast.stmts[*stmt].kind {
+                        .for_each(|stmt| match &self.ast.stmt[*stmt].kind {
                             StmtKind::Case { expr, .. } => match eval_constant(self.ast, *expr) {
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
-                                        span: self.ast.exprs[*expr].span,
+                                        span: self.ast.expr[*expr].span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
@@ -339,7 +341,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     };
                                     if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
-                                            span: self.ast.exprs[*expr].span,
+                                            span: self.ast.expr[*expr].span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                         });
                                     }
@@ -352,7 +354,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     };
                                     if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
-                                            span: self.ast.exprs[*expr].span,
+                                            span: self.ast.expr[*expr].span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                         });
                                     }
@@ -367,9 +369,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
         }
     }
 
-    fn visit_expr(&mut self, expr_ref: ExprRef) -> Ty<'ctx> {
-        let expr = &self.ast.exprs[expr_ref];
-        let ty = match &expr.kind {
+    fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
+        let data = &self.ast.expr[expr];
+        let ty = match &data.kind {
             ExprKind::Const(ConstValue::Int32(_)) => self.ctx.tys.int_ty,
             ExprKind::Const(ConstValue::Int64(_)) => self.ctx.tys.long_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
@@ -381,7 +383,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 self.visit_expr(*cond);
                 let tty = self.visit_expr(*then);
                 let oty = self.visit_expr(*other);
-                let common = self.get_common_type(tty, oty, expr.span);
+                let common = self.get_common_type(tty, oty, data.span);
                 if tty != common {
                     self.result.actions.cast(common, *then);
                 }
@@ -417,7 +419,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::LessEqual
                     | BinaryOp::GreaterThan
                     | BinaryOp::GreaterEqual => {
-                        let common = self.get_common_type(lty, rty, expr.span);
+                        let common = self.get_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
                         }
@@ -436,7 +438,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::BitAndAssign
                     | BinaryOp::BitXorAssign => {
                         self.assert_is_lvalue(*lhs);
-                        let common = self.get_common_type(lty, rty, expr.span);
+                        let common = self.get_common_type(lty, rty, data.span);
                         if rty != common {
                             self.result.actions.cast(common, *rhs);
                         }
@@ -450,7 +452,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::BitOr
                     | BinaryOp::BitAnd
                     | BinaryOp::BitXor => {
-                        let common = self.get_common_type(lty, rty, expr.span);
+                        let common = self.get_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
                         }
@@ -464,39 +466,39 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             ExprKind::Var(name) => {
                 let ty = self
                     .ctx
-                    .symbol(name.sema.get())
+                    .symbol(name.id.get().expect("sema symbol not set"))
                     .expect("symbol info not found")
                     .ty;
                 if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
                     self.result.diagnostics.push(TyperDiagnostic {
-                        span: expr.span,
+                        span: data.span,
                         kind: TyperDiagnosticKind::VariableUsedAsFunction,
                     });
                 }
                 ty
             }
             ExprKind::Call { name, args } => {
-                self.ast.sliced_exprs[*args].iter().for_each(|arg| {
+                self.ast.exprs[*args].iter().for_each(|arg| {
                     self.visit_expr(*arg);
                 });
                 let ty = self
                     .ctx
-                    .symbol(name.sema.get())
+                    .symbol(name.id.get().expect("sema symbol not set"))
                     .expect("symbol info not found")
                     .ty;
                 match *ty {
                     TyKind::Func { ret, ref params } => {
                         if args.len() != params.len() {
                             self.result.diagnostics.push(TyperDiagnostic {
-                                span: expr.span,
+                                span: data.span,
                                 kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
                             });
                         }
-                        self.ast.sliced_exprs[*args]
+                        self.ast.exprs[*args]
                             .iter()
                             .zip(params)
                             .for_each(|(arg, ty)| {
-                                if self.ast.exprs[*arg].ty.get() != *ty {
+                                if self.ast.expr[*arg].ty.get() != *ty {
                                     self.result.actions.cast(*ty, *arg);
                                 }
                             });
@@ -504,7 +506,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     }
                     _ => {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: expr.span,
+                            span: data.span,
                             kind: TyperDiagnosticKind::VariableUsedAsFunction,
                         });
                         self.ctx.tys.void_ty
@@ -512,7 +514,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
             }
         };
-        expr.ty.set(ty);
+        data.ty.set(ty);
         ty
     }
 
@@ -521,10 +523,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
+    fn assert_is_lvalue(&mut self, expr: Expr) -> bool {
         if !is_lvalue(self.ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
-                span: self.ast.exprs[expr].span,
+                span: self.ast.expr[expr].span,
                 kind: TyperDiagnosticKind::InvalidLValue,
             });
             return false;
@@ -533,7 +535,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     #[inline]
-    fn get_return_type(&self, decl: &Decl<'ctx>) -> Option<Ty<'ctx>> {
+    fn get_return_type(&self, decl: &DeclData<'ctx>) -> Option<Ty<'ctx>> {
         match *decl.ty {
             TyKind::Func { ret, .. } => Some(ret),
             _ => None,
@@ -561,8 +563,8 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 // Auxiliary functions
 // ---------------------------------------------------------------------------
 
-fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.exprs[expr].kind {
+fn is_lvalue(ast: &Ast, expr: Expr) -> bool {
+    match ast.expr[expr].kind {
         ExprKind::Var { .. } => true,
         ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => is_lvalue(ast, expr),
@@ -574,8 +576,8 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
     }
 }
 
-fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<ConstValue> {
-    match ast.exprs[expr].kind {
+fn eval_constant(ast: &Ast, expr: Expr) -> Option<ConstValue> {
+    match ast.expr[expr].kind {
         ExprKind::Const(value) => Some(value),
         ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => eval_constant(ast, expr),

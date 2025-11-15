@@ -1,9 +1,9 @@
 use crate::{
     ast::{
-        Ast, AstSymbol, BlockItem, DeclKind, DeclRef, ExprKind, ExprRef, ForInit, StmtKind,
-        StmtRef, StorageClass,
+        Ast, AstSymbol, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind,
+        StorageClass,
     },
-    sema::SemaSymbol,
+    sema::SemaId,
 };
 
 use jcc_ssa::{
@@ -27,7 +27,7 @@ pub struct ResolverPass<'a, 'ctx> {
     /// The current scope symbol table
     scope: SymbolTable<SymbolInfo>,
     /// The global symbols map
-    globals: HashMap<Symbol, SemaSymbol>,
+    globals: HashMap<Symbol, SemaId>,
 }
 
 impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
@@ -43,19 +43,19 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
 
     pub fn check(mut self) -> ResolverResult {
         self.ast
-            .root()
+            .root
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
         self.result.symbol_count = self.symbol_count.get() as usize;
         self.result
     }
 
-    fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = &self.ast.decls[decl_ref];
-        let symbol = self.get_or_create_global_symbol(&decl.name);
+    fn visit_file_scope_decl(&mut self, decl: Decl) {
+        let data = &self.ast.decl[decl];
+        let symbol = self.get_or_create_global_symbol(&data.name);
         self.scope
-            .insert(decl.name.raw, SymbolInfo::with_linkage(symbol));
-        match decl.kind {
+            .insert(data.name.name, SymbolInfo::with_linkage(symbol));
+        match data.kind {
             DeclKind::Var(init) => {
                 if let Some(expr) = init {
                     self.visit_expr(expr);
@@ -63,10 +63,10 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             DeclKind::Func { body, params, .. } => {
                 self.scope.push_scope();
-                self.ast.sliced_decls[params]
+                self.ast.decls[params]
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
-                self.ast.sliced_items[body.unwrap_or_default()]
+                self.ast.items[body.unwrap_or_default()]
                     .iter()
                     .for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -77,39 +77,39 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         }
     }
 
-    fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = &self.ast.decls[decl_ref];
-        match &decl.kind {
+    fn visit_block_scope_decl(&mut self, decl: Decl) {
+        let data = &self.ast.decl[decl];
+        match &data.kind {
             DeclKind::Var(init) => {
-                let has_linkage = decl.storage == Some(StorageClass::Extern);
-                self.get_or_create_scoped_symbol(decl_ref, &decl.name, has_linkage);
+                let has_linkage = matches!(data.storage, Some(StorageClass::Extern));
+                self.get_or_create_scoped_symbol(decl, &data.name, has_linkage);
                 if let Some(expr) = init {
                     self.visit_expr(*expr);
                 }
             }
             DeclKind::Func { params, body, .. } => {
-                if let Some(StorageClass::Static) = decl.storage {
+                if let Some(StorageClass::Static) = data.storage {
                     self.result.diagnostics.push(ResolverDiagnostic {
-                        span: decl.span,
+                        span: data.span,
                         kind: ResolverDiagnosticKind::IllegalLocalStaticFunction,
                     });
                 }
                 match body {
                     Some(_) => {
                         self.result.diagnostics.push(ResolverDiagnostic {
-                            span: decl.span,
+                            span: data.span,
                             kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
                         });
                     }
                     None => {
-                        let symbol = self.get_or_create_global_symbol(&decl.name);
+                        let symbol = self.get_or_create_global_symbol(&data.name);
                         if let Some(prev) = self
                             .scope
-                            .insert(decl.name.raw, SymbolInfo::with_linkage(symbol))
+                            .insert(data.name.name, SymbolInfo::with_linkage(symbol))
                         {
                             if !prev.has_linkage {
                                 self.result.diagnostics.push(ResolverDiagnostic {
-                                    span: decl.span,
+                                    span: data.span,
                                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                                 });
                             }
@@ -117,7 +117,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                     }
                 }
                 self.scope.push_scope();
-                self.ast.sliced_decls[*params]
+                self.ast.decls[*params]
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.scope.pop_scope();
@@ -125,8 +125,8 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         }
     }
 
-    fn visit_stmt(&mut self, stmt: StmtRef) {
-        match &self.ast.stmts[stmt].kind {
+    fn visit_stmt(&mut self, stmt: Stmt) {
+        match &self.ast.stmt[stmt].kind {
             StmtKind::Empty
             | StmtKind::Break(_)
             | StmtKind::Continue(_)
@@ -164,7 +164,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             StmtKind::Compound(items) => {
                 self.scope.push_scope();
-                self.ast.sliced_items[*items]
+                self.ast.items[*items]
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -197,9 +197,9 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         }
     }
 
-    fn visit_expr(&mut self, expr_ref: ExprRef) {
-        let expr = &self.ast.exprs[expr_ref];
-        match &expr.kind {
+    fn visit_expr(&mut self, expr: Expr) {
+        let data = &self.ast.expr[expr];
+        match &data.kind {
             ExprKind::Const(_) => {}
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { expr, .. } => self.visit_expr(*expr),
@@ -213,22 +213,22 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                 self.visit_expr(*then);
                 self.visit_expr(*other);
             }
-            ExprKind::Var(name) => match self.scope.get(&name.raw) {
-                Some(entry) => name.sema.set(entry.symbol),
+            ExprKind::Var(name) => match self.scope.get(&name.name) {
+                Some(entry) => name.id.set(Some(entry.symbol)),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: expr.span,
+                    span: data.span,
                     kind: ResolverDiagnosticKind::UndeclaredVariable,
                 }),
             },
             ExprKind::Call { name, args } => {
-                match self.scope.get(&name.raw) {
-                    Some(entry) => name.sema.set(entry.symbol),
+                match self.scope.get(&name.name) {
+                    Some(entry) => name.id.set(Some(entry.symbol)),
                     None => self.result.diagnostics.push(ResolverDiagnostic {
-                        span: expr.span,
+                        span: data.span,
                         kind: ResolverDiagnosticKind::UndeclaredFunction,
                     }),
                 }
-                self.ast.sliced_exprs[*args]
+                self.ast.exprs[*args]
                     .iter()
                     .for_each(|arg| self.visit_expr(*arg));
             }
@@ -240,29 +240,29 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SemaSymbol {
-        let symbol = self.globals.entry(name.raw).or_insert_with(|| {
-            let symbol = SemaSymbol(self.symbol_count);
+    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SemaId {
+        let symbol = self.globals.entry(name.name).or_insert_with(|| {
+            let symbol = SemaId(self.symbol_count);
             self.symbol_count = self.symbol_count.saturating_add(1);
             symbol
         });
-        name.sema.set(*symbol);
+        name.id.set(Some(*symbol));
         *symbol
     }
 
-    fn get_or_create_scoped_symbol(&mut self, decl: DeclRef, name: &AstSymbol, has_linkage: bool) {
+    fn get_or_create_scoped_symbol(&mut self, decl: Decl, name: &AstSymbol, has_linkage: bool) {
         let entry = if has_linkage {
             SymbolInfo::with_linkage(self.get_or_create_global_symbol(name))
         } else {
-            let symbol = SemaSymbol(self.symbol_count);
+            let symbol = SemaId(self.symbol_count);
             self.symbol_count = self.symbol_count.saturating_add(1);
-            name.sema.set(symbol);
+            name.id.set(Some(symbol));
             SymbolInfo::no_linkage(symbol)
         };
-        if let Some(prev) = self.scope.insert(name.raw, entry) {
+        if let Some(prev) = self.scope.insert(name.name, entry) {
             if !(entry.has_linkage && prev.has_linkage) {
                 self.result.diagnostics.push(ResolverDiagnostic {
-                    span: self.ast.decls[decl].span,
+                    span: self.ast.decl[decl].span,
                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                 });
             }
@@ -277,12 +277,12 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SymbolInfo {
     pub has_linkage: bool,
-    pub symbol: SemaSymbol,
+    pub symbol: SemaId,
 }
 
 impl SymbolInfo {
     #[inline]
-    fn no_linkage(symbol: SemaSymbol) -> Self {
+    fn no_linkage(symbol: SemaId) -> Self {
         Self {
             symbol,
             has_linkage: false,
@@ -290,7 +290,7 @@ impl SymbolInfo {
     }
 
     #[inline]
-    fn with_linkage(symbol: SemaSymbol) -> Self {
+    fn with_linkage(symbol: SemaId) -> Self {
         Self {
             symbol,
             has_linkage: true,

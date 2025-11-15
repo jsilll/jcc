@@ -4,49 +4,41 @@ pub mod ty;
 
 pub use ty::{Ty, TyKind};
 
-use crate::sema::SemaSymbol;
+use crate::sema::SemaId;
 
 use jcc_entity::{EntityList, EntityRef, ListPool, PrimaryMap};
 use jcc_ssa::{interner::Symbol, ir::ConstValue, sourcemap::SourceSpan};
 
 use std::cell::Cell;
 
-// ---------------------------------------------------------------------------
+//============================================================================
 // Ast
-// ---------------------------------------------------------------------------
+//============================================================================
 
 #[derive(Debug)]
 pub struct DeclMarker;
-pub type DeclRef = EntityRef<DeclMarker>;
-pub type DeclList = EntityList<DeclRef>;
+pub type Decl = EntityRef<DeclMarker>;
+pub type DeclList = EntityList<Decl>;
 
 #[derive(Debug)]
 pub struct ExprMarker;
-pub type ExprRef = EntityRef<ExprMarker>;
-pub type ExprList = EntityList<ExprRef>;
+pub type Expr = EntityRef<ExprMarker>;
+pub type ExprList = EntityList<Expr>;
 
 #[derive(Debug)]
 pub struct StmtMarker;
-pub type StmtRef = EntityRef<StmtMarker>;
+pub type Stmt = EntityRef<StmtMarker>;
 pub type Block = EntityList<BlockItem>;
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum BlockItem {
-    /// A declaration.
-    Decl(DeclRef),
-    /// A statement.
-    Stmt(StmtRef),
-}
 
 #[derive(Default)]
 pub struct Ast<'ctx> {
-    root: Vec<DeclRef>,
-    pub sliced_decls: ListPool<DeclRef>,
-    pub sliced_exprs: ListPool<ExprRef>,
-    pub sliced_items: ListPool<BlockItem>,
-    pub stmts: PrimaryMap<StmtMarker, Stmt>,
-    pub decls: PrimaryMap<DeclMarker, Decl<'ctx>>,
-    pub exprs: PrimaryMap<ExprMarker, Expr<'ctx>>,
+    pub root: Vec<Decl>,
+    pub decls: ListPool<Decl>,
+    pub exprs: ListPool<Expr>,
+    pub items: ListPool<BlockItem>,
+    pub stmt: PrimaryMap<StmtMarker, StmtData>,
+    pub decl: PrimaryMap<DeclMarker, DeclData<'ctx>>,
+    pub expr: PrimaryMap<ExprMarker, ExprData<'ctx>>,
 }
 
 impl<'ctx> Ast<'ctx> {
@@ -57,156 +49,43 @@ impl<'ctx> Ast<'ctx> {
     pub fn with_capacity(capacity: usize) -> Self {
         Ast {
             root: Vec::with_capacity(capacity),
-            decls: PrimaryMap::with_capacity(capacity),
-            stmts: PrimaryMap::with_capacity(capacity),
-            exprs: PrimaryMap::with_capacity(capacity),
-            sliced_decls: ListPool::with_capacity(capacity),
-            sliced_exprs: ListPool::with_capacity(capacity),
-            sliced_items: ListPool::with_capacity(capacity),
+            decl: PrimaryMap::with_capacity(capacity),
+            stmt: PrimaryMap::with_capacity(capacity),
+            expr: PrimaryMap::with_capacity(capacity),
+            decls: ListPool::with_capacity(capacity),
+            exprs: ListPool::with_capacity(capacity),
+            items: ListPool::with_capacity(capacity),
         }
     }
-
-    pub fn root(&self) -> &[DeclRef] {
-        self.root.as_slice()
-    }
 }
 
-// ---------------------------------------------------------------------------
-// Decl
-// ---------------------------------------------------------------------------
+//============================================================================
+// Data
+//============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Decl<'ctx> {
-    pub ty: Ty<'ctx>,
-    pub kind: DeclKind,
-    pub name: AstSymbol,
-    pub span: SourceSpan,
-    pub storage: Option<StorageClass>,
+#[derive(Debug, Clone)]
+pub struct AstSymbol {
+    pub name: Symbol,
+    pub id: Cell<Option<SemaId>>,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum DeclKind {
+#[derive(Debug, Clone, Copy)]
+pub enum BlockItem {
+    /// A declaration.
+    Decl(Decl),
+    /// A statement.
+    Stmt(Stmt),
+}
+
+#[derive(Debug, Clone)]
+pub enum ForInit {
+    /// An expression.
+    Expr(Expr),
     /// A variable declaration.
-    Var(Option<ExprRef>),
-    /// A function declaration.
-    Func {
-        params: DeclList,
-        body: Option<Block>,
-    },
+    VarDecl(Decl),
 }
 
-// ---------------------------------------------------------------------------
-// Stmt
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Stmt {
-    pub kind: StmtKind,
-    pub span: SourceSpan,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub enum StmtKind {
-    /// An empty statement.
-    #[default]
-    Empty,
-    /// An expression statement.
-    Expr(ExprRef),
-    /// A return statement.
-    Return(ExprRef),
-    /// A compound statement.
-    Compound(Block),
-    /// A default statement.
-    Default(StmtRef),
-    /// A break statement.
-    Break(Cell<Option<StmtRef>>),
-    /// A continue statement.
-    Continue(Cell<Option<StmtRef>>),
-    /// A case statement.
-    Case { expr: ExprRef, stmt: StmtRef },
-    /// A label statement.
-    Label { label: Symbol, stmt: StmtRef },
-    /// A switch statement.
-    Switch { cond: ExprRef, body: StmtRef },
-    /// A while statement.
-    While { cond: ExprRef, body: StmtRef },
-    /// A do-while statement.
-    DoWhile { body: StmtRef, cond: ExprRef },
-    /// A goto statement.
-    Goto {
-        label: Symbol,
-        stmt: Cell<Option<StmtRef>>,
-    },
-    /// An if statement.
-    If {
-        cond: ExprRef,
-        then: StmtRef,
-        otherwise: Option<StmtRef>,
-    },
-    /// A for statement.
-    For {
-        init: Option<ForInit>,
-        cond: Option<ExprRef>,
-        step: Option<ExprRef>,
-        body: StmtRef,
-    },
-}
-
-// ---------------------------------------------------------------------------
-// Expr
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Expr<'ctx> {
-    pub span: SourceSpan,
-    pub ty: Cell<Ty<'ctx>>,
-    pub kind: ExprKind<'ctx>,
-}
-
-impl<'ctx> Expr<'ctx> {
-    #[inline]
-    pub fn new(kind: ExprKind<'ctx>, span: SourceSpan, ty: Ty<'ctx>) -> Self {
-        Expr {
-            kind,
-            span,
-            ty: Cell::new(ty),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExprKind<'ctx> {
-    /// A variable reference.
-    Var(AstSymbol),
-    /// A constant integer value.
-    Const(ConstValue),
-    /// A grouped expression.
-    Grouped(ExprRef),
-    /// A cast expression.
-    Cast { ty: Ty<'ctx>, expr: ExprRef },
-    /// An unary expression.
-    Unary { op: UnaryOp, expr: ExprRef },
-    /// A binary expression.
-    Binary {
-        op: BinaryOp,
-        lhs: ExprRef,
-        rhs: ExprRef,
-    },
-    /// A ternary expression.
-    Ternary {
-        cond: ExprRef,
-        then: ExprRef,
-        other: ExprRef,
-    },
-    /// A function call expression.
-    Call { name: AstSymbol, args: ExprList },
-}
-
-// ---------------------------------------------------------------------------
-// Support enums
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum StorageClass {
     /// Extern storage class.
     Extern,
@@ -214,7 +93,7 @@ pub enum StorageClass {
     Static,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
@@ -232,7 +111,7 @@ pub enum UnaryOp {
     PostDec,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum BinaryOp {
     /// The `||` operator.
     LogicalOr,
@@ -294,29 +173,112 @@ pub enum BinaryOp {
     BitShrAssign,
 }
 
-// ---------------------------------------------------------------------------
-// Auxiliary structures
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct AstSymbol {
-    pub raw: Symbol,
-    pub sema: Cell<SemaSymbol>,
+#[derive(Debug, Clone)]
+pub struct DeclData<'ctx> {
+    pub ty: Ty<'ctx>,
+    pub kind: DeclKind,
+    pub name: AstSymbol,
+    pub span: SourceSpan,
+    pub storage: Option<StorageClass>,
 }
 
-impl AstSymbol {
-    pub fn new(name: Symbol) -> Self {
-        AstSymbol {
-            raw: name,
-            ..Default::default()
+#[derive(Debug, Clone)]
+pub enum DeclKind {
+    /// A variable declaration.
+    Var(Option<Expr>),
+    /// A function declaration.
+    Func {
+        params: DeclList,
+        body: Option<Block>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct StmtData {
+    pub kind: StmtKind,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub enum StmtKind {
+    /// An empty statement.
+    Empty,
+    /// An expression statement.
+    Expr(Expr),
+    /// A return statement.
+    Return(Expr),
+    /// A compound statement.
+    Compound(Block),
+    /// A default statement.
+    Default(Stmt),
+    /// A break statement.
+    Break(Cell<Option<Stmt>>),
+    /// A continue statement.
+    Continue(Cell<Option<Stmt>>),
+    /// A case statement.
+    Case { expr: Expr, stmt: Stmt },
+    /// A label statement.
+    Label { label: Symbol, stmt: Stmt },
+    /// A switch statement.
+    Switch { cond: Expr, body: Stmt },
+    /// A while statement.
+    While { cond: Expr, body: Stmt },
+    /// A do-while statement.
+    DoWhile { body: Stmt, cond: Expr },
+    /// A goto statement.
+    Goto {
+        label: Symbol,
+        stmt: Cell<Option<Stmt>>,
+    },
+    /// An if statement.
+    If {
+        cond: Expr,
+        then: Stmt,
+        otherwise: Option<Stmt>,
+    },
+    /// A for statement.
+    For {
+        init: Option<ForInit>,
+        cond: Option<Expr>,
+        step: Option<Expr>,
+        body: Stmt,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprData<'ctx> {
+    pub span: SourceSpan,
+    pub ty: Cell<Ty<'ctx>>,
+    pub kind: ExprKind<'ctx>,
+}
+
+impl<'ctx> ExprData<'ctx> {
+    #[inline]
+    pub fn new(kind: ExprKind<'ctx>, span: SourceSpan, ty: Ty<'ctx>) -> Self {
+        ExprData {
+            kind,
+            span,
+            ty: Cell::new(ty),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ForInit {
-    /// An expression.
-    Expr(ExprRef),
-    /// A variable declaration.
-    VarDecl(DeclRef),
+#[derive(Debug, Clone)]
+pub enum ExprKind<'ctx> {
+    /// A variable reference.
+    Var(AstSymbol),
+    /// A grouped expression.
+    Grouped(Expr),
+    /// A constant integer value.
+    Const(ConstValue),
+    /// A cast expression.
+    Cast { ty: Ty<'ctx>, expr: Expr },
+    /// An unary expression.
+    Unary { op: UnaryOp, expr: Expr },
+    /// A binary expression.
+    Binary { op: BinaryOp, lhs: Expr, rhs: Expr },
+    /// A ternary expression.
+    Ternary { cond: Expr, then: Expr, other: Expr },
+    /// A function call expression.
+    Call { name: AstSymbol, args: ExprList },
 }

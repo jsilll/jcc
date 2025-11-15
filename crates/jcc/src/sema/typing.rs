@@ -219,7 +219,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     assert!(!*is_defined, "function already defined");
                     *is_defined = true;
                 }
-                self.ast.decls(params).iter().for_each(|param| {
+                self.ast.sliced_decls[params].iter().for_each(|param| {
                     if self.ast.decls[*param].storage.is_some() {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: self.ast.decls[*param].span,
@@ -230,10 +230,12 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 });
                 if let Some(body) = body {
                     self.curr_ret = self.get_return_type(decl).unwrap_or(self.ctx.tys.void_ty);
-                    self.ast.items(body).iter().for_each(|item| match item {
-                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                    });
+                    self.ast.sliced_items[body]
+                        .iter()
+                        .for_each(|item| match item {
+                            BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                            BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                        });
                 }
             }
         }
@@ -278,10 +280,12 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
             }
             StmtKind::Compound(items) => {
-                self.ast.items(*items).iter().for_each(|item| match item {
-                    BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
-                    BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
-                });
+                self.ast.sliced_items[*items]
+                    .iter()
+                    .for_each(|item| match item {
+                        BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
+                        BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
+                    });
             }
             StmtKind::For {
                 init,
@@ -472,7 +476,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 ty
             }
             ExprKind::Call { name, args } => {
-                self.ast.exprs(*args).iter().for_each(|arg| {
+                self.ast.sliced_exprs[*args].iter().for_each(|arg| {
                     self.visit_expr(*arg);
                 });
                 let ty = self
@@ -488,8 +492,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                 kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
                             });
                         }
-                        self.ast
-                            .exprs(*args)
+                        self.ast.sliced_exprs[*args]
                             .iter()
                             .zip(params)
                             .for_each(|(arg, ty)| {

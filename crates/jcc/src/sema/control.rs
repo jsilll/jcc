@@ -46,7 +46,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 DeclKind::Var(_) => {}
                 DeclKind::Func { body, .. } => {
                     if let Some(body) = body {
-                        self.ast.items(body).iter().for_each(|block_item| {
+                        self.ast.sliced_items[body].iter().for_each(|block_item| {
                             if let BlockItem::Stmt(stmt) = block_item {
                                 self.visit_stmt(*stmt)
                             }
@@ -102,8 +102,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 self.tracked_stmts.pop();
             }
             StmtKind::Compound(stmt) => {
-                self.ast
-                    .items(*stmt)
+                self.ast.sliced_items[*stmt]
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Decl(_) => {}

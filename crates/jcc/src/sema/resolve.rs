@@ -63,12 +63,10 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             DeclKind::Func { body, params, .. } => {
                 self.scope.push_scope();
-                self.ast
-                    .decls(params)
+                self.ast.sliced_decls[params]
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
-                self.ast
-                    .items(body.unwrap_or_default())
+                self.ast.sliced_items[body.unwrap_or_default()]
                     .iter()
                     .for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -119,8 +117,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                     }
                 }
                 self.scope.push_scope();
-                self.ast
-                    .decls(*params)
+                self.ast.sliced_decls[*params]
                     .iter()
                     .for_each(|param| self.visit_block_scope_decl(*param));
                 self.scope.pop_scope();
@@ -167,8 +164,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             StmtKind::Compound(items) => {
                 self.scope.push_scope();
-                self.ast
-                    .items(*items)
+                self.ast.sliced_items[*items]
                     .iter()
                     .for_each(|block_item| match block_item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -232,8 +228,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                         kind: ResolverDiagnosticKind::UndeclaredFunction,
                     }),
                 }
-                self.ast
-                    .exprs(*args)
+                self.ast.sliced_exprs[*args]
                     .iter()
                     .for_each(|arg| self.visit_expr(*arg));
             }

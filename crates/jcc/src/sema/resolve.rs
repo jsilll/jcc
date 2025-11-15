@@ -51,7 +51,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     }
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = self.ast.decl(decl_ref);
+        let decl = &self.ast.decls[decl_ref];
         let symbol = self.get_or_create_global_symbol(&decl.name);
         self.scope
             .insert(decl.name.raw, SymbolInfo::with_linkage(symbol));
@@ -80,7 +80,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     }
 
     fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = self.ast.decl(decl_ref);
+        let decl = &self.ast.decls[decl_ref];
         match &decl.kind {
             DeclKind::Var(init) => {
                 let has_linkage = decl.storage == Some(StorageClass::Extern);
@@ -129,7 +129,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     }
 
     fn visit_stmt(&mut self, stmt: StmtRef) {
-        match &self.ast.stmt(stmt).kind {
+        match &self.ast.stmts[stmt].kind {
             StmtKind::Empty
             | StmtKind::Break(_)
             | StmtKind::Continue(_)
@@ -202,7 +202,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     }
 
     fn visit_expr(&mut self, expr_ref: ExprRef) {
-        let expr = self.ast.expr(expr_ref);
+        let expr = &self.ast.exprs[expr_ref];
         match &expr.kind {
             ExprKind::Const(_) => {}
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
@@ -267,7 +267,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         if let Some(prev) = self.scope.insert(name.raw, entry) {
             if !(entry.has_linkage && prev.has_linkage) {
                 self.result.diagnostics.push(ResolverDiagnostic {
-                    span: self.ast.decl(decl).span,
+                    span: self.ast.decls[decl].span,
                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                 });
             }

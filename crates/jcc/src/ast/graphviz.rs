@@ -48,8 +48,8 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
     }
 
     fn visit_decl(&mut self, decl_ref: DeclRef) -> Result<String, std::fmt::Error> {
-        let decl_id = format!("decl_{}", decl_ref.0.get());
-        let decl = self.ast.decl(decl_ref);
+        let decl_id = format!("decl_{}", decl_ref.index());
+        let decl = &self.ast.decls[decl_ref];
         match decl.kind {
             DeclKind::Var(init) => {
                 let name = self.interner.lookup(decl.name.raw).escape_default();
@@ -115,8 +115,8 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
     }
 
     fn visit_stmt(&mut self, stmt: StmtRef) -> Result<String, std::fmt::Error> {
-        let stmt_id = format!("stmt_{}", stmt.0.get());
-        match &self.ast.stmt(stmt).kind {
+        let stmt_id = format!("stmt_{}", stmt.index());
+        match &self.ast.stmts[stmt].kind {
             StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt", Some(Color::Gray90))?,
             StmtKind::Expr(expr) => {
                 self.define_node(&stmt_id, "ExprStmt", Some(Color::Azure))?;
@@ -247,8 +247,8 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
     }
 
     fn visit_expr(&mut self, expr: ExprRef) -> Result<String, std::fmt::Error> {
-        let expr_id = format!("expr_{}", expr.0.get());
-        match &self.ast.expr(expr).kind {
+        let expr_id = format!("expr_{}", expr.index());
+        match &self.ast.exprs[expr].kind {
             ExprKind::Const(val) => {
                 let label = format!("Const\\nvalue: {:?}", val);
                 self.define_node(&expr_id, &label, Some(Color::Gold))?;

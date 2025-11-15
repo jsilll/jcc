@@ -53,7 +53,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     fn visit_file_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = self.ast.decl(decl_ref);
+        let decl = &self.ast.decls[decl_ref];
         match decl.kind {
             DeclKind::Func { .. } => self.visit_func_decl(decl),
             DeclKind::Var(init) => {
@@ -72,7 +72,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             Some(value) => StaticValue::Init(value),
                             None => {
                                 self.result.diagnostics.push(TyperDiagnostic {
-                                    span: self.ast.expr(init).span,
+                                    span: self.ast.exprs[init].span,
                                     kind: TyperDiagnosticKind::NotConstant,
                                 });
                                 StaticValue::NoInit
@@ -126,7 +126,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     fn visit_block_scope_decl(&mut self, decl_ref: DeclRef) {
-        let decl = self.ast.decl(decl_ref);
+        let decl = &self.ast.decls[decl_ref];
         match decl.kind {
             DeclKind::Func { .. } => self.visit_func_decl(decl),
             DeclKind::Var(init) => match decl.storage {
@@ -145,7 +145,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 Some(StorageClass::Extern) => match init {
                     Some(init) => {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: self.ast.expr(init).span,
+                            span: self.ast.exprs[init].span,
                             kind: TyperDiagnosticKind::ExternLocalInitialized,
                         });
                     }
@@ -174,7 +174,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                 Some(value) => StaticValue::Init(value),
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
-                                        span: self.ast.expr(init).span,
+                                        span: self.ast.exprs[init].span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                     StaticValue::Tentative
@@ -220,9 +220,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     *is_defined = true;
                 }
                 self.ast.decls(params).iter().for_each(|param| {
-                    if self.ast.decl(*param).storage.is_some() {
+                    if self.ast.decls[*param].storage.is_some() {
                         self.result.diagnostics.push(TyperDiagnostic {
-                            span: self.ast.decl(*param).span,
+                            span: self.ast.decls[*param].span,
                             kind: TyperDiagnosticKind::StorageClassesDisallowed,
                         });
                     }
@@ -240,7 +240,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     fn visit_stmt(&mut self, stmt_ref: StmtRef) {
-        let stmt = self.ast.stmt(stmt_ref);
+        let stmt = &self.ast.stmts[stmt_ref];
         match &stmt.kind {
             StmtKind::Empty
             | StmtKind::Break(_)
@@ -295,9 +295,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             self.visit_expr(*expr);
                         }
                         ForInit::VarDecl(decl) => {
-                            if self.ast.decl(*decl).storage.is_some() {
+                            if self.ast.decls[*decl].storage.is_some() {
                                 self.result.diagnostics.push(TyperDiagnostic {
-                                    span: self.ast.decl(*decl).span,
+                                    span: self.ast.decls[*decl].span,
                                     kind: TyperDiagnosticKind::StorageClassesDisallowed,
                                 });
                             }
@@ -319,11 +319,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     switch
                         .cases
                         .iter()
-                        .for_each(|stmt| match &self.ast.stmt(*stmt).kind {
+                        .for_each(|stmt| match &self.ast.stmts[*stmt].kind {
                             StmtKind::Case { expr, .. } => match eval_constant(self.ast, *expr) {
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
-                                        span: self.ast.expr(*expr).span,
+                                        span: self.ast.exprs[*expr].span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
@@ -335,7 +335,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     };
                                     if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
-                                            span: self.ast.expr(*expr).span,
+                                            span: self.ast.exprs[*expr].span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                         });
                                     }
@@ -348,7 +348,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     };
                                     if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
-                                            span: self.ast.expr(*expr).span,
+                                            span: self.ast.exprs[*expr].span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                         });
                                     }
@@ -364,7 +364,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     fn visit_expr(&mut self, expr_ref: ExprRef) -> Ty<'ctx> {
-        let expr = self.ast.expr(expr_ref);
+        let expr = &self.ast.exprs[expr_ref];
         let ty = match &expr.kind {
             ExprKind::Const(ConstValue::Int32(_)) => self.ctx.tys.int_ty,
             ExprKind::Const(ConstValue::Int64(_)) => self.ctx.tys.long_ty,
@@ -493,7 +493,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             .iter()
                             .zip(params)
                             .for_each(|(arg, ty)| {
-                                if self.ast.expr(*arg).ty.get() != *ty {
+                                if self.ast.exprs[*arg].ty.get() != *ty {
                                     self.result.actions.cast(*ty, *arg);
                                 }
                             });
@@ -521,7 +521,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn assert_is_lvalue(&mut self, expr: ExprRef) -> bool {
         if !is_lvalue(self.ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
-                span: self.ast.expr(expr).span,
+                span: self.ast.exprs[expr].span,
                 kind: TyperDiagnosticKind::InvalidLValue,
             });
             return false;
@@ -559,7 +559,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 // ---------------------------------------------------------------------------
 
 fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
-    match ast.expr(expr).kind {
+    match ast.exprs[expr].kind {
         ExprKind::Var { .. } => true,
         ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => is_lvalue(ast, expr),
@@ -572,7 +572,7 @@ fn is_lvalue(ast: &Ast, expr: ExprRef) -> bool {
 }
 
 fn eval_constant(ast: &Ast, expr: ExprRef) -> Option<ConstValue> {
-    match ast.expr(expr).kind {
+    match ast.exprs[expr].kind {
         ExprKind::Const(value) => Some(value),
         ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => eval_constant(ast, expr),

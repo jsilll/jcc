@@ -4,7 +4,7 @@ pub mod typing;
 
 use crate::ast::{
     ty::{Ty, TyCtx},
-    StmtRef,
+    Stmt,
 };
 
 use jcc_ssa::ir::ConstValue;
@@ -12,26 +12,16 @@ use jcc_ssa::ir::ConstValue;
 use std::{collections::HashMap, num::NonZeroU32};
 
 // ---------------------------------------------------------------------------
-// SemaSymbol
+// SemaCtx
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SemaSymbol(pub(crate) NonZeroU32);
-
-impl Default for SemaSymbol {
-    fn default() -> Self {
-        Self(NonZeroU32::new(u32::MAX).unwrap())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SemaCtx
-// ---------------------------------------------------------------------------
+pub struct SemaId(pub(crate) NonZeroU32);
 
 pub struct SemaCtx<'ctx> {
     pub tys: &'ctx TyCtx<'ctx>,
     symbols: Vec<Option<SymbolInfo<'ctx>>>,
-    pub switches: HashMap<StmtRef, SwitchCases>,
+    pub switches: HashMap<Stmt, SwitchCases>,
 }
 
 impl<'ctx> SemaCtx<'ctx> {
@@ -49,14 +39,14 @@ impl<'ctx> SemaCtx<'ctx> {
     }
 
     #[inline]
-    pub fn symbol(&self, sym: SemaSymbol) -> Option<&SymbolInfo<'ctx>> {
+    pub fn symbol(&self, sym: SemaId) -> Option<&SymbolInfo<'ctx>> {
         self.symbols
             .get(sym.0.get() as usize)
             .and_then(|s| s.as_ref())
     }
 
     #[inline]
-    pub fn symbol_mut(&mut self, sym: SemaSymbol) -> &mut Option<SymbolInfo<'ctx>> {
+    pub fn symbol_mut(&mut self, sym: SemaId) -> &mut Option<SymbolInfo<'ctx>> {
         self.symbols
             .get_mut(sym.0.get() as usize)
             .expect("Invalid symbol index")
@@ -70,8 +60,8 @@ impl<'ctx> SemaCtx<'ctx> {
 // TODO:(perf) Consider flattening the cases into a pool
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct SwitchCases {
-    pub cases: Vec<StmtRef>,
-    pub default: Option<StmtRef>,
+    pub cases: Vec<Stmt>,
+    pub default: Option<Stmt>,
 }
 
 // ---------------------------------------------------------------------------

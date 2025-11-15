@@ -86,7 +86,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Resolve ===
     let ast = r.ast;
-    if ast.root().is_empty() {
+    if ast.root.is_empty() {
         eprintln!("Error: no declarations in the source file");
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }

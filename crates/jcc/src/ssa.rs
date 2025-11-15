@@ -43,7 +43,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
     pub fn build(mut self) -> Program<'ctx> {
         self.ast.root().iter().for_each(|decl_ref| {
-            let decl = self.ast.decl(*decl_ref);
+            let decl = &self.ast.decls[*decl_ref];
             match decl.kind {
                 ast::DeclKind::Var(_) => {
                     let info = self
@@ -105,7 +105,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.tracked.clear();
 
                         self.ast.decls(params).iter().for_each(|param_ref| {
-                            let param = self.ast.decl(*param_ref);
+                            let param = &self.ast.decls[*param_ref];
                             let ty = match *param.ty {
                                 ast::TyKind::Int => Ty::Int32,
                                 ast::TyKind::Long => Ty::Int64,
@@ -122,7 +122,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
                         let append_return = match self.ast.items(body).last() {
                             Some(ast::BlockItem::Stmt(stmt)) => {
-                                !matches!(self.ast.stmt(*stmt).kind, ast::StmtKind::Return(_))
+                                !matches!(self.ast.stmts[*stmt].kind, ast::StmtKind::Return(_))
                             }
                             _ => true,
                         };
@@ -140,7 +140,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     fn visit_decl(&mut self, decl_ref: ast::DeclRef) {
-        let decl = self.ast.decl(decl_ref);
+        let decl = &self.ast.decls[decl_ref];
         match decl.kind {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
@@ -197,7 +197,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     fn visit_stmt(&mut self, stmt_ref: ast::StmtRef) {
-        let stmt = self.ast.stmt(stmt_ref);
+        let stmt = &self.ast.stmts[stmt_ref];
         match &stmt.kind {
             ast::StmtKind::Empty => {}
             ast::StmtKind::Expr(expr) => {
@@ -208,11 +208,11 @@ impl<'ctx> SSABuilder<'ctx> {
                 self.builder.insert_inst(Inst::ret(val, stmt.span));
             }
             ast::StmtKind::Break(target) => {
-                let block = self.get_break_block(target.get());
+                let block = self.get_break_block(target.get().expect("break block not set"));
                 self.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Continue(target) => {
-                let block = self.get_continue_block(target.get());
+                let block = self.get_continue_block(target.get().expect("continue block not set"));
                 self.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Default(inner) => {
@@ -232,7 +232,11 @@ impl<'ctx> SSABuilder<'ctx> {
                 label,
                 stmt: target,
             } => {
-                let block = self.get_or_make_labeled(target.get(), *label, stmt.span);
+                let block = self.get_or_make_labeled(
+                    target.get().expect("goto block not set"),
+                    *label,
+                    stmt.span,
+                );
                 self.builder.insert_inst(Inst::jump(block, stmt.span));
             }
             ast::StmtKind::Label { label, stmt: inner } => {
@@ -395,9 +399,9 @@ impl<'ctx> SSABuilder<'ctx> {
                 if let Some(switch) = self.sema.switches.get(&stmt_ref) {
                     cases.reserve(switch.cases.len());
                     switch.cases.iter().for_each(|inner_ref| {
-                        let inner = self.ast.stmt(*inner_ref);
+                        let inner = &self.ast.stmts[*inner_ref];
                         if let ast::StmtKind::Case { expr, .. } = inner.kind {
-                            let val = match self.ast.expr(expr).kind {
+                            let val = match self.ast.exprs[expr].kind {
                                 ast::ExprKind::Const(c) => c,
                                 _ => panic!("expected a constant expression"),
                             };
@@ -410,7 +414,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     if let Some(inner) = switch.default {
                         let block = self
                             .builder
-                            .new_block("switch.default", self.ast.stmt(inner).span);
+                            .new_block("switch.default", self.ast.stmts[inner].span);
                         self.tracked.insert(inner, TrackedBlock::Case(block));
                         default_block = Some(block);
                     }
@@ -440,7 +444,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     fn visit_expr(&mut self, expr: ast::ExprRef, mode: ExprMode) -> InstRef {
-        let expr = self.ast.expr(expr);
+        let expr = &self.ast.exprs[expr];
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
             ast::ExprKind::Const(ConstValue::Int32(c)) => {
@@ -491,7 +495,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 }
             }
             ast::ExprKind::Cast { ty, expr: inner } => {
-                let expr_ty = self.ast.expr(*inner).ty.get();
+                let expr_ty = self.ast.exprs[*inner].ty.get();
                 let val = self.visit_expr(*inner, ExprMode::RightValue);
                 if *ty == self.sema.tys.int_ty && expr_ty == self.sema.tys.long_ty {
                     self.builder.insert_inst(Inst::truncate(val, expr.span))
@@ -680,7 +684,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::AddAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Add,
                     *lhs,
                     *rhs,
@@ -688,7 +692,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::SubAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Sub,
                     *lhs,
                     *rhs,
@@ -696,7 +700,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::MulAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Mul,
                     *lhs,
                     *rhs,
@@ -704,7 +708,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::DivAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Div,
                     *lhs,
                     *rhs,
@@ -712,7 +716,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::RemAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Rem,
                     *lhs,
                     *rhs,
@@ -720,7 +724,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::BitOrAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Or,
                     *lhs,
                     *rhs,
@@ -728,7 +732,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::BitAndAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::And,
                     *lhs,
                     *rhs,
@@ -736,7 +740,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ),
                 ast::BinaryOp::BitXorAssign => self.build_bin_asgn(
                     mode,
-                    self.ast.expr(*rhs).ty.get(),
+                    self.ast.exprs[*rhs].ty.get(),
                     BinaryOp::Xor,
                     *lhs,
                     *rhs,
@@ -897,13 +901,13 @@ impl<'ctx> SSABuilder<'ctx> {
         rhs: ast::ExprRef,
         span: SourceSpan,
     ) -> InstRef {
-        let lty = self.ast.expr(lhs).ty.get();
+        let lty = self.ast.exprs[lhs].ty.get();
         let mut l = self.visit_expr(lhs, ExprMode::RightValue);
         if lty == self.sema.tys.int_ty && ty == self.sema.tys.long_ty {
             l = self.builder.insert_inst(Inst::sign_extend(l, span));
         }
 
-        let rty = self.ast.expr(rhs).ty.get();
+        let rty = self.ast.exprs[rhs].ty.get();
         let r = self.visit_expr(rhs, ExprMode::RightValue);
         let mut inst = self
             .builder

@@ -150,6 +150,7 @@ dependencies = [
  "anyhow",
  "clap",
  "jcc_arena",
+ "jcc_entity",
  "jcc_ssa",
  "phf",
 ]

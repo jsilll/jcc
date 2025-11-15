@@ -20,8 +20,8 @@ impl<'ctx> LoweringPass<'ctx> {
             .iter()
             .for_each(|action| match action {
                 LoweringAction::Cast { ty, expr } => {
-                    let copy = self.ast.new_expr(self.ast.expr(*expr).clone());
-                    let cast = self.ast.expr_mut(*expr);
+                    let copy = self.ast.exprs.push(self.ast.exprs[*expr].clone());
+                    let cast = &mut self.ast.exprs[*expr];
                     cast.ty.set(*ty);
                     cast.kind = ExprKind::Cast {
                         ty: *ty,

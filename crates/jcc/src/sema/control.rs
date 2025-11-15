@@ -42,7 +42,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
         self.ast
             .root()
             .iter()
-            .for_each(|decl| match self.ast.decl(*decl).kind {
+            .for_each(|decl| match self.ast.decls[*decl].kind {
                 DeclKind::Var(_) => {}
                 DeclKind::Func { body, .. } => {
                     if let Some(body) = body {
@@ -70,7 +70,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
     }
 
     fn visit_stmt(&mut self, stmt_ref: StmtRef) {
-        let stmt = self.ast.stmt(stmt_ref);
+        let stmt = &self.ast.stmts[stmt_ref];
         match &stmt.kind {
             StmtKind::Empty | StmtKind::Expr(_) | StmtKind::Return(_) => {}
             StmtKind::If {
@@ -119,12 +119,12 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     .entry(*label)
                     .or_insert(TrackedLabel::Unresolved(vec![(target, stmt.span)]));
                 if let TrackedLabel::Resolved(stmt) = entry {
-                    target.set(*stmt);
+                    target.set(Some(*stmt));
                 }
             }
             StmtKind::Break(target) => match self.tracked_stmts.last() {
                 Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
-                    target.set(*stmt)
+                    target.set(Some(*stmt))
                 }
                 None => self.result.diagnostics.push(ControlDiagnostic {
                     span: stmt.span,
@@ -137,7 +137,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     _ => None,
                 }) {
                     Some(stmt) => {
-                        target.set(stmt);
+                        target.set(Some(stmt));
                     }
                     None => self.result.diagnostics.push(ControlDiagnostic {
                         span: stmt.span,
@@ -194,7 +194,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 match entry {
                     TrackedLabel::Unresolved(v) => {
                         v.iter().for_each(|(target, _)| {
-                            target.set(stmt_ref);
+                            target.set(Some(stmt_ref));
                         });
                         *entry = TrackedLabel::Resolved(stmt_ref);
                     }
@@ -230,7 +230,7 @@ pub enum TrackedLabel<'a> {
     /// A resolved label
     Resolved(StmtRef),
     /// An unresolved label
-    Unresolved(Vec<(&'a Cell<StmtRef>, SourceSpan)>),
+    Unresolved(Vec<(&'a Cell<Option<StmtRef>>, SourceSpan)>),
 }
 
 // ---------------------------------------------------------------------------

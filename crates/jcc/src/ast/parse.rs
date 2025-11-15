@@ -149,7 +149,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             None
         };
         self.eat(TokenKind::Semi)?;
-        Some(self.result.ast.new_decl(Decl {
+        Some(self.result.ast.decls.push(Decl {
             ty,
             span,
             storage,
@@ -163,7 +163,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         let (span, name) = self.eat_identifier()?;
         let token = self.eat_some()?;
         match token.kind {
-            TokenKind::Semi => Some(self.result.ast.new_decl(Decl {
+            TokenKind::Semi => Some(self.result.ast.decls.push(Decl {
                 ty,
                 span,
                 storage,
@@ -173,7 +173,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             TokenKind::Eq => {
                 let init = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_decl(Decl {
+                Some(self.result.ast.decls.push(Decl {
                     ty,
                     span,
                     storage,
@@ -198,7 +198,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     Some(body)
                 };
                 let ty = self.build_func_type(params, ty);
-                Some(self.result.ast.new_decl(Decl {
+                Some(self.result.ast.decls.push(Decl {
                     ty,
                     span,
                     storage,
@@ -218,7 +218,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
     fn parse_param(&mut self, ty: Ty<'ctx>) -> Option<DeclRef> {
         let (span, name) = self.eat_identifier()?;
-        Some(self.result.ast.new_decl(Decl {
+        Some(self.result.ast.decls.push(Decl {
             ty,
             span,
             storage: None,
@@ -284,7 +284,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         match kind {
             TokenKind::Semi => {
                 self.next();
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Empty,
                 }))
@@ -292,7 +292,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             TokenKind::KwBreak => {
                 self.next();
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Break(Default::default()),
                 }))
@@ -300,7 +300,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             TokenKind::KwContinue => {
                 self.next();
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Continue(Default::default()),
                 }))
@@ -309,7 +309,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.next();
                 let (_, label) = self.eat_identifier()?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Goto {
                         label,
@@ -321,7 +321,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.next();
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Return(expr),
                 }))
@@ -330,7 +330,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.next();
                 self.eat(TokenKind::Colon)?;
                 let stmt = self.parse_stmt()?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Default(stmt),
                 }))
@@ -339,7 +339,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.next();
                 let body = self.parse_body();
                 self.eat(TokenKind::RBrace)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Compound(body),
                 }))
@@ -349,7 +349,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Colon)?;
                 let stmt = self.parse_stmt()?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Case { expr, stmt },
                 }))
@@ -360,7 +360,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let cond = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 let body = self.parse_stmt()?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::While { cond, body },
                 }))
@@ -371,7 +371,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let cond = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 let body = self.parse_stmt()?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Switch { cond, body },
                 }))
@@ -384,7 +384,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let cond = self.parse_expr(0)?;
                 self.eat(TokenKind::RParen)?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::DoWhile { body, cond },
                 }))
@@ -405,7 +405,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     }
                     _ => None,
                 };
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::If {
                         cond,
@@ -427,7 +427,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let cond = self.parse_optional_expr(TokenKind::Semi);
                 let step = self.parse_optional_expr(TokenKind::RParen);
                 let body = self.parse_stmt()?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::For {
                         init,
@@ -453,14 +453,14 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     let (span, label) = self.eat_identifier()?;
                     self.eat(TokenKind::Colon)?;
                     let stmt = self.parse_stmt()?;
-                    Some(self.result.ast.new_stmt(Stmt {
+                    Some(self.result.ast.stmts.push(Stmt {
                         span,
                         kind: StmtKind::Label { label, stmt },
                     }))
                 } else {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::Semi)?;
-                    Some(self.result.ast.new_stmt(Stmt {
+                    Some(self.result.ast.stmts.push(Stmt {
                         span,
                         kind: StmtKind::Expr(expr),
                     }))
@@ -469,7 +469,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             _ => {
                 let expr = self.parse_expr(0)?;
                 self.eat(TokenKind::Semi)?;
-                Some(self.result.ast.new_stmt(Stmt {
+                Some(self.result.ast.stmts.push(Stmt {
                     span,
                     kind: StmtKind::Expr(expr),
                 }))
@@ -508,7 +508,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     match token {
                         InfixToken::Binary(op) => {
                             let rhs = self.parse_expr(prec)?;
-                            lhs = self.result.ast.new_expr(Expr::new(
+                            lhs = self.result.ast.exprs.push(Expr::new(
                                 ExprKind::Binary { op, lhs, rhs },
                                 span,
                                 self.tys.void_ty,
@@ -518,7 +518,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                             let then = self.parse_expr(0)?;
                             self.eat(TokenKind::Colon)?;
                             let other = self.parse_expr(prec)?;
-                            lhs = self.result.ast.new_expr(Expr::new(
+                            lhs = self.result.ast.exprs.push(Expr::new(
                                 ExprKind::Ternary {
                                     cond: lhs,
                                     then,
@@ -546,7 +546,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             _ => None,
         } {
             let expr = self.parse_expr_prefix()?;
-            return Some(self.result.ast.new_expr(Expr::new(
+            return Some(self.result.ast.exprs.push(Expr::new(
                 ExprKind::Unary { op, expr },
                 span,
                 self.tys.void_ty,
@@ -557,7 +557,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 let n = &n[0..n.len() - 1]; // remove 'L' suffix
                 let n = n.parse::<i64>().expect("expected number to be valid");
-                Some(self.result.ast.new_expr(Expr::new(
+                Some(self.result.ast.exprs.push(Expr::new(
                     ExprKind::Const(ConstValue::Int64(n)),
                     span,
                     self.tys.void_ty,
@@ -566,14 +566,14 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             TokenKind::IntNumber => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 match n.parse::<i32>() {
-                    Ok(n) => Some(self.result.ast.new_expr(Expr::new(
+                    Ok(n) => Some(self.result.ast.exprs.push(Expr::new(
                         ExprKind::Const(ConstValue::Int32(n)),
                         span,
                         self.tys.void_ty,
                     ))),
                     Err(_) => {
                         let n = n.parse::<i64>().expect("expected number to be valid");
-                        Some(self.result.ast.new_expr(Expr::new(
+                        Some(self.result.ast.exprs.push(Expr::new(
                             ExprKind::Const(ConstValue::Int64(n)),
                             span,
                             self.tys.void_ty,
@@ -583,7 +583,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);
-                let expr = self.result.ast.new_expr(Expr::new(
+                let expr = self.result.ast.exprs.push(Expr::new(
                     ExprKind::Var(AstSymbol::new(name)),
                     span,
                     self.tys.void_ty,
@@ -596,7 +596,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         self.next();
                         let args = self.parse_args();
                         self.eat(TokenKind::RParen)?;
-                        Some(self.result.ast.new_expr(Expr::new(
+                        Some(self.result.ast.exprs.push(Expr::new(
                             ExprKind::Call {
                                 args,
                                 name: AstSymbol::new(name),
@@ -613,7 +613,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 if self.types.is_empty() {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::RParen)?;
-                    let expr = self.result.ast.new_expr(Expr::new(
+                    let expr = self.result.ast.exprs.push(Expr::new(
                         ExprKind::Grouped(expr),
                         span,
                         self.tys.void_ty,
@@ -623,7 +623,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     let ty = self.parse_type();
                     self.eat(TokenKind::RParen)?;
                     let expr = self.parse_expr_prefix()?;
-                    let expr = self.result.ast.new_expr(Expr::new(
+                    let expr = self.result.ast.exprs.push(Expr::new(
                         ExprKind::Cast { ty, expr },
                         span,
                         self.tys.void_ty,
@@ -649,7 +649,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 _ => break,
             };
             self.next();
-            expr = self.result.ast.new_expr(Expr::new(
+            expr = self.result.ast.exprs.push(Expr::new(
                 ExprKind::Unary { op, expr },
                 span,
                 self.tys.void_ty,
@@ -698,7 +698,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     fn build_func_type(&mut self, params_slice: Slice<DeclRef>, ret: Ty<'ctx>) -> Ty<'ctx> {
         let mut params = Vec::with_capacity(params_slice.len());
         self.result.ast.decls(params_slice).iter().for_each(|d| {
-            params.push(self.result.ast.decl(*d).ty);
+            params.push(self.result.ast.decls[*d].ty);
         });
         self.tys.func(ret, params)
     }
@@ -972,7 +972,7 @@ fn is_decl_start(token: TokenKind) -> bool {
 // ParserResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default)]
 pub struct ParserResult<'ctx> {
     pub ast: Ast<'ctx>,
     pub lexer_diagnostics: Vec<LexerDiagnostic>,

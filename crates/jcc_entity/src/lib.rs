@@ -5,6 +5,9 @@
 //! IR where you have multiple interrelated entity types (instructions, blocks,
 //! functions, etc.) that should not be confused.
 
+mod list;
+pub use list::{EntityList, ListPool};
+
 use std::{marker::PhantomData, num::NonZeroU32};
 
 /// A type-safe entity reference that wraps a non-zero index.

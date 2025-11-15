@@ -152,6 +152,7 @@ name = "jcc_ssa"
 version = "0.1.0"
 dependencies = [
  "jcc_codemap",
+ "jcc_entity",
  "jcc_interner",
 ]
 

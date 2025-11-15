@@ -1,5 +1,7 @@
+use jcc_ssa::TargetOs;
+
 use clap::{Parser, ValueEnum};
-use jcc_ssa::ir::TargetOs;
+
 use std::path::PathBuf;
 
 /// Represents the target operating systems supported directly by the CLI.

@@ -73,36 +73,6 @@ macro_rules! entity_impl {
             pub fn as_u32(self) -> u32 {
                 self.0
             }
-
-            /// Return the raw bit encoding for this instance.
-            ///
-            /// # Warning
-            ///
-            /// The raw bit encoding is opaque and has no
-            /// guaranteed correspondence to the entity's index. It encodes the
-            /// entire state of this index value: either a valid index or an
-            /// invalid-index sentinel. The value returned by this method should
-            /// only be passed to `from_bits`.
-            #[inline]
-            #[allow(dead_code, unreachable_pub, reason = "macro-generated code")]
-            pub fn as_bits(self) -> u32 {
-                self.0
-            }
-
-            /// Create a new instance from the raw bit encoding.
-            ///
-            /// # Warning
-            ///
-            /// The raw bit encoding is opaque and has no
-            /// guaranteed correspondence to the entity's index. It encodes the
-            /// entire state of this index value: either a valid index or an
-            /// invalid-index sentinel. The value returned by this method should
-            /// only be given bits from `as_bits`.
-            #[inline]
-            #[allow(dead_code, unreachable_pub, reason = "macro-generated code")]
-            pub fn from_bits(x: u32) -> Self {
-                $entity(x)
-            }
         }
     };
 }

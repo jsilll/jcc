@@ -10,5 +10,6 @@ repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
 
 [dependencies]
+jcc_entity = { path = "../jcc_entity" }
 jcc_interner = { path = "../jcc_interner" }
 jcc_codemap = { path = "../jcc_codemap", features = ["color"] }

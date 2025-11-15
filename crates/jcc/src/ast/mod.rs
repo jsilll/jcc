@@ -8,8 +8,7 @@ pub use ty::{Ty, TyKind};
 use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 use jcc_ssa::{
     codemap::{file::FileId, span::Span},
-    ir::ConstValue,
-    IdentId,
+    Ident,
 };
 
 use std::cell::Cell;
@@ -69,8 +68,16 @@ impl<'ctx> Ast<'ctx> {
 
 #[derive(Debug, Clone)]
 pub struct AstSymbol {
-    pub name: IdentId,
+    pub name: Ident,
     pub sema: Cell<Option<sema::Symbol>>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum ConstValue {
+    /// A 32-bit const value.
+    Int32(i32),
+    /// A 64-bit const value.
+    Int64(i64),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -222,7 +229,7 @@ pub enum StmtKind {
     /// A case statement.
     Case { expr: Expr, stmt: Stmt },
     /// A label statement.
-    Label { label: IdentId, stmt: Stmt },
+    Label { label: Ident, stmt: Stmt },
     /// A switch statement.
     Switch { cond: Expr, body: Stmt },
     /// A while statement.
@@ -231,7 +238,7 @@ pub enum StmtKind {
     DoWhile { body: Stmt, cond: Expr },
     /// A goto statement.
     Goto {
-        label: IdentId,
+        label: Ident,
         stmt: Cell<Option<Stmt>>,
     },
     /// An if statement.

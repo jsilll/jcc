@@ -5,7 +5,7 @@ use crate::{
 
 use jcc_ssa::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
-    IdentId,
+    Ident,
 };
 
 use std::{cell::Cell, collections::HashMap};
@@ -24,7 +24,7 @@ pub struct ControlPass<'a, 'ctx> {
     /// The stack of currently tracked statements
     tracked_stmts: Vec<TrackedStmt>,
     /// The currently tracked labels
-    tracked_labels: HashMap<IdentId, TrackedLabel<'a>>,
+    tracked_labels: HashMap<Ident, TrackedLabel<'a>>,
 }
 
 impl<'a, 'ctx> ControlPass<'a, 'ctx> {

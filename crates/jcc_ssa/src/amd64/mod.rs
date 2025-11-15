@@ -4,58 +4,18 @@ pub mod fix;
 
 use crate::{
     infra::{Indexed, IR},
-    ir, IdentId,
+    ir, Ident,
 };
 
 use jcc_codemap::span::Span;
+use jcc_entity::PrimaryMap;
 
 use std::{collections::HashMap, num::NonZeroU32};
 
-// ---------------------------------------------------------------------------
-// Program
-// ---------------------------------------------------------------------------
-
+#[derive(Default)]
 pub struct Program {
     funcs: Vec<Func>,
-    vars: Vec<ir::StaticVar>,
-}
-
-impl Default for Program {
-    fn default() -> Self {
-        Program {
-            funcs: vec![],
-            vars: vec![Default::default()],
-        }
-    }
-}
-
-impl Program {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn static_var(&self, var_ref: ir::StaticVarRef) -> &ir::StaticVar {
-        &self.vars[var_ref.0.get() as usize]
-    }
-
-    pub fn new_static_var(&mut self, var: ir::StaticVar) -> ir::StaticVarRef {
-        // TODO: Reuse slots from `static_vars_free` for better memory efficiency
-        let r = ir::StaticVarRef(NonZeroU32::new(self.vars.len() as u32).unwrap());
-        self.vars.push(var);
-        r
-    }
-
-    pub fn iter_static_vars(&self) -> impl Iterator<Item = ir::StaticVarRef> + '_ {
-        // Start from 1 to skip the default function at index 0
-        (1..self.vars.len())
-            .map(|i| unsafe { ir::StaticVarRef(NonZeroU32::new_unchecked(i as u32)) })
-    }
-
-    pub fn iter_static_vars_with_ref(
-        &self,
-    ) -> impl Iterator<Item = (ir::StaticVarRef, &ir::StaticVar)> + '_ {
-        self.iter_static_vars().map(|r| (r, self.static_var(r)))
-    }
+    vars: PrimaryMap<ir::Global, ir::GlobalData>,
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +24,7 @@ impl Program {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Func {
-    pub name: IdentId,
+    pub name: Ident,
     pub is_global: bool,
     pub span: Span,
     insts: Vec<Inst>,
@@ -110,7 +70,7 @@ impl IR for Func {
 }
 
 impl Func {
-    pub fn new(name: IdentId, is_global: bool, span: Span) -> Self {
+    pub fn new(name: Ident, is_global: bool, span: Span) -> Self {
         Func {
             name,
             span,
@@ -198,11 +158,11 @@ impl std::fmt::Display for BlockRef {
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
     pub insts: Vec<InstRef>,
-    pub label: Option<IdentId>,
+    pub label: Option<Ident>,
 }
 
 impl Block {
-    pub fn with_label(label: IdentId) -> Self {
+    pub fn with_label(label: Ident) -> Self {
         Block {
             label: Some(label),
             ..Default::default()
@@ -268,7 +228,7 @@ impl Inst {
     }
 
     #[inline]
-    fn call(sym: IdentId, span: Span) -> Self {
+    fn call(sym: Ident, span: Span) -> Self {
         Self::new(Type::default(), InstKind::Call(sym), span)
     }
 
@@ -397,14 +357,14 @@ impl std::fmt::Display for Type {
     }
 }
 
-impl TryFrom<ir::Ty> for Type {
+impl TryFrom<ir::ty::Ty> for Type {
     type Error = ();
-    fn try_from(ty: ir::Ty) -> Result<Self, Self::Error> {
+    fn try_from(ty: ir::ty::Ty) -> Result<Self, Self::Error> {
         match ty {
-            ir::Ty::Int8 => Ok(Self::Byte),
-            ir::Ty::Int32 => Ok(Self::Long),
-            ir::Ty::Int64 => Ok(Self::Quad),
-            ir::Ty::IntPtr => Ok(Self::Quad),
+            ir::ty::Ty::I1 => Ok(Self::Long),
+            ir::ty::Ty::I32 => Ok(Self::Long),
+            ir::ty::Ty::I64 => Ok(Self::Quad),
+            ir::ty::Ty::Ptr => Ok(Self::Quad),
             _ => Err(()),
         }
     }
@@ -420,7 +380,7 @@ pub enum InstKind {
     /// A `cdq` instruction.
     Cdq,
     /// A call instruction.
-    Call(IdentId),
+    Call(Ident),
     /// A push to stack instruction.
     Push(Operand),
     /// A `jmp` instruction.
@@ -460,7 +420,7 @@ pub enum Operand {
     /// Pseudo register.
     Pseudo(u32),
     /// A static variable reference.
-    Data(ir::StaticVarRef),
+    Data(ir::Global),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -606,16 +566,16 @@ impl CondCode {
     }
 }
 
-impl TryFrom<ir::BinaryOp> for CondCode {
+impl TryFrom<ir::inst::ICmpOp> for CondCode {
     type Error = ();
-    fn try_from(op: ir::BinaryOp) -> Result<Self, Self::Error> {
+    fn try_from(op: ir::inst::ICmpOp) -> Result<Self, Self::Error> {
         match op {
-            ir::BinaryOp::Equal => Ok(Self::Eq),
-            ir::BinaryOp::NotEqual => Ok(Self::Ne),
-            ir::BinaryOp::LessThan => Ok(Self::Lt),
-            ir::BinaryOp::LessEqual => Ok(Self::Le),
-            ir::BinaryOp::GreaterThan => Ok(Self::Gt),
-            ir::BinaryOp::GreaterEqual => Ok(Self::Ge),
+            ir::inst::ICmpOp::Eq => Ok(Self::Eq),
+            ir::inst::ICmpOp::Ne => Ok(Self::Ne),
+            ir::inst::ICmpOp::Lt => Ok(Self::Lt),
+            ir::inst::ICmpOp::Le => Ok(Self::Le),
+            ir::inst::ICmpOp::Gt => Ok(Self::Gt),
+            ir::inst::ICmpOp::Ge => Ok(Self::Ge),
             _ => Err(()),
         }
     }
@@ -628,7 +588,7 @@ impl TryFrom<ir::BinaryOp> for CondCode {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SymbolTable {
     pseudos: Vec<PseudoEntry>,
-    funcs: HashMap<IdentId, FuncEntry>,
+    funcs: HashMap<Ident, FuncEntry>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

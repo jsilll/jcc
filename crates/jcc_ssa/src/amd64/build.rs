@@ -27,14 +27,14 @@ pub struct BuilderResult {
 // ---------------------------------------------------------------------------
 
 pub struct Builder<'a> {
-    ssa: &'a ir::Program<'a>,
+    ssa: &'a ir::Program,
     func: Func,
     block: BlockRef,
     arg_count: u32,
     pseudo_count: u32,
     result: BuilderResult,
-    blocks: HashMap<ir::BlockRef, BlockRef>,
-    operands: HashMap<ir::InstRef, Operand>,
+    blocks: HashMap<ir::Block, BlockRef>,
+    operands: HashMap<ir::Value, Operand>,
 }
 
 impl<'a> Builder<'a> {
@@ -52,22 +52,22 @@ impl<'a> Builder<'a> {
     }
 
     pub fn build(mut self) -> BuilderResult {
-        self.ssa.iter_static_vars().for_each(|v| {
-            self.result.program.new_static_var(v.clone());
+        self.ssa.globals.iter().for_each(|(_, data)| {
+            self.result.program.vars.push(data.clone());
         });
-        self.ssa.iter_funcs().for_each(|f| {
-            if f.blocks.is_empty() {
+        self.ssa.functions.iter().for_each(|(_, data)| {
+            if data.blocks.is_empty() {
                 return;
             }
-            self.func.name = f.name;
-            self.func.span = f.span;
-            self.func.is_global = f.is_global;
-            f.blocks.iter().enumerate().for_each(|(idx, b)| {
-                let block = self.ssa.block(*b);
+            self.func.name = data.name;
+            self.func.span = data.span;
+            self.func.is_global = data.is_global;
+            data.blocks.iter().enumerate().for_each(|(idx, b)| {
+                let block = &self.ssa.blocks[*b];
                 self.block = self.get_or_make_block(*b);
                 let _ = self.func.block_mut(self.block).label.insert(block.name);
                 if idx == 0 {
-                    self.insert_inst(Inst::alloc_stack(0, f.span))
+                    self.insert_inst(Inst::alloc_stack(0, data.span))
                 }
                 block.insts.iter().for_each(|inst| {
                     self.visit_inst(*inst);
@@ -81,28 +81,28 @@ impl<'a> Builder<'a> {
             self.blocks.clear();
             self.operands.clear();
             self.result.table.funcs.insert(
-                f.name,
+                data.name,
                 FuncEntry {
                     frame_size: 0, // TODO
-                    is_static: !f.is_global,
+                    is_static: !data.is_global,
                 },
             );
         });
         self.result
     }
 
-    fn visit_inst(&mut self, inst_ref: ir::InstRef) {
-        let inst = self.ssa.inst(inst_ref);
-        match inst.kind {
-            ir::InstKind::Nop | ir::InstKind::Phi => {}
-            ir::InstKind::Select { .. } => todo!("handle select"),
-            ir::InstKind::Alloca(ty) => {
+    fn visit_inst(&mut self, inst_ref: ir::Value) {
+        let inst = &self.ssa.values[inst_ref];
+        match inst.inst {
+            ir::inst::Inst::Noop | ir::inst::Inst::Phi(_) => {}
+            ir::inst::Inst::Select { .. } => todo!("handle select"),
+            ir::inst::Inst::Alloca { ty, .. } => {
                 let dst = self.make_pseudo(ty.try_into().unwrap());
                 self.operands.insert(inst_ref, dst);
             }
-            ir::InstKind::Arg => {
-                let ty = inst.ty.try_into().unwrap();
-                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
+            ir::inst::Inst::Param { ty, .. } => {
+                let ty = ty.try_into().unwrap();
+                let dst = self.make_pseudo(ty);
                 self.operands.insert(inst_ref, dst);
                 match ARG_REGS.get(self.arg_count as usize) {
                     Some(&reg) => {
@@ -116,164 +116,167 @@ impl<'a> Builder<'a> {
                 }
                 self.arg_count += 1;
             }
-            ir::InstKind::Jump(block) => {
+            ir::inst::Inst::Br(block) => {
                 let block = self.get_or_make_block(block);
                 self.insert_inst(Inst::jmp(block, inst.span));
             }
-            ir::InstKind::Const(ir::ConstValue::Int64(c)) => {
-                self.operands.insert(inst_ref, Operand::Imm(c));
+            ir::inst::Inst::ConstInt { value, .. } => {
+                self.operands.insert(inst_ref, Operand::Imm(value));
             }
-            ir::InstKind::Const(ir::ConstValue::Int32(c)) => {
-                self.operands.insert(inst_ref, Operand::Imm(c as i64));
+            ir::inst::Inst::GlobalAddr(global) => {
+                self.operands.insert(inst_ref, Operand::Data(global));
             }
-            ir::InstKind::Identity(val) => {
-                self.operands.insert(inst_ref, self.get_operand(val));
-            }
-            ir::InstKind::Static(v) => {
-                self.operands
-                    .insert(inst_ref, Operand::Data(ir::StaticVarRef(v.0)));
-            }
-            ir::InstKind::SignExtend(val) => {
+            ir::inst::Inst::Sext { value, .. } => {
                 let dst = self.make_pseudo(Type::Quad);
-                let src = self.get_operand(val);
+                let src = self.get_operand(value);
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::movsx(src, dst, inst.span));
             }
-            ir::InstKind::Truncate(val) => {
+            ir::inst::Inst::Zext { value, .. } => {
                 let dst = self.make_pseudo(Type::Long);
-                let src = self.get_operand(val);
+                let src = self.get_operand(value);
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::mov(Type::Long, src, dst, inst.span));
             }
-            ir::InstKind::Load(ptr) => {
-                let ty = inst.ty.try_into().unwrap();
+            ir::inst::Inst::Trunc { value, .. } => {
+                let dst = self.make_pseudo(Type::Long);
+                let src = self.get_operand(value);
+                self.operands.insert(inst_ref, dst);
+                self.insert_inst(Inst::mov(Type::Long, src, dst, inst.span));
+            }
+            ir::inst::Inst::Load { ty, ptr, .. } => {
+                let ty = ty.try_into().unwrap();
                 let dst = self.make_pseudo(ty);
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::mov(ty, self.get_operand(ptr), dst, inst.span));
             }
-            ir::InstKind::Ret(val) => {
-                let ty = self.ssa.inst(val).ty;
-                let src = self.get_operand(val);
-                self.insert_inst(Inst::mov(
-                    ty.try_into().unwrap(),
-                    src,
-                    Operand::Reg(Reg::Rax),
-                    inst.span,
-                ));
+            ir::inst::Inst::Ret(None) => {
                 self.insert_inst(Inst::ret(inst.span));
             }
-            ir::InstKind::Store { ptr, val } => {
-                let ty = self.ssa.inst(val).ty;
-                let src = self.get_operand(val);
+            ir::inst::Inst::Ret(Some(value)) => {
+                let ty = self.ssa.values[value].inst.ty().try_into().unwrap();
+                let src = self.get_operand(value);
+                self.insert_inst(Inst::mov(ty, src, Operand::Reg(Reg::Rax), inst.span));
+                self.insert_inst(Inst::ret(inst.span));
+            }
+            ir::inst::Inst::Store { ptr, value, .. } => {
+                let ty = self.ssa.values[value].inst.ty().try_into().unwrap();
+                let src = self.get_operand(value);
                 let dst = self.get_operand(ptr);
-                self.insert_inst(Inst::mov(ty.try_into().unwrap(), src, dst, inst.span));
+                self.insert_inst(Inst::mov(ty, src, dst, inst.span));
             }
-            ir::InstKind::Upsilon { phi, val } => {
-                let src = self.get_operand(val);
-                let dst = self.get_or_make_pseudo(phi, inst.ty.try_into().unwrap());
-                self.insert_inst(Inst::mov(inst.ty.try_into().unwrap(), src, dst, inst.span));
+            ir::inst::Inst::Upsilon { phi, value } => {
+                let ty = self.ssa.values[value].inst.ty().try_into().unwrap();
+                let src = self.get_operand(value);
+                let dst = self.get_or_make_pseudo(phi, ty);
+                self.insert_inst(Inst::mov(ty, src, dst, inst.span));
             }
-            ir::InstKind::Branch { cond, then, other } => {
-                let ty = self.ssa.inst(cond).ty.try_into().unwrap();
+            ir::inst::Inst::CondBr {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let ty = self.ssa.values[cond].inst.ty().try_into().unwrap();
                 let cond = self.get_operand(cond);
-                let then = self.get_or_make_block(then);
-                let other = self.get_or_make_block(other);
+                let then = self.get_or_make_block(then_block);
+                let other = self.get_or_make_block(else_block);
                 self.insert_inst(Inst::test(ty, cond, cond, inst.span));
                 self.insert_inst(Inst::jmpcc(CondCode::Ne, then, inst.span));
                 self.insert_inst(Inst::jmp(other, inst.span));
             }
-            ir::InstKind::Switch {
-                cond,
+            ir::inst::Inst::Switch {
+                value,
                 default,
                 ref cases,
             } => {
-                let oper = self.get_operand(cond);
-                let ty = self.ssa.inst(cond).ty.try_into().unwrap();
+                let oper = self.get_operand(value);
+                let ty = self.ssa.values[value].inst.ty().try_into().unwrap();
                 cases.iter().for_each(|(v, block)| {
-                    let v = match v {
-                        ir::ConstValue::Int64(v) => *v,
-                        ir::ConstValue::Int32(v) => *v as i64,
-                    };
                     let block = self.get_or_make_block(*block);
-                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(v), inst.span));
+                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(*v), inst.span));
                     self.insert_inst(Inst::jmpcc(CondCode::Eq, block, inst.span));
                 });
                 let default = self.get_or_make_block(default);
                 self.insert_inst(Inst::jmp(default, inst.span));
             }
-            ir::InstKind::Unary { op, val } => {
-                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
-                let src = self.get_operand(val);
+            ir::inst::Inst::Unary { ty, op, operand } => {
+                let dst = self.make_pseudo(ty.try_into().unwrap());
+                let src = self.get_operand(operand);
                 self.operands.insert(inst_ref, dst);
-                let val_ty = self.ssa.inst(val).ty.try_into().unwrap();
+                let val_ty = self.ssa.values[operand].inst.ty().try_into().unwrap();
                 match op {
-                    ir::UnaryOp::Not => {
+                    ir::inst::UnaryOp::Not => {
                         self.build_unary(val_ty, UnaryOp::Not, src, dst, inst.span);
                     }
-                    ir::UnaryOp::Neg => self.build_unary(val_ty, UnaryOp::Neg, src, dst, inst.span),
-                    ir::UnaryOp::Inc => self.build_unary(val_ty, UnaryOp::Inc, src, dst, inst.span),
-                    ir::UnaryOp::Dec => self.build_unary(val_ty, UnaryOp::Dec, src, dst, inst.span),
+                    ir::inst::UnaryOp::Neg => {
+                        self.build_unary(val_ty, UnaryOp::Neg, src, dst, inst.span)
+                    }
                 }
             }
-            ir::InstKind::Binary { op, lhs, rhs } => {
-                let dst_ty = inst.ty.try_into().unwrap();
-                let lhs_ty = self.ssa.inst(lhs).ty.try_into().unwrap();
+            ir::inst::Inst::Icmp { pred, lhs, rhs } => {
+                let dst = self.make_pseudo(Type::Long);
+                let lhs_ty = self.ssa.values[lhs].inst.ty().try_into().unwrap();
+                let lhs = self.get_operand(lhs);
+                let rhs = self.get_operand(rhs);
+                self.operands.insert(inst_ref, dst);
+                let cond_code = match pred {
+                    ir::inst::ICmpOp::Eq => CondCode::Eq,
+                    ir::inst::ICmpOp::Ne => CondCode::Ne,
+                    ir::inst::ICmpOp::Lt => CondCode::Lt,
+                    ir::inst::ICmpOp::Le => CondCode::Le,
+                    ir::inst::ICmpOp::Gt => CondCode::Gt,
+                    ir::inst::ICmpOp::Ge => CondCode::Ge,
+                    ir::inst::ICmpOp::Ugt => todo!(),
+                    ir::inst::ICmpOp::Uge => todo!(),
+                    ir::inst::ICmpOp::Ult => todo!(),
+                    ir::inst::ICmpOp::Ule => todo!(),
+                };
+                self.build_cmp((lhs_ty, Type::Long), cond_code, lhs, rhs, dst, inst.span);
+            }
+            ir::inst::Inst::Binary { ty, op, lhs, rhs } => {
+                let dst_ty = ty.try_into().unwrap();
+                let lhs_ty = self.ssa.values[lhs].inst.ty().try_into().unwrap();
                 let dst = self.make_pseudo(dst_ty);
                 let lhs = self.get_operand(lhs);
                 let rhs = self.get_operand(rhs);
                 self.operands.insert(inst_ref, dst);
                 match op {
-                    ir::BinaryOp::Div => {
+                    ir::inst::BinaryOp::UDiv => todo!(),
+                    ir::inst::BinaryOp::URem => todo!(),
+                    ir::inst::BinaryOp::AShr => todo!(),
+                    ir::inst::BinaryOp::Div => {
                         self.build_div_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Rem => {
+                    ir::inst::BinaryOp::Rem => {
                         self.build_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Or => {
+                    ir::inst::BinaryOp::Or => {
                         self.build_binary(lhs_ty, BinaryOp::Or, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::And => {
+                    ir::inst::BinaryOp::And => {
                         self.build_binary(lhs_ty, BinaryOp::And, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Xor => {
+                    ir::inst::BinaryOp::Xor => {
                         self.build_binary(lhs_ty, BinaryOp::Xor, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Shl => {
+                    ir::inst::BinaryOp::Shl => {
                         self.build_binary(lhs_ty, BinaryOp::Shl, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Shr => {
+                    ir::inst::BinaryOp::Shr => {
                         self.build_binary(lhs_ty, BinaryOp::Shr, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Add => {
+                    ir::inst::BinaryOp::Add => {
                         self.build_binary(lhs_ty, BinaryOp::Add, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Sub => {
+                    ir::inst::BinaryOp::Sub => {
                         self.build_binary(lhs_ty, BinaryOp::Sub, lhs, rhs, dst, inst.span)
                     }
-                    ir::BinaryOp::Mul => {
+                    ir::inst::BinaryOp::Mul => {
                         self.build_binary(lhs_ty, BinaryOp::Mul, lhs, rhs, dst, inst.span)
-                    }
-                    ir::BinaryOp::Equal => {
-                        self.build_cmp((lhs_ty, dst_ty), CondCode::Eq, lhs, rhs, dst, inst.span)
-                    }
-                    ir::BinaryOp::NotEqual => {
-                        self.build_cmp((lhs_ty, dst_ty), CondCode::Ne, lhs, rhs, dst, inst.span)
-                    }
-                    ir::BinaryOp::LessThan => {
-                        self.build_cmp((lhs_ty, dst_ty), CondCode::Lt, lhs, rhs, dst, inst.span)
-                    }
-                    ir::BinaryOp::LessEqual => {
-                        self.build_cmp((lhs_ty, dst_ty), CondCode::Le, lhs, rhs, dst, inst.span)
-                    }
-                    ir::BinaryOp::GreaterThan => {
-                        self.build_cmp((lhs_ty, dst_ty), CondCode::Gt, lhs, rhs, dst, inst.span)
-                    }
-                    ir::BinaryOp::GreaterEqual => {
-                        self.build_cmp((lhs_ty, dst_ty), CondCode::Ge, lhs, rhs, dst, inst.span)
                     }
                 }
             }
-            ir::InstKind::Call { func, ref args } => {
+            ir::inst::Inst::Call { ty, func, ref args } => {
                 let stack_args = args.len().saturating_sub(ARG_REGS.len());
                 let stack_padding = if stack_args % 2 == 0 {
                     0
@@ -282,14 +285,9 @@ impl<'a> Builder<'a> {
                     8
                 };
                 for (reg, arg) in ARG_REGS.iter().zip(args.iter()) {
-                    let ty = self.ssa.inst(*arg).ty;
+                    let ty = self.ssa.values[*arg].inst.ty().try_into().unwrap();
                     let src = self.get_operand(*arg);
-                    self.insert_inst(Inst::mov(
-                        ty.try_into().unwrap(),
-                        src,
-                        Operand::Reg(*reg),
-                        inst.span,
-                    ));
+                    self.insert_inst(Inst::mov(ty, src, Operand::Reg(*reg), inst.span));
                 }
                 for arg in args.get(ARG_REGS.len()..).unwrap_or(&[]).iter().rev() {
                     let oper = self.get_operand(*arg);
@@ -297,7 +295,7 @@ impl<'a> Builder<'a> {
                         Operand::Imm(_) | Operand::Reg(_) => {
                             self.insert_inst(Inst::push(oper, inst.span));
                         }
-                        oper if matches!(self.ssa.inst(*arg).ty, ir::Ty::Int64) => {
+                        oper if matches!(self.ssa.values[*arg].inst.ty(), ir::ty::Ty::I64) => {
                             self.insert_inst(Inst::push(oper, inst.span));
                         }
                         _ => {
@@ -307,17 +305,24 @@ impl<'a> Builder<'a> {
                         }
                     }
                 }
-                let name = self.ssa.func(func).name;
+                let name = self.ssa.functions[func].name;
                 self.insert_inst(Inst::call(name, inst.span));
                 let stack_size = stack_args as i64 * 8 + stack_padding;
                 if stack_size > 0 {
                     self.insert_inst(Inst::dealloc_stack(stack_size, inst.span))
                 }
-                let dst = self.make_pseudo(inst.ty.try_into().unwrap());
-                let ty = self.ssa.inst(inst_ref).ty.try_into().unwrap();
+                let dst = self.make_pseudo(ty.try_into().unwrap());
+                let ty = self.ssa.values[inst_ref].inst.ty().try_into().unwrap();
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::mov(ty, Operand::Reg(Reg::Rax), dst, inst.span));
             }
+            ir::inst::Inst::ConstNull(_) => todo!(),
+            ir::inst::Inst::GetElementPtr { .. } => todo!(),
+            ir::inst::Inst::Bitcast { .. } => todo!(),
+            ir::inst::Inst::IntToPtr { .. } => todo!(),
+            ir::inst::Inst::PtrToInt { .. } => todo!(),
+            ir::inst::Inst::IndirectCall { .. } => todo!(),
+            ir::inst::Inst::Unreachable => todo!(),
         }
     }
 
@@ -410,12 +415,12 @@ impl<'a> Builder<'a> {
     }
 
     #[inline]
-    fn get_operand(&self, inst: ir::InstRef) -> Operand {
+    fn get_operand(&self, inst: ir::Value) -> Operand {
         *self.operands.get(&inst).expect("expected a variable")
     }
 
     #[inline]
-    fn get_or_make_pseudo(&mut self, inst: ir::InstRef, ty: Type) -> Operand {
+    fn get_or_make_pseudo(&mut self, inst: ir::Value, ty: Type) -> Operand {
         *self.operands.entry(inst).or_insert_with(|| {
             self.result.table.pseudos.push(PseudoEntry {
                 ty,
@@ -428,7 +433,7 @@ impl<'a> Builder<'a> {
     }
 
     #[inline]
-    fn get_or_make_block(&mut self, block: ir::BlockRef) -> BlockRef {
+    fn get_or_make_block(&mut self, block: ir::Block) -> BlockRef {
         *self
             .blocks
             .entry(block)

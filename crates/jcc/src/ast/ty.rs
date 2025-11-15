@@ -1,4 +1,5 @@
 use jcc_arena::intern::{InternArena, Interned};
+use jcc_ssa::ir::ty::Ty as SsaTy;
 
 // ---------------------------------------------------------------------------
 // Ty
@@ -17,6 +18,17 @@ pub enum TyKind<'ctx> {
         ret: Ty<'ctx>,
         params: Vec<Ty<'ctx>>,
     },
+}
+
+impl From<&TyKind<'_>> for SsaTy {
+    fn from(val: &TyKind<'_>) -> Self {
+        match val {
+            TyKind::Void => SsaTy::Void,
+            TyKind::Int => SsaTy::I32,
+            TyKind::Long => SsaTy::I64,
+            TyKind::Ptr(_) | TyKind::Func { .. } => SsaTy::Ptr,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

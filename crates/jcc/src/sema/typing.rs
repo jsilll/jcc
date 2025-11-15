@@ -1,17 +1,14 @@
 use crate::{
     ast::{
         ty::{Ty, TyKind},
-        Ast, BinaryOp, BlockItem, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
-        StmtKind, StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, ConstValue, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit,
+        Stmt, StmtKind, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 
-use jcc_ssa::{
-    codemap::{file::FileId, span::Span, Diagnostic, Label},
-    ir::ConstValue,
-};
+use jcc_ssa::codemap::{file::FileId, span::Span, Diagnostic, Label};
 
 use std::collections::HashSet;
 

@@ -1,29 +1,32 @@
-use std::collections::HashMap;
-
 use crate::{
-    ast,
-    sema::{self, Attribute, SemaCtx, StaticValue},
+    ast::{self, ConstValue},
+    sema::{self, Attribute, SemaCtx},
 };
 
 use jcc_entity::SecondaryMap;
 use jcc_ssa::{
     codemap::span::Span,
     ir::{
-        builder::IRBuilder, BinaryOp, BlockRef, ConstValue, Func, FuncRef, Inst, InstRef, Program,
-        StaticVar, StaticVarRef, Ty, UnaryOp,
+        builder::Builder,
+        inst::{BinaryOp, ICmpOp, Inst, UnaryOp},
+        ty::Ty,
+        Block, Function, FunctionData, Global, GlobalData, Program, Value,
     },
-    IdentId, IdentInterner,
+    Ident, IdentInterner,
 };
 
-// ---------------------------------------------------------------------------
-// SSABuilder
-// ---------------------------------------------------------------------------
+use std::collections::HashMap;
 
 pub struct SSABuilder<'ctx> {
-    builder: IRBuilder<'ctx>,
+    // The SSA builder
+    builder: Builder<'ctx>,
+    /// The AST being compiled
     ast: &'ctx ast::Ast<'ctx>,
+    /// The semantic analysis context
     sema: &'ctx SemaCtx<'ctx>,
+    /// Blocks tracked for statements
     tracked: HashMap<ast::Stmt, TrackedBlock>,
+    /// Mapping from semantic symbols to SSA symbols
     symbols: SecondaryMap<sema::Symbol, SymbolEntry>,
 }
 
@@ -37,12 +40,12 @@ impl<'ctx> SSABuilder<'ctx> {
             ast,
             sema,
             tracked: HashMap::new(),
-            builder: IRBuilder::new(interner),
+            builder: Builder::new(interner),
             symbols: SecondaryMap::with_capacity(sema.symbols.len()),
         }
     }
 
-    pub fn build(mut self) -> Program<'ctx> {
+    pub fn build(mut self) -> Program {
         self.ast.root.iter().for_each(|decl| {
             let data = &self.ast.decl[*decl];
             match data.kind {
@@ -55,34 +58,16 @@ impl<'ctx> SSABuilder<'ctx> {
                         Attribute::Local => panic!("unexpected local attribute"),
                         Attribute::Function { .. } => panic!("unexpected function attribute"),
                         Attribute::Static { is_global, init } => {
-                            let raw = data.name.name;
-                            let v = match init {
-                                StaticValue::NoInit => match *data.ty {
-                                    ast::TyKind::Int => {
-                                        StaticVar::int32(raw, is_global, None, data.span)
-                                    }
-                                    ast::TyKind::Long => {
-                                        StaticVar::int64(raw, is_global, None, data.span)
-                                    }
-                                    _ => todo!("handle other types"),
+                            self.get_or_make_static(
+                                &data.name,
+                                GlobalData {
+                                    is_global,
+                                    span: data.span,
+                                    init: init.value(),
+                                    name: data.name.name,
+                                    ty: data.ty.as_ref().into(),
                                 },
-                                StaticValue::Tentative => match *data.ty {
-                                    ast::TyKind::Int => {
-                                        StaticVar::int32(raw, is_global, Some(0), data.span)
-                                    }
-                                    ast::TyKind::Long => {
-                                        StaticVar::int64(raw, is_global, Some(0), data.span)
-                                    }
-                                    _ => todo!("handle other types"),
-                                },
-                                StaticValue::Init(ConstValue::Int32(init)) => {
-                                    StaticVar::int32(raw, is_global, Some(init), data.span)
-                                }
-                                StaticValue::Init(ConstValue::Int64(init)) => {
-                                    StaticVar::int64(raw, is_global, Some(init), data.span)
-                                }
-                            };
-                            self.get_or_make_static(&data.name, v);
+                            );
                         }
                     }
                 }
@@ -93,29 +78,34 @@ impl<'ctx> SSABuilder<'ctx> {
                     .is_global();
 
                     let func = self.get_or_make_function(&data.name, is_global, data.span);
-                    self.builder.switch_to_func(func);
+                    self.builder.function = Some(func);
 
                     if body.is_some() {
-                        let block = self.builder.new_block("entry", data.span);
-                        self.builder.switch_to_block(block);
+                        let block = self.builder.build_block("entry", data.span);
+                        self.builder.block = Some(block);
                     }
 
                     if let Some(body) = body {
                         self.tracked.clear();
 
-                        self.ast.decls[params].iter().for_each(|param_ref| {
-                            let param = &self.ast.decl[*param_ref];
-                            let ty = match *param.ty {
-                                ast::TyKind::Int => Ty::Int32,
-                                ast::TyKind::Long => Ty::Int64,
-                                _ => todo!(),
-                            };
-                            let arg = self.builder.insert_inst(Inst::arg(ty, param.span));
-                            self.insert_var(
-                                param.name.sema.get().expect("sema symbol not set"),
-                                arg,
-                            );
-                        });
+                        self.ast.decls[params]
+                            .iter()
+                            .enumerate()
+                            .for_each(|(idx, param)| {
+                                let param = &self.ast.decl[*param];
+                                let ty = match *param.ty {
+                                    ast::TyKind::Int => Ty::I32,
+                                    ast::TyKind::Long => Ty::I64,
+                                    _ => todo!(),
+                                };
+                                let arg = self
+                                    .builder
+                                    .build_val(Inst::param(ty, idx as u32), param.span);
+                                self.insert_var(
+                                    param.name.sema.get().expect("sema symbol not set"),
+                                    arg,
+                                );
+                            });
 
                         self.ast.items[body].iter().for_each(|item| match item {
                             ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
@@ -130,15 +120,17 @@ impl<'ctx> SSABuilder<'ctx> {
                         };
 
                         if append_return {
-                            let val = self.builder.insert_inst(Inst::const_i32(0, data.span));
-                            self.builder.insert_inst(Inst::ret(val, data.span));
+                            let val = self
+                                .builder
+                                .build_val(Inst::const_int(Ty::I32, 0), data.span);
+                            self.builder.build_val(Inst::ret(Some(val)), data.span);
                         }
                     }
-                    self.builder.clear_func();
+                    self.builder.function = None;
                 }
             }
         });
-        self.builder.build()
+        self.builder.finish()
     }
 
     fn visit_decl(&mut self, decl: ast::Decl) {
@@ -153,43 +145,25 @@ impl<'ctx> SSABuilder<'ctx> {
                     Attribute::Local => {
                         let alloca = self
                             .builder
-                            .insert_inst(Inst::alloca(ty_to_ssa(data.ty), data.span));
+                            .build_val(Inst::alloca(data.ty.as_ref().into(), 0), data.span);
                         self.insert_var(data.name.sema.get().expect("sema symbol not set"), alloca);
                         if let Some(init) = init {
-                            let val = self.visit_expr(init, ExprMode::RightValue);
+                            let value = self.visit_expr(init, ExprMode::RightValue);
                             self.builder
-                                .insert_inst(Inst::store(alloca, val, data.span));
+                                .build_val(Inst::store(alloca, value, 0), data.span);
                         }
                     }
                     Attribute::Static { is_global, init } => {
-                        let raw = data.name.name;
-                        let v = match init {
-                            StaticValue::NoInit => match *data.ty {
-                                ast::TyKind::Int => {
-                                    StaticVar::int32(raw, is_global, None, data.span)
-                                }
-                                ast::TyKind::Long => {
-                                    StaticVar::int64(raw, is_global, None, data.span)
-                                }
-                                _ => todo!("handle other types"),
+                        self.get_or_make_static(
+                            &data.name,
+                            GlobalData {
+                                is_global,
+                                span: data.span,
+                                init: init.value(),
+                                name: data.name.name,
+                                ty: data.ty.as_ref().into(),
                             },
-                            StaticValue::Tentative => match *data.ty {
-                                ast::TyKind::Int => {
-                                    StaticVar::int32(raw, is_global, Some(0), data.span)
-                                }
-                                ast::TyKind::Long => {
-                                    StaticVar::int64(raw, is_global, Some(0), data.span)
-                                }
-                                _ => todo!("handle other types"),
-                            },
-                            StaticValue::Init(ConstValue::Int32(init)) => {
-                                StaticVar::int32(raw, is_global, Some(init), data.span)
-                            }
-                            StaticValue::Init(ConstValue::Int64(init)) => {
-                                StaticVar::int64(raw, is_global, Some(init), data.span)
-                            }
-                        };
-                        self.get_or_make_static(&data.name, v);
+                        );
                     }
                 }
             }
@@ -203,24 +177,24 @@ impl<'ctx> SSABuilder<'ctx> {
             ast::StmtKind::Expr(expr) => {
                 self.visit_expr(*expr, ExprMode::RightValue);
             }
-            ast::StmtKind::Return(expr) => {
-                let val = self.visit_expr(*expr, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::ret(val, data.span));
-            }
-            ast::StmtKind::Break(target) => {
-                let block = self.get_break_block(target.get().expect("break block not set"));
-                self.builder.insert_inst(Inst::jump(block, data.span));
-            }
-            ast::StmtKind::Continue(target) => {
-                let block = self.get_continue_block(target.get().expect("continue block not set"));
-                self.builder.insert_inst(Inst::jump(block, data.span));
-            }
             ast::StmtKind::Default(inner) => {
                 let block = self.remove_case_block(stmt);
 
                 // === Default Block ===
-                self.builder.switch_to_block(block);
+                self.builder.block = Some(block);
                 self.visit_stmt(*inner);
+            }
+            ast::StmtKind::Return(expr) => {
+                let val = self.visit_expr(*expr, ExprMode::RightValue);
+                self.builder.build_val(Inst::ret(Some(val)), data.span);
+            }
+            ast::StmtKind::Break(target) => {
+                let block = self.get_break_block(target.get().expect("break block not set"));
+                self.builder.build_val(Inst::br(block), data.span);
+            }
+            ast::StmtKind::Continue(target) => {
+                let block = self.get_continue_block(target.get().expect("continue block not set"));
+                self.builder.build_val(Inst::br(block), data.span);
             }
             ast::StmtKind::Compound(items) => {
                 self.ast.items[*items].iter().for_each(|item| match item {
@@ -237,24 +211,24 @@ impl<'ctx> SSABuilder<'ctx> {
                     *label,
                     data.span,
                 );
-                self.builder.insert_inst(Inst::jump(block, data.span));
+                self.builder.build_val(Inst::br(block), data.span);
             }
             ast::StmtKind::Label { label, stmt: inner } => {
                 let block = self.get_or_make_labeled(stmt, *label, data.span);
-                self.builder.insert_inst(Inst::jump(block, data.span));
+                self.builder.build_val(Inst::br(block), data.span);
 
                 // === Labeled Block ===
-                self.builder.switch_to_block(block);
+                self.builder.block = Some(block);
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Case { stmt: inner, .. } => {
                 let block = self.remove_case_block(stmt);
 
                 // === Previous Block ===
-                self.builder.insert_inst(Inst::jump(block, data.span));
+                self.builder.build_val(Inst::br(block), data.span);
 
                 // === Case Block ===
-                self.builder.switch_to_block(block);
+                self.builder.block = Some(block);
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::If {
@@ -262,78 +236,78 @@ impl<'ctx> SSABuilder<'ctx> {
                 then,
                 otherwise,
             } => {
-                let then_block = self.builder.new_block("if.then", data.span);
-                let cont_block = self.builder.new_block("if.cont", data.span);
-                let else_block = otherwise.map(|_| self.builder.new_block("if.else", data.span));
+                let then_block = self.builder.build_block("if.then", data.span);
+                let cont_block = self.builder.build_block("if.cont", data.span);
+                let else_block = otherwise.map(|_| self.builder.build_block("if.else", data.span));
                 let false_target = else_block.unwrap_or(cont_block);
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                let branch = Inst::branch(cond_val, then_block, false_target, data.span);
-                self.builder.insert_inst(branch);
+                self.builder
+                    .build_val(Inst::cond_br(cond_val, then_block, false_target), data.span);
 
                 // === Then Block ===
-                self.builder.switch_to_block(then_block);
+                self.builder.block = Some(then_block);
                 self.visit_stmt(*then);
-                self.builder.insert_inst(Inst::jump(cont_block, data.span));
+                self.builder.build_val(Inst::br(cont_block), data.span);
 
                 if let (Some(otherwise), Some(else_block)) = (otherwise, else_block) {
                     // === Else Block ===
-                    self.builder.switch_to_block(else_block);
+                    self.builder.block = Some(else_block);
                     self.visit_stmt(*otherwise);
-                    self.builder.insert_inst(Inst::jump(cont_block, data.span));
+                    self.builder.build_val(Inst::br(cont_block), data.span);
                 }
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.builder.block = Some(cont_block);
             }
             ast::StmtKind::While { cond, body } => {
-                let cond_block = self.builder.new_block("while.cond", data.span);
-                let body_block = self.builder.new_block("while.body", data.span);
-                let cont_block = self.builder.new_block("while.cont", data.span);
+                let cond_block = self.builder.build_block("while.cond", data.span);
+                let body_block = self.builder.build_block("while.body", data.span);
+                let cont_block = self.builder.build_block("while.cont", data.span);
 
                 self.tracked
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cond_block));
 
-                self.builder.insert_inst(Inst::jump(cond_block, data.span));
+                self.builder.build_val(Inst::br(cond_block), data.span);
 
                 // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
+                self.builder.block = Some(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                 self.builder
-                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, data.span));
+                    .build_val(Inst::cond_br(cond_val, body_block, cont_block), data.span);
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cond_block, data.span));
+                self.builder.build_val(Inst::br(cond_block), data.span);
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.builder.block = Some(cont_block);
             }
             ast::StmtKind::DoWhile { body, cond } => {
-                let body_block = self.builder.new_block("do.body", data.span);
-                let cond_block = self.builder.new_block("do.cond", data.span);
-                let cont_block = self.builder.new_block("do.cont", data.span);
+                let body_block = self.builder.build_block("do.body", data.span);
+                let cond_block = self.builder.build_block("do.cond", data.span);
+                let cont_block = self.builder.build_block("do.cont", data.span);
 
                 self.tracked
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cond_block));
 
                 // === Jump to Body Block ===
-                self.builder.insert_inst(Inst::jump(body_block, data.span));
+                self.builder.build_val(Inst::br(body_block), data.span);
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cond_block, data.span));
+                self.builder.build_val(Inst::br(cond_block), data.span);
 
                 // === Cond Block ===
-                self.builder.switch_to_block(cond_block);
+                self.builder.block = Some(cond_block);
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                 self.builder
-                    .insert_inst(Inst::branch(cond_val, body_block, cont_block, data.span));
+                    .build_val(Inst::cond_br(cond_val, body_block, cont_block), data.span);
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.builder.block = Some(cont_block);
             }
             ast::StmtKind::For {
                 init,
@@ -341,10 +315,10 @@ impl<'ctx> SSABuilder<'ctx> {
                 step,
                 body,
             } => {
-                let body_block = self.builder.new_block("for.body", data.span);
-                let exit_block = self.builder.new_block("for.exit", data.span);
-                let cond_block = cond.map(|_| self.builder.new_block("for.cond", data.span));
-                let step_block = step.map(|_| self.builder.new_block("for.step", data.span));
+                let body_block = self.builder.build_block("for.body", data.span);
+                let exit_block = self.builder.build_block("for.exit", data.span);
+                let cond_block = cond.map(|_| self.builder.build_block("for.cond", data.span));
+                let step_block = step.map(|_| self.builder.build_block("for.step", data.span));
                 let after_body_target = step_block.or(cond_block).unwrap_or(body_block);
 
                 self.tracked.insert(
@@ -362,32 +336,32 @@ impl<'ctx> SSABuilder<'ctx> {
                     }
                 }
                 self.builder
-                    .insert_inst(Inst::jump(cond_block.unwrap_or(body_block), data.span));
+                    .build_val(Inst::br(cond_block.unwrap_or(body_block)), data.span);
 
                 // === Condition Block ===
                 if let (Some(cond), Some(cond_block)) = (cond, cond_block) {
-                    self.builder.switch_to_block(cond_block);
+                    self.builder.block = Some(cond_block);
                     let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
                     self.builder
-                        .insert_inst(Inst::branch(cond_val, body_block, exit_block, data.span));
+                        .build_val(Inst::cond_br(cond_val, body_block, exit_block), data.span);
                 }
 
                 // === Step Block ===
                 if let (Some(step), Some(step_block)) = (step, step_block) {
-                    self.builder.switch_to_block(step_block);
+                    self.builder.block = Some(step_block);
                     self.visit_expr(*step, ExprMode::RightValue);
                     self.builder
-                        .insert_inst(Inst::jump(cond_block.unwrap_or(body_block), data.span));
+                        .build_val(Inst::br(cond_block.unwrap_or(body_block)), data.span);
                 }
 
                 // === Body Block ===
-                self.builder.switch_to_block(body_block);
+                self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
                 self.builder
-                    .insert_inst(Inst::jump(after_body_target, data.span));
+                    .build_val(Inst::br(after_body_target), data.span);
 
                 // === Merge Block ===
-                self.builder.switch_to_block(exit_block);
+                self.builder.block = Some(exit_block);
             }
             ast::StmtKind::Switch { cond, body } => {
                 let mut cases = Vec::new();
@@ -398,10 +372,11 @@ impl<'ctx> SSABuilder<'ctx> {
                         let inner = &self.ast.stmt[*inner_ref];
                         if let ast::StmtKind::Case { expr, .. } = inner.kind {
                             let val = match self.ast.expr[expr].kind {
-                                ast::ExprKind::Const(c) => c,
+                                ast::ExprKind::Const(ConstValue::Int64(c)) => c,
+                                ast::ExprKind::Const(ConstValue::Int32(c)) => c as i64,
                                 _ => panic!("expected a constant expression"),
                             };
-                            let case_block = self.builder.new_block("switch.case", inner.span);
+                            let case_block = self.builder.build_block("switch.case", inner.span);
                             self.tracked
                                 .insert(*inner_ref, TrackedBlock::Case(case_block));
                             cases.push((val, case_block));
@@ -410,75 +385,73 @@ impl<'ctx> SSABuilder<'ctx> {
                     if let Some(inner) = switch.default {
                         let block = self
                             .builder
-                            .new_block("switch.default", self.ast.stmt[inner].span);
+                            .build_block("switch.default", self.ast.stmt[inner].span);
                         self.tracked.insert(inner, TrackedBlock::Case(block));
                         default_block = Some(block);
                     }
                 }
 
-                let cont_block = self.builder.new_block("switch.cont", data.span);
+                let cont_block = self.builder.build_block("switch.cont", data.span);
                 self.tracked
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cont_block));
 
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::switch(
-                    cond_val,
-                    default_block.unwrap_or(cont_block),
-                    cases,
+                self.builder.build_val(
+                    Inst::switch(cond_val, default_block.unwrap_or(cont_block), cases),
                     data.span,
-                ));
+                );
 
                 self.visit_stmt(*body);
-                self.builder.insert_inst(Inst::jump(cont_block, data.span));
+                self.builder.build_val(Inst::br(cont_block), data.span);
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
+                self.builder.block = Some(cont_block);
             }
         }
     }
 
-    fn visit_expr(&mut self, expr: ast::Expr, mode: ExprMode) -> InstRef {
+    fn visit_expr(&mut self, expr: ast::Expr, mode: ExprMode) -> Value {
         let expr = &self.ast.expr[expr];
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
-            ast::ExprKind::Const(ConstValue::Int32(c)) => {
-                self.builder.insert_inst(Inst::const_i32(*c, expr.span))
-            }
-            ast::ExprKind::Const(ConstValue::Int64(c)) => {
-                self.builder.insert_inst(Inst::const_i64(*c, expr.span))
-            }
+            ast::ExprKind::Const(ConstValue::Int32(c)) => self
+                .builder
+                .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
+            ast::ExprKind::Const(ConstValue::Int64(c)) => self
+                .builder
+                .build_val(Inst::const_int(Ty::I64, *c), expr.span),
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
                 let info = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => todo!("handle function variables"),
-                    Attribute::Static { .. } => {
-                        let var = self.get_static(name.sema.get().expect("sema symbol not set"));
-                        let ptr = self.builder.insert_inst(Inst::static_addr(var, expr.span));
-                        match mode {
-                            ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => match *info.ty {
-                                ast::TyKind::Int => {
-                                    self.builder.insert_inst(Inst::load(Ty::Int32, ptr, span))
-                                }
-                                ast::TyKind::Long => {
-                                    self.builder.insert_inst(Inst::load(Ty::Int64, ptr, span))
-                                }
-                                _ => todo!("handle other types"),
-                            },
-                        }
-                    }
                     Attribute::Local => {
                         let ptr = self.get_var(name.sema.get().expect("sema symbol not set"));
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => match *info.ty {
                                 ast::TyKind::Int => {
-                                    self.builder.insert_inst(Inst::load(Ty::Int32, ptr, span))
+                                    self.builder.build_val(Inst::load(Ty::I32, ptr, 0), span)
                                 }
                                 ast::TyKind::Long => {
-                                    self.builder.insert_inst(Inst::load(Ty::Int64, ptr, span))
+                                    self.builder.build_val(Inst::load(Ty::I64, ptr, 0), span)
+                                }
+                                _ => todo!("handle other types"),
+                            },
+                        }
+                    }
+                    Attribute::Static { .. } => {
+                        let var = self.get_static(name.sema.get().expect("sema symbol not set"));
+                        let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
+                        match mode {
+                            ExprMode::LeftValue => ptr,
+                            ExprMode::RightValue => match *info.ty {
+                                ast::TyKind::Int => {
+                                    self.builder.build_val(Inst::load(Ty::I32, ptr, 0), span)
+                                }
+                                ast::TyKind::Long => {
+                                    self.builder.build_val(Inst::load(Ty::I64, ptr, 0), span)
                                 }
                                 _ => todo!("handle other types"),
                             },
@@ -490,9 +463,9 @@ impl<'ctx> SSABuilder<'ctx> {
                 let expr_ty = self.ast.expr[*inner].ty.get();
                 let val = self.visit_expr(*inner, ExprMode::RightValue);
                 if *ty == self.sema.tys.int_ty && expr_ty == self.sema.tys.long_ty {
-                    self.builder.insert_inst(Inst::truncate(val, expr.span))
+                    self.builder.build_val(Inst::trunc(Ty::I32, val), expr.span)
                 } else if *ty == self.sema.tys.long_ty && expr_ty == self.sema.tys.int_ty {
-                    self.builder.insert_inst(Inst::sign_extend(val, expr.span))
+                    self.builder.build_val(Inst::sext(Ty::I64, val), expr.span)
                 } else {
                     val
                 }
@@ -506,165 +479,148 @@ impl<'ctx> SSABuilder<'ctx> {
                     .expect("expected a sema symbol");
                 let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
                 let ty = match *symbol.ty {
-                    ast::TyKind::Func { ret, .. } => ty_to_ssa(ret),
+                    ast::TyKind::Func { ret, .. } => ret.as_ref().into(),
                     _ => panic!("expected a function type"),
                 };
                 self.builder
-                    .insert_inst(Inst::call(ty, func, args, expr.span))
+                    .build_val(Inst::call(ty, func, args), expr.span)
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
-                ast::UnaryOp::Neg => {
-                    self.build_unary(ty_to_ssa(expr.ty.get()), UnaryOp::Neg, *inner, expr.span)
-                }
-                ast::UnaryOp::BitNot => {
-                    self.build_unary(ty_to_ssa(expr.ty.get()), UnaryOp::Not, *inner, expr.span)
-                }
-                ast::UnaryOp::PreInc => self.build_prefix_unary(
-                    ty_to_ssa(expr.ty.get()),
-                    UnaryOp::Inc,
+                ast::UnaryOp::PreInc => self.build_prefix_incdec(*inner, true, expr.span),
+                ast::UnaryOp::PreDec => self.build_prefix_incdec(*inner, false, expr.span),
+                ast::UnaryOp::PostInc => self.build_postfix_incdec(*inner, true, expr.span),
+                ast::UnaryOp::PostDec => self.build_postfix_incdec(*inner, false, expr.span),
+                ast::UnaryOp::Neg => self.build_unary(
+                    expr.ty.get().as_ref().into(),
+                    UnaryOp::Neg,
                     *inner,
                     expr.span,
                 ),
-                ast::UnaryOp::PreDec => self.build_prefix_unary(
-                    ty_to_ssa(expr.ty.get()),
-                    UnaryOp::Dec,
-                    *inner,
-                    expr.span,
-                ),
-                ast::UnaryOp::PostInc => self.build_postfix_unary(
-                    ty_to_ssa(expr.ty.get()),
-                    UnaryOp::Inc,
-                    *inner,
-                    expr.span,
-                ),
-                ast::UnaryOp::PostDec => self.build_postfix_unary(
-                    ty_to_ssa(expr.ty.get()),
-                    UnaryOp::Dec,
+                ast::UnaryOp::BitNot => self.build_unary(
+                    expr.ty.get().as_ref().into(),
+                    UnaryOp::Not,
                     *inner,
                     expr.span,
                 ),
                 ast::UnaryOp::LogicalNot => {
                     let val = self.visit_expr(*inner, ExprMode::RightValue);
-                    let zero = self.builder.insert_inst(Inst::const_i32(0, expr.span));
-                    self.builder.insert_inst(Inst::binary(
-                        Ty::Int32,
-                        BinaryOp::Equal,
-                        val,
-                        zero,
-                        expr.span,
-                    ))
+                    let zero = self
+                        .builder
+                        .build_val(Inst::const_int(Ty::I32, 0), expr.span);
+                    let cmp = self
+                        .builder
+                        .build_val(Inst::icmp(ICmpOp::Eq, val, zero), expr.span);
+                    self.builder.build_val(Inst::zext(Ty::I32, cmp), expr.span)
                 }
             },
             ast::ExprKind::Binary { op, lhs, rhs } => match op {
                 ast::BinaryOp::LogicalOr => self.build_sc(LogicalOp::Or, *lhs, *rhs, expr.span),
                 ast::BinaryOp::LogicalAnd => self.build_sc(LogicalOp::And, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Equal => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
-                    BinaryOp::Equal,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::NotEqual => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
-                    BinaryOp::NotEqual,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::LessThan => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
-                    BinaryOp::LessThan,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::LessEqual => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
-                    BinaryOp::LessEqual,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::GreaterThan => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
-                    BinaryOp::GreaterThan,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::GreaterEqual => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
-                    BinaryOp::GreaterEqual,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
+                ast::BinaryOp::Equal => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    self.builder
+                        .build_val(Inst::icmp(ICmpOp::Eq, lhs, rhs), expr.span)
+                }
+                ast::BinaryOp::NotEqual => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    self.builder
+                        .build_val(Inst::icmp(ICmpOp::Ne, lhs, rhs), expr.span)
+                }
+                ast::BinaryOp::LessThan => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    self.builder
+                        .build_val(Inst::icmp(ICmpOp::Lt, lhs, rhs), expr.span)
+                }
+
+                ast::BinaryOp::LessEqual => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    self.builder
+                        .build_val(Inst::icmp(ICmpOp::Le, lhs, rhs), expr.span)
+                }
+
+                ast::BinaryOp::GreaterThan => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    self.builder
+                        .build_val(Inst::icmp(ICmpOp::Gt, lhs, rhs), expr.span)
+                }
+
+                ast::BinaryOp::GreaterEqual => {
+                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
+                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
+                    self.builder
+                        .build_val(Inst::icmp(ICmpOp::Ge, lhs, rhs), expr.span)
+                }
+
                 ast::BinaryOp::Add => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Add,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Sub => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Sub,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Mul => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Mul,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Div => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Div,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::Rem => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Rem,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitOr => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Or,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitAnd => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::And,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitXor => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Xor,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitShl => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Shl,
                     *lhs,
                     *rhs,
                     expr.span,
                 ),
                 ast::BinaryOp::BitShr => self.build_bin(
-                    ty_to_ssa(expr.ty.get()),
+                    expr.ty.get().as_ref().into(),
                     BinaryOp::Shr,
                     *lhs,
                     *rhs,
@@ -737,15 +693,12 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::BinaryOp::BitShlAssign => {
                     let l = self.visit_expr(*lhs, ExprMode::RightValue);
                     let r = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let inst = self.builder.insert_inst(Inst::binary(
-                        ty_to_ssa(expr.ty.get()),
-                        BinaryOp::Shl,
-                        l,
-                        r,
+                    let inst = self.builder.build_val(
+                        Inst::binary(BinaryOp::Shl, expr.ty.get().as_ref().into(), l, r),
                         expr.span,
-                    ));
+                    );
                     let ptr = self.visit_expr(*lhs, ExprMode::LeftValue);
-                    self.builder.insert_inst(Inst::store(ptr, inst, expr.span));
+                    self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
                     match mode {
                         ExprMode::LeftValue => ptr,
                         ExprMode::RightValue => inst,
@@ -754,15 +707,12 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::BinaryOp::BitShrAssign => {
                     let l = self.visit_expr(*lhs, ExprMode::RightValue);
                     let r = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let inst = self.builder.insert_inst(Inst::binary(
-                        ty_to_ssa(expr.ty.get()),
-                        BinaryOp::Shr,
-                        l,
-                        r,
+                    let inst = self.builder.build_val(
+                        Inst::binary(BinaryOp::Shr, expr.ty.get().as_ref().into(), l, r),
                         expr.span,
-                    ));
+                    );
                     let ptr = self.visit_expr(*lhs, ExprMode::LeftValue);
-                    self.builder.insert_inst(Inst::store(ptr, inst, expr.span));
+                    self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
                     match mode {
                         ExprMode::LeftValue => ptr,
                         ExprMode::RightValue => inst,
@@ -771,7 +721,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::BinaryOp::Assign => {
                     let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder.insert_inst(Inst::store(lhs, rhs, expr.span));
+                    self.builder.build_val(Inst::store(lhs, rhs, 0), expr.span);
                     match mode {
                         ExprMode::LeftValue => lhs,
                         ExprMode::RightValue => rhs,
@@ -781,72 +731,98 @@ impl<'ctx> SSABuilder<'ctx> {
             ast::ExprKind::Ternary { cond, then, other } => {
                 let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
 
-                let then_block = self.builder.new_block("tern.then", expr.span);
-                let else_block = self.builder.new_block("tern.else", expr.span);
-                let cont_block = self.builder.new_block("tern.cont", expr.span);
+                let then_block = self.builder.build_block("tern.then", expr.span);
+                let else_block = self.builder.build_block("tern.else", expr.span);
+                let cont_block = self.builder.build_block("tern.cont", expr.span);
 
                 let phi = self
                     .builder
-                    .insert_inst_skip(Inst::phi(ty_to_ssa(expr.ty.get()), expr.span));
+                    .build_phi(expr.ty.get().as_ref().into(), expr.span);
 
                 self.builder
-                    .insert_inst(Inst::branch(cond_val, then_block, else_block, expr.span));
+                    .build_val(Inst::cond_br(cond_val, then_block, else_block), expr.span);
 
                 // === Then Block ===
-                self.builder.switch_to_block(then_block);
+                self.builder.block = Some(then_block);
                 let then_val = self.visit_expr(*then, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::upsilon(
-                    ty_to_ssa(expr.ty.get()),
-                    phi,
-                    then_val,
-                    expr.span,
-                ));
-                self.builder.insert_inst(Inst::jump(cont_block, expr.span));
+                self.builder
+                    .build_val(Inst::upsilon(phi, then_val), expr.span);
+                self.builder.build_val(Inst::br(cont_block), expr.span);
 
                 // === Else Block ===
-                self.builder.switch_to_block(else_block);
+                self.builder.block = Some(else_block);
                 let else_val = self.visit_expr(*other, ExprMode::RightValue);
-                self.builder.insert_inst(Inst::upsilon(
-                    ty_to_ssa(expr.ty.get()),
-                    phi,
-                    else_val,
-                    expr.span,
-                ));
-                self.builder.insert_inst(Inst::jump(cont_block, expr.span));
+                self.builder
+                    .build_val(Inst::upsilon(phi, else_val), expr.span);
+                self.builder.build_val(Inst::br(cont_block), expr.span);
 
                 // === Merge Block ===
-                self.builder.switch_to_block(cont_block);
-                self.builder.insert_skipped(phi);
+                self.builder.block = Some(cont_block);
+                self.builder.push(phi);
                 phi
             }
         }
     }
 
-    #[inline]
-    fn build_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> InstRef {
+    fn build_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> Value {
         let val = self.visit_expr(expr, ExprMode::RightValue);
-        self.builder.insert_inst(Inst::unary(ty, op, val, span))
+        self.builder.build_val(Inst::unary(op, ty, val), span)
     }
 
-    #[inline]
-    fn build_prefix_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> InstRef {
-        let val = self.visit_expr(expr, ExprMode::RightValue);
-        let inst = self.builder.insert_inst(Inst::unary(ty, op, val, span));
+    fn build_prefix_incdec(&mut self, expr: ast::Expr, is_inc: bool, span: Span) -> Value {
+        let obj_ty = self.ast.expr[expr].ty.get();
+        let ssa_obj_ty = obj_ty.as_ref().into();
+
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
-        self.builder.insert_inst(Inst::store(ptr, inst, span));
-        inst
+        let old = self.builder.build_val(Inst::load(ssa_obj_ty, ptr, 0), span);
+
+        let arith_ty = obj_ty;
+        let promoted = old;
+
+        let one = self
+            .builder
+            .build_val(Inst::const_int(arith_ty.as_ref().into(), 1), span);
+
+        let new = self.builder.build_val(
+            Inst::binary(
+                if is_inc { BinaryOp::Add } else { BinaryOp::Sub },
+                arith_ty.as_ref().into(),
+                promoted,
+                one,
+            ),
+            span,
+        );
+
+        self.builder.build_val(Inst::store(ptr, new, 0), span);
+
+        new
     }
 
-    #[inline]
-    fn build_postfix_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> InstRef {
-        let val = self.visit_expr(expr, ExprMode::RightValue);
-        let inst = self.builder.insert_inst(Inst::unary(ty, op, val, span));
+    fn build_postfix_incdec(&mut self, expr: ast::Expr, is_inc: bool, span: Span) -> Value {
+        let obj_ty = self.ast.expr[expr].ty.get();
+        let ssa_obj_ty = obj_ty.as_ref().into();
+
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
-        self.builder.insert_inst(Inst::store(ptr, inst, span));
-        val
+
+        let old = self.builder.build_val(Inst::load(ssa_obj_ty, ptr, 0), span);
+
+        let one = self.builder.build_val(Inst::const_int(ssa_obj_ty, 1), span);
+
+        let new = self.builder.build_val(
+            Inst::binary(
+                if is_inc { BinaryOp::Add } else { BinaryOp::Sub },
+                ssa_obj_ty,
+                old,
+                one,
+            ),
+            span,
+        );
+
+        self.builder.build_val(Inst::store(ptr, new, 0), span);
+
+        old
     }
 
-    #[inline]
     fn build_bin(
         &mut self,
         ty: Ty,
@@ -854,14 +830,12 @@ impl<'ctx> SSABuilder<'ctx> {
         lhs: ast::Expr,
         rhs: ast::Expr,
         span: Span,
-    ) -> InstRef {
+    ) -> Value {
         let lhs = self.visit_expr(lhs, ExprMode::RightValue);
         let rhs = self.visit_expr(rhs, ExprMode::RightValue);
-        self.builder
-            .insert_inst(Inst::binary(ty, op, lhs, rhs, span))
+        self.builder.build_val(Inst::binary(op, ty, lhs, rhs), span)
     }
 
-    #[inline]
     fn build_bin_asgn(
         &mut self,
         mode: ExprMode,
@@ -870,24 +844,24 @@ impl<'ctx> SSABuilder<'ctx> {
         lhs: ast::Expr,
         rhs: ast::Expr,
         span: Span,
-    ) -> InstRef {
+    ) -> Value {
         let lty = self.ast.expr[lhs].ty.get();
         let mut l = self.visit_expr(lhs, ExprMode::RightValue);
         if lty == self.sema.tys.int_ty && ty == self.sema.tys.long_ty {
-            l = self.builder.insert_inst(Inst::sign_extend(l, span));
+            l = self.builder.build_val(Inst::sext(Ty::I64, l), span);
         }
 
         let rty = self.ast.expr[rhs].ty.get();
         let r = self.visit_expr(rhs, ExprMode::RightValue);
         let mut inst = self
             .builder
-            .insert_inst(Inst::binary(ty_to_ssa(rty), op, l, r, span));
+            .build_val(Inst::binary(op, rty.as_ref().into(), l, r), span);
         if lty == self.sema.tys.int_ty && rty == self.sema.tys.long_ty {
-            inst = self.builder.insert_inst(Inst::truncate(inst, span));
+            inst = self.builder.build_val(Inst::trunc(Ty::I32, inst), span);
         }
 
         let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
-        self.builder.insert_inst(Inst::store(ptr, inst, span));
+        self.builder.build_val(Inst::store(ptr, inst, 0), span);
 
         match mode {
             ExprMode::LeftValue => ptr,
@@ -895,15 +869,15 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn build_sc(&mut self, op: LogicalOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> InstRef {
-        let rhs_block = self.builder.new_block(
+    fn build_sc(&mut self, op: LogicalOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
+        let rhs_block = self.builder.build_block(
             match op {
                 LogicalOp::Or => "or",
                 LogicalOp::And => "and",
             },
             span,
         );
-        let cont_block = self.builder.new_block(
+        let cont_block = self.builder.build_block(
             match op {
                 LogicalOp::Or => "or.cont",
                 LogicalOp::And => "and.cont",
@@ -911,41 +885,39 @@ impl<'ctx> SSABuilder<'ctx> {
             span,
         );
 
-        let phi = self.builder.insert_inst_skip(Inst::phi(Ty::Int32, span));
+        let phi = self.builder.build_phi(Ty::I32, span);
 
         // === LHS Block ===
         let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
-        let short_circuit_val = self.builder.insert_inst(match op {
-            LogicalOp::Or => Inst::const_i32(1, span),
-            LogicalOp::And => Inst::const_i32(0, span),
-        });
+        let short_circuit_val = self.builder.build_val(
+            match op {
+                LogicalOp::Or => Inst::const_int(Ty::I32, 1),
+                LogicalOp::And => Inst::const_int(Ty::I32, 0),
+            },
+            span,
+        );
         self.builder
-            .insert_inst(Inst::upsilon(Ty::Int32, phi, short_circuit_val, span));
+            .build_val(Inst::upsilon(phi, short_circuit_val), span);
         let (true_target, false_target) = match op {
             LogicalOp::Or => (cont_block, rhs_block),
             LogicalOp::And => (rhs_block, cont_block),
         };
         self.builder
-            .insert_inst(Inst::branch(lhs_val, true_target, false_target, span));
+            .build_val(Inst::cond_br(lhs_val, true_target, false_target), span);
 
         // === RHS Block ===
-        self.builder.switch_to_block(rhs_block);
+        self.builder.block = Some(rhs_block);
         let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
-        let zero_val = self.builder.insert_inst(Inst::const_i32(0, span));
-        let is_nonzero = self.builder.insert_inst(Inst::binary(
-            Ty::Int32,
-            BinaryOp::NotEqual,
-            rhs_val,
-            zero_val,
-            span,
-        ));
-        self.builder
-            .insert_inst(Inst::upsilon(Ty::Int32, phi, is_nonzero, span));
-        self.builder.insert_inst(Inst::jump(cont_block, span));
+        let zero_val = self.builder.build_val(Inst::const_int(Ty::I32, 0), span);
+        let is_nonzero = self
+            .builder
+            .build_val(Inst::icmp(ICmpOp::Ne, rhs_val, zero_val), span);
+        self.builder.build_val(Inst::upsilon(phi, is_nonzero), span);
+        self.builder.build_val(Inst::br(cont_block), span);
 
         // === Merge Block ===
-        self.builder.switch_to_block(cont_block);
-        self.builder.insert_skipped(phi);
+        self.builder.block = Some(cont_block);
+        self.builder.push(phi);
         phi
     }
 
@@ -953,80 +925,72 @@ impl<'ctx> SSABuilder<'ctx> {
     // Auxiliary Methods
     // ---------------------------------------------------------------------------
 
-    #[inline]
-    pub fn get_var(&self, sym: sema::Symbol) -> InstRef {
+    pub fn get_var(&self, sym: sema::Symbol) -> Value {
         match self.symbols[sym] {
             SymbolEntry::Inst(inst) => inst,
             _ => panic!("expected an inst ref"),
         }
     }
 
-    #[inline]
-    pub fn get_static(&self, sym: sema::Symbol) -> StaticVarRef {
+    pub fn get_static(&self, sym: sema::Symbol) -> Global {
         match self.symbols[sym] {
             SymbolEntry::Static(v) => v,
             _ => panic!("expected a static var ref"),
         }
     }
 
-    #[inline]
-    pub fn insert_var(&mut self, sym: sema::Symbol, var: InstRef) {
+    pub fn insert_var(&mut self, sym: sema::Symbol, var: Value) {
         self.symbols[sym] = SymbolEntry::Inst(var);
     }
 
-    #[inline]
-    pub fn get_break_block(&self, stmt: ast::Stmt) -> BlockRef {
+    pub fn get_break_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
             _ => panic!("expected a break block"),
         }
     }
 
-    #[inline]
-    pub fn get_continue_block(&self, stmt: ast::Stmt) -> BlockRef {
+    pub fn get_continue_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
             _ => panic!("expected a break block"),
         }
     }
 
-    #[inline]
-    pub fn remove_case_block(&mut self, stmt: ast::Stmt) -> BlockRef {
+    pub fn remove_case_block(&mut self, stmt: ast::Stmt) -> Block {
         match self.tracked.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
             _ => panic!("expected a break block"),
         }
     }
 
-    #[inline]
-    pub fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: IdentId, span: Span) -> BlockRef {
+    pub fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: Ident, span: Span) -> Block {
         let entry = self
             .tracked
             .entry(stmt)
-            .or_insert_with(|| TrackedBlock::Label(self.builder.new_block_interned(name, span)));
+            .or_insert_with(|| TrackedBlock::Label(self.builder.build_block_sym(name, span)));
         match entry {
             TrackedBlock::Label(l) => *l,
             _ => panic!("expected a labeled block"),
         }
     }
 
-    #[inline]
     pub fn get_or_make_function(
         &mut self,
         name: &ast::AstSymbol,
         is_global: bool,
         span: Span,
-    ) -> FuncRef {
+    ) -> Function {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
             SymbolEntry::Inst(_) | SymbolEntry::Static(_) => panic!("expected a function"),
             SymbolEntry::Function(f) => f,
             SymbolEntry::None => {
-                let f = self.builder.prog.new_func(Func {
+                let f = self.builder.program.functions.push(FunctionData {
                     span,
                     is_global,
                     name: name.name,
-                    ..Default::default()
+                    blocks: Vec::new(),
                 });
                 self.symbols[sym] = SymbolEntry::Function(f);
                 f
@@ -1034,40 +998,27 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    #[inline]
-    pub fn get_or_make_static(&mut self, name: &ast::AstSymbol, mut v: StaticVar) -> StaticVarRef {
+    pub fn get_or_make_static(&mut self, name: &ast::AstSymbol, mut v: GlobalData) -> Global {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
             SymbolEntry::Inst(_) | SymbolEntry::Function(_) => panic!("expected a static"),
             SymbolEntry::Static(v) => v,
             SymbolEntry::None => {
-                let name = match self.builder.func() {
+                let name = match self.builder.function {
                     Some(func) if !v.is_global => {
-                        let fname = self.builder.prog.func(func).name;
-                        let fname = self.builder.prog.interner.lookup(fname);
-                        let name = self.builder.prog.interner.lookup(name.name);
+                        let fname = self.builder.program.functions[func].name;
+                        let fname = self.builder.interner.lookup(fname);
+                        let name = self.builder.interner.lookup(name.name);
                         let scoped = format!("{fname}.{name}");
-                        self.builder.prog.interner.intern(&scoped)
+                        self.builder.interner.intern(&scoped)
                     }
                     _ => name.name,
                 };
                 v.name = name;
-                let v = self.builder.prog.new_static_var(v);
+                let v = self.builder.program.globals.push(v);
                 self.symbols[sym] = SymbolEntry::Static(v);
                 v
             }
-        }
-    }
-}
-
-fn ty_to_ssa(ty: ast::Ty) -> Ty {
-    match *ty {
-        ast::TyKind::Void => Ty::Void,
-        ast::TyKind::Int => Ty::Int32,
-        ast::TyKind::Long => Ty::Int64,
-        ast::TyKind::Ptr(_) => Ty::IntPtr,
-        ast::TyKind::Func { .. } => {
-            panic!("Functions do not have a direct SSA type representation")
         }
     }
 }
@@ -1090,16 +1041,16 @@ enum ExprMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackedBlock {
-    Case(BlockRef),
-    Label(BlockRef),
-    BreakAndContinue(BlockRef, BlockRef),
+    Case(Block),
+    Label(Block),
+    BreakAndContinue(Block, Block),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum SymbolEntry {
     #[default]
     None,
-    Inst(InstRef),
-    Function(FuncRef),
-    Static(StaticVarRef),
+    Inst(Value),
+    Static(Global),
+    Function(Function),
 }

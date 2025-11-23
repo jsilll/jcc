@@ -2,6 +2,12 @@
 name = "jcc_ssa"
 version = "0.1.0"
 edition = "2021"
+description = "SSA intermediate representation with optimization passes and assembly lowering"
+keywords = ["ssa", "ir", "optimization", "codegen", "compiler"]
+categories = ["compilers", "development-tools"]
+license = "MIT"
+repository = "https://github.com/jsilll/jcc"
+readme = "README.md"
 
 [dependencies]
 jcc_interner = { path = "../jcc_interner" }

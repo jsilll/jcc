@@ -2,3 +2,9 @@
 name = "jcc_arena"
 version = "0.1.0"
 edition = "2021"
+description = "Memory arena allocators for efficient compiler data structure allocation"
+keywords = ["arena", "allocator", "memory", "compiler", "performance"]
+categories = ["memory-management", "data-structures"]
+license = "MIT"
+repository = "https://github.com/jsilll/jcc"
+readme = "README.md"

@@ -2,3 +2,9 @@
 name = "jcc_interner"
 version = "0.1.0"
 edition = "2021"
+description = "Efficient string interning for compiler symbol tables and identifiers"
+keywords = ["interner", "string", "symbol", "compiler", "deduplication"]
+categories = ["data-structures", "compilers", "text-processing"]
+license = "MIT"
+repository = "https://github.com/jsilll/jcc"
+readme = "README.md"

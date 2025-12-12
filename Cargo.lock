@@ -22,6 +22,14 @@ name = "jcc_interner"
 version = "0.1.0"
 
 [[package]]
+name = "jcc_ssa"
+version = "0.1.0"
+dependencies = [
+ "jcc_codemap",
+ "jcc_interner",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

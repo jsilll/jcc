@@ -10,5 +10,5 @@ repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
 
 [dependencies]
+jcc_codemap = { path = "../jcc_codemap" }
 jcc_interner = { path = "../jcc_interner" }
-jcc_sourcemap = { path = "../jcc_sourcemap" }

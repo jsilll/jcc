@@ -18,7 +18,7 @@ readme = "README.md"
 termcolor = { version = "1.4", optional = true }
 
 [features]
-default = ["color"]
+default = []
 color = ["termcolor"]
 
 [lints.rust]

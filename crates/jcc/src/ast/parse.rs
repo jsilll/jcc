@@ -163,7 +163,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             kind: DeclKind::Var(init),
             name: AstSymbol {
                 name,
-                id: Default::default(),
+                sema: Default::default(),
             },
         }))
     }
@@ -180,7 +180,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 kind: DeclKind::Var(None),
                 name: AstSymbol {
                     name,
-                    id: Default::default(),
+                    sema: Default::default(),
                 },
             })),
             TokenKind::Eq => {
@@ -193,7 +193,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     kind: DeclKind::Var(Some(init)),
                     name: AstSymbol {
                         name,
-                        id: Default::default(),
+                        sema: Default::default(),
                     },
                 }))
             }
@@ -221,7 +221,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     kind: DeclKind::Func { params, body },
                     name: AstSymbol {
                         name,
-                        id: Default::default(),
+                        sema: Default::default(),
                     },
                 }))
             }
@@ -245,7 +245,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             kind: DeclKind::Var(None),
             name: AstSymbol {
                 name,
-                id: Default::default(),
+                sema: Default::default(),
             },
         }))
     }
@@ -531,25 +531,25 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     match token {
                         InfixToken::Binary(op) => {
                             let rhs = self.parse_expr(prec)?;
-                            lhs = self.result.ast.expr.push(ExprData::new(
-                                ExprKind::Binary { op, lhs, rhs },
+                            lhs = self.result.ast.expr.push(ExprData {
                                 span,
-                                self.tys.void_ty,
-                            ));
+                                ty: self.tys.void_ty.into(),
+                                kind: ExprKind::Binary { op, lhs, rhs },
+                            });
                         }
                         InfixToken::Ternary => {
                             let then = self.parse_expr(0)?;
                             self.eat(TokenKind::Colon)?;
                             let other = self.parse_expr(prec)?;
-                            lhs = self.result.ast.expr.push(ExprData::new(
-                                ExprKind::Ternary {
+                            lhs = self.result.ast.expr.push(ExprData {
+                                span,
+                                ty: self.tys.void_ty.into(),
+                                kind: ExprKind::Ternary {
                                     cond: lhs,
                                     then,
                                     other,
                                 },
-                                span,
-                                self.tys.void_ty,
-                            ));
+                            });
                         }
                     }
                 }
@@ -569,51 +569,51 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             _ => None,
         } {
             let expr = self.parse_expr_prefix()?;
-            return Some(self.result.ast.expr.push(ExprData::new(
-                ExprKind::Unary { op, expr },
+            return Some(self.result.ast.expr.push(ExprData {
                 span,
-                self.tys.void_ty,
-            )));
+                ty: self.tys.void_ty.into(),
+                kind: ExprKind::Unary { op, expr },
+            }));
         }
         match kind {
             TokenKind::LongIntNumber => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 let n = &n[0..n.len() - 1]; // remove 'L' suffix
                 let n = n.parse::<i64>().expect("expected number to be valid");
-                Some(self.result.ast.expr.push(ExprData::new(
-                    ExprKind::Const(ConstValue::Int64(n)),
+                Some(self.result.ast.expr.push(ExprData {
                     span,
-                    self.tys.void_ty,
-                )))
+                    ty: self.tys.void_ty.into(),
+                    kind: ExprKind::Const(ConstValue::Int64(n)),
+                }))
             }
             TokenKind::IntNumber => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 match n.parse::<i32>() {
-                    Ok(n) => Some(self.result.ast.expr.push(ExprData::new(
-                        ExprKind::Const(ConstValue::Int32(n)),
+                    Ok(n) => Some(self.result.ast.expr.push(ExprData {
                         span,
-                        self.tys.void_ty,
-                    ))),
+                        ty: self.tys.void_ty.into(),
+                        kind: ExprKind::Const(ConstValue::Int32(n)),
+                    })),
                     Err(_) => {
                         let n = n.parse::<i64>().expect("expected number to be valid");
-                        Some(self.result.ast.expr.push(ExprData::new(
-                            ExprKind::Const(ConstValue::Int64(n)),
+                        Some(self.result.ast.expr.push(ExprData {
                             span,
-                            self.tys.void_ty,
-                        )))
+                            ty: self.tys.void_ty.into(),
+                            kind: ExprKind::Const(ConstValue::Int64(n)),
+                        }))
                     }
                 }
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);
-                let expr = self.result.ast.expr.push(ExprData::new(
-                    ExprKind::Var(AstSymbol {
-                        name,
-                        id: Default::default(),
-                    }),
+                let expr = self.result.ast.expr.push(ExprData {
                     span,
-                    self.tys.void_ty,
-                ));
+                    ty: self.tys.void_ty.into(),
+                    kind: ExprKind::Var(AstSymbol {
+                        name,
+                        sema: Default::default(),
+                    }),
+                });
                 match self.peek() {
                     Some(Token {
                         kind: TokenKind::LParen,
@@ -622,17 +622,17 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         self.next();
                         let args = self.parse_args();
                         self.eat(TokenKind::RParen)?;
-                        Some(self.result.ast.expr.push(ExprData::new(
-                            ExprKind::Call {
+                        Some(self.result.ast.expr.push(ExprData {
+                            span,
+                            ty: self.tys.void_ty.into(),
+                            kind: ExprKind::Call {
                                 args,
                                 name: AstSymbol {
                                     name,
-                                    id: Default::default(),
+                                    sema: Default::default(),
                                 },
                             },
-                            span,
-                            self.tys.void_ty,
-                        )))
+                        }))
                     }
                     _ => Some(self.parse_expr_postfix(expr)),
                 }
@@ -642,21 +642,21 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 if self.types.is_empty() {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::RParen)?;
-                    let expr = self.result.ast.expr.push(ExprData::new(
-                        ExprKind::Grouped(expr),
+                    let expr = self.result.ast.expr.push(ExprData {
                         span,
-                        self.tys.void_ty,
-                    ));
+                        ty: self.tys.void_ty.into(),
+                        kind: ExprKind::Grouped(expr),
+                    });
                     Some(self.parse_expr_postfix(expr))
                 } else {
                     let ty = self.parse_type();
                     self.eat(TokenKind::RParen)?;
                     let expr = self.parse_expr_prefix()?;
-                    let expr = self.result.ast.expr.push(ExprData::new(
-                        ExprKind::Cast { ty, expr },
+                    let expr = self.result.ast.expr.push(ExprData {
                         span,
-                        self.tys.void_ty,
-                    ));
+                        ty: self.tys.void_ty.into(),
+                        kind: ExprKind::Cast { ty, expr },
+                    });
                     Some(self.parse_expr_postfix(expr))
                 }
             }
@@ -679,11 +679,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 _ => break,
             };
             self.next();
-            expr = self.result.ast.expr.push(ExprData::new(
-                ExprKind::Unary { op, expr },
+            expr = self.result.ast.expr.push(ExprData {
                 span,
-                self.tys.void_ty,
-            ));
+                ty: self.tys.void_ty.into(),
+                kind: ExprKind::Unary { op, expr },
+            });
         }
         expr
     }

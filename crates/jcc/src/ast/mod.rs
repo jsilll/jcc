@@ -2,11 +2,10 @@ pub mod graphviz;
 pub mod parse;
 pub mod ty;
 
+use crate::sema;
 pub use ty::{Ty, TyKind};
 
-use crate::sema::SemaId;
-
-use jcc_entity::{EntityList, EntityRef, ListPool, PrimaryMap};
+use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 use jcc_ssa::{
     codemap::{file::FileId, span::Span},
     interner::Symbol,
@@ -19,19 +18,19 @@ use std::cell::Cell;
 // Ast
 //============================================================================
 
-#[derive(Debug)]
-pub struct DeclMarker;
-pub type Decl = EntityRef<DeclMarker>;
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Decl(u32);
+entity_impl!(Decl, "decl");
 pub type DeclList = EntityList<Decl>;
 
-#[derive(Debug)]
-pub struct ExprMarker;
-pub type Expr = EntityRef<ExprMarker>;
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Expr(u32);
+entity_impl!(Expr, "expr");
 pub type ExprList = EntityList<Expr>;
 
-#[derive(Debug)]
-pub struct StmtMarker;
-pub type Stmt = EntityRef<StmtMarker>;
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Stmt(u32);
+entity_impl!(Stmt, "stmt");
 pub type Block = EntityList<BlockItem>;
 
 pub struct Ast<'ctx> {
@@ -40,9 +39,9 @@ pub struct Ast<'ctx> {
     pub decls: ListPool<Decl>,
     pub exprs: ListPool<Expr>,
     pub items: ListPool<BlockItem>,
-    pub stmt: PrimaryMap<StmtMarker, StmtData>,
-    pub decl: PrimaryMap<DeclMarker, DeclData<'ctx>>,
-    pub expr: PrimaryMap<ExprMarker, ExprData<'ctx>>,
+    pub stmt: PrimaryMap<Stmt, StmtData>,
+    pub decl: PrimaryMap<Decl, DeclData<'ctx>>,
+    pub expr: PrimaryMap<Expr, ExprData<'ctx>>,
 }
 
 impl<'ctx> Ast<'ctx> {
@@ -54,12 +53,12 @@ impl<'ctx> Ast<'ctx> {
         Ast {
             file,
             root: Vec::with_capacity(capacity),
-            decl: PrimaryMap::with_capacity(capacity),
-            stmt: PrimaryMap::with_capacity(capacity),
-            expr: PrimaryMap::with_capacity(capacity),
             decls: ListPool::with_capacity(capacity),
             exprs: ListPool::with_capacity(capacity),
             items: ListPool::with_capacity(capacity),
+            decl: PrimaryMap::with_capacity(capacity),
+            stmt: PrimaryMap::with_capacity(capacity),
+            expr: PrimaryMap::with_capacity(capacity),
         }
     }
 }
@@ -71,7 +70,7 @@ impl<'ctx> Ast<'ctx> {
 #[derive(Debug, Clone)]
 pub struct AstSymbol {
     pub name: Symbol,
-    pub id: Cell<Option<SemaId>>,
+    pub sema: Cell<Option<sema::Symbol>>,
 }
 
 #[derive(Debug, Clone, Copy)]

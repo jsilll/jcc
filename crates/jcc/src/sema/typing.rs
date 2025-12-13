@@ -82,9 +82,8 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     }
                 };
 
-                let info = self
-                    .ctx
-                    .symbol_mut(data.name.id.get().expect("sema symbol not set"));
+                let info =
+                    &mut self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")];
                 let occupied = info.is_some();
                 let info =
                     info.get_or_insert(SymbolInfo::statik(data.ty, decl_is_global, decl_init));
@@ -139,9 +138,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             DeclKind::Func { .. } => self.visit_func_decl(data),
             DeclKind::Var(init) => match data.storage {
                 None => {
-                    let _ = self
-                        .ctx
-                        .symbol_mut(data.name.id.get().expect("sema symbol not set"))
+                    let _ = self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")]
                         .insert(SymbolInfo::local(data.ty));
                     if let Some(init) = init {
                         let ty = self.visit_expr(init);
@@ -159,10 +156,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         });
                     }
                     None => {
-                        let info = self
-                            .ctx
-                            .symbol_mut(data.name.id.get().expect("sema symbol not set"))
-                            .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
+                        let info = self.ctx.symbols
+                            [data.name.sema.get().expect("sema symbol not set")]
+                        .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
                         if info.ty != data.ty {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: data.span,
@@ -193,9 +189,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             }
                         }
                     };
-                    *self
-                        .ctx
-                        .symbol_mut(data.name.id.get().expect("sema symbol not set")) =
+                    self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")] =
                         Some(SymbolInfo::statik(data.ty, false, decl_init));
                 }
             },
@@ -205,9 +199,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_func_decl(&mut self, decl: &DeclData<'ctx>) {
         if let DeclKind::Func { params, body } = decl.kind {
             let decl_is_global = !matches!(decl.storage, Some(StorageClass::Static));
-            let entry = self
-                .ctx
-                .symbol_mut(decl.name.id.get().expect("sema symbol not set"))
+            let entry = self.ctx.symbols[decl.name.sema.get().expect("sema symbol not set")]
                 .get_or_insert(SymbolInfo::function(decl.ty, decl_is_global, false));
 
             if entry.ty != decl.ty {
@@ -478,9 +470,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
             }
             ExprKind::Var(name) => {
-                let ty = self
-                    .ctx
-                    .symbol(name.id.get().expect("sema symbol not set"))
+                let ty = self.ctx.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("symbol info not found")
                     .ty;
                 if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
@@ -496,9 +486,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 self.ast.exprs[*args].iter().for_each(|arg| {
                     self.visit_expr(*arg);
                 });
-                let ty = self
-                    .ctx
-                    .symbol(name.id.get().expect("sema symbol not set"))
+                let ty = self.ctx.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("symbol info not found")
                     .ty;
                 match *ty {

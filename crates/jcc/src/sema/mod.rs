@@ -7,49 +7,32 @@ use crate::ast::{
     Stmt,
 };
 
+use jcc_entity::{entity_impl, SecondaryMap};
 use jcc_ssa::ir::ConstValue;
 
-use std::{collections::HashMap, num::NonZeroU32};
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // SemaCtx
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SemaId(pub(crate) NonZeroU32);
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Symbol(u32);
+entity_impl!(Symbol, "symbol");
 
 pub struct SemaCtx<'ctx> {
     pub tys: &'ctx TyCtx<'ctx>,
-    symbols: Vec<Option<SymbolInfo<'ctx>>>,
     pub switches: HashMap<Stmt, SwitchCases>,
+    pub symbols: SecondaryMap<Symbol, Option<SymbolInfo<'ctx>>>,
 }
 
 impl<'ctx> SemaCtx<'ctx> {
-    pub fn new(tys: &'ctx TyCtx<'ctx>, symbol_count: usize) -> Self {
+    pub fn new(tys: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
         Self {
             tys,
             switches: HashMap::new(),
-            symbols: vec![Default::default(); symbol_count],
+            symbols: SecondaryMap::with_capacity(capacity),
         }
-    }
-
-    #[inline]
-    pub fn symbol_count(&self) -> usize {
-        self.symbols.len()
-    }
-
-    #[inline]
-    pub fn symbol(&self, sym: SemaId) -> Option<&SymbolInfo<'ctx>> {
-        self.symbols
-            .get(sym.0.get() as usize)
-            .and_then(|s| s.as_ref())
-    }
-
-    #[inline]
-    pub fn symbol_mut(&mut self, sym: SemaId) -> &mut Option<SymbolInfo<'ctx>> {
-        self.symbols
-            .get_mut(sym.0.get() as usize)
-            .expect("Invalid symbol index")
     }
 }
 

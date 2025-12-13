@@ -3,15 +3,16 @@ use crate::{
         Ast, AstSymbol, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind,
         StorageClass,
     },
-    sema::SemaId,
+    sema,
 };
 
+use jcc_entity::EntityRef;
 use jcc_ssa::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
     interner::{Symbol, SymbolTable},
 };
 
-use std::{collections::HashMap, num::NonZeroU32};
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // ResolverPass
@@ -23,21 +24,21 @@ pub struct ResolverPass<'a, 'ctx> {
     /// The result of the name resolution
     result: ResolverResult,
     /// The current symbol count
-    symbol_count: NonZeroU32,
+    symbol_count: usize,
     /// The current scope symbol table
     scope: SymbolTable<SymbolInfo>,
     /// The global symbols map
-    globals: HashMap<Symbol, SemaId>,
+    globals: HashMap<Symbol, sema::Symbol>,
 }
 
 impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     pub fn new(ast: &'a Ast<'ctx>) -> Self {
         Self {
             ast,
+            symbol_count: 1,
             globals: HashMap::new(),
             scope: SymbolTable::new(),
             result: ResolverResult::default(),
-            symbol_count: NonZeroU32::new(1).unwrap(),
         }
     }
 
@@ -46,7 +47,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             .root
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
-        self.result.symbol_count = self.symbol_count.get() as usize;
+        self.result.symbol_count = self.symbol_count;
         self.result
     }
 
@@ -217,7 +218,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                 self.visit_expr(*other);
             }
             ExprKind::Var(name) => match self.scope.get(&name.name) {
-                Some(entry) => name.id.set(Some(entry.symbol)),
+                Some(entry) => name.sema.set(Some(entry.symbol)),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: data.span,
                     file: self.ast.file,
@@ -226,7 +227,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             },
             ExprKind::Call { name, args } => {
                 match self.scope.get(&name.name) {
-                    Some(entry) => name.id.set(Some(entry.symbol)),
+                    Some(entry) => name.sema.set(Some(entry.symbol)),
                     None => self.result.diagnostics.push(ResolverDiagnostic {
                         span: data.span,
                         file: self.ast.file,
@@ -245,13 +246,13 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> SemaId {
+    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> sema::Symbol {
         let symbol = self.globals.entry(name.name).or_insert_with(|| {
-            let symbol = SemaId(self.symbol_count);
-            self.symbol_count = self.symbol_count.saturating_add(1);
+            let symbol = sema::Symbol::new(self.symbol_count);
+            self.symbol_count += 1;
             symbol
         });
-        name.id.set(Some(*symbol));
+        name.sema.set(Some(*symbol));
         *symbol
     }
 
@@ -259,9 +260,9 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         let entry = if has_linkage {
             SymbolInfo::with_linkage(self.get_or_create_global_symbol(name))
         } else {
-            let symbol = SemaId(self.symbol_count);
-            self.symbol_count = self.symbol_count.saturating_add(1);
-            name.id.set(Some(symbol));
+            let symbol = sema::Symbol::new(self.symbol_count);
+            self.symbol_count += 1;
+            name.sema.set(Some(symbol));
             SymbolInfo::no_linkage(symbol)
         };
         if let Some(prev) = self.scope.insert(name.name, entry) {
@@ -283,12 +284,12 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SymbolInfo {
     pub has_linkage: bool,
-    pub symbol: SemaId,
+    pub symbol: sema::Symbol,
 }
 
 impl SymbolInfo {
     #[inline]
-    fn no_linkage(symbol: SemaId) -> Self {
+    fn no_linkage(symbol: sema::Symbol) -> Self {
         Self {
             symbol,
             has_linkage: false,
@@ -296,7 +297,7 @@ impl SymbolInfo {
     }
 
     #[inline]
-    fn with_linkage(symbol: SemaId) -> Self {
+    fn with_linkage(symbol: sema::Symbol) -> Self {
         Self {
             symbol,
             has_linkage: true,

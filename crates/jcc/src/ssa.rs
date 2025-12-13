@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     ast,
-    sema::{Attribute, SemaCtx, SemaId, StaticValue},
+    sema::{self, Attribute, SemaCtx, StaticValue},
 };
 
+use jcc_entity::SecondaryMap;
 use jcc_ssa::{
     codemap::span::Span,
     interner::{Interner, Symbol},
@@ -22,8 +23,8 @@ pub struct SSABuilder<'ctx> {
     builder: IRBuilder<'ctx>,
     ast: &'ctx ast::Ast<'ctx>,
     sema: &'ctx SemaCtx<'ctx>,
-    symbols: Vec<SymbolEntry>,
     tracked: HashMap<ast::Stmt, TrackedBlock>,
+    symbols: SecondaryMap<sema::Symbol, SymbolEntry>,
 }
 
 impl<'ctx> SSABuilder<'ctx> {
@@ -37,7 +38,7 @@ impl<'ctx> SSABuilder<'ctx> {
             sema,
             tracked: HashMap::new(),
             builder: IRBuilder::new(interner),
-            symbols: vec![Default::default(); sema.symbol_count()],
+            symbols: SecondaryMap::with_capacity(sema.symbols.len()),
         }
     }
 
@@ -46,10 +47,9 @@ impl<'ctx> SSABuilder<'ctx> {
             let data = &self.ast.decl[*decl];
             match data.kind {
                 ast::DeclKind::Var(_) => {
-                    let info = self
-                        .sema
-                        .symbol(data.name.id.get().expect("sema symbol not set"))
-                        .expect("expected a sema symbol");
+                    let info = self.sema.symbols
+                        [data.name.sema.get().expect("sema symbol not set")]
+                    .expect("expected a sema symbol");
 
                     match info.attr {
                         Attribute::Local => panic!("unexpected local attribute"),
@@ -87,11 +87,10 @@ impl<'ctx> SSABuilder<'ctx> {
                     }
                 }
                 ast::DeclKind::Func { params, body } => {
-                    let is_global = self
-                        .sema
-                        .symbol(data.name.id.get().expect("sema symbol not set"))
-                        .expect("expected a sema symbol")
-                        .is_global();
+                    let is_global = self.sema.symbols
+                        [data.name.sema.get().expect("sema symbol not set")]
+                    .expect("expected a sema symbol")
+                    .is_global();
 
                     let func = self.get_or_make_function(&data.name, is_global, data.span);
                     self.builder.switch_to_func(func);
@@ -112,7 +111,10 @@ impl<'ctx> SSABuilder<'ctx> {
                                 _ => todo!(),
                             };
                             let arg = self.builder.insert_inst(Inst::arg(ty, param.span));
-                            self.insert_var(param.name.id.get().expect("sema symbol not set"), arg);
+                            self.insert_var(
+                                param.name.sema.get().expect("sema symbol not set"),
+                                arg,
+                            );
                         });
 
                         self.ast.items[body].iter().for_each(|item| match item {
@@ -144,9 +146,7 @@ impl<'ctx> SSABuilder<'ctx> {
         match data.kind {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
-                let info = self
-                    .sema
-                    .symbol(data.name.id.get().expect("sema symbol not set"))
+                let info = self.sema.symbols[data.name.sema.get().expect("sema symbol not set")]
                     .expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => panic!("unexpected function attribute"),
@@ -154,7 +154,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         let alloca = self
                             .builder
                             .insert_inst(Inst::alloca(ty_to_ssa(data.ty), data.span));
-                        self.insert_var(data.name.id.get().expect("sema symbol not set"), alloca);
+                        self.insert_var(data.name.sema.get().expect("sema symbol not set"), alloca);
                         if let Some(init) = init {
                             let val = self.visit_expr(init, ExprMode::RightValue);
                             self.builder
@@ -449,14 +449,12 @@ impl<'ctx> SSABuilder<'ctx> {
             }
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
-                let info = self
-                    .sema
-                    .symbol(name.id.get().expect("sema symbol not set"))
+                let info = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => todo!("handle function variables"),
                     Attribute::Static { .. } => {
-                        let var = self.get_static(name.id.get().expect("sema symbol not set"));
+                        let var = self.get_static(name.sema.get().expect("sema symbol not set"));
                         let ptr = self.builder.insert_inst(Inst::static_addr(var, expr.span));
                         match mode {
                             ExprMode::LeftValue => ptr,
@@ -472,7 +470,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         }
                     }
                     Attribute::Local => {
-                        let ptr = self.get_var(name.id.get().expect("sema symbol not set"));
+                        let ptr = self.get_var(name.sema.get().expect("sema symbol not set"));
                         match mode {
                             ExprMode::LeftValue => ptr,
                             ExprMode::RightValue => match *info.ty {
@@ -504,9 +502,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     .iter()
                     .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
                     .collect::<Vec<_>>();
-                let symbol = self
-                    .sema
-                    .symbol(name.id.get().expect("sema symbol not set"))
+                let symbol = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("expected a sema symbol");
                 let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
                 let ty = match *symbol.ty {
@@ -958,24 +954,24 @@ impl<'ctx> SSABuilder<'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    pub fn get_var(&self, sym: SemaId) -> InstRef {
-        match self.symbols[sym.0.get() as usize] {
+    pub fn get_var(&self, sym: sema::Symbol) -> InstRef {
+        match self.symbols[sym] {
             SymbolEntry::Inst(inst) => inst,
             _ => panic!("expected an inst ref"),
         }
     }
 
     #[inline]
-    pub fn get_static(&self, sym: SemaId) -> StaticVarRef {
-        match self.symbols[sym.0.get() as usize] {
+    pub fn get_static(&self, sym: sema::Symbol) -> StaticVarRef {
+        match self.symbols[sym] {
             SymbolEntry::Static(v) => v,
             _ => panic!("expected a static var ref"),
         }
     }
 
     #[inline]
-    pub fn insert_var(&mut self, sym: SemaId, var: InstRef) {
-        self.symbols[sym.0.get() as usize] = SymbolEntry::Inst(var);
+    pub fn insert_var(&mut self, sym: sema::Symbol, var: InstRef) {
+        self.symbols[sym] = SymbolEntry::Inst(var);
     }
 
     #[inline]
@@ -1021,8 +1017,8 @@ impl<'ctx> SSABuilder<'ctx> {
         is_global: bool,
         span: Span,
     ) -> FuncRef {
-        let idx = name.id.get().expect("sema symbol not set").0.get() as usize;
-        match self.symbols[idx] {
+        let sym = name.sema.get().expect("sema symbol not set");
+        match self.symbols[sym] {
             SymbolEntry::Inst(_) | SymbolEntry::Static(_) => panic!("expected a function"),
             SymbolEntry::Function(f) => f,
             SymbolEntry::None => {
@@ -1032,7 +1028,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     name: name.name,
                     ..Default::default()
                 });
-                self.symbols[idx] = SymbolEntry::Function(f);
+                self.symbols[sym] = SymbolEntry::Function(f);
                 f
             }
         }
@@ -1040,8 +1036,8 @@ impl<'ctx> SSABuilder<'ctx> {
 
     #[inline]
     pub fn get_or_make_static(&mut self, name: &ast::AstSymbol, mut v: StaticVar) -> StaticVarRef {
-        let idx = name.id.get().expect("sema symbol not set").0.get() as usize;
-        match self.symbols[idx] {
+        let sym = name.sema.get().expect("sema symbol not set");
+        match self.symbols[sym] {
             SymbolEntry::Inst(_) | SymbolEntry::Function(_) => panic!("expected a static"),
             SymbolEntry::Static(v) => v,
             SymbolEntry::None => {
@@ -1057,7 +1053,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 };
                 v.name = name;
                 let v = self.builder.prog.new_static_var(v);
-                self.symbols[idx] = SymbolEntry::Static(v);
+                self.symbols[sym] = SymbolEntry::Static(v);
                 v
             }
         }

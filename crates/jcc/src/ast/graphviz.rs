@@ -46,8 +46,8 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
     }
 
     fn visit_decl(&mut self, decl: Decl) -> Result<String, std::fmt::Error> {
+        let id = decl.to_string();
         let data = &self.ast.decl[decl];
-        let id = format!("decl_{}", decl.index());
         match data.kind {
             DeclKind::Var(init) => {
                 let name = self.interner.lookup(data.name.name).escape_default();
@@ -56,7 +56,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                     name,
                     data.ty,
                     data.storage,
-                    data.name.id.get()
+                    data.name.sema.get()
                 );
                 self.define_node(&id, &label, Some(Color::LightGoldenrodYellow))?;
                 if let Some(init) = init {
@@ -71,7 +71,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                     name,
                     data.ty,
                     data.storage,
-                    data.name.id.get()
+                    data.name.sema.get()
                 );
                 self.define_node(&id, &label, Some(Color::PaleGreen))?;
 
@@ -113,92 +113,90 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
     }
 
     fn visit_stmt(&mut self, stmt: Stmt) -> Result<String, std::fmt::Error> {
-        let stmt_id = format!("stmt_{}", stmt.index());
+        let id = stmt.to_string();
         match &self.ast.stmt[stmt].kind {
-            StmtKind::Empty => self.define_node(&stmt_id, "EmptyStmt", Some(Color::Gray90))?,
+            StmtKind::Empty => self.define_node(&id, "EmptyStmt", Some(Color::Gray90))?,
             StmtKind::Expr(expr) => {
-                self.define_node(&stmt_id, "ExprStmt", Some(Color::Azure))?;
+                self.define_node(&id, "ExprStmt", Some(Color::Azure))?;
                 let expr_id = self.visit_expr(*expr)?;
-                self.define_edge(&stmt_id, &expr_id, None)?;
+                self.define_edge(&id, &expr_id, None)?;
             }
-            StmtKind::Break(_) => {
-                self.define_node(&stmt_id, "BreakStmt", Some(Color::LightCoral))?
-            }
+            StmtKind::Break(_) => self.define_node(&id, "BreakStmt", Some(Color::LightCoral))?,
             StmtKind::Continue(_) => {
-                self.define_node(&stmt_id, "ContinueStmt", Some(Color::LightSalmon))?
+                self.define_node(&id, "ContinueStmt", Some(Color::LightSalmon))?
             }
             StmtKind::Return(expr) => {
-                self.define_node(&stmt_id, "ReturnStmt", Some(Color::MediumPurple1))?;
+                self.define_node(&id, "ReturnStmt", Some(Color::MediumPurple1))?;
                 let expr_id = self.visit_expr(*expr)?;
-                self.define_edge(&stmt_id, &expr_id, Some("value"))?;
+                self.define_edge(&id, &expr_id, Some("value"))?;
             }
             StmtKind::Default(inner) => {
-                self.define_node(&stmt_id, "DefaultStmt (Switch)", Some(Color::Khaki))?;
+                self.define_node(&id, "DefaultStmt (Switch)", Some(Color::Khaki))?;
                 let inner_id = self.visit_stmt(*inner)?;
-                self.define_edge(&stmt_id, &inner_id, Some("stmt"))?;
+                self.define_edge(&id, &inner_id, Some("stmt"))?;
             }
             StmtKind::Goto { label, stmt } => {
                 let label = self.interner.lookup(*label).escape_default();
                 let label = format!("GotoStmt\\nlabel: {}\\nstmt: {:?}", label, stmt.get());
-                self.define_node(&stmt_id, &label, Some(Color::SandyBrown))?;
+                self.define_node(&id, &label, Some(Color::SandyBrown))?;
             }
             StmtKind::Label { label, stmt: inner } => {
                 let label = self.interner.lookup(*label).escape_default();
                 let label = format!("LabelStmt\\nlabel: {}", label);
-                self.define_node(&stmt_id, &label, Some(Color::Beige))?;
+                self.define_node(&id, &label, Some(Color::Beige))?;
                 let inner_id = self.visit_stmt(*inner)?;
-                self.define_edge(&stmt_id, &inner_id, None)?;
+                self.define_edge(&id, &inner_id, None)?;
             }
             StmtKind::Switch { cond, body } => {
-                self.define_node(&stmt_id, "SwitchStmt", Some(Color::LightPink))?;
+                self.define_node(&id, "SwitchStmt", Some(Color::LightPink))?;
                 let cond_id = self.visit_expr(*cond)?;
-                self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
+                self.define_edge(&id, &cond_id, Some("condition"))?;
                 let body_id = self.visit_stmt(*body)?;
-                self.define_edge(&stmt_id, &body_id, Some("body"))?;
+                self.define_edge(&id, &body_id, Some("body"))?;
             }
             StmtKind::Case { expr, stmt: inner } => {
-                self.define_node(&stmt_id, "CaseStmt (Switch)", Some(Color::Khaki))?;
+                self.define_node(&id, "CaseStmt (Switch)", Some(Color::Khaki))?;
                 let expr_id = self.visit_expr(*expr)?;
-                self.define_edge(&stmt_id, &expr_id, Some("condition"))?;
+                self.define_edge(&id, &expr_id, Some("condition"))?;
                 let inner_id = self.visit_stmt(*inner)?;
-                self.define_edge(&stmt_id, &inner_id, Some("stmt"))?;
+                self.define_edge(&id, &inner_id, Some("stmt"))?;
             }
             StmtKind::While { cond, body } => {
-                self.define_node(&stmt_id, "WhileStmt", Some(Color::PaleTurquoise))?;
+                self.define_node(&id, "WhileStmt", Some(Color::PaleTurquoise))?;
                 let cond_id = self.visit_expr(*cond)?;
-                self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
+                self.define_edge(&id, &cond_id, Some("condition"))?;
                 let body_id = self.visit_stmt(*body)?;
-                self.define_edge(&stmt_id, &body_id, Some("body"))?;
+                self.define_edge(&id, &body_id, Some("body"))?;
             }
             StmtKind::DoWhile { body, cond } => {
-                self.define_node(&stmt_id, "DoWhileStmt", Some(Color::PaleTurquoise1))?;
+                self.define_node(&id, "DoWhileStmt", Some(Color::PaleTurquoise1))?;
                 let body_id = self.visit_stmt(*body)?;
-                self.define_edge(&stmt_id, &body_id, Some("body"))?;
+                self.define_edge(&id, &body_id, Some("body"))?;
                 let cond_id = self.visit_expr(*cond)?;
-                self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
+                self.define_edge(&id, &cond_id, Some("condition"))?;
             }
             StmtKind::If {
                 cond,
                 then,
                 otherwise,
             } => {
-                self.define_node(&stmt_id, "IfStmt", Some(Color::SkyBlue))?;
+                self.define_node(&id, "IfStmt", Some(Color::SkyBlue))?;
                 let cond_id = self.visit_expr(*cond)?;
-                self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
+                self.define_edge(&id, &cond_id, Some("condition"))?;
                 let then_id = self.visit_stmt(*then)?;
-                self.define_edge(&stmt_id, &then_id, Some("then_branch"))?;
+                self.define_edge(&id, &then_id, Some("then_branch"))?;
                 if let Some(otherwise) = otherwise {
                     let otherwise_id = self.visit_stmt(*otherwise)?;
-                    self.define_edge(&stmt_id, &otherwise_id, Some("else_branch"))?;
+                    self.define_edge(&id, &otherwise_id, Some("else_branch"))?;
                 }
             }
             StmtKind::Compound(items) => {
-                self.define_node(&stmt_id, "CompoundStmt", Some(Color::LightCyan))?;
+                self.define_node(&id, "CompoundStmt", Some(Color::LightCyan))?;
                 let items = &self.ast.items[*items];
                 if items.is_empty() {
-                    let empty_marker_id = format!("{stmt_id}_empty_marker");
+                    let empty_marker_id = format!("{id}_empty_marker");
                     self.define_node(&empty_marker_id, "(empty block)", None)?;
-                    self.define_edge(&stmt_id, &empty_marker_id, None)?;
+                    self.define_edge(&id, &empty_marker_id, None)?;
                 } else {
                     for (idx, item) in items.iter().enumerate() {
                         let item_id = match item {
@@ -206,7 +204,7 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                             BlockItem::Stmt(stmt) => self.visit_stmt(*stmt)?,
                         };
                         let label = format!("item {idx}");
-                        self.define_edge(&stmt_id, &item_id, Some(&label))?;
+                        self.define_edge(&id, &item_id, Some(&label))?;
                     }
                 }
             }
@@ -216,103 +214,103 @@ impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
                 step,
                 body,
             } => {
-                self.define_node(&stmt_id, "ForStmt", Some(Color::Thistle))?;
+                self.define_node(&id, "ForStmt", Some(Color::Thistle))?;
                 if let Some(init) = init {
                     match init {
                         ForInit::Expr(expr) => {
                             let init_id = self.visit_expr(*expr)?;
-                            self.define_edge(&stmt_id, &init_id, Some("initializer (expr)"))?;
+                            self.define_edge(&id, &init_id, Some("initializer (expr)"))?;
                         }
                         ForInit::VarDecl(decl) => {
                             let decl_id = self.visit_decl(*decl)?;
-                            self.define_edge(&stmt_id, &decl_id, Some("initializer (decl)"))?;
+                            self.define_edge(&id, &decl_id, Some("initializer (decl)"))?;
                         }
                     }
                 }
                 if let Some(cond) = cond {
                     let cond_id = self.visit_expr(*cond)?;
-                    self.define_edge(&stmt_id, &cond_id, Some("condition"))?;
+                    self.define_edge(&id, &cond_id, Some("condition"))?;
                 }
                 if let Some(step) = step {
                     let step_id = self.visit_expr(*step)?;
-                    self.define_edge(&stmt_id, &step_id, Some("step"))?;
+                    self.define_edge(&id, &step_id, Some("step"))?;
                 }
                 let body_id = self.visit_stmt(*body)?;
-                self.define_edge(&stmt_id, &body_id, Some("body"))?;
+                self.define_edge(&id, &body_id, Some("body"))?;
             }
         }
-        Ok(stmt_id)
+        Ok(id)
     }
 
     fn visit_expr(&mut self, expr: Expr) -> Result<String, std::fmt::Error> {
-        let expr_id = format!("expr_{}", expr.index());
+        let id = expr.to_string();
         match &self.ast.expr[expr].kind {
             ExprKind::Const(val) => {
                 let label = format!("Const\\nvalue: {:?}", val);
-                self.define_node(&expr_id, &label, Some(Color::Gold))?;
+                self.define_node(&id, &label, Some(Color::Gold))?;
             }
             ExprKind::Grouped(inner) => {
-                self.define_node(&expr_id, "GroupedExpr", Some(Color::LightGrey))?;
+                self.define_node(&id, "GroupedExpr", Some(Color::LightGrey))?;
                 let inner_id = self.visit_expr(*inner)?;
-                self.define_edge(&expr_id, &inner_id, None)?;
+                self.define_edge(&id, &inner_id, None)?;
             }
             ExprKind::Var(name) => {
                 let n = self.interner.lookup(name.name).escape_default();
-                let label = format!("VarRef\\nname: {}\\nsema: {:?}", n, name.id.get());
-                self.define_node(&expr_id, &label, Some(Color::OliveDrab1))?;
+                let label = format!("VarRef\\nname: {}\\nsema: {:?}", n, name.sema.get());
+                self.define_node(&id, &label, Some(Color::OliveDrab1))?;
             }
             ExprKind::Cast { ty, expr: inner } => {
                 let label = format!("Cast\\nto: {:?}", ty);
-                self.define_node(&expr_id, &label, Some(Color::LightYellow))?;
+                self.define_node(&id, &label, Some(Color::LightYellow))?;
                 let inner_id = self.visit_expr(*inner)?;
-                self.define_edge(&expr_id, &inner_id, Some("operand"))?;
+                self.define_edge(&id, &inner_id, Some("operand"))?;
             }
             ExprKind::Unary { op, expr: inner } => {
                 let label = format!("UnaryOp\\nop: {:?}", op);
-                self.define_node(&expr_id, &label, Some(Color::Coral))?;
+                self.define_node(&id, &label, Some(Color::Coral))?;
                 let inner_id = self.visit_expr(*inner)?;
-                self.define_edge(&expr_id, &inner_id, Some("operand"))?;
+                self.define_edge(&id, &inner_id, Some("operand"))?;
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let label = format!("BinaryOp\\nop: {:?}", op);
-                self.define_node(&expr_id, &label, Some(Color::Orchid))?;
+                self.define_node(&id, &label, Some(Color::Orchid))?;
                 let lhs_id = self.visit_expr(*lhs)?;
-                self.define_edge(&expr_id, &lhs_id, Some("lhs"))?;
+                self.define_edge(&id, &lhs_id, Some("lhs"))?;
                 let rhs_id = self.visit_expr(*rhs)?;
-                self.define_edge(&expr_id, &rhs_id, Some("rhs"))?;
+                self.define_edge(&id, &rhs_id, Some("rhs"))?;
             }
             ExprKind::Ternary { cond, then, other } => {
-                self.define_node(&expr_id, "TernaryOp", Some(Color::MediumSpringGreen))?;
+                self.define_node(&id, "TernaryOp", Some(Color::MediumSpringGreen))?;
                 let cond_id = self.visit_expr(*cond)?;
-                self.define_edge(&expr_id, &cond_id, Some("condition"))?;
+                self.define_edge(&id, &cond_id, Some("condition"))?;
                 let then_id = self.visit_expr(*then)?;
-                self.define_edge(&expr_id, &then_id, Some("then_expr"))?;
+                self.define_edge(&id, &then_id, Some("then_expr"))?;
                 let otherwise_id = self.visit_expr(*other)?;
-                self.define_edge(&expr_id, &otherwise_id, Some("else_expr"))?;
+                self.define_edge(&id, &otherwise_id, Some("else_expr"))?;
             }
             ExprKind::Call { name, args } => {
                 let n = self.interner.lookup(name.name).escape_default();
-                let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.id.get());
-                self.define_node(&expr_id, &label, Some(Color::DeepSkyBlue))?;
+                let label = format!("FunctionCall\\nname: {}\\nsema: {:?}", n, name.sema.get());
+                self.define_node(&id, &label, Some(Color::DeepSkyBlue))?;
 
                 let args = &self.ast.exprs[*args];
                 if !args.is_empty() {
                     let args_id = self.fresh_aux_node_id("args");
                     self.define_node(&args_id, "Arguments", Some(Color::AliceBlue))?;
-                    self.define_edge(&expr_id, &args_id, Some("args"))?;
+                    self.define_edge(&id, &args_id, Some("args"))?;
                     for (idx, arg) in args.iter().enumerate() {
                         let arg_id = self.visit_expr(*arg)?;
                         let label = format!("arg {idx}");
                         self.define_edge(&args_id, &arg_id, Some(&label))?;
                     }
                 } else {
-                    let no_args_id = format!("{expr_id}_no_args_marker");
+                    let no_args_id = format!("{id}_no_args_marker");
                     self.define_node(&no_args_id, "(no arguments)", None)?;
-                    self.define_edge_dotted(&expr_id, &no_args_id, None)?;
+                    self.define_edge_dotted(&id, &no_args_id, None)?;
                 }
             }
         }
-        Ok(expr_id)
+        Ok(id)
     }
 
     // ---------------------------------------------------------------------------

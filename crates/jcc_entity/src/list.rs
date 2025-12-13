@@ -56,13 +56,13 @@ impl<T> EntityList<T> {
 
     /// Returns the length of the list.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn len(self) -> usize {
         self.length as usize
     }
 
     /// Returns `true` if the list is empty.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub fn is_empty(self) -> bool {
         self.length == 0
     }
 
@@ -70,7 +70,7 @@ impl<T> EntityList<T> {
     ///
     /// This is for internal use only.
     #[inline]
-    pub(crate) fn offset(&self) -> usize {
+    pub(crate) fn offset(self) -> usize {
         self.offset as usize
     }
 }
@@ -90,7 +90,6 @@ impl<T> EntityList<T> {
 ///
 /// Instead of each AST node having its own `Vec<EntityRef<T>>`, they can store
 /// a single `EntityList<T>` (8 bytes) that references data in a shared pool.
-#[derive(Debug)]
 pub struct ListPool<T> {
     data: Vec<T>,
 }
@@ -151,33 +150,6 @@ impl<T: Copy> ListPool<T> {
         self.data.clear();
     }
 
-    /// Allocates a new list from an iterator of elements.
-    ///
-    /// This is useful when you're building a list dynamically.
-    pub fn extend(&mut self, elements: impl IntoIterator<Item = T>) -> EntityList<T> {
-        let offset = self
-            .data
-            .len()
-            .try_into()
-            .expect("list pool size exceeded u32::MAX");
-
-        let start_len = self.data.len();
-        self.data.extend(elements);
-        let length = (self.data.len() - start_len)
-            .try_into()
-            .expect("list length exceeded u32::MAX");
-
-        if length == 0 {
-            EntityList::empty()
-        } else {
-            EntityList {
-                offset,
-                length,
-                phantom: PhantomData,
-            }
-        }
-    }
-
     /// Returns a reference to the list's elements.
     ///
     /// # Panics
@@ -211,6 +183,25 @@ impl<T: Copy> ListPool<T> {
             &mut self.data[start..end]
         }
     }
+
+    /// Allocates a new list from an iterator of elements.
+    ///
+    /// This is useful when you're building a list dynamically.
+    pub fn extend(&mut self, elements: impl IntoIterator<Item = T>) -> EntityList<T> {
+        let start = self.data.len();
+        let offset = start.try_into().unwrap_or(u32::MAX);
+        self.data.extend(elements);
+        let length = (self.data.len() - start).try_into().unwrap_or_default();
+        if length == 0 {
+            EntityList::empty()
+        } else {
+            EntityList {
+                offset,
+                length,
+                phantom: PhantomData,
+            }
+        }
+    }
 }
 
 impl<T: Copy> std::ops::Index<EntityList<T>> for ListPool<T> {
@@ -241,29 +232,29 @@ impl<T: Copy> std::ops::IndexMut<EntityList<T>> for ListPool<T> {
 
 #[cfg(test)]
 mod list_tests {
-    use crate::EntityRef;
-
     use super::*;
+    use crate::{entity_impl, EntityRef};
 
-    #[derive(Debug)]
-    struct TestEntity;
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestEntity(u32);
+    entity_impl!(TestEntity, "test_entity");
 
     #[test]
     fn entity_list_size() {
         use std::mem::size_of;
-        assert_eq!(size_of::<EntityList<EntityRef<TestEntity>>>(), 8);
+        assert_eq!(size_of::<EntityList<TestEntity>>(), 8);
     }
 
     #[test]
     fn entity_list_empty() {
-        let list = EntityList::<EntityRef<TestEntity>>::empty();
+        let list = EntityList::<TestEntity>::empty();
         assert!(list.is_empty());
         assert_eq!(list.len(), 0);
     }
 
     #[test]
     fn list_pool_empty_list() {
-        let mut pool = ListPool::<EntityRef<TestEntity>>::new();
+        let mut pool = ListPool::<TestEntity>::new();
         let empty = pool.extend([]);
 
         assert!(empty.is_empty());
@@ -272,11 +263,11 @@ mod list_tests {
 
     #[test]
     fn list_pool_basic_operations() {
-        let mut pool = ListPool::<EntityRef<TestEntity>>::new();
+        let mut pool = ListPool::<TestEntity>::new();
 
-        let e1 = EntityRef::new(1).unwrap();
-        let e2 = EntityRef::new(2).unwrap();
-        let e3 = EntityRef::new(3).unwrap();
+        let e1 = TestEntity::new(1);
+        let e2 = TestEntity::new(2);
+        let e3 = TestEntity::new(3);
 
         let list1 = pool.extend([e1, e2]);
         let list2 = pool.extend([e3]);
@@ -289,10 +280,10 @@ mod list_tests {
 
     #[test]
     fn list_pool_indexing() {
-        let mut pool = ListPool::<EntityRef<TestEntity>>::new();
+        let mut pool = ListPool::<TestEntity>::new();
 
-        let e1 = EntityRef::new(1).unwrap();
-        let e2 = EntityRef::new(2).unwrap();
+        let e1 = TestEntity::new(1);
+        let e2 = TestEntity::new(2);
 
         let list = pool.extend([e1, e2]);
 
@@ -305,11 +296,11 @@ mod list_tests {
 
     #[test]
     fn list_pool_multiple_lists() {
-        let mut pool = ListPool::<EntityRef<TestEntity>>::new();
+        let mut pool = ListPool::<TestEntity>::new();
 
-        let e1 = EntityRef::new(1).unwrap();
-        let e2 = EntityRef::new(2).unwrap();
-        let e3 = EntityRef::new(3).unwrap();
+        let e1 = TestEntity::new(1);
+        let e2 = TestEntity::new(2);
+        let e3 = TestEntity::new(3);
 
         let list1 = pool.extend([e1]);
         let list2 = pool.extend([e2, e3]);

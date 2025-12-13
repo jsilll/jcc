@@ -7,7 +7,11 @@ pub use ty::{Ty, TyKind};
 use crate::sema::SemaId;
 
 use jcc_entity::{EntityList, EntityRef, ListPool, PrimaryMap};
-use jcc_ssa::{interner::Symbol, ir::ConstValue, sourcemap::SourceSpan};
+use jcc_ssa::{
+    codemap::{file::FileId, span::Span},
+    interner::Symbol,
+    ir::ConstValue,
+};
 
 use std::cell::Cell;
 
@@ -30,8 +34,8 @@ pub struct StmtMarker;
 pub type Stmt = EntityRef<StmtMarker>;
 pub type Block = EntityList<BlockItem>;
 
-#[derive(Default)]
 pub struct Ast<'ctx> {
+    pub file: FileId,
     pub root: Vec<Decl>,
     pub decls: ListPool<Decl>,
     pub exprs: ListPool<Expr>,
@@ -42,12 +46,13 @@ pub struct Ast<'ctx> {
 }
 
 impl<'ctx> Ast<'ctx> {
-    pub fn new() -> Self {
-        Self::with_capacity(256)
+    pub fn new(file: FileId) -> Self {
+        Self::with_capacity(file, 256)
     }
 
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub fn with_capacity(file: FileId, capacity: usize) -> Self {
         Ast {
+            file,
             root: Vec::with_capacity(capacity),
             decl: PrimaryMap::with_capacity(capacity),
             stmt: PrimaryMap::with_capacity(capacity),
@@ -175,10 +180,10 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone)]
 pub struct DeclData<'ctx> {
+    pub span: Span,
     pub ty: Ty<'ctx>,
     pub kind: DeclKind,
     pub name: AstSymbol,
-    pub span: SourceSpan,
     pub storage: Option<StorageClass>,
 }
 
@@ -195,8 +200,8 @@ pub enum DeclKind {
 
 #[derive(Debug, Clone)]
 pub struct StmtData {
+    pub span: Span,
     pub kind: StmtKind,
-    pub span: SourceSpan,
 }
 
 #[derive(Debug, Clone)]
@@ -247,14 +252,14 @@ pub enum StmtKind {
 
 #[derive(Debug, Clone)]
 pub struct ExprData<'ctx> {
-    pub span: SourceSpan,
+    pub span: Span,
     pub ty: Cell<Ty<'ctx>>,
     pub kind: ExprKind<'ctx>,
 }
 
 impl<'ctx> ExprData<'ctx> {
     #[inline]
-    pub fn new(kind: ExprKind<'ctx>, span: SourceSpan, ty: Ty<'ctx>) -> Self {
+    pub fn new(kind: ExprKind<'ctx>, span: Span, ty: Ty<'ctx>) -> Self {
         ExprData {
             kind,
             span,

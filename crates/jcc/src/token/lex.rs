@@ -1,6 +1,10 @@
 use super::{Token, TokenKind};
 
-use jcc_ssa::sourcemap::{diag::Diagnostic, SourceMap, SourceSpan};
+use jcc_ssa::codemap::{
+    file::{FileId, SourceFile},
+    span::Span,
+    Diagnostic, Label,
+};
 
 use std::{iter::Peekable, str::CharIndices};
 
@@ -11,7 +15,7 @@ use std::{iter::Peekable, str::CharIndices};
 #[derive(Clone)]
 pub struct Lexer<'a> {
     idx: u32,
-    file: &'a SourceMap,
+    file: &'a SourceFile,
     chars: Peekable<CharIndices<'a>>,
 }
 
@@ -80,8 +84,9 @@ impl<'a> Iterator for Lexer<'a> {
                     TokenKind::Gt,
                 )),
                 _ => Err(LexerDiagnostic {
+                    file: self.file.id(),
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
-                    span: self.file.span(self.idx..self.idx + 1).unwrap_or_default(),
+                    span: Span::new(self.idx, self.idx + 1).unwrap_or_default(),
                 }),
             }
         })
@@ -89,11 +94,11 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(file: &'a SourceMap) -> Self {
+    pub fn new(file: &'a SourceFile) -> Self {
         Self {
             file,
             idx: 0,
-            chars: file.data().char_indices().peekable(),
+            chars: file.source().char_indices().peekable(),
         }
     }
 
@@ -101,7 +106,7 @@ impl<'a> Lexer<'a> {
     fn token(&mut self, kind: TokenKind, len: u32) -> Token {
         Token {
             kind,
-            span: self.file.span(self.idx..self.idx + len).unwrap_or_default(),
+            span: Span::new(self.idx, self.idx + len).unwrap_or_default(),
         }
     }
 
@@ -171,17 +176,20 @@ impl<'a> Lexer<'a> {
             .chars
             .peek()
             .map(|(idx, _)| *idx as u32)
-            .unwrap_or(self.file.data().len() as u32);
+            .unwrap_or(self.file.source().len() as u32);
         if let Some((_, c)) = self.chars.peek() {
             if c.is_ascii_alphabetic() {
                 return Err(LexerDiagnostic {
+                    file: self.file.id(),
+                    span: Span::new(self.idx, end).unwrap_or_default(),
                     kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
-                    span: self.file.span(self.idx..end).unwrap_or_default(),
                 });
             }
         }
-        let span = self.file.span(self.idx..end).unwrap_or_default();
-        Ok(Token { kind, span })
+        Ok(Token {
+            kind,
+            span: Span::new(self.idx, end).unwrap_or_default(),
+        })
     }
 
     fn word(&mut self) -> Token {
@@ -205,13 +213,19 @@ impl<'a> Lexer<'a> {
             "while" => TokenKind::KwWhile,
         };
         let end = self.next_while(|c| c.is_ascii_alphanumeric() || c == '_');
-        let ident = self.file.slice(self.idx..end).unwrap_or_default();
+        let ident = self
+            .file
+            .source()
+            .get(self.idx as usize..end as usize)
+            .unwrap_or_default();
         let kind = KEYWORDS
             .get(ident)
             .copied()
             .unwrap_or(TokenKind::Identifier);
-        let span = self.file.span(self.idx..end).unwrap_or_default();
-        Token { kind, span }
+        Token {
+            kind,
+            span: Span::new(self.idx, end).unwrap_or_default(),
+        }
     }
 
     #[inline]
@@ -238,7 +252,8 @@ impl<'a> Lexer<'a> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct LexerDiagnostic {
-    pub span: SourceSpan,
+    pub span: Span,
+    pub file: FileId,
     pub kind: LexerDiagnosticKind,
 }
 
@@ -255,16 +270,14 @@ pub enum LexerDiagnosticKind {
 impl From<LexerDiagnostic> for Diagnostic {
     fn from(diagnostic: LexerDiagnostic) -> Self {
         match diagnostic.kind {
-            LexerDiagnosticKind::UnexpectedCharacter => Diagnostic::error(
-                diagnostic.span,
-                "unexpected character",
-                "expected a valid character",
-            ),
-            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error(
-                diagnostic.span,
-                "identifier starts with digit",
-                "identifiers cannot start with a digit",
-            ),
+            LexerDiagnosticKind::UnexpectedCharacter => Diagnostic::error()
+                .with_label(Label::primary(diagnostic.file, diagnostic.span))
+                .with_message("unexpected character")
+                .with_note("the character is not recognized by the lexer"),
+            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error()
+                .with_label(Label::primary(diagnostic.file, diagnostic.span))
+                .with_message("identifier starts with digit")
+                .with_note("identifiers cannot start with a digit"),
         }
     }
 }

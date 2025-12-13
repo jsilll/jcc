@@ -145,8 +145,8 @@ impl SimpleFiles {
 
     /// Adds a file from source text with the given name.
     pub fn add(&mut self, name: impl Into<PathBuf>, source: String) -> FileId {
-        let file = SourceFile::from_source(name, source);
         let id = FileId::new(u32::try_from(self.files.len()).unwrap_or(u32::MAX));
+        let file = SourceFile::from_source(id, name, source);
         self.files.push(file);
         id
     }
@@ -157,8 +157,8 @@ impl SimpleFiles {
     ///
     /// If reading the file fails, an error is returned.
     pub fn add_file(&mut self, path: impl AsRef<Path>) -> std::io::Result<FileId> {
-        let file = SourceFile::new(path)?;
         let id = FileId::new(u32::try_from(self.files.len()).unwrap_or(u32::MAX));
+        let file = SourceFile::new(id, path)?;
         self.files.push(file);
         Ok(id)
     }
@@ -393,13 +393,13 @@ impl Diagnostic {
     /// If writing to stderr fails, an error is returned.
     #[cfg(feature = "color")]
     pub fn emit_colored_stdout<F: Files>(
+        &self,
         files: &F,
-        diagnostic: &Diagnostic,
         config: &ColorConfig,
     ) -> std::io::Result<()> {
         use termcolor::{ColorChoice, StandardStream};
         let mut stderr = StandardStream::stdout(ColorChoice::Auto);
-        color::emit_diagnostic_colored(files, diagnostic, &mut stderr, config)
+        color::emit_diagnostic_colored(files, self, &mut stderr, config)
     }
 
     /// Emits a diagnostic with colored output to stderr.
@@ -409,13 +409,13 @@ impl Diagnostic {
     /// If writing to stderr fails, an error is returned.
     #[cfg(feature = "color")]
     pub fn emit_colored_stderr<F: Files>(
+        &self,
         files: &F,
-        diagnostic: &Diagnostic,
         config: &ColorConfig,
     ) -> std::io::Result<()> {
         use termcolor::{ColorChoice, StandardStream};
         let mut stderr = StandardStream::stderr(ColorChoice::Auto);
-        color::emit_diagnostic_colored(files, diagnostic, &mut stderr, config)
+        color::emit_diagnostic_colored(files, self, &mut stderr, config)
     }
 
     /// Emits this diagnostic with colored output to stderr.

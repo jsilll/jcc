@@ -11,8 +11,8 @@ use jcc::{
 use jcc_ssa::{
     self as ssa,
     amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
+    codemap::{color::ColorConfig, Diagnostic, Files, SimpleFiles},
     interner::Interner,
-    sourcemap::{self, diag::Diagnostic, SourceDb, SourceMap},
 };
 
 use anyhow::{Context, Result};
@@ -49,16 +49,12 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         Ok(())
     })?;
 
-    // === Source Database ===
-    let mut db = SourceDb::new();
-    db.add(SourceMap::new(&pp_path).context(format!(
-        "Failed to create source map for {}",
-        pp_path.display()
-    ))?);
-    let file = db.files().last().context(format!(
-        "No source files found in the database for {}",
-        pp_path.display()
-    ))?;
+    // === Files Database ===
+    let mut files = SimpleFiles::new();
+    let file = files
+        .add_file(&pp_path)
+        .context("Failed to add preprocessed file")?;
+    let file = files.get(file).context("Failed to get source file")?;
 
     // === Type Context & Interner ===
     let tys = TyCtx::new();
@@ -69,11 +65,11 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     let r = profiler.time("Parser", || {
         Parser::new(lexer, file, &tys, &mut interner).parse()
     });
-    check_diags("lexer", file, &r.lexer_diagnostics)?;
+    check_diags("lexer", &mut files, &r.lexer_diagnostics)?;
     if args.lex {
         return Ok(());
     }
-    check_diags("parser", file, &r.parser_diagnostics)?;
+    check_diags("parser", &mut files, &r.parser_diagnostics)?;
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
@@ -91,14 +87,14 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         return Err(anyhow::anyhow!("exiting due to empty parse tree"));
     }
     let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
-    check_diags("resolver", file, &r.diagnostics)?;
+    check_diags("resolver", &mut files, &r.diagnostics)?;
 
     // === Semantic Analysis ===
     let mut ctx = SemaCtx::new(&tys, r.symbol_count);
     let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
-    check_diags("control", file, &r.diagnostics)?;
+    check_diags("control", &mut files, &r.diagnostics)?;
     let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());
-    check_diags("typer", file, &r.diagnostics)?;
+    check_diags("typer", &mut files, &r.diagnostics)?;
     let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
@@ -180,11 +176,14 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
 fn check_diags(
     pass: &str,
-    file: &SourceMap,
+    files: &mut impl Files,
     diags: &[impl Into<Diagnostic> + Clone],
 ) -> Result<()> {
     if !diags.is_empty() {
-        sourcemap::diag::report_batch_to_stderr(file, diags)?;
+        let config = ColorConfig::default();
+        for diag in diags {
+            diag.clone().into().emit_colored_stderr(files, &config)?;
+        }
         return Err(anyhow::anyhow!("exiting due to {} errors", pass));
     }
     Ok(())

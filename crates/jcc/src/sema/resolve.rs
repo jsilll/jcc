@@ -7,8 +7,8 @@ use crate::{
 };
 
 use jcc_ssa::{
+    codemap::{file::FileId, span::Span, Diagnostic, Label},
     interner::{Symbol, SymbolTable},
-    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 use std::{collections::HashMap, num::NonZeroU32};
@@ -91,6 +91,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                 if let Some(StorageClass::Static) = data.storage {
                     self.result.diagnostics.push(ResolverDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: ResolverDiagnosticKind::IllegalLocalStaticFunction,
                     });
                 }
@@ -98,6 +99,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                     Some(_) => {
                         self.result.diagnostics.push(ResolverDiagnostic {
                             span: data.span,
+                            file: self.ast.file,
                             kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
                         });
                     }
@@ -110,6 +112,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                             if !prev.has_linkage {
                                 self.result.diagnostics.push(ResolverDiagnostic {
                                     span: data.span,
+                                    file: self.ast.file,
                                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                                 });
                             }
@@ -217,6 +220,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                 Some(entry) => name.id.set(Some(entry.symbol)),
                 None => self.result.diagnostics.push(ResolverDiagnostic {
                     span: data.span,
+                    file: self.ast.file,
                     kind: ResolverDiagnosticKind::UndeclaredVariable,
                 }),
             },
@@ -225,6 +229,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                     Some(entry) => name.id.set(Some(entry.symbol)),
                     None => self.result.diagnostics.push(ResolverDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: ResolverDiagnosticKind::UndeclaredFunction,
                     }),
                 }
@@ -262,6 +267,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         if let Some(prev) = self.scope.insert(name.name, entry) {
             if !(entry.has_linkage && prev.has_linkage) {
                 self.result.diagnostics.push(ResolverDiagnostic {
+                    file: self.ast.file,
                     span: self.ast.decl[decl].span,
                     kind: ResolverDiagnosticKind::ConflictingSymbol,
                 });
@@ -316,41 +322,48 @@ pub enum ResolverDiagnosticKind {
 impl From<ResolverDiagnostic> for Diagnostic {
     fn from(diagnostic: ResolverDiagnostic) -> Self {
         match diagnostic.kind {
-            ResolverDiagnosticKind::ConflictingSymbol => Diagnostic::error(
-                diagnostic.span,
-                "conflicting symbol",
-                "this symbol conflicts with another declaration",
-            ),
-            ResolverDiagnosticKind::RedefinedFunction => Diagnostic::error(
-                diagnostic.span,
-                "redefined function",
-                "this function is already defined",
-            ),
-            ResolverDiagnosticKind::RedeclaredVariable => Diagnostic::error(
-                diagnostic.span,
-                "redeclared variable",
-                "this variable is already declared",
-            ),
-            ResolverDiagnosticKind::UndeclaredVariable => Diagnostic::error(
-                diagnostic.span,
-                "undeclared variable",
-                "this variable is not declared in the current scope",
-            ),
-            ResolverDiagnosticKind::UndeclaredFunction => Diagnostic::error(
-                diagnostic.span,
-                "undeclared function",
-                "this function is not declared in the current scope",
-            ),
-            ResolverDiagnosticKind::IllegalLocalStaticFunction => Diagnostic::error(
-                diagnostic.span,
-                "illegal local static function",
-                "local static functions are not allowed",
-            ),
-            ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error(
-                diagnostic.span,
-                "illegal local function definition",
-                "local function definitions are not allowed",
-            ),
+            ResolverDiagnosticKind::ConflictingSymbol => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("symbol conflicts with previous declaration"),
+                )
+                .with_note("a symbol with this name already exists in the current scope"),
+            ResolverDiagnosticKind::RedefinedFunction => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("function redefined"),
+                )
+                .with_note("this function already has a body; a function can only be defined once"),
+            ResolverDiagnosticKind::RedeclaredVariable => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("variable redeclared in same scope"),
+                )
+                .with_note("a variable with this name already exists in the current scope"),
+            ResolverDiagnosticKind::UndeclaredVariable => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("variable not declared"),
+                )
+                .with_note("no variable with this name exists in the current scope or any parent scope"),
+            ResolverDiagnosticKind::UndeclaredFunction => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("function not declared"),
+                )
+                .with_note("no function with this name has been declared; functions must be declared before use"),
+            ResolverDiagnosticKind::IllegalLocalStaticFunction => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("static storage class not allowed on local function"),
+                )
+                .with_note("function declarations inside other functions cannot use the 'static' storage class"),
+            ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("cannot define function inside another function"),
+                )
+                .with_note("nested function definitions are not allowed in C; only function declarations are permitted inside functions"),
         }
     }
 }
@@ -371,6 +384,7 @@ pub struct ResolverResult {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ResolverDiagnostic {
-    pub span: SourceSpan,
+    pub span: Span,
+    pub file: FileId,
     pub kind: ResolverDiagnosticKind,
 }

@@ -1,6 +1,6 @@
 pub mod lex;
 
-use jcc_ssa::sourcemap::SourceSpan;
+use jcc_ssa::codemap::span::Span;
 
 // ---------------------------------------------------------------------------
 // Token
@@ -8,8 +8,8 @@ use jcc_ssa::sourcemap::SourceSpan;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token {
+    pub span: Span,
     pub kind: TokenKind,
-    pub span: SourceSpan,
 }
 
 // ---------------------------------------------------------------------------

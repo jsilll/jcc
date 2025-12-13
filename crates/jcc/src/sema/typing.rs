@@ -9,8 +9,8 @@ use crate::{
 };
 
 use jcc_ssa::{
+    codemap::{file::FileId, span::Span, Diagnostic, Label},
     ir::ConstValue,
-    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 use std::collections::HashSet;
@@ -72,6 +72,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             Some(value) => StaticValue::Init(value),
                             None => {
                                 self.result.diagnostics.push(TyperDiagnostic {
+                                    file: self.ast.file,
                                     span: self.ast.expr[init].span,
                                     kind: TyperDiagnosticKind::NotConstant,
                                 });
@@ -91,6 +92,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 if info.ty != data.ty {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                     });
                 }
@@ -105,6 +107,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: data.span,
+                            file: self.ast.file,
                             kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
                         });
                     }
@@ -119,6 +122,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             if occupied && matches!(decl_init, StaticValue::Init(_)) {
                                 self.result.diagnostics.push(TyperDiagnostic {
                                     span: data.span,
+                                    file: self.ast.file,
                                     kind: TyperDiagnosticKind::MultipleInitializers,
                                 });
                             }
@@ -149,6 +153,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 Some(StorageClass::Extern) => match init {
                     Some(init) => {
                         self.result.diagnostics.push(TyperDiagnostic {
+                            file: self.ast.file,
                             span: self.ast.expr[init].span,
                             kind: TyperDiagnosticKind::ExternLocalInitialized,
                         });
@@ -161,6 +166,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         if info.ty != data.ty {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: data.span,
+                                file: self.ast.file,
                                 kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                             });
                         }
@@ -178,6 +184,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                 Some(value) => StaticValue::Init(value),
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
+                                        file: self.ast.file,
                                         span: self.ast.expr[init].span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
@@ -206,6 +213,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             if entry.ty != decl.ty {
                 self.result.diagnostics.push(TyperDiagnostic {
                     span: decl.span,
+                    file: self.ast.file,
                     kind: TyperDiagnosticKind::DeclarationTypeMismatch,
                 });
             }
@@ -218,6 +226,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 if is_global && !decl_is_global {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: decl.span,
+                        file: self.ast.file,
                         kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
                     });
                 }
@@ -228,6 +237,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 self.ast.decls[params].iter().for_each(|param| {
                     if self.ast.decl[*param].storage.is_some() {
                         self.result.diagnostics.push(TyperDiagnostic {
+                            file: self.ast.file,
                             span: self.ast.decl[*param].span,
                             kind: TyperDiagnosticKind::StorageClassesDisallowed,
                         });
@@ -303,6 +313,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         ForInit::VarDecl(decl) => {
                             if self.ast.decl[*decl].storage.is_some() {
                                 self.result.diagnostics.push(TyperDiagnostic {
+                                    file: self.ast.file,
                                     span: self.ast.decl[*decl].span,
                                     kind: TyperDiagnosticKind::StorageClassesDisallowed,
                                 });
@@ -329,6 +340,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             StmtKind::Case { expr, .. } => match eval_constant(self.ast, *expr) {
                                 None => {
                                     self.result.diagnostics.push(TyperDiagnostic {
+                                        file: self.ast.file,
                                         span: self.ast.expr[*expr].span,
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
@@ -341,6 +353,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     };
                                     if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
+                                            file: self.ast.file,
                                             span: self.ast.expr[*expr].span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                         });
@@ -354,6 +367,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     };
                                     if !self.switch_cases.insert(v) {
                                         self.result.diagnostics.push(TyperDiagnostic {
+                                            file: self.ast.file,
                                             span: self.ast.expr[*expr].span,
                                             kind: TyperDiagnosticKind::DuplicateSwitchCase,
                                         });
@@ -472,6 +486,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
                     self.result.diagnostics.push(TyperDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: TyperDiagnosticKind::VariableUsedAsFunction,
                     });
                 }
@@ -491,6 +506,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         if args.len() != params.len() {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 span: data.span,
+                                file: self.ast.file,
                                 kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
                             });
                         }
@@ -507,6 +523,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     _ => {
                         self.result.diagnostics.push(TyperDiagnostic {
                             span: data.span,
+                            file: self.ast.file,
                             kind: TyperDiagnosticKind::VariableUsedAsFunction,
                         });
                         self.ctx.tys.void_ty
@@ -526,6 +543,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn assert_is_lvalue(&mut self, expr: Expr) -> bool {
         if !is_lvalue(self.ast, expr) {
             self.result.diagnostics.push(TyperDiagnostic {
+                file: self.ast.file,
                 span: self.ast.expr[expr].span,
                 kind: TyperDiagnosticKind::InvalidLValue,
             });
@@ -543,7 +561,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     #[inline]
-    fn get_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: SourceSpan) -> Ty<'ctx> {
+    fn get_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
         match (&*lhs, &*rhs) {
             (TyKind::Int, TyKind::Int) => self.ctx.tys.int_ty,
             (TyKind::Long, TyKind::Long) => self.ctx.tys.long_ty,
@@ -551,6 +569,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             _ => {
                 self.result.diagnostics.push(TyperDiagnostic {
                     span,
+                    file: self.ast.file,
                     kind: TyperDiagnosticKind::TypeMismatch,
                 });
                 self.ctx.tys.void_ty
@@ -612,66 +631,78 @@ pub enum TyperDiagnosticKind {
 impl From<TyperDiagnostic> for Diagnostic {
     fn from(diagnostic: TyperDiagnostic) -> Self {
         match diagnostic.kind {
-            TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error(
-                diagnostic.span,
-                "declaration type mismatch",
-                "this declaration has a different type than expected",
-            ),
-            TyperDiagnosticKind::DeclarationVisibilityMismatch => Diagnostic::error(
-                diagnostic.span,
-                "declaration visibility mismatch",
-                "this declaration has a different visibility than expected",
-            ),
-            TyperDiagnosticKind::DuplicateSwitchCase => Diagnostic::error(
-                diagnostic.span,
-                "duplicate switch case",
-                "this case value is already defined",
-            ),
-            TyperDiagnosticKind::ExternLocalInitialized => Diagnostic::error(
-                diagnostic.span,
-                "local extern variable initialized",
-                "local extern variable cannot have an initializer",
-            ),
-            TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber => Diagnostic::error(
-                diagnostic.span,
-                "function called with wrong number of arguments",
-                "this function is being called with a wrong number of arguments",
-            ),
-            TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error(
-                diagnostic.span,
-                "function used as variable",
-                "this function is being used as a variable",
-            ),
-            TyperDiagnosticKind::InvalidLValue => Diagnostic::error(
-                diagnostic.span,
-                "invalid lvalue",
-                "this expression is not a valid lvalue",
-            ),
-            TyperDiagnosticKind::MultipleInitializers => Diagnostic::error(
-                diagnostic.span,
-                "multiple initializers",
-                "this variable is already initialized",
-            ),
-            TyperDiagnosticKind::NotConstant => Diagnostic::error(
-                diagnostic.span,
-                "not a constant",
-                "this expression is not a constant",
-            ),
-            TyperDiagnosticKind::StorageClassesDisallowed => Diagnostic::error(
-                diagnostic.span,
-                "storage classes disallowed",
-                "storage classes are disallowed in this context",
-            ),
-            TyperDiagnosticKind::TypeMismatch => Diagnostic::error(
-                diagnostic.span,
-                "type mismatch",
-                "this expression has a different type than expected",
-            ),
-            TyperDiagnosticKind::VariableUsedAsFunction => Diagnostic::error(
-                diagnostic.span,
-                "variable used as function",
-                "this variable is being used as a function",
-            ),
+            TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("type doesn't match previous declaration"),
+                )
+                .with_note("redeclared with a different type than the original declaration"),
+            TyperDiagnosticKind::DeclarationVisibilityMismatch => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("visibility doesn't match previous declaration"),
+                )
+                .with_note("redeclared with a different visibility (static/extern) than the original declaration"),
+            TyperDiagnosticKind::DuplicateSwitchCase => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("duplicate case value"),
+                )
+                .with_note("this case value already appears earlier in the switch statement"),
+            TyperDiagnosticKind::ExternLocalInitialized => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("extern variable cannot have an initializer"),
+                )
+                .with_note("variables with 'extern' storage class are declarations only and cannot be initialized"),
+            TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("incorrect number of arguments"),
+                )
+                .with_note("the number of arguments doesn't match the function's parameter count"),
+            TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("cannot use function as a value"),
+                )
+                .with_note("functions cannot be used in value contexts; did you forget the function call parentheses?"),
+            TyperDiagnosticKind::InvalidLValue => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("cannot assign to this expression"),
+                )
+                .with_note("only variables and dereferenced pointers can appear on the left side of an assignment"),
+            TyperDiagnosticKind::MultipleInitializers => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("variable already has an initializer"),
+                )
+                .with_note("variables can only be initialized once in their declaration"),
+            TyperDiagnosticKind::NotConstant => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("expected a constant expression"),
+                )
+                .with_note("this context requires a compile-time constant value"),
+            TyperDiagnosticKind::StorageClassesDisallowed => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("storage class not allowed here"),
+                )
+                .with_note("storage class specifiers (static, extern, auto, register) cannot be used in this context"),
+            TyperDiagnosticKind::TypeMismatch => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("type mismatch"),
+                )
+                .with_note("the type of this expression doesn't match what was expected"),
+            TyperDiagnosticKind::VariableUsedAsFunction => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("cannot call a non-function"),
+                )
+                .with_note("only functions can be called; this is a variable"),
         }
     }
 }
@@ -692,6 +723,7 @@ pub struct TyperResult<'ctx> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct TyperDiagnostic {
-    pub span: SourceSpan,
+    pub span: Span,
+    pub file: FileId,
     pub kind: TyperDiagnosticKind,
 }

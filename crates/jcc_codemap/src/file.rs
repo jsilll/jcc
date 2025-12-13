@@ -59,6 +59,8 @@ impl FileId {
 /// for efficient line/column lookups.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
+    /// The unique identifier for this file
+    id: FileId,
     /// The name or path of this file
     name: PathBuf,
     /// The source text
@@ -74,11 +76,12 @@ impl SourceFile {
     /// # Errors
     ///
     /// If reading the file fails, an error is returned.
-    pub fn new(path: impl AsRef<Path>) -> std::io::Result<Self> {
+    pub fn new(id: FileId, path: impl AsRef<Path>) -> std::io::Result<Self> {
         let path = path.as_ref();
         let source = std::fs::read_to_string(path)?;
         let line_starts = compute_line_starts(&source);
         Ok(Self {
+            id,
             source,
             line_starts,
             name: path.to_path_buf(),
@@ -86,13 +89,20 @@ impl SourceFile {
     }
 
     /// Creates a source file from source text with the given name.
-    pub fn from_source(name: impl Into<PathBuf>, source: String) -> Self {
+    pub fn from_source(id: FileId, name: impl Into<PathBuf>, source: String) -> Self {
         let line_starts = compute_line_starts(&source);
         Self {
+            id,
             source,
             line_starts,
             name: name.into(),
         }
+    }
+
+    /// Returns the unique identifier for this file.
+    #[inline]
+    pub fn id(&self) -> FileId {
+        self.id
     }
 
     /// Returns the name of this file.
@@ -111,6 +121,12 @@ impl SourceFile {
     #[inline]
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
+    }
+
+    /// Gets the byte position at the end of the file.
+    #[inline]
+    pub fn end_pos(&self) -> BytePos {
+        BytePos(self.source.len().try_into().unwrap_or(u32::MAX))
     }
 
     /// Gets a slice of the source text for the given span.

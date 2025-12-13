@@ -1,22 +1,65 @@
+//! A high-performance string interning library.
+//!
+//! This library provides efficient string interning functionality, allowing you to store
+//! unique strings once and reference them via lightweight `Symbol` handles. String interning
+//! is useful for:
+//!
+//! - Reducing memory usage when dealing with many duplicate strings
+//! - Fast string comparison using symbol equality instead of string comparison
+//! - Efficient storage for identifiers in compilers, interpreters, and parsers
+//!
+//! # Implementation Details
+//!
+//! The interner uses a bump allocator strategy to minimize allocations. Strings are stored
+//! in an internal buffer that grows exponentially when needed. Old buffers are retained to
+//! ensure all string references remain valid for the lifetime of the interner.
+
 mod symtab;
 
 use std::{collections::HashMap, num::NonZeroU32};
 
+/// A symbol table mapping interned `Symbol`s to associated values of type `V`.
 pub type SymbolTable<V> = symtab::SymbolTable<Symbol, V>;
 
+/// A lightweight handle representing an interned string.
+///
+/// `Symbol` is a small, copyable type that acts as a unique identifier for an interned string.
+/// It internally uses a `NonZeroU32`, making it memory-efficient and allowing for
+/// null-pointer optimizations in `Option<Symbol>`.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Symbol(NonZeroU32);
 
 impl Default for Symbol {
+    /// Returns a default `Symbol` with the maximum value.
+    ///
+    /// This default value is used as a sentinel and should not be used
+    /// to look up strings in an interner.
     fn default() -> Self {
-        Self(NonZeroU32::new(u32::MAX).unwrap())
+        Self(NonZeroU32::MAX)
     }
 }
 
+/// A string interner that stores unique strings and provides `Symbol` handles for efficient access.
+///
+/// The `Interner` maintains a mapping between strings and their associated symbols,
+/// ensuring that each unique string is stored only once. It uses an internal buffer
+/// allocation strategy to minimize memory allocations and fragmentation.
+///
+/// # Memory Management
+///
+/// The interner uses a bump allocator approach:
+/// - Strings are appended to an internal buffer
+/// - When the buffer is full, a new larger buffer is allocated
+/// - Old buffers are retained to keep all string references valid
+/// - The buffer grows exponentially to amortize allocation costs
 pub struct Interner {
+    /// Internal string buffer for storing interned strings.
     buf: String,
+    /// Previous full buffers to maintain string validity.
     full: Vec<String>,
+    /// Mapping from `Symbol` indices to their corresponding strings.
     vec: Vec<&'static str>,
+    /// Mapping for quick lookup of strings to their associated `Symbol`s.
     map: HashMap<&'static str, Symbol>,
 }
 
@@ -117,7 +160,11 @@ impl Interner {
         }
         // Safety: We explicitly ensure that the NonZeroU32 is never zero by
         // starting the count from 1 and incrementing for each new string.
-        let symbol = unsafe { Symbol(NonZeroU32::new_unchecked(self.vec.len() as u32 + 1)) };
+        let symbol = unsafe {
+            Symbol(NonZeroU32::new_unchecked(
+                u32::try_from(self.vec.len()).unwrap_or(u32::MAX) + 1,
+            ))
+        };
         // Safety: The allocated string reference is valid as long as the interner is alive.
         let name = unsafe { self.alloc(name) };
         self.map.insert(name, symbol);
@@ -151,7 +198,7 @@ impl Interner {
         }
         let start = self.buf.len();
         self.buf.push_str(name);
-        &*(&self.buf[start..] as *const str)
+        &*std::ptr::from_ref::<str>(&self.buf[start..])
     }
 }
 

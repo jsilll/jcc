@@ -1,5 +1,5 @@
+use jcc_codemap::span::Span;
 use jcc_interner::{Interner, Symbol};
-use jcc_sourcemap::SourceSpan;
 
 use crate::ir::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program};
 
@@ -73,13 +73,13 @@ impl<'p> IRBuilder<'p> {
     }
 
     #[inline]
-    pub fn new_block(&mut self, name: &str, span: SourceSpan) -> BlockRef {
+    pub fn new_block(&mut self, name: &str, span: Span) -> BlockRef {
         let name = self.prog.interner.intern(name);
         self.new_block_interned(name, span)
     }
 
     #[inline]
-    pub fn new_block_interned(&mut self, name: Symbol, span: SourceSpan) -> BlockRef {
+    pub fn new_block_interned(&mut self, name: Symbol, span: Span) -> BlockRef {
         let block = self.prog.new_block(Block {
             name,
             span,

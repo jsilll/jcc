@@ -1,4 +1,4 @@
-use jcc_sourcemap::SourceSpan;
+use jcc_codemap::span::Span;
 
 use crate::{
     amd64::{
@@ -326,7 +326,7 @@ impl<'a> Builder<'a> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn build_unary(&mut self, ty: Type, op: UnaryOp, src: Operand, dst: Operand, span: SourceSpan) {
+    fn build_unary(&mut self, ty: Type, op: UnaryOp, src: Operand, dst: Operand, span: Span) {
         self.insert_inst(Inst::mov(ty, src, dst, span));
         self.insert_inst(Inst::unary(ty, op, dst, span));
     }
@@ -339,7 +339,7 @@ impl<'a> Builder<'a> {
         lhs: Operand,
         rhs: Operand,
         dst: Operand,
-        span: SourceSpan,
+        span: Span,
     ) {
         self.insert_inst(Inst::mov(ty, lhs, dst, span));
         self.insert_inst(Inst::binary(ty, op, rhs, dst, span));
@@ -353,7 +353,7 @@ impl<'a> Builder<'a> {
         lhs: Operand,
         rhs: Operand,
         dst: Operand,
-        span: SourceSpan,
+        span: Span,
     ) {
         self.insert_inst(Inst::cmp(tys.0, rhs, lhs, span));
         self.insert_inst(Inst::mov(tys.1, Operand::Imm(0), dst, span));
@@ -368,7 +368,7 @@ impl<'a> Builder<'a> {
         lhs: Operand,
         rhs: Operand,
         dst: Operand,
-        span: SourceSpan,
+        span: Span,
     ) {
         self.insert_inst(Inst::mov(ty, lhs, Operand::Reg(Reg::Rax), span));
         self.insert_inst(Inst::cdq(ty, span));

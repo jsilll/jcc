@@ -1,7 +1,7 @@
 pub mod builder;
 
+use jcc_codemap::span::Span;
 use jcc_interner::{Interner, Symbol};
-use jcc_sourcemap::SourceSpan;
 
 use std::{collections::HashMap, fmt, num::NonZeroU32};
 
@@ -188,15 +188,15 @@ pub struct InstIdx(pub(crate) u32);
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Inst {
     pub ty: Ty,
+    pub span: Span,
     pub kind: InstKind,
     pub block: BlockRef,
-    pub span: SourceSpan,
     pub(crate) idx: InstIdx,
 }
 
 impl Inst {
     #[inline]
-    fn new(ty: Ty, kind: InstKind, span: SourceSpan) -> Self {
+    fn new(ty: Ty, kind: InstKind, span: Span) -> Self {
         Self {
             ty,
             kind,
@@ -210,102 +210,102 @@ impl Inst {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    pub fn nop(span: SourceSpan) -> Self {
+    pub fn nop(span: Span) -> Self {
         Self::new(Ty::Void, InstKind::Nop, span)
     }
 
     #[inline]
-    pub fn alloca(ty: Ty, span: SourceSpan) -> Self {
+    pub fn alloca(ty: Ty, span: Span) -> Self {
         Self::new(Ty::IntPtr, InstKind::Alloca(ty), span)
     }
 
     #[inline]
-    pub fn phi(ty: Ty, span: SourceSpan) -> Self {
+    pub fn phi(ty: Ty, span: Span) -> Self {
         Self::new(ty, InstKind::Phi, span)
     }
 
     #[inline]
-    pub fn arg(ty: Ty, span: SourceSpan) -> Self {
+    pub fn arg(ty: Ty, span: Span) -> Self {
         Self::new(ty, InstKind::Arg, span)
     }
 
     #[inline]
-    pub fn ret(val: InstRef, span: SourceSpan) -> Self {
+    pub fn ret(val: InstRef, span: Span) -> Self {
         Self::new(Ty::Void, InstKind::Ret(val), span)
     }
 
     #[inline]
-    pub fn identity(ty: Ty, val: InstRef, span: SourceSpan) -> Self {
+    pub fn identity(ty: Ty, val: InstRef, span: Span) -> Self {
         Self::new(ty, InstKind::Identity(val), span)
     }
 
     #[inline]
-    pub fn truncate(val: InstRef, span: SourceSpan) -> Self {
+    pub fn truncate(val: InstRef, span: Span) -> Self {
         Self::new(Ty::Int32, InstKind::Truncate(val), span)
     }
 
     #[inline]
-    pub fn sign_extend(val: InstRef, span: SourceSpan) -> Self {
+    pub fn sign_extend(val: InstRef, span: Span) -> Self {
         Self::new(Ty::Int64, InstKind::SignExtend(val), span)
     }
 
     #[inline]
-    pub fn const_i32(val: i32, span: SourceSpan) -> Self {
+    pub fn const_i32(val: i32, span: Span) -> Self {
         Self::new(Ty::Int32, InstKind::Const(ConstValue::Int32(val)), span)
     }
 
     #[inline]
-    pub fn const_i64(val: i64, span: SourceSpan) -> Self {
+    pub fn const_i64(val: i64, span: Span) -> Self {
         Self::new(Ty::Int64, InstKind::Const(ConstValue::Int64(val)), span)
     }
 
     #[inline]
-    pub fn jump(block: BlockRef, span: SourceSpan) -> Self {
+    pub fn jump(block: BlockRef, span: Span) -> Self {
         Self::new(Ty::Void, InstKind::Jump(block), span)
     }
 
     #[inline]
-    pub fn load(ty: Ty, ptr: InstRef, span: SourceSpan) -> Self {
+    pub fn load(ty: Ty, ptr: InstRef, span: Span) -> Self {
         Self::new(ty, InstKind::Load(ptr), span)
     }
 
     #[inline]
-    pub fn static_addr(var: StaticVarRef, span: SourceSpan) -> Self {
+    pub fn static_addr(var: StaticVarRef, span: Span) -> Self {
         Self::new(Ty::IntPtr, InstKind::Static(var), span)
     }
 
     #[inline]
-    pub fn store(ptr: InstRef, val: InstRef, span: SourceSpan) -> Self {
+    pub fn store(ptr: InstRef, val: InstRef, span: Span) -> Self {
         Self::new(Ty::Void, InstKind::Store { ptr, val }, span)
     }
 
     #[inline]
-    pub fn call(ty: Ty, func: FuncRef, args: Vec<InstRef>, span: SourceSpan) -> Self {
+    pub fn call(ty: Ty, func: FuncRef, args: Vec<InstRef>, span: Span) -> Self {
         Self::new(ty, InstKind::Call { func, args }, span)
     }
 
     #[inline]
-    pub fn unary(ty: Ty, op: UnaryOp, val: InstRef, span: SourceSpan) -> Self {
+    pub fn unary(ty: Ty, op: UnaryOp, val: InstRef, span: Span) -> Self {
         Self::new(ty, InstKind::Unary { op, val }, span)
     }
 
     #[inline]
-    pub fn upsilon(ty: Ty, phi: InstRef, val: InstRef, span: SourceSpan) -> Self {
+    pub fn upsilon(ty: Ty, phi: InstRef, val: InstRef, span: Span) -> Self {
         Self::new(ty, InstKind::Upsilon { phi, val }, span)
     }
 
     #[inline]
-    pub fn branch(cond: InstRef, then: BlockRef, other: BlockRef, span: SourceSpan) -> Self {
+    pub fn branch(cond: InstRef, then: BlockRef, other: BlockRef, span: Span) -> Self {
         Self::new(Ty::Void, InstKind::Branch { cond, then, other }, span)
     }
 
     #[inline]
-    pub fn binary(ty: Ty, op: BinaryOp, lhs: InstRef, rhs: InstRef, span: SourceSpan) -> Self {
+    pub fn binary(ty: Ty, op: BinaryOp, lhs: InstRef, rhs: InstRef, span: Span) -> Self {
         Self::new(ty, InstKind::Binary { op, lhs, rhs }, span)
     }
 
     #[inline]
-    pub fn select(ty: Ty, cond: InstRef, then: InstRef, other: InstRef, span: SourceSpan) -> Self {
+    pub fn select(ty: Ty, cond: InstRef, then: InstRef, other: InstRef, span: Span) -> Self {
         Self::new(ty, InstKind::Select { cond, then, other }, span)
     }
 
@@ -314,7 +314,7 @@ impl Inst {
         cond: InstRef,
         default: BlockRef,
         cases: Vec<(ConstValue, BlockRef)>,
-        span: SourceSpan,
+        span: Span,
     ) -> Self {
         Self::new(
             Ty::Void,
@@ -455,7 +455,7 @@ pub struct BlockIdx(u32);
 #[derive(Debug, Default, Clone)]
 pub struct Block {
     pub name: Symbol,
-    pub span: SourceSpan,
+    pub span: Span,
     pub insts: Vec<InstRef>,
     pub succs: Vec<BlockRef>,
 }
@@ -477,7 +477,7 @@ impl Default for FuncRef {
 pub struct Func {
     pub name: Symbol,
     pub is_global: bool,
-    pub span: SourceSpan,
+    pub span: Span,
     pub blocks: Vec<BlockRef>,
 }
 
@@ -493,13 +493,13 @@ pub struct StaticVar {
     pub ty: Ty,
     pub name: Symbol,
     pub is_global: bool,
-    pub span: SourceSpan,
+    pub span: Span,
     pub init: Option<ConstValue>,
 }
 
 impl StaticVar {
     #[inline]
-    pub fn int32(name: Symbol, is_global: bool, init: Option<i32>, span: SourceSpan) -> Self {
+    pub fn int32(name: Symbol, is_global: bool, init: Option<i32>, span: Span) -> Self {
         Self {
             span,
             name,
@@ -510,7 +510,7 @@ impl StaticVar {
     }
 
     #[inline]
-    pub fn int64(name: Symbol, is_global: bool, init: Option<i64>, span: SourceSpan) -> Self {
+    pub fn int64(name: Symbol, is_global: bool, init: Option<i64>, span: Span) -> Self {
         Self {
             span,
             name,

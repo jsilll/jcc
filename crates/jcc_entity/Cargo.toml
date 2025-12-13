@@ -2,3 +2,9 @@
 name = "jcc_entity"
 version = "0.1.0"
 edition = "2021"
+description = "Entity-based indexing data structures for compiler intermediate representations"
+keywords = ["entity", "index", "compiler", "data-structures", "arena"]
+categories = ["data-structures", "compilers"]
+license = "MIT"
+repository = "https://github.com/jsilll/jcc"
+readme = "README.md"

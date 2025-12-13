@@ -7,8 +7,8 @@ use crate::{
     ir,
 };
 
+use jcc_codemap::span::Span;
 use jcc_interner::Symbol;
-use jcc_sourcemap::SourceSpan;
 
 use std::{collections::HashMap, num::NonZeroU32};
 
@@ -67,7 +67,7 @@ impl Program {
 pub struct Func {
     pub name: Symbol,
     pub is_global: bool,
-    pub span: SourceSpan,
+    pub span: Span,
     insts: Vec<Inst>,
     blocks: Vec<Block>,
 }
@@ -111,7 +111,7 @@ impl IR for Func {
 }
 
 impl Func {
-    pub fn new(name: Symbol, is_global: bool, span: SourceSpan) -> Self {
+    pub fn new(name: Symbol, is_global: bool, span: Span) -> Self {
         Func {
             name,
             span,
@@ -233,7 +233,7 @@ pub struct Inst {
     pub ty: Type,
     pub idx: InstIdx,
     pub kind: InstKind,
-    pub span: SourceSpan,
+    pub span: Span,
 }
 
 impl Indexed for Inst {
@@ -245,7 +245,7 @@ impl Indexed for Inst {
 
 impl Inst {
     #[inline]
-    fn new(ty: Type, kind: InstKind, span: SourceSpan) -> Self {
+    fn new(ty: Type, kind: InstKind, span: Span) -> Self {
         Self {
             ty,
             kind,
@@ -259,77 +259,77 @@ impl Inst {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn ret(span: SourceSpan) -> Self {
+    fn ret(span: Span) -> Self {
         Self::new(Type::default(), InstKind::Ret, span)
     }
 
     #[inline]
-    fn cdq(ty: Type, span: SourceSpan) -> Self {
+    fn cdq(ty: Type, span: Span) -> Self {
         Self::new(ty, InstKind::Cdq, span)
     }
 
     #[inline]
-    fn call(sym: Symbol, span: SourceSpan) -> Self {
+    fn call(sym: Symbol, span: Span) -> Self {
         Self::new(Type::default(), InstKind::Call(sym), span)
     }
 
     #[inline]
-    fn push(op: Operand, span: SourceSpan) -> Self {
+    fn push(op: Operand, span: Span) -> Self {
         Self::new(Type::Quad, InstKind::Push(op), span)
     }
 
     #[inline]
-    fn jmp(block: BlockRef, span: SourceSpan) -> Self {
+    fn jmp(block: BlockRef, span: Span) -> Self {
         Self::new(Type::default(), InstKind::Jmp(block), span)
     }
 
     #[inline]
-    fn idiv(ty: Type, dst: Operand, span: SourceSpan) -> Self {
+    fn idiv(ty: Type, dst: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Idiv(dst), span)
     }
 
     #[inline]
-    fn test(ty: Type, lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+    fn test(ty: Type, lhs: Operand, rhs: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Test { lhs, rhs }, span)
     }
 
     #[inline]
-    fn movsx(src: Operand, dst: Operand, span: SourceSpan) -> Self {
+    fn movsx(src: Operand, dst: Operand, span: Span) -> Self {
         Self::new(Type::Quad, InstKind::Movsx { src, dst }, span)
     }
 
     #[inline]
-    fn setcc(code: CondCode, dst: Operand, span: SourceSpan) -> Self {
+    fn setcc(code: CondCode, dst: Operand, span: Span) -> Self {
         Self::new(Type::default(), InstKind::SetCC { dst, code }, span)
     }
 
     #[inline]
-    fn jmpcc(code: CondCode, target: BlockRef, span: SourceSpan) -> Self {
+    fn jmpcc(code: CondCode, target: BlockRef, span: Span) -> Self {
         Self::new(Type::default(), InstKind::JmpCC { target, code }, span)
     }
 
     #[inline]
-    fn mov(ty: Type, src: Operand, dst: Operand, span: SourceSpan) -> Self {
+    fn mov(ty: Type, src: Operand, dst: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Mov { src, dst }, span)
     }
 
     #[inline]
-    fn cmp(ty: Type, lhs: Operand, rhs: Operand, span: SourceSpan) -> Self {
+    fn cmp(ty: Type, lhs: Operand, rhs: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Cmp { lhs, rhs }, span)
     }
 
     #[inline]
-    fn unary(ty: Type, op: UnaryOp, dst: Operand, span: SourceSpan) -> Self {
+    fn unary(ty: Type, op: UnaryOp, dst: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Unary { op, dst }, span)
     }
 
     #[inline]
-    fn binary(ty: Type, op: BinaryOp, src: Operand, dst: Operand, span: SourceSpan) -> Self {
+    fn binary(ty: Type, op: BinaryOp, src: Operand, dst: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Binary { op, src, dst }, span)
     }
 
     #[inline]
-    fn alloc_stack(size: i64, span: SourceSpan) -> Self {
+    fn alloc_stack(size: i64, span: Span) -> Self {
         assert!(size >= 0 && size % 8 == 0);
         Self::new(
             Type::Quad,
@@ -343,7 +343,7 @@ impl Inst {
     }
 
     #[inline]
-    fn dealloc_stack(size: i64, span: SourceSpan) -> Self {
+    fn dealloc_stack(size: i64, span: Span) -> Self {
         assert!(size >= 0 && size % 8 == 0);
         Self::new(
             Type::Quad,

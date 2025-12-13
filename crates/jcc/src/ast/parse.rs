@@ -12,8 +12,12 @@ use crate::{
 };
 
 use jcc_ssa::{
+    codemap::{
+        file::{FileId, SourceFile},
+        span::Span,
+        Diagnostic, Label,
+    },
     interner::{Interner, Symbol},
-    sourcemap::{diag::Diagnostic, SourceMap, SourceSpan},
 };
 
 use std::iter::Peekable;
@@ -24,7 +28,7 @@ use std::iter::Peekable;
 
 pub struct Parser<'a, 'ctx> {
     /// The source file being parsed.
-    file: &'a SourceMap,
+    file: &'a SourceFile,
     /// The type context used for creating and interning types.
     tys: &'ctx TyCtx<'ctx>,
     /// The lexer that provides a stream of tokens.
@@ -46,7 +50,7 @@ pub struct Parser<'a, 'ctx> {
 impl<'a, 'ctx> Parser<'a, 'ctx> {
     pub fn new(
         lexer: Lexer<'a>,
-        file: &'a SourceMap,
+        file: &'a SourceFile,
         tys: &'ctx TyCtx<'ctx>,
         interner: &'a mut Interner,
     ) -> Self {
@@ -56,10 +60,10 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             interner,
             lexer: lexer.peekable(),
             types: Vec::with_capacity(16),
-            result: ParserResult::default(),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
             items_stack: Vec::with_capacity(16),
+            result: ParserResult::new(file.id()),
         }
     }
 
@@ -83,14 +87,15 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             t => {
                 let is_empty = t.is_empty();
                 let span = self.peek_span();
-                self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                    if is_empty {
+                self.result.parser_diagnostics.push(ParserDiagnostic {
+                    span,
+                    file: self.file.id(),
+                    kind: if is_empty {
                         ParserDiagnosticKind::MissingTypeSpecifier
                     } else {
                         ParserDiagnosticKind::InvalidTypeSpecifier
                     },
-                    span,
-                ));
+                });
                 self.tys.void_ty
             }
         };
@@ -128,10 +133,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             self.next();
         }
         if count > 1 {
-            self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                ParserDiagnosticKind::MultipleStorageClasses,
-                start_span.merge(end_span),
-            ));
+            self.result.parser_diagnostics.push(ParserDiagnostic {
+                file: self.file.id(),
+                span: start_span.merge(end_span),
+                kind: ParserDiagnosticKind::MultipleStorageClasses,
+            });
         }
         Some((self.parse_type(), storage))
     }
@@ -220,10 +226,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }))
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                    ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
-                    token.span,
-                ));
+                self.result.parser_diagnostics.push(ParserDiagnostic {
+                    span: token.span,
+                    file: self.file.id(),
+                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
+                });
                 None
             }
         }
@@ -654,10 +661,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                    ParserDiagnosticKind::UnexpectedToken,
+                self.result.parser_diagnostics.push(ParserDiagnostic {
                     span,
-                ));
+                    file: self.file.id(),
+                    kind: ParserDiagnosticKind::UnexpectedToken,
+                });
                 None
             }
         }
@@ -711,7 +719,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn intern_span(&mut self, span: SourceSpan) -> Symbol {
+    fn intern_span(&mut self, span: Span) -> Symbol {
         self.interner
             .intern(self.file.slice(span).expect("expected span to be valid"))
     }
@@ -789,10 +797,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     #[inline]
-    fn peek_span(&mut self) -> SourceSpan {
-        self.peek()
-            .map(|t| t.span)
-            .unwrap_or_else(|| self.file.end_span())
+    fn peek_span(&mut self) -> Span {
+        self.peek().map(|t| t.span).unwrap_or_default()
     }
 
     #[inline]
@@ -800,10 +806,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if let Some(token) = self.peek() {
             Some(token)
         } else {
-            self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                ParserDiagnosticKind::UnexpectedEof,
-                self.file.end_span(),
-            ));
+            self.result.parser_diagnostics.push(ParserDiagnostic {
+                file: self.file.id(),
+                span: Span::single(self.file.end_pos()),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
             None
         }
     }
@@ -813,10 +820,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if token.kind == kind {
             self.next()
         } else {
-            self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                ParserDiagnosticKind::ExpectedToken(kind),
-                token.span,
-            ));
+            self.result.parser_diagnostics.push(ParserDiagnostic {
+                span: token.span,
+                file: self.file.id(),
+                kind: ParserDiagnosticKind::ExpectedToken(kind),
+            });
             None
         }
     }
@@ -824,15 +832,16 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     #[inline]
     fn eat_some(&mut self) -> Option<Token> {
         self.next().or_else(|| {
-            self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                ParserDiagnosticKind::UnexpectedEof,
-                self.file.end_span(),
-            ));
+            self.result.parser_diagnostics.push(ParserDiagnostic {
+                file: self.file.id(),
+                span: Span::single(self.file.end_pos()),
+                kind: ParserDiagnosticKind::UnexpectedEof,
+            });
             None
         })
     }
 
-    fn eat_identifier(&mut self) -> Option<(SourceSpan, Symbol)> {
+    fn eat_identifier(&mut self) -> Option<(Span, Symbol)> {
         let token = self.peek_some()?;
         match token.kind {
             TokenKind::Identifier => {
@@ -842,10 +851,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some((span, symbol))
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic::new(
-                    ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier),
-                    token.span,
-                ));
+                self.result.parser_diagnostics.push(ParserDiagnostic {
+                    span: token.span,
+                    file: self.file.id(),
+                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier),
+                });
                 None
             }
         }
@@ -992,11 +1002,20 @@ fn is_decl_start(token: TokenKind) -> bool {
 // ParserResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
 pub struct ParserResult<'ctx> {
     pub ast: Ast<'ctx>,
     pub lexer_diagnostics: Vec<LexerDiagnostic>,
     pub parser_diagnostics: Vec<ParserDiagnostic>,
+}
+
+impl ParserResult<'_> {
+    pub fn new(file: FileId) -> Self {
+        Self {
+            ast: Ast::new(file),
+            lexer_diagnostics: Vec::new(),
+            parser_diagnostics: Vec::new(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,14 +1024,9 @@ pub struct ParserResult<'ctx> {
 
 #[derive(Clone)]
 pub struct ParserDiagnostic {
-    span: SourceSpan,
+    span: Span,
+    file: FileId,
     kind: ParserDiagnosticKind,
-}
-
-impl ParserDiagnostic {
-    pub fn new(kind: ParserDiagnosticKind, span: SourceSpan) -> Self {
-        Self { kind, span }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,36 +1046,42 @@ pub enum ParserDiagnosticKind {
 impl From<ParserDiagnostic> for Diagnostic {
     fn from(diagnostic: ParserDiagnostic) -> Self {
         match diagnostic.kind {
-            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error(
-                diagnostic.span,
-                "unexpected end of file",
-                "expected more tokens",
-            ),
-            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                "expected a different token",
-            ),
-            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error(
-                diagnostic.span,
-                "unexpected token",
-                format!("expected {token} instead"),
-            ),
-            ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error(
-                diagnostic.span,
-                "missing type specifier",
-                "expected a type specifier like 'int'",
-            ),
-            ParserDiagnosticKind::InvalidTypeSpecifier => Diagnostic::error(
-                diagnostic.span,
-                "invalid type specifier",
-                "invalid or conflicting type specifier",
-            ),
-            ParserDiagnosticKind::MultipleStorageClasses => Diagnostic::error(
-                diagnostic.span,
-                "multiple storage classes",
-                "only one storage class is allowed",
-            ),
+            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("unexpected end of file"),
+                )
+                .with_note("the file ended while parsing was still in progress; there may be missing closing braces, parentheses, or semicolons"),
+            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("unexpected token"),
+                )
+                .with_note("this token doesn't fit the expected syntax at this location"),
+            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message(format!("expected '{token}'")),
+                )
+                .with_note(format!("the parser expected to find '{token}' at this location")),
+            ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("missing type specifier"),
+                )
+                .with_note("declarations must include a type specifier such as 'int', 'char', 'void', etc."),
+            ParserDiagnosticKind::InvalidTypeSpecifier => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("invalid type specifier combination"),
+                )
+                .with_note("this combination of type specifiers is invalid or conflicting (e.g., 'int char' or 'long short')"),
+            ParserDiagnosticKind::MultipleStorageClasses => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("multiple storage classes specified"),
+                )
+                .with_note("only one storage class specifier (static, extern, auto, register, typedef) is allowed per declaration"),
         }
     }
 }

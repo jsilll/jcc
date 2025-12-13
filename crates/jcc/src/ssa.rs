@@ -6,12 +6,12 @@ use crate::{
 };
 
 use jcc_ssa::{
+    codemap::span::Span,
     interner::{Interner, Symbol},
     ir::{
         builder::IRBuilder, BinaryOp, BlockRef, ConstValue, Func, FuncRef, Inst, InstRef, Program,
         StaticVar, StaticVarRef, Ty, UnaryOp,
     },
-    sourcemap::SourceSpan,
 };
 
 // ---------------------------------------------------------------------------
@@ -827,19 +827,13 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    fn build_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: SourceSpan) -> InstRef {
+    fn build_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         self.builder.insert_inst(Inst::unary(ty, op, val, span))
     }
 
     #[inline]
-    fn build_prefix_unary(
-        &mut self,
-        ty: Ty,
-        op: UnaryOp,
-        expr: ast::Expr,
-        span: SourceSpan,
-    ) -> InstRef {
+    fn build_prefix_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         let inst = self.builder.insert_inst(Inst::unary(ty, op, val, span));
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
@@ -848,13 +842,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    fn build_postfix_unary(
-        &mut self,
-        ty: Ty,
-        op: UnaryOp,
-        expr: ast::Expr,
-        span: SourceSpan,
-    ) -> InstRef {
+    fn build_postfix_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> InstRef {
         let val = self.visit_expr(expr, ExprMode::RightValue);
         let inst = self.builder.insert_inst(Inst::unary(ty, op, val, span));
         let ptr = self.visit_expr(expr, ExprMode::LeftValue);
@@ -869,7 +857,7 @@ impl<'ctx> SSABuilder<'ctx> {
         op: BinaryOp,
         lhs: ast::Expr,
         rhs: ast::Expr,
-        span: SourceSpan,
+        span: Span,
     ) -> InstRef {
         let lhs = self.visit_expr(lhs, ExprMode::RightValue);
         let rhs = self.visit_expr(rhs, ExprMode::RightValue);
@@ -885,7 +873,7 @@ impl<'ctx> SSABuilder<'ctx> {
         op: BinaryOp,
         lhs: ast::Expr,
         rhs: ast::Expr,
-        span: SourceSpan,
+        span: Span,
     ) -> InstRef {
         let lty = self.ast.expr[lhs].ty.get();
         let mut l = self.visit_expr(lhs, ExprMode::RightValue);
@@ -911,13 +899,7 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn build_sc(
-        &mut self,
-        op: LogicalOp,
-        lhs: ast::Expr,
-        rhs: ast::Expr,
-        span: SourceSpan,
-    ) -> InstRef {
+    fn build_sc(&mut self, op: LogicalOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> InstRef {
         let rhs_block = self.builder.new_block(
             match op {
                 LogicalOp::Or => "or",
@@ -1021,12 +1003,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    pub fn get_or_make_labeled(
-        &mut self,
-        stmt: ast::Stmt,
-        name: Symbol,
-        span: SourceSpan,
-    ) -> BlockRef {
+    pub fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: Symbol, span: Span) -> BlockRef {
         let entry = self
             .tracked
             .entry(stmt)
@@ -1042,7 +1019,7 @@ impl<'ctx> SSABuilder<'ctx> {
         &mut self,
         name: &ast::AstSymbol,
         is_global: bool,
-        span: SourceSpan,
+        span: Span,
     ) -> FuncRef {
         let idx = name.id.get().expect("sema symbol not set").0.get() as usize;
         match self.symbols[idx] {

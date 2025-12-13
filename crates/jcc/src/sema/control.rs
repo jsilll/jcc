@@ -4,8 +4,8 @@ use crate::{
 };
 
 use jcc_ssa::{
+    codemap::{file::FileId, span::Span, Diagnostic, Label},
     interner::Symbol,
-    sourcemap::{diag::Diagnostic, SourceSpan},
 };
 
 use std::{cell::Cell, collections::HashMap};
@@ -56,6 +56,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                                 v.iter().for_each(|(_, span)| {
                                     self.result.diagnostics.push(ControlDiagnostic {
                                         span: *span,
+                                        file: self.ast.file,
                                         kind: ControlDiagnosticKind::UndefinedLabel,
                                     });
                                 });
@@ -127,6 +128,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 }
                 None => self.result.diagnostics.push(ControlDiagnostic {
                     span: data.span,
+                    file: self.ast.file,
                     kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
                 }),
             },
@@ -140,6 +142,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     }
                     None => self.result.diagnostics.push(ControlDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: ControlDiagnosticKind::UndefinedLoop,
                     }),
                 }
@@ -158,6 +161,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         .push(stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
@@ -174,12 +178,14 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                             None => switch.default = Some(stmt),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {
                                 span: data.span,
+                                file: self.ast.file,
                                 kind: ControlDiagnosticKind::DuplicateDefault,
                             }),
                         }
                     }
                     _ => self.result.diagnostics.push(ControlDiagnostic {
                         span: data.span,
+                        file: self.ast.file,
                         kind: ControlDiagnosticKind::CaseOutsideSwitch,
                     }),
                 }
@@ -201,6 +207,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         if stmt != *s {
                             self.result.diagnostics.push(ControlDiagnostic {
                                 span: data.span,
+                                file: self.ast.file,
                                 kind: ControlDiagnosticKind::RedeclaredLabel,
                             });
                         }
@@ -229,7 +236,7 @@ pub enum TrackedLabel<'a> {
     /// A resolved label
     Resolved(Stmt),
     /// An unresolved label
-    Unresolved(Vec<(&'a Cell<Option<Stmt>>, SourceSpan)>),
+    Unresolved(Vec<(&'a Cell<Option<Stmt>>, Span)>),
 }
 
 // ---------------------------------------------------------------------------
@@ -249,36 +256,42 @@ pub enum ControlDiagnosticKind {
 impl From<ControlDiagnostic> for Diagnostic {
     fn from(diagnostic: ControlDiagnostic) -> Self {
         match diagnostic.kind {
-            ControlDiagnosticKind::UndefinedLoop => Diagnostic::error(
-                diagnostic.span,
-                "undefined loop",
-                "this statement is not inside a loop",
-            ),
-            ControlDiagnosticKind::UndefinedLabel => Diagnostic::error(
-                diagnostic.span,
-                "undefined label",
-                "this label has not been declared",
-            ),
-            ControlDiagnosticKind::RedeclaredLabel => Diagnostic::error(
-                diagnostic.span,
-                "redeclared label",
-                "this label has already been declared",
-            ),
-            ControlDiagnosticKind::DuplicateDefault => Diagnostic::error(
-                diagnostic.span,
-                "duplicate default",
-                "this switch statement already has a default case",
-            ),
-            ControlDiagnosticKind::CaseOutsideSwitch => Diagnostic::error(
-                diagnostic.span,
-                "case outside switch",
-                "this case statement is not inside a switch statement",
-            ),
-            ControlDiagnosticKind::UndefinedLoopOrSwitch => Diagnostic::error(
-                diagnostic.span,
-                "undefined loop or switch",
-                "this statement is not inside a loop or switch",
-            ),
+            ControlDiagnosticKind::UndefinedLoop => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("break/continue outside of loop"),
+                )
+                .with_note("break and continue statements can only be used inside for, while, or do-while loops"),
+            ControlDiagnosticKind::UndefinedLabel => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("label not found"),
+                )
+                .with_note("no label with this name exists in the current function"),
+            ControlDiagnosticKind::RedeclaredLabel => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("duplicate label"),
+                )
+                .with_note("a label with this name already exists in the current function; labels must be unique within a function"),
+            ControlDiagnosticKind::DuplicateDefault => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("duplicate default case"),
+                )
+                .with_note("switch statements can only have one default case"),
+            ControlDiagnosticKind::CaseOutsideSwitch => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("case label outside of switch"),
+                )
+                .with_note("case labels can only appear inside switch statements"),
+            ControlDiagnosticKind::UndefinedLoopOrSwitch => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("break outside of loop or switch"),
+                )
+                .with_note("break statements can only be used inside loops (for, while, do-while) or switch statements"),
         }
     }
 }
@@ -298,6 +311,7 @@ pub struct ControlResult {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ControlDiagnostic {
-    pub span: SourceSpan,
+    pub span: Span,
+    pub file: FileId,
     pub kind: ControlDiagnosticKind,
 }

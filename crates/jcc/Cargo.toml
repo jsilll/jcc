@@ -2,6 +2,12 @@
 name = "jcc"
 version = "0.1.0"
 edition = "2021"
+description = "A C compiler implementation"
+keywords = ["compiler", "c", "codegen", "optimization", "assembly"]
+categories = ["command-line-utilities", "compilers", "development-tools"]
+license = "MIT"
+repository = "https://github.com/jsilll/jcc"
+readme = "README.md"
 
 [dependencies]
 jcc_ssa = { path = "../jcc_ssa" }

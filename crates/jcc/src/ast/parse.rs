@@ -17,7 +17,7 @@ use jcc_ssa::{
         span::Span,
         Diagnostic, Label,
     },
-    interner::{Interner, Symbol},
+    IdentId, IdentInterner,
 };
 
 use std::iter::Peekable;
@@ -33,8 +33,8 @@ pub struct Parser<'a, 'ctx> {
     tys: &'ctx TyCtx<'ctx>,
     /// The lexer that provides a stream of tokens.
     lexer: Peekable<Lexer<'a>>,
-    /// The interner for string interning.
-    interner: &'a mut Interner,
+    /// The interner for identifier interning.
+    interner: &'a mut IdentInterner,
     /// A temporary buffer for collecting type specifiers.
     types: Vec<Ty<'ctx>>,
     /// The result of the parsing process, containing the AST and diagnostics.
@@ -52,7 +52,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         lexer: Lexer<'a>,
         file: &'a SourceFile,
         tys: &'ctx TyCtx<'ctx>,
-        interner: &'a mut Interner,
+        interner: &'a mut IdentInterner,
     ) -> Self {
         Self {
             tys,
@@ -719,7 +719,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn intern_span(&mut self, span: Span) -> Symbol {
+    fn intern_span(&mut self, span: Span) -> IdentId {
         self.interner
             .intern(self.file.slice(span).expect("expected span to be valid"))
     }
@@ -841,7 +841,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         })
     }
 
-    fn eat_identifier(&mut self) -> Option<(Span, Symbol)> {
+    fn eat_identifier(&mut self) -> Option<(Span, IdentId)> {
         let token = self.peek_some()?;
         match token.kind {
             TokenKind::Identifier => {

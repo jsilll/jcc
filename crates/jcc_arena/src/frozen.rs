@@ -231,7 +231,7 @@ impl<T: Copy> FrozenVec<T> {
     pub fn get_copy(&self, index: usize) -> Option<T> {
         unsafe {
             let vec = self.vec.get();
-            (*vec).get(index).copied()
+            (&(*vec)).get(index).copied()
         }
     }
 
@@ -278,7 +278,7 @@ impl<T: StableDeref> FrozenVec<T> {
     pub fn get(&self, index: usize) -> Option<&T::Target> {
         unsafe {
             let vec = self.vec.get();
-            (*vec).get(index).map(|x| &**x)
+            (&(*vec)).get(index).map(|x| &**x)
         }
     }
 
@@ -290,7 +290,7 @@ impl<T: StableDeref> FrozenVec<T> {
     /// function exhibits undefined behavior.
     pub unsafe fn get_unchecked(&self, index: usize) -> &T::Target {
         let vec = self.vec.get();
-        (*vec).get_unchecked(index)
+        (&(*vec)).get_unchecked(index)
     }
 
     /// Appends an element and returns a reference to it.
@@ -305,7 +305,7 @@ impl<T: StableDeref> FrozenVec<T> {
         unsafe {
             let vec = self.vec.get();
             (*vec).push(val);
-            &*(&**(*vec).get_unchecked((*vec).len() - 1) as *const T::Target)
+            &*(&**(&(*vec)).get_unchecked((*vec).len() - 1) as *const T::Target)
         }
     }
 

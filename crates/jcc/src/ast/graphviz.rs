@@ -1,6 +1,6 @@
 use crate::ast::{Ast, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind};
 
-use jcc_ssa::{infra::emitter::IndentedEmitter, interner::Interner};
+use jcc_ssa::{infra::emitter::IndentedEmitter, IdentInterner};
 
 use std::fmt::Write;
 
@@ -11,12 +11,12 @@ use std::fmt::Write;
 pub struct AstGraphviz<'a, 'ctx> {
     node_counter: u32,
     ast: &'a Ast<'ctx>,
-    interner: &'a Interner,
+    interner: &'a IdentInterner,
     e: IndentedEmitter<String>,
 }
 
 impl<'a, 'ctx> AstGraphviz<'a, 'ctx> {
-    pub fn new(ast: &'a Ast<'ctx>, interner: &'a Interner) -> Self {
+    pub fn new(ast: &'a Ast<'ctx>, interner: &'a IdentInterner) -> Self {
         AstGraphviz {
             ast,
             interner,

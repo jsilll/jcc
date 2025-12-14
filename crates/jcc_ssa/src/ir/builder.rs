@@ -1,7 +1,9 @@
 use jcc_codemap::span::Span;
-use jcc_interner::{Interner, Symbol};
 
-use crate::ir::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program};
+use crate::{
+    ir::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program},
+    IdentId, IdentInterner,
+};
 
 // ---------------------------------------------------------------------------
 // IRBuilder
@@ -14,7 +16,7 @@ pub struct IRBuilder<'p> {
 }
 
 impl<'p> IRBuilder<'p> {
-    pub fn new(interner: &'p mut Interner) -> Self {
+    pub fn new(interner: &'p mut IdentInterner) -> Self {
         Self {
             func: None,
             block: BlockRef::default(),
@@ -79,7 +81,7 @@ impl<'p> IRBuilder<'p> {
     }
 
     #[inline]
-    pub fn new_block_interned(&mut self, name: Symbol, span: Span) -> BlockRef {
+    pub fn new_block_interned(&mut self, name: IdentId, span: Span) -> BlockRef {
         let block = self.prog.new_block(Block {
             name,
             span,

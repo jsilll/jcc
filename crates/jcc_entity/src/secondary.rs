@@ -90,17 +90,17 @@ where
     }
 
     /// Iterate over all the values in this map.
-    pub fn values(&self) -> slice::Iter<V> {
+    pub fn values(&self) -> slice::Iter<'_, V> {
         self.data.iter()
     }
 
     /// Iterate over all the values in this map, mutable edition.
-    pub fn values_mut(&mut self) -> slice::IterMut<V> {
+    pub fn values_mut(&mut self) -> slice::IterMut<'_, V> {
         self.data.iter_mut()
     }
 
     /// Iterate over all the keys and values in this map.
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             index: 0,
             elems: &self.data,
@@ -109,7 +109,7 @@ where
     }
 
     /// Iterate over all the keys and values in this map, mutable edition.
-    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         IterMut {
             index: 0,
             phantom: PhantomData,
@@ -215,7 +215,7 @@ pub struct Iter<'a, K, V> {
     phantom: PhantomData<K>,
 }
 
-impl<'a, K, V> ExactSizeIterator for Iter<'a, K, V>
+impl<K, V> ExactSizeIterator for Iter<'_, K, V>
 where
     K: EntityRef,
     V: Clone,
@@ -252,7 +252,7 @@ pub struct IterMut<'a, K, V> {
     phantom: PhantomData<K>,
 }
 
-impl<'a, K, V> ExactSizeIterator for IterMut<'a, K, V>
+impl<K, V> ExactSizeIterator for IterMut<'_, K, V>
 where
     K: EntityRef,
     V: Clone,

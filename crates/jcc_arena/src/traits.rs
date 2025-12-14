@@ -41,11 +41,11 @@ use core::{
 /// even if the container is moved in memory.
 pub unsafe trait StableDeref: Deref {}
 
-/// A marker trait for types whose clones dereference to the same address as the original.
+// A marker trait for types whose clones dereference to the same address as the original.
 // pub unsafe trait CloneStableDeref: StableDeref + Clone {}
 
-unsafe impl<'a, T: ?Sized> StableDeref for &'a T {}
-unsafe impl<'a, T: ?Sized> StableDeref for &'a mut T {}
+unsafe impl<T: ?Sized> StableDeref for &T {}
+unsafe impl<T: ?Sized> StableDeref for &mut T {}
 // unsafe impl<'a, T: ?Sized> CloneStableDeref for &'a T {}
 unsafe impl<'a, T: ?Sized> StableDeref for Ref<'a, T> {}
 unsafe impl<'a, T: ?Sized> StableDeref for RefMut<'a, T> {}

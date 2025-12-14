@@ -1,9 +1,7 @@
-use jcc_interner::Interner;
-
 use crate::{
     amd64::{BlockRef, InstKind, InstRef, Type},
     infra::emitter::IndentedEmitter,
-    ir,
+    ir, IdentInterner,
 };
 
 use super::{BinaryOp, Func, Operand, Program, UnaryOp};
@@ -18,12 +16,12 @@ pub struct AMD64Emitter<'a> {
     func: &'a Func,
     target: ir::TargetOs,
     program: &'a Program,
-    interner: &'a Interner,
+    interner: &'a IdentInterner,
     e: IndentedEmitter<String>,
 }
 
 impl<'a> AMD64Emitter<'a> {
-    pub fn new(program: &'a Program, interner: &'a Interner, target: ir::TargetOs) -> Self {
+    pub fn new(program: &'a Program, interner: &'a IdentInterner, target: ir::TargetOs) -> Self {
         let func = program
             .funcs
             .first()

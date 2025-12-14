@@ -4,11 +4,10 @@ pub mod fix;
 
 use crate::{
     infra::{Indexed, IR},
-    ir,
+    ir, IdentId,
 };
 
 use jcc_codemap::span::Span;
-use jcc_interner::Symbol;
 
 use std::{collections::HashMap, num::NonZeroU32};
 
@@ -65,7 +64,7 @@ impl Program {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Func {
-    pub name: Symbol,
+    pub name: IdentId,
     pub is_global: bool,
     pub span: Span,
     insts: Vec<Inst>,
@@ -111,7 +110,7 @@ impl IR for Func {
 }
 
 impl Func {
-    pub fn new(name: Symbol, is_global: bool, span: Span) -> Self {
+    pub fn new(name: IdentId, is_global: bool, span: Span) -> Self {
         Func {
             name,
             span,
@@ -199,11 +198,11 @@ impl std::fmt::Display for BlockRef {
 #[derive(Default, Clone, PartialEq, Eq)]
 pub struct Block {
     pub insts: Vec<InstRef>,
-    pub label: Option<Symbol>,
+    pub label: Option<IdentId>,
 }
 
 impl Block {
-    pub fn with_label(label: Symbol) -> Self {
+    pub fn with_label(label: IdentId) -> Self {
         Block {
             label: Some(label),
             ..Default::default()
@@ -269,7 +268,7 @@ impl Inst {
     }
 
     #[inline]
-    fn call(sym: Symbol, span: Span) -> Self {
+    fn call(sym: IdentId, span: Span) -> Self {
         Self::new(Type::default(), InstKind::Call(sym), span)
     }
 
@@ -421,7 +420,7 @@ pub enum InstKind {
     /// A `cdq` instruction.
     Cdq,
     /// A call instruction.
-    Call(Symbol),
+    Call(IdentId),
     /// A push to stack instruction.
     Push(Operand),
     /// A `jmp` instruction.
@@ -629,7 +628,7 @@ impl TryFrom<ir::BinaryOp> for CondCode {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SymbolTable {
     pseudos: Vec<PseudoEntry>,
-    funcs: HashMap<Symbol, FuncEntry>,
+    funcs: HashMap<IdentId, FuncEntry>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

@@ -14,28 +14,50 @@
 //! in an internal buffer that grows exponentially when needed. Old buffers are retained to
 //! ensure all string references remain valid for the lifetime of the interner.
 
-mod symtab;
+pub mod symtab;
 
-use std::{collections::HashMap, num::NonZeroU32};
-
-/// A symbol table mapping interned `Symbol`s to associated values of type `V`.
-pub type SymbolTable<V> = symtab::SymbolTable<Symbol, V>;
+use std::{collections::HashMap, marker::PhantomData, num::NonZeroU32};
 
 /// A lightweight handle representing an interned string.
 ///
-/// `Symbol` is a small, copyable type that acts as a unique identifier for an interned string.
-/// It internally uses a `NonZeroU32`, making it memory-efficient and allowing for
-/// null-pointer optimizations in `Option<Symbol>`.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Symbol(NonZeroU32);
+/// `Symbol` is a small, copyable type that acts as a unique identifier.
+/// It is parameterized by `M` to ensure strict type safety between different interners.
+pub struct Symbol<M>(NonZeroU32, PhantomData<M>);
 
-impl Default for Symbol {
+impl<M> Copy for Symbol<M> {}
+impl<M> Clone for Symbol<M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<M> Eq for Symbol<M> {}
+impl<M> PartialEq for Symbol<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<M> std::hash::Hash for Symbol<M> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<M> std::fmt::Debug for Symbol<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Symbol").field(&self.0).finish()
+    }
+}
+
+// TODO: Remove this after introducing new IR
+impl<M> Default for Symbol<M> {
     /// Returns a default `Symbol` with the maximum value.
     ///
     /// This default value is used as a sentinel and should not be used
     /// to look up strings in an interner.
     fn default() -> Self {
-        Self(NonZeroU32::MAX)
+        Self(NonZeroU32::MAX, PhantomData)
     }
 }
 
@@ -52,7 +74,7 @@ impl Default for Symbol {
 /// - When the buffer is full, a new larger buffer is allocated
 /// - Old buffers are retained to keep all string references valid
 /// - The buffer grows exponentially to amortize allocation costs
-pub struct Interner {
+pub struct Interner<M> {
     /// Internal string buffer for storing interned strings.
     buf: String,
     /// Previous full buffers to maintain string validity.
@@ -60,16 +82,16 @@ pub struct Interner {
     /// Mapping from `Symbol` indices to their corresponding strings.
     vec: Vec<&'static str>,
     /// Mapping for quick lookup of strings to their associated `Symbol`s.
-    map: HashMap<&'static str, Symbol>,
+    map: HashMap<&'static str, Symbol<M>>,
 }
 
-impl Default for Interner {
+impl<M> Default for Interner<M> {
     fn default() -> Self {
         Self::with_capacity(1024)
     }
 }
 
-impl Interner {
+impl<M> Interner<M> {
     /// Creates a new `Interner` with a default capacity of 1024 bytes.
     pub fn new() -> Self {
         Self::with_capacity(1024)
@@ -123,7 +145,7 @@ impl Interner {
     ///
     /// Panics if the `Symbol` is invalid or out of bounds.
     #[inline]
-    pub fn lookup(&self, id: Symbol) -> &str {
+    pub fn lookup(&self, id: Symbol<M>) -> &str {
         self.vec[id.0.get() as usize - 1]
     }
 
@@ -137,7 +159,7 @@ impl Interner {
     ///
     /// `Some(&str)` if the `Symbol` is valid, or `None` if it is invalid or out of bounds.
     #[inline]
-    pub fn get(&self, id: Symbol) -> Option<&str> {
+    pub fn get(&self, id: Symbol<M>) -> Option<&str> {
         self.vec.get(id.0.get() as usize - 1).copied()
     }
 
@@ -154,16 +176,17 @@ impl Interner {
     ///
     /// The `Symbol` associated with the interned string.
     #[inline]
-    pub fn intern(&mut self, name: &str) -> Symbol {
+    pub fn intern(&mut self, name: &str) -> Symbol<M> {
         if let Some(&id) = self.map.get(name) {
             return id;
         }
         // Safety: We explicitly ensure that the NonZeroU32 is never zero by
         // starting the count from 1 and incrementing for each new string.
         let symbol = unsafe {
-            Symbol(NonZeroU32::new_unchecked(
-                u32::try_from(self.vec.len()).unwrap_or(u32::MAX) + 1,
-            ))
+            Symbol(
+                NonZeroU32::new_unchecked(u32::try_from(self.vec.len() + 1).unwrap_or(u32::MAX)),
+                PhantomData,
+            )
         };
         // Safety: The allocated string reference is valid as long as the interner is alive.
         let name = unsafe { self.alloc(name) };
@@ -205,24 +228,26 @@ impl Interner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct TestMarker;
+    type TestInterner = Interner<TestMarker>;
 
     #[test]
     fn new_interner_is_empty() {
-        let interner = Interner::new();
+        let interner = TestInterner::new();
         assert_eq!(interner.len(), 0);
         assert!(interner.is_empty());
     }
 
     #[test]
     fn with_capacity_is_empty() {
-        let interner = Interner::with_capacity(100);
+        let interner = TestInterner::with_capacity(100);
         assert_eq!(interner.len(), 0);
         assert!(interner.is_empty());
     }
 
     #[test]
     fn intern_single_string() {
-        let mut interner = Interner::new();
+        let mut interner = TestInterner::new();
         let s1 = "hello";
         let sym1 = interner.intern(s1);
 
@@ -234,7 +259,7 @@ mod tests {
 
     #[test]
     fn intern_same_string_multiple_times() {
-        let mut interner = Interner::new();
+        let mut interner = TestInterner::new();
         let s1 = "world";
         let sym1 = interner.intern(s1);
         let sym2 = interner.intern(s1);
@@ -246,7 +271,7 @@ mod tests {
 
     #[test]
     fn intern_different_strings() {
-        let mut interner = Interner::new();
+        let mut interner = TestInterner::new();
         let s1 = "foo";
         let s2 = "bar";
 
@@ -261,7 +286,7 @@ mod tests {
 
     #[test]
     fn intern_empty_string() {
-        let mut interner = Interner::new();
+        let mut interner = TestInterner::new();
         let empty_str = "";
         let sym_empty = interner.intern(empty_str);
 

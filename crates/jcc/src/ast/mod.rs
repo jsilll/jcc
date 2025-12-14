@@ -8,8 +8,8 @@ pub use ty::{Ty, TyKind};
 use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 use jcc_ssa::{
     codemap::{file::FileId, span::Span},
-    interner::Symbol,
     ir::ConstValue,
+    IdentId,
 };
 
 use std::cell::Cell;
@@ -69,7 +69,7 @@ impl<'ctx> Ast<'ctx> {
 
 #[derive(Debug, Clone)]
 pub struct AstSymbol {
-    pub name: Symbol,
+    pub name: IdentId,
     pub sema: Cell<Option<sema::Symbol>>,
 }
 
@@ -222,7 +222,7 @@ pub enum StmtKind {
     /// A case statement.
     Case { expr: Expr, stmt: Stmt },
     /// A label statement.
-    Label { label: Symbol, stmt: Stmt },
+    Label { label: IdentId, stmt: Stmt },
     /// A switch statement.
     Switch { cond: Expr, body: Stmt },
     /// A while statement.
@@ -231,7 +231,7 @@ pub enum StmtKind {
     DoWhile { body: Stmt, cond: Expr },
     /// A goto statement.
     Goto {
-        label: Symbol,
+        label: IdentId,
         stmt: Cell<Option<Stmt>>,
     },
     /// An if statement.

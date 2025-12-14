@@ -113,7 +113,7 @@ pub trait Files {
     /// Gets a location for a span in a specific file.
     ///
     /// Returns None if the file or span is invalid.
-    fn location(&self, file_id: FileId, span: Span) -> Option<Location>;
+    fn location(&self, file_id: FileId, span: Span) -> Option<Location<'_>>;
 }
 
 /// A simple in-memory collection of source files.
@@ -185,7 +185,7 @@ impl Files for SimpleFiles {
         self.get(file)?.slice(span)
     }
 
-    fn location(&self, file: FileId, span: Span) -> Option<Location> {
+    fn location(&self, file: FileId, span: Span) -> Option<Location<'_>> {
         self.get(file)?.location(span)
     }
 }

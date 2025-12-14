@@ -1,3 +1,19 @@
+//! A fast, scoped symbol table implementation.
+//!
+//! This module provides [`SymbolTable`], a data structure designed to manage key-value bindings
+//! with support for nested scopes (shadowing). It is particularly optimized for compilers,
+//! interpreters, and static analysis tools where scopes are frequently pushed and popped.
+//!
+//! # Internal Architecture
+//!
+//! Instead of copying the entire table for every new scope (which is $O(N)$), this implementation
+//! uses a single `HashMap` backed by an **undo log** (a "cactus stack" approach).
+//!
+//! - **Lookups**: $O(1)$ average time. The map always contains the currently visible value for any key.
+//! - **Push Scope**: $O(1)$. Merely increments a version counter and adds a marker to the log.
+//! - **Pop Scope**: Proportional to the number of changes made in the current scope. It walks the log
+//!   backwards, restoring the previous values of modified keys.
+
 use std::{
     collections::{hash_map::Entry, HashMap},
     hash::Hash,

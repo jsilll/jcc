@@ -8,11 +8,11 @@ use crate::{
 use jcc_entity::SecondaryMap;
 use jcc_ssa::{
     codemap::span::Span,
-    interner::{Interner, Symbol},
     ir::{
         builder::IRBuilder, BinaryOp, BlockRef, ConstValue, Func, FuncRef, Inst, InstRef, Program,
         StaticVar, StaticVarRef, Ty, UnaryOp,
     },
+    IdentId, IdentInterner,
 };
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ impl<'ctx> SSABuilder<'ctx> {
     pub fn new(
         ast: &'ctx ast::Ast<'ctx>,
         sema: &'ctx SemaCtx<'ctx>,
-        interner: &'ctx mut Interner,
+        interner: &'ctx mut IdentInterner,
     ) -> Self {
         Self {
             ast,
@@ -999,7 +999,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     #[inline]
-    pub fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: Symbol, span: Span) -> BlockRef {
+    pub fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: IdentId, span: Span) -> BlockRef {
         let entry = self
             .tracked
             .entry(stmt)

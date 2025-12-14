@@ -1,7 +1,8 @@
 pub mod builder;
 
+use crate::{IdentId, IdentInterner};
+
 use jcc_codemap::span::Span;
-use jcc_interner::{Interner, Symbol};
 
 use std::{collections::HashMap, fmt, num::NonZeroU32};
 
@@ -17,7 +18,7 @@ pub enum TargetOs {
 // ---------------------------------------------------------------------------
 
 pub struct Program<'a> {
-    pub interner: &'a mut Interner,
+    pub interner: &'a mut IdentInterner,
     insts: Vec<Inst>,
     blocks: Vec<Block>,
     funcs: Vec<Option<Func>>,
@@ -25,7 +26,7 @@ pub struct Program<'a> {
 }
 
 impl<'a> Program<'a> {
-    pub fn new(interner: &'a mut Interner) -> Self {
+    pub fn new(interner: &'a mut IdentInterner) -> Self {
         Self {
             interner,
             insts: vec![Default::default()],
@@ -454,8 +455,8 @@ pub struct BlockIdx(u32);
 
 #[derive(Debug, Default, Clone)]
 pub struct Block {
-    pub name: Symbol,
     pub span: Span,
+    pub name: IdentId,
     pub insts: Vec<InstRef>,
     pub succs: Vec<BlockRef>,
 }
@@ -475,9 +476,9 @@ impl Default for FuncRef {
 
 #[derive(Debug, Default, Clone)]
 pub struct Func {
-    pub name: Symbol,
-    pub is_global: bool,
     pub span: Span,
+    pub name: IdentId,
+    pub is_global: bool,
     pub blocks: Vec<BlockRef>,
 }
 
@@ -491,18 +492,18 @@ pub struct StaticVarRef(pub(crate) NonZeroU32);
 #[derive(Debug, Default, Clone)]
 pub struct StaticVar {
     pub ty: Ty,
-    pub name: Symbol,
-    pub is_global: bool,
     pub span: Span,
+    pub name: IdentId,
+    pub is_global: bool,
     pub init: Option<ConstValue>,
 }
 
 impl StaticVar {
     #[inline]
-    pub fn int32(name: Symbol, is_global: bool, init: Option<i32>, span: Span) -> Self {
+    pub fn int32(name: IdentId, is_global: bool, init: Option<i32>, span: Span) -> Self {
         Self {
-            span,
             name,
+            span,
             is_global,
             ty: Ty::Int32,
             init: init.map(ConstValue::Int32),
@@ -510,10 +511,10 @@ impl StaticVar {
     }
 
     #[inline]
-    pub fn int64(name: Symbol, is_global: bool, init: Option<i64>, span: Span) -> Self {
+    pub fn int64(name: IdentId, is_global: bool, init: Option<i64>, span: Span) -> Self {
         Self {
-            span,
             name,
+            span,
             is_global,
             ty: Ty::Int64,
             init: init.map(ConstValue::Int64),

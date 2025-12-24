@@ -1,4 +1,4 @@
-use jcc_arena::{intern::InternArena, Interned};
+use jcc_arena::intern::{InternArena, Interned};
 
 // ---------------------------------------------------------------------------
 // Ty
@@ -41,9 +41,12 @@ impl<'ctx> TyCtx<'ctx> {
         // Safety: The locally allocated references will not outlive the arena
         // since they are contained within TyCtx, which also owns the arena.
         let types = InternArena::new();
-        let int_ty = unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Int)) };
-        let long_ty = unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Long)) };
-        let void_ty = unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Void)) };
+        let int_ty =
+            unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Int).unwrap()) };
+        let long_ty =
+            unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Long).unwrap()) };
+        let void_ty =
+            unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Void).unwrap()) };
         Self {
             types,
             int_ty,
@@ -54,11 +57,11 @@ impl<'ctx> TyCtx<'ctx> {
 
     #[inline]
     pub fn ptr(&'ctx self, pointee: Ty<'ctx>) -> Ty<'ctx> {
-        self.types.intern(TyKind::Ptr(pointee))
+        self.types.intern(TyKind::Ptr(pointee)).unwrap()
     }
 
     #[inline]
     pub fn func(&'ctx self, ret: Ty<'ctx>, params: Vec<Ty<'ctx>>) -> Ty<'ctx> {
-        self.types.intern(TyKind::Func { ret, params })
+        self.types.intern(TyKind::Func { ret, params }).unwrap()
     }
 }

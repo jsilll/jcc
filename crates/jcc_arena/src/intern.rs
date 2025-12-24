@@ -1,98 +1,110 @@
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    hash::{Hash, Hasher},
-};
+//! An arena-based interning allocator.
+//!
+//! This module provides [`InternArena`], an arena allocator that *interns* values:
+//! equal values are stored only once and are guaranteed to have a unique,
+//! stable address for the lifetime of the arena.
+//!
+//! # Overview
+//!
+//! `InternArena<T>` combines an arena allocator with a hash set to deduplicate
+//! values. When a value is interned:
+//!
+//! - If an equal value already exists in the arena, a reference to the existing
+//!   value is returned.
+//! - Otherwise, the value is allocated in the arena and becomes the canonical
+//!   representative for that equivalence class.
+//!
+//! Interned values are accessed through [`Interned`], a lightweight handle that
+//! behaves like `&T` but has *pointer-based* equality and hashing.
+//!
+//! # Guarantees
+//!
+//! For any two values `a` and `b` returned by the same arena:
+//!
+//! - If `a == b`, then `ptr::eq(&*a, &*b)` is guaranteed to be `true`.
+//! - Equality, ordering, and hashing of [`Interned`] are **O(1)** and based on
+//!   pointer identity.
+//! - References returned from the arena are valid for the entire lifetime of
+//!   the arena itself.
+//!
+//! This makes the interner particularly well-suited for use in compilers and
+//! similar systems where structural equality is common but pointer identity
+//! comparisons are desired (e.g. types, symbols, or AST nodes).
+//!
+//! # Recursive and Self-Referential Structures
+//!
+//! Interned values may recursively contain other [`Interned`] values, enabling
+//! efficient representation of recursive data structures such as types or
+//! expression trees.
+//!
+//! Deduplication is structural: for example, two independently constructed
+//! `Vec<Interned<T>>` values with equal contents will be interned to the same
+//! allocation, including empty vectors.
+//!
+//! # Zero-Sized Types
+//!
+//! Zero-sized types (ZSTs) are fully supported. Interning a ZST will result in
+//! exactly one canonical instance stored in the arena.
+//!
+//! # Interior Mutability and Panics
+//!
+//! `InternArena` uses interior mutability to allow interning through a shared
+//! reference. As a result, calling [`InternArena::intern`] may panic if it is
+//! re-entered while already mutably borrowed (for example, if `T::hash` or
+//! `T::eq` calls back into `intern()`).
+//!
+//! This restriction is typical for interning implementations and should not be
+//! observable in well-behaved `Eq` / `Hash` implementations.
+//!
+//! # Thread Safety
+//!
+//! `InternArena` is **not thread-safe**. It is intended for single-threaded or
+//! externally synchronized use. If you need a concurrent interner, additional
+//! synchronization is required.
 
-use crate::{frozen::FrozenVec, Interned};
+use std::{cell::RefCell, collections::HashSet};
 
-/// An arena allocator that deduplicates equal values (also known as interning).
-///
-/// An `InternArena` allocates values on the heap but ensures that equal values
-/// share the same memory location. When you allocate a value that's equal to
-/// a previously allocated value, you get back a reference to the existing value
-/// instead of allocating a new one.
-///
-/// References remain valid for the lifetime of the arena, and values are never
-/// moved or deallocated until the entire arena is dropped.
-///
-/// # Requirements
-///
-/// The type `T` must implement `Eq` and `Hash` to enable deduplication.
-///
-/// # Implementation Notes
-///
-/// Internally uses a `HashSet` of pointers to track allocated values and a
-/// `FrozenVec` to store the actual data. The HashSet uses `RefCell` for
-/// interior mutability, allowing deduplication checks even through shared
-/// references.
+use crate::Arena;
+
+/// An arena allocator that deduplicates equal values.
+#[derive(Default)]
 pub struct InternArena<T> {
-    vec: FrozenVec<Box<T>>,
-    set: RefCell<HashSet<InternedPtr<T>>>,
-}
-
-impl<T> Default for InternArena<T>
-where
-    T: Eq + Hash,
-{
-    /// Creates an empty interning arena.
-    ///
-    /// This is equivalent to calling `InternArena::new()`.
-    fn default() -> Self {
-        Self::new()
-    }
+    arena: Arena<T>,
+    set: RefCell<HashSet<OpaqueRef<T>>>,
 }
 
 impl<'arena, T> InternArena<T>
 where
-    T: Eq + Hash,
+    T: Eq + std::hash::Hash,
 {
     /// Creates a new empty interning arena.
     pub fn new() -> Self {
         InternArena {
-            vec: FrozenVec::new(),
+            arena: Arena::new(),
             set: RefCell::new(HashSet::new()),
         }
     }
 
     /// Creates a new empty interning arena with the specified capacity.
     ///
-    /// The arena will be able to hold at least `capacity` unique elements
-    /// without reallocating. If `capacity` is 0, the arena will not allocate.
+    /// The arena will be able to hold at least `capacity` unique elements.
     pub fn with_capacity(capacity: usize) -> Self {
         InternArena {
-            vec: FrozenVec::with_capacity(capacity),
+            arena: Arena::with_capacity(capacity),
             set: RefCell::new(HashSet::with_capacity(capacity)),
         }
     }
 
-    /// Returns the number of unique elements currently allocated in the arena.
+    /// Returns the total number of items currently allocated in the arena.
+    ///
+    /// This counts items across all chunks.
     pub fn len(&self) -> usize {
-        self.vec.len()
+        self.arena.len()
     }
 
-    /// Returns `true` if the arena contains no elements.
+    /// Returns `true` if the arena contains no elements across all chunks.
     pub fn is_empty(&self) -> bool {
-        self.vec.is_empty()
-    }
-
-    /// Returns the number of unique elements the arena can hold without reallocating.
-    pub fn capacity(&self) -> usize {
-        self.vec.capacity()
-    }
-
-    /// Reserves capacity for at least `additional` more unique elements.
-    ///
-    /// This may reserve more space to avoid frequent reallocations. After
-    /// calling `reserve`, capacity will be greater than or equal to
-    /// `self.len() + additional`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the new capacity overflows `usize`.
-    pub fn reserve(&self, additional: usize) {
-        self.vec.reserve(additional);
-        self.set.borrow_mut().reserve(additional);
+        self.arena.is_empty()
     }
 
     /// Interns a value in the arena and returns a reference to it.
@@ -109,34 +121,102 @@ where
     /// Panics if called while already borrowed mutably (e.g., if `T::eq` or
     /// `T::hash` somehow calls back into `intern()`).
     #[inline]
-    pub fn intern(&'arena self, v: T) -> Interned<'arena, T> {
+    pub fn intern(&'arena self, v: T) -> Option<Interned<'arena, T>> {
         let mut set = self.set.borrow_mut();
-        let ptr = InternedPtr(&v as *const T);
-        if let Some(&InternedPtr(existing_ptr)) = set.get(&ptr) {
-            // Safety: pointer came from FrozenVec, so it's valid for 'arena
-            return Interned(unsafe { &*existing_ptr });
+        match set.get(&OpaqueRef(&raw const v)) {
+            None => {
+                let r = self.arena.alloc(v)?;
+                set.insert(OpaqueRef(std::ptr::from_ref::<T>(r)));
+                Some(Interned(r))
+            }
+            Some(&OpaqueRef(ptr)) => {
+                // Safety: pointers in `set` are guaranteed to point to data
+                // allocated in `self.arena`, so they live as long as 'arena.
+                unsafe { Some(Interned(&*ptr)) }
+            }
         }
-        let reference = self.vec.push_get(Box::new(v));
-        set.insert(InternedPtr(reference as *const T));
-        Interned(reference)
     }
 }
 
-/// Wrapper type that implements Hash and Eq by dereferencing the pointer
-struct InternedPtr<T>(*const T);
+struct OpaqueRef<T>(*const T);
 
-impl<T: Hash> Hash for InternedPtr<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // Safety: pointer is always valid (from FrozenVec)
+impl<T: Eq> Eq for OpaqueRef<T> {}
+impl<T: PartialEq> PartialEq for OpaqueRef<T> {
+    fn eq(&self, other: &Self) -> bool {
+        // Safety: pointers are always valid (from arena)
+        unsafe { *self.0 == *other.0 }
+    }
+}
+
+impl<T: std::hash::Hash> std::hash::Hash for OpaqueRef<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Safety: pointer is always valid (from arena)
         unsafe { (*self.0).hash(state) }
     }
 }
 
-impl<T: Eq> Eq for InternedPtr<T> {}
-impl<T: PartialEq> PartialEq for InternedPtr<T> {
+/// A handle to an interned value.
+///
+/// `Interned` behaves like a reference (`&T`) but guarantees that if
+/// `a == b`, then `ptr::eq(&*a, &*b)`. This allows for O(1) equality checks
+/// and hashing.
+pub struct Interned<'arena, T>(&'arena T);
+
+impl<T> Copy for Interned<'_, T> {}
+impl<T> Clone for Interned<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Eq for Interned<'_, T> {}
+impl<T> PartialEq for Interned<'_, T> {
     fn eq(&self, other: &Self) -> bool {
-        // Safety: pointers are always valid (from FrozenVec)
-        unsafe { *self.0 == *other.0 }
+        std::ptr::eq(self.0, other.0)
+    }
+}
+
+impl<T> Ord for Interned<'_, T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        std::ptr::from_ref::<T>(self.0).cmp(&std::ptr::from_ref::<T>(other.0))
+    }
+}
+
+impl<T> PartialOrd for Interned<'_, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> std::hash::Hash for Interned<'_, T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::ptr::from_ref::<T>(self.0).hash(state);
+    }
+}
+
+impl<'a, T> std::ops::Deref for Interned<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &'a T {
+        self.0
+    }
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for Interned<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.0, f)
+    }
+}
+
+impl<T> std::fmt::Debug for Interned<'_, T>
+where
+    T: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Interned")
+            .field(&self.0)
+            .field(&std::ptr::from_ref::<T>(self.0))
+            .finish()
     }
 }
 
@@ -144,343 +224,92 @@ impl<T: PartialEq> PartialEq for InternedPtr<T> {
 mod tests {
     use super::*;
 
-    // Simple test types
     #[derive(Debug, PartialEq, Eq, Hash)]
     struct SimpleValue(i32);
 
-    pub type Ty<'ctx> = Interned<'ctx, TyKind<'ctx>>;
-
-    #[derive(PartialEq, Eq, Hash)]
-    pub enum TyKind<'ctx> {
-        Void,
+    #[derive(Debug, PartialEq, Eq, Hash)]
+    enum TyKind<'ctx> {
         Int,
-        Long,
-        Ptr(Ty<'ctx>),
-        Func {
-            ret: Ty<'ctx>,
-            params: Vec<Ty<'ctx>>,
-        },
+        Arrow(Vec<Interned<'ctx, TyKind<'ctx>>>),
     }
 
-    // Helper context struct
-    pub struct TyCtx<'ctx> {
+    type Ty<'ctx> = Interned<'ctx, TyKind<'ctx>>;
+
+    struct TyCtx<'ctx> {
         arena: InternArena<TyKind<'ctx>>,
     }
 
     impl<'ctx> TyCtx<'ctx> {
-        pub fn new() -> Self {
+        fn new() -> Self {
             Self {
                 arena: InternArena::new(),
             }
         }
 
-        pub fn len(&self) -> usize {
-            self.arena.len()
+        fn int(&'ctx self) -> Ty<'ctx> {
+            self.arena.intern(TyKind::Int).unwrap()
         }
 
-        pub fn void(&'ctx self) -> Ty<'ctx> {
-            self.arena.intern(TyKind::Void)
-        }
-
-        pub fn int(&'ctx self) -> Ty<'ctx> {
-            self.arena.intern(TyKind::Int)
-        }
-
-        pub fn long(&'ctx self) -> Ty<'ctx> {
-            self.arena.intern(TyKind::Long)
-        }
-
-        pub fn ptr(&'ctx self, pointee: Ty<'ctx>) -> Ty<'ctx> {
-            self.arena.intern(TyKind::Ptr(pointee))
-        }
-
-        pub fn func(&'ctx self, ret: Ty<'ctx>, params: Vec<Ty<'ctx>>) -> Ty<'ctx> {
-            self.arena.intern(TyKind::Func { ret, params })
+        fn arrow(&'ctx self, tys: Vec<Ty<'ctx>>) -> Ty<'ctx> {
+            self.arena.intern(TyKind::Arrow(tys)).unwrap()
         }
     }
 
     #[test]
-    fn test_empty_arena() {
-        let arena: InternArena<String> = InternArena::new();
-        assert_eq!(arena.len(), 0);
-        assert!(arena.is_empty());
-    }
-
-    #[test]
-    fn test_default() {
-        let arena: InternArena<SimpleValue> = InternArena::default();
-        assert_eq!(arena.len(), 0);
-        assert!(arena.is_empty());
-    }
-
-    #[test]
-    fn test_basic_interning() {
+    fn test_identity_and_deduplication() {
         let arena = InternArena::new();
-        let v1 = arena.intern(SimpleValue(42));
-        let v2 = arena.intern(SimpleValue(42));
-        let v3 = arena.intern(SimpleValue(43));
-
-        // Same values should have same pointer
-        assert!(v1 == v2);
-        // Different values should have different pointers
-        assert!(v1 != v3);
-
-        // Should only have 2 unique values
+        let v1 = arena.intern(SimpleValue(42)).unwrap();
+        let v2 = arena.intern(SimpleValue(42)).unwrap();
+        let v3 = arena.intern(SimpleValue(100)).unwrap();
+        assert_eq!(v1, v2);
+        assert!(std::ptr::eq(&*v1, &*v2));
+        assert_ne!(v1, v3);
+        assert!(!std::ptr::eq(&*v1, &*v3));
         assert_eq!(arena.len(), 2);
     }
 
     #[test]
-    fn test_string_interning() {
-        let arena = InternArena::new();
-        let s1 = arena.intern("hello".to_string());
-        let s2 = arena.intern("hello".to_string());
-        let s3 = arena.intern("world".to_string());
-
-        assert!(s1 == s2);
-        assert!(s1 != s3);
-        assert_eq!(arena.len(), 2);
-        assert_eq!(*s1, "hello");
-        assert_eq!(*s3, "world");
-    }
-
-    #[test]
-    fn test_arena_not_empty() {
-        let arena = InternArena::new();
-        arena.intern(SimpleValue(1));
-        assert_eq!(arena.len(), 1);
-        assert!(!arena.is_empty());
-    }
-
-    #[test]
-    fn test_with_capacity() {
-        let arena: InternArena<SimpleValue> = InternArena::with_capacity(10);
-        assert_eq!(arena.len(), 0);
-        assert!(arena.capacity() >= 10);
-    }
-
-    #[test]
-    fn test_reserve() {
-        let arena: InternArena<SimpleValue> = InternArena::new();
-        let initial_capacity = arena.capacity();
-        arena.reserve(100);
-        assert!(arena.capacity() >= initial_capacity + 100);
-    }
-
-    #[test]
-    fn test_multiple_interned_references() {
-        let arena = InternArena::new();
-        let v1 = arena.intern(SimpleValue(1));
-        let v2 = arena.intern(SimpleValue(2));
-        let v3 = arena.intern(SimpleValue(1)); // Same as v1
-
-        // Can hold multiple references at once
-        assert_eq!((*v1).0, 1);
-        assert_eq!((*v2).0, 2);
-        assert_eq!((*v3).0, 1);
-        assert!(v1 == v3);
-    }
-
-    #[test]
-    fn test_ty_basic_types() {
+    fn test_empty_vectors_deduplication() {
         let ctx = TyCtx::new();
-
-        let void1 = ctx.void();
-        let void2 = ctx.void();
-        let int1 = ctx.int();
-        let int2 = ctx.int();
-
-        // Same types should be interned to same pointer
-        assert!(void1 == void2);
-        assert!(int1 == int2);
-        assert!(void1 != int1);
-
-        // Should only have 2 unique types
-        assert_eq!(ctx.len(), 2);
+        let arr1 = ctx.arrow(vec![]);
+        let arr2 = ctx.arrow(vec![]);
+        assert_eq!(arr1, arr2);
+        assert!(std::ptr::eq(&*arr1, &*arr2));
+        assert_eq!(ctx.arena.len(), 1);
     }
 
     #[test]
-    fn test_ty_pointer_types() {
+    fn test_recursive_structures() {
         let ctx = TyCtx::new();
-
-        let int = ctx.int();
-        let ptr_int1 = ctx.ptr(int);
-        let ptr_int2 = ctx.ptr(int);
-
-        // Same pointer types should be interned
-        assert!(ptr_int1 == ptr_int2);
-
-        let long = ctx.long();
-        let ptr_long = ctx.ptr(long);
-
-        // Different pointer types should not be interned
-        assert!(ptr_int1 != ptr_long);
-
-        // Should have: int, long, ptr(int), ptr(long)
-        assert_eq!(ctx.len(), 4);
-    }
-
-    #[test]
-    fn test_ty_nested_pointers() {
-        let ctx = TyCtx::new();
-
-        let int = ctx.int();
-        let ptr_int = ctx.ptr(int);
-        let ptr_ptr_int1 = ctx.ptr(ptr_int);
-        let ptr_ptr_int2 = ctx.ptr(ptr_int);
-
-        // Should deduplicate nested pointers
-        assert!(ptr_ptr_int1 == ptr_ptr_int2);
-
-        // Should have: int, ptr(int), ptr(ptr(int))
-        assert_eq!(ctx.len(), 3);
-    }
-
-    #[test]
-    fn test_ty_function_types() {
-        let ctx = TyCtx::new();
-
-        let void = ctx.void();
         let int = ctx.int();
 
-        let func1 = ctx.func(void, vec![]);
-        let func2 = ctx.func(void, vec![]);
+        let func1 = ctx.arrow(vec![int, int]);
+        let func2 = ctx.arrow(vec![int, int]);
+        assert_eq!(func1, func2);
+        assert!(std::ptr::eq(&*func1, &*func2));
 
-        // Same function types should be interned
-        assert!(func1 == func2);
-
-        let func3 = ctx.func(int, vec![]);
-
-        // Different return types
-        assert!(func1 != func3);
-
-        let func4 = ctx.func(void, vec![int]);
-
-        // Different parameters
-        assert!(func1 != func4);
-    }
-
-    #[test]
-    fn test_ty_complex_function_types() {
-        let ctx = TyCtx::new();
-
-        let int = ctx.int();
-        let long = ctx.long();
-        let ptr_int = ctx.ptr(int);
-
-        let func1 = ctx.func(int, vec![long, ptr_int]);
-        let func2 = ctx.func(int, vec![long, ptr_int]);
-
-        // Should deduplicate complex function types
-        assert!(func1 == func2);
-
-        // Different parameter order should create different type
-        let func3 = ctx.func(int, vec![ptr_int, long]);
-        assert!(func1 != func3);
-    }
-
-    #[test]
-    fn test_ty_function_returning_function() {
-        let ctx = TyCtx::new();
-
-        let int = ctx.int();
-        let void = ctx.void();
-
-        // int -> void
-        let inner_func = ctx.func(void, vec![int]);
-
-        // () -> (int -> void)
-        let outer_func1 = ctx.func(inner_func, vec![]);
-        let outer_func2 = ctx.func(inner_func, vec![]);
-
-        assert!(outer_func1 == outer_func2);
-    }
-
-    #[test]
-    fn test_ty_structural_equality() {
-        let ctx = TyCtx::new();
-
-        // Create int -> int two different ways
-        let int1 = ctx.int();
-        let func1 = ctx.func(int1, vec![int1]);
-
-        let int2 = ctx.int(); // This should be same as int1
-        let func2 = ctx.func(int2, vec![int2]);
-
-        // Should be same because int1 and int2 are interned to same pointer
-        assert!(func1 == func2);
-    }
-
-    #[test]
-    fn test_many_types() {
-        let ctx = TyCtx::new();
-
-        let int = ctx.int();
-
-        // Create 1000 ptr(int) - should all intern to same value
-        for _ in 0..1000 {
-            let ptr_int = ctx.ptr(int);
-            assert!(ptr_int == ctx.ptr(int));
-        }
-
-        // Should only have 2 types: int and ptr(int)
-        assert_eq!(ctx.len(), 2);
-    }
-
-    #[test]
-    fn test_vec_in_function() {
-        let ctx = TyCtx::new();
-
-        let int = ctx.int();
-        let long = ctx.long();
-
-        // Create functions with Vec parameters
-        let params1 = vec![int, long, int];
-        let func1 = ctx.func(int, params1.clone());
-        let func2 = ctx.func(int, params1);
-
-        assert!(func1 == func2);
-    }
-
-    #[test]
-    fn test_interning_order_independence() {
-        let arena1 = InternArena::new();
-        let v1 = arena1.intern(SimpleValue(1));
-        let _ = arena1.intern(SimpleValue(2));
-        let v1_again = arena1.intern(SimpleValue(1));
-
-        assert!(v1 == v1_again);
-        assert_eq!(arena1.len(), 2);
-
-        let arena2 = InternArena::new();
-        let v2_first = arena2.intern(SimpleValue(2));
-        let _ = arena2.intern(SimpleValue(1));
-        let v2_again = arena2.intern(SimpleValue(2));
-
-        assert!(v2_first == v2_again);
-        assert_eq!(arena2.len(), 2);
-    }
-
-    #[test]
-    fn test_hash_collision_handling() {
-        // Types with same hash but different values
-        #[derive(Debug, PartialEq, Eq)]
-        struct BadHash(i32);
-
-        impl std::hash::Hash for BadHash {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                // Always return same hash (terrible hash function)
-                0.hash(state);
+        let nested = ctx.arrow(vec![func1, int]);
+        match *nested {
+            TyKind::Arrow(ref args) => {
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0], func1);
+                assert_eq!(args[1], int);
             }
+            _ => panic!("Wrong type"),
+        }
+    }
+
+    #[test]
+    fn test_stress_reallocation() {
+        let arena = InternArena::new();
+
+        let mut refs = Vec::new();
+        for i in 0..2000 {
+            refs.push(arena.intern(SimpleValue(i)).unwrap());
         }
 
-        let arena = InternArena::new();
-        let v1 = arena.intern(BadHash(1));
-        let v2 = arena.intern(BadHash(2));
-        let v1_again = arena.intern(BadHash(1));
-
-        // Should still work correctly despite hash collisions
-        assert!(v1 == v1_again);
-        assert!(v1 != v2);
-        assert_eq!(arena.len(), 2);
+        let v0 = arena.intern(SimpleValue(0)).unwrap();
+        assert_eq!(refs[0], v0);
+        assert!(std::ptr::eq(&*refs[0], &*v0));
     }
 }

@@ -148,7 +148,7 @@ impl<'ctx> SSABuilder<'ctx> {
                             .build_val(Inst::alloca(data.ty.as_ref().into(), 0), data.span);
                         self.insert_var(data.name.sema.get().expect("sema symbol not set"), alloca);
                         if let Some(init) = init {
-                            let value = self.visit_expr(init, ExprMode::RightValue);
+                            let value = self.visit_expr_rvalue(init);
                             self.builder
                                 .build_val(Inst::store(alloca, value, 0), data.span);
                         }
@@ -175,7 +175,7 @@ impl<'ctx> SSABuilder<'ctx> {
         match &data.kind {
             ast::StmtKind::Empty => {}
             ast::StmtKind::Expr(expr) => {
-                self.visit_expr(*expr, ExprMode::RightValue);
+                self.visit_expr_rvalue(*expr);
             }
             ast::StmtKind::Default(inner) => {
                 let block = self.remove_case_block(stmt);
@@ -185,7 +185,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Return(expr) => {
-                let val = self.visit_expr(*expr, ExprMode::RightValue);
+                let val = self.visit_expr_rvalue(*expr);
                 self.builder.build_val(Inst::ret(Some(val)), data.span);
             }
             ast::StmtKind::Break(target) => {
@@ -241,7 +241,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 let else_block = otherwise.map(|_| self.builder.build_block("if.else", data.span));
                 let false_target = else_block.unwrap_or(cont_block);
 
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let cond_val = self.visit_expr_rvalue(*cond);
                 self.builder
                     .build_val(Inst::cond_br(cond_val, then_block, false_target), data.span);
 
@@ -272,7 +272,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
                 // === Cond Block ===
                 self.builder.block = Some(cond_block);
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let cond_val = self.visit_expr_rvalue(*cond);
                 self.builder
                     .build_val(Inst::cond_br(cond_val, body_block, cont_block), data.span);
 
@@ -302,7 +302,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
                 // === Cond Block ===
                 self.builder.block = Some(cond_block);
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let cond_val = self.visit_expr_rvalue(*cond);
                 self.builder
                     .build_val(Inst::cond_br(cond_val, body_block, cont_block), data.span);
 
@@ -331,7 +331,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     match init {
                         ast::ForInit::VarDecl(decl) => self.visit_decl(*decl),
                         ast::ForInit::Expr(expr) => {
-                            self.visit_expr(*expr, ExprMode::RightValue);
+                            self.visit_expr_rvalue(*expr);
                         }
                     }
                 }
@@ -341,7 +341,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 // === Condition Block ===
                 if let (Some(cond), Some(cond_block)) = (cond, cond_block) {
                     self.builder.block = Some(cond_block);
-                    let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                    let cond_val = self.visit_expr_rvalue(*cond);
                     self.builder
                         .build_val(Inst::cond_br(cond_val, body_block, exit_block), data.span);
                 }
@@ -349,7 +349,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 // === Step Block ===
                 if let (Some(step), Some(step_block)) = (step, step_block) {
                     self.builder.block = Some(step_block);
-                    self.visit_expr(*step, ExprMode::RightValue);
+                    self.visit_expr_rvalue(*step);
                     self.builder
                         .build_val(Inst::br(cond_block.unwrap_or(body_block)), data.span);
                 }
@@ -395,7 +395,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 self.tracked
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cont_block));
 
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let cond_val = self.visit_expr_rvalue(*cond);
                 self.builder.build_val(
                     Inst::switch(cond_val, default_block.unwrap_or(cont_block), cases),
                     data.span,
@@ -410,10 +410,19 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn visit_expr(&mut self, expr: ast::Expr, mode: ExprMode) -> Value {
+    fn visit_expr_lvalue(&mut self, expr: ast::Expr) -> Value {
+        self.visit_expr_inner(expr, ExprMode::LValue)
+    }
+
+    fn visit_expr_rvalue(&mut self, expr: ast::Expr) -> Value {
+        self.visit_expr_inner(expr, ExprMode::RValue)
+    }
+
+    fn visit_expr_inner(&mut self, expr: ast::Expr, mode: ExprMode) -> Value {
         let expr = &self.ast.expr[expr];
+        let ty = expr.ty.get().as_ref().into();
         match &expr.kind {
-            ast::ExprKind::Grouped(expr) => self.visit_expr(*expr, mode),
+            ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
             ast::ExprKind::Const(ConstValue::Int32(c)) => self
                 .builder
                 .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
@@ -429,8 +438,8 @@ impl<'ctx> SSABuilder<'ctx> {
                     Attribute::Local => {
                         let ptr = self.get_var(name.sema.get().expect("sema symbol not set"));
                         match mode {
-                            ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => match *info.ty {
+                            ExprMode::LValue => ptr,
+                            ExprMode::RValue => match *info.ty {
                                 ast::TyKind::Int => {
                                     self.builder.build_val(Inst::load(Ty::I32, ptr, 0), span)
                                 }
@@ -445,8 +454,8 @@ impl<'ctx> SSABuilder<'ctx> {
                         let var = self.get_global(name.sema.get().expect("sema symbol not set"));
                         let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
                         match mode {
-                            ExprMode::LeftValue => ptr,
-                            ExprMode::RightValue => match *info.ty {
+                            ExprMode::LValue => ptr,
+                            ExprMode::RValue => match *info.ty {
                                 ast::TyKind::Int => {
                                     self.builder.build_val(Inst::load(Ty::I32, ptr, 0), span)
                                 }
@@ -460,11 +469,11 @@ impl<'ctx> SSABuilder<'ctx> {
                 }
             }
             ast::ExprKind::Cast { ty, expr: inner } => {
-                let expr_ty = self.ast.expr[*inner].ty.get();
-                let val = self.visit_expr(*inner, ExprMode::RightValue);
-                if *ty == self.sema.ty.int_ty && expr_ty == self.sema.ty.long_ty {
+                let inner_ty = self.ast.expr[*inner].ty.get();
+                let val = self.visit_expr_rvalue(*inner);
+                if *ty == self.sema.ty.int_ty && inner_ty == self.sema.ty.long_ty {
                     self.builder.build_val(Inst::trunc(Ty::I32, val), expr.span)
-                } else if *ty == self.sema.ty.long_ty && expr_ty == self.sema.ty.int_ty {
+                } else if *ty == self.sema.ty.long_ty && inner_ty == self.sema.ty.int_ty {
                     self.builder.build_val(Inst::sext(Ty::I64, val), expr.span)
                 } else {
                     val
@@ -473,7 +482,7 @@ impl<'ctx> SSABuilder<'ctx> {
             ast::ExprKind::Call { name, args, .. } => {
                 let args = self.ast.exprs[*args]
                     .iter()
-                    .map(|arg| self.visit_expr(*arg, ExprMode::RightValue))
+                    .map(|arg| self.visit_expr_rvalue(*arg))
                     .collect::<Vec<_>>();
                 let symbol = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("expected a sema symbol");
@@ -490,20 +499,10 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::UnaryOp::PreDec => self.build_prefix_incdec(*inner, false, expr.span),
                 ast::UnaryOp::PostInc => self.build_postfix_incdec(*inner, true, expr.span),
                 ast::UnaryOp::PostDec => self.build_postfix_incdec(*inner, false, expr.span),
-                ast::UnaryOp::Neg => self.build_unary(
-                    expr.ty.get().as_ref().into(),
-                    UnaryOp::Neg,
-                    *inner,
-                    expr.span,
-                ),
-                ast::UnaryOp::BitNot => self.build_unary(
-                    expr.ty.get().as_ref().into(),
-                    UnaryOp::Not,
-                    *inner,
-                    expr.span,
-                ),
+                ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
+                ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
                 ast::UnaryOp::LogicalNot => {
-                    let val = self.visit_expr(*inner, ExprMode::RightValue);
+                    let val = self.visit_expr_rvalue(*inner);
                     let zero = self
                         .builder
                         .build_val(Inst::const_int(Ty::I32, 0), expr.span);
@@ -513,245 +512,152 @@ impl<'ctx> SSABuilder<'ctx> {
                     self.builder.build_val(Inst::zext(Ty::I32, cmp), expr.span)
                 }
             },
-            ast::ExprKind::Binary { op, lhs, rhs } => match op {
-                ast::BinaryOp::LogicalOr => self.build_sc(true, *lhs, *rhs, expr.span),
-                ast::BinaryOp::LogicalAnd => self.build_sc(false, *lhs, *rhs, expr.span),
-                ast::BinaryOp::Equal => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder
-                        .build_val(Inst::icmp(ICmpOp::Eq, lhs, rhs), expr.span)
-                }
-                ast::BinaryOp::NotEqual => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder
-                        .build_val(Inst::icmp(ICmpOp::Ne, lhs, rhs), expr.span)
-                }
-                ast::BinaryOp::LessThan => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder
-                        .build_val(Inst::icmp(ICmpOp::Lt, lhs, rhs), expr.span)
-                }
+            ast::ExprKind::Binary { op, lhs, rhs } => {
+                let rhs_ty = self.ast.expr[*rhs].ty.get();
+                match op {
+                    ast::BinaryOp::LogicalOr => self.build_sc(true, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::LogicalAnd => self.build_sc(false, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Equal => {
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder
+                            .build_val(Inst::icmp(ICmpOp::Eq, lhs, rhs), expr.span)
+                    }
+                    ast::BinaryOp::NotEqual => {
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder
+                            .build_val(Inst::icmp(ICmpOp::Ne, lhs, rhs), expr.span)
+                    }
+                    ast::BinaryOp::LessThan => {
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder
+                            .build_val(Inst::icmp(ICmpOp::Lt, lhs, rhs), expr.span)
+                    }
 
-                ast::BinaryOp::LessEqual => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder
-                        .build_val(Inst::icmp(ICmpOp::Le, lhs, rhs), expr.span)
-                }
+                    ast::BinaryOp::LessEqual => {
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder
+                            .build_val(Inst::icmp(ICmpOp::Le, lhs, rhs), expr.span)
+                    }
 
-                ast::BinaryOp::GreaterThan => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder
-                        .build_val(Inst::icmp(ICmpOp::Gt, lhs, rhs), expr.span)
-                }
+                    ast::BinaryOp::GreaterThan => {
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder
+                            .build_val(Inst::icmp(ICmpOp::Gt, lhs, rhs), expr.span)
+                    }
 
-                ast::BinaryOp::GreaterEqual => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder
-                        .build_val(Inst::icmp(ICmpOp::Ge, lhs, rhs), expr.span)
-                }
+                    ast::BinaryOp::GreaterEqual => {
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder
+                            .build_val(Inst::icmp(ICmpOp::Ge, lhs, rhs), expr.span)
+                    }
 
-                ast::BinaryOp::Add => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Add,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::Sub => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Sub,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::Mul => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Mul,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::Div => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Div,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::Rem => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Rem,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitOr => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Or,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitAnd => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::And,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitXor => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Xor,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitShl => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Shl,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitShr => self.build_bin(
-                    expr.ty.get().as_ref().into(),
-                    BinaryOp::Shr,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::AddAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Add,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::SubAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Sub,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::MulAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Mul,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::DivAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Div,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::RemAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Rem,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitOrAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Or,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitAndAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::And,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitXorAssign => self.build_bin_asgn(
-                    mode,
-                    self.ast.expr[*rhs].ty.get(),
-                    BinaryOp::Xor,
-                    *lhs,
-                    *rhs,
-                    expr.span,
-                ),
-                ast::BinaryOp::BitShlAssign => {
-                    let l = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let r = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let inst = self.builder.build_val(
-                        Inst::binary(BinaryOp::Shl, expr.ty.get().as_ref().into(), l, r),
-                        expr.span,
-                    );
-                    let ptr = self.visit_expr(*lhs, ExprMode::LeftValue);
-                    self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
-                    match mode {
-                        ExprMode::LeftValue => ptr,
-                        ExprMode::RightValue => inst,
+                    ast::BinaryOp::Add => self.build_bin(ty, BinaryOp::Add, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Sub => self.build_bin(ty, BinaryOp::Sub, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Mul => self.build_bin(ty, BinaryOp::Mul, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Div => self.build_bin(ty, BinaryOp::Div, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Rem => self.build_bin(ty, BinaryOp::Rem, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::BitOr => self.build_bin(ty, BinaryOp::Or, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::BitAnd => {
+                        self.build_bin(ty, BinaryOp::And, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitXor => {
+                        self.build_bin(ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitShl => {
+                        self.build_bin(ty, BinaryOp::Shl, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitShr => {
+                        self.build_bin(ty, BinaryOp::Shr, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::AddAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Add, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::SubAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Sub, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::MulAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Mul, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::DivAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Div, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::RemAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Rem, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitOrAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Or, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitAndAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::And, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitXorAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitShlAssign => {
+                        let ptr = self.visit_expr_lvalue(*lhs);
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        let inst = self
+                            .builder
+                            .build_val(Inst::binary(BinaryOp::Shl, ty, lhs, rhs), expr.span);
+                        self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
+                        match mode {
+                            ExprMode::LValue => ptr,
+                            ExprMode::RValue => inst,
+                        }
+                    }
+                    ast::BinaryOp::BitShrAssign => {
+                        let ptr = self.visit_expr_lvalue(*lhs);
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        let inst = self
+                            .builder
+                            .build_val(Inst::binary(BinaryOp::Shr, ty, lhs, rhs), expr.span);
+                        self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
+                        match mode {
+                            ExprMode::LValue => ptr,
+                            ExprMode::RValue => inst,
+                        }
+                    }
+                    ast::BinaryOp::Assign => {
+                        let lhs = self.visit_expr_lvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder.build_val(Inst::store(lhs, rhs, 0), expr.span);
+                        match mode {
+                            ExprMode::LValue => lhs,
+                            ExprMode::RValue => rhs,
+                        }
                     }
                 }
-                ast::BinaryOp::BitShrAssign => {
-                    let l = self.visit_expr(*lhs, ExprMode::RightValue);
-                    let r = self.visit_expr(*rhs, ExprMode::RightValue);
-                    let inst = self.builder.build_val(
-                        Inst::binary(BinaryOp::Shr, expr.ty.get().as_ref().into(), l, r),
-                        expr.span,
-                    );
-                    let ptr = self.visit_expr(*lhs, ExprMode::LeftValue);
-                    self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
-                    match mode {
-                        ExprMode::LeftValue => ptr,
-                        ExprMode::RightValue => inst,
-                    }
-                }
-                ast::BinaryOp::Assign => {
-                    let lhs = self.visit_expr(*lhs, ExprMode::LeftValue);
-                    let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
-                    self.builder.build_val(Inst::store(lhs, rhs, 0), expr.span);
-                    match mode {
-                        ExprMode::LeftValue => lhs,
-                        ExprMode::RightValue => rhs,
-                    }
-                }
-            },
+            }
             ast::ExprKind::Ternary { cond, then, other } => {
-                let cond_val = self.visit_expr(*cond, ExprMode::RightValue);
+                let cond_val = self.visit_expr_rvalue(*cond);
 
                 let then_block = self.builder.build_block("tern.then", expr.span);
                 let else_block = self.builder.build_block("tern.else", expr.span);
                 let cont_block = self.builder.build_block("tern.cont", expr.span);
 
-                let phi = self
-                    .builder
-                    .build_phi(expr.ty.get().as_ref().into(), expr.span);
+                let phi = self.builder.build_phi(ty, expr.span);
 
                 self.builder
                     .build_val(Inst::cond_br(cond_val, then_block, else_block), expr.span);
 
                 // === Then Block ===
                 self.builder.block = Some(then_block);
-                let then_val = self.visit_expr(*then, ExprMode::RightValue);
+                let then_val = self.visit_expr_rvalue(*then);
                 self.builder
                     .build_val(Inst::upsilon(phi, then_val), expr.span);
                 self.builder.build_val(Inst::br(cont_block), expr.span);
 
                 // === Else Block ===
                 self.builder.block = Some(else_block);
-                let else_val = self.visit_expr(*other, ExprMode::RightValue);
+                let else_val = self.visit_expr_rvalue(*other);
                 self.builder
                     .build_val(Inst::upsilon(phi, else_val), expr.span);
                 self.builder.build_val(Inst::br(cont_block), expr.span);
@@ -765,7 +671,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     fn build_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> Value {
-        let val = self.visit_expr(expr, ExprMode::RightValue);
+        let val = self.visit_expr_rvalue(expr);
         self.builder.build_val(Inst::unary(op, ty, val), span)
     }
 
@@ -773,7 +679,7 @@ impl<'ctx> SSABuilder<'ctx> {
         let obj_ty = self.ast.expr[expr].ty.get();
         let ssa_obj_ty = obj_ty.as_ref().into();
 
-        let ptr = self.visit_expr(expr, ExprMode::LeftValue);
+        let ptr = self.visit_expr_lvalue(expr);
         let old = self.builder.build_val(Inst::load(ssa_obj_ty, ptr, 0), span);
 
         let arith_ty = obj_ty;
@@ -802,7 +708,7 @@ impl<'ctx> SSABuilder<'ctx> {
         let obj_ty = self.ast.expr[expr].ty.get();
         let ssa_obj_ty = obj_ty.as_ref().into();
 
-        let ptr = self.visit_expr(expr, ExprMode::LeftValue);
+        let ptr = self.visit_expr_lvalue(expr);
 
         let old = self.builder.build_val(Inst::load(ssa_obj_ty, ptr, 0), span);
 
@@ -831,8 +737,8 @@ impl<'ctx> SSABuilder<'ctx> {
         rhs: ast::Expr,
         span: Span,
     ) -> Value {
-        let lhs = self.visit_expr(lhs, ExprMode::RightValue);
-        let rhs = self.visit_expr(rhs, ExprMode::RightValue);
+        let lhs = self.visit_expr_rvalue(lhs);
+        let rhs = self.visit_expr_rvalue(rhs);
         self.builder.build_val(Inst::binary(op, ty, lhs, rhs), span)
     }
 
@@ -846,13 +752,13 @@ impl<'ctx> SSABuilder<'ctx> {
         span: Span,
     ) -> Value {
         let lty = self.ast.expr[lhs].ty.get();
-        let mut l = self.visit_expr(lhs, ExprMode::RightValue);
+        let mut l = self.visit_expr_rvalue(lhs);
         if lty == self.sema.ty.int_ty && ty == self.sema.ty.long_ty {
             l = self.builder.build_val(Inst::sext(Ty::I64, l), span);
         }
 
         let rty = self.ast.expr[rhs].ty.get();
-        let r = self.visit_expr(rhs, ExprMode::RightValue);
+        let r = self.visit_expr_rvalue(rhs);
         let mut inst = self
             .builder
             .build_val(Inst::binary(op, rty.as_ref().into(), l, r), span);
@@ -860,12 +766,12 @@ impl<'ctx> SSABuilder<'ctx> {
             inst = self.builder.build_val(Inst::trunc(Ty::I32, inst), span);
         }
 
-        let ptr = self.visit_expr(lhs, ExprMode::LeftValue);
+        let ptr = self.visit_expr_lvalue(lhs);
         self.builder.build_val(Inst::store(ptr, inst, 0), span);
 
         match mode {
-            ExprMode::LeftValue => ptr,
-            ExprMode::RightValue => inst,
+            ExprMode::LValue => ptr,
+            ExprMode::RValue => inst,
         }
     }
 
@@ -880,7 +786,7 @@ impl<'ctx> SSABuilder<'ctx> {
         let phi = self.builder.build_phi(Ty::I32, span);
 
         // === LHS Block ===
-        let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
+        let lhs_val = self.visit_expr_rvalue(lhs);
         let short_circuit_val = self.builder.build_val(
             if is_or {
                 Inst::const_int(Ty::I32, 1)
@@ -901,7 +807,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
         // === RHS Block ===
         self.builder.block = Some(rhs_block);
-        let rhs_val = self.visit_expr(rhs, ExprMode::RightValue);
+        let rhs_val = self.visit_expr_rvalue(rhs);
         let zero_val = self.builder.build_val(Inst::const_int(Ty::I32, 0), span);
         let is_nonzero = self
             .builder
@@ -992,13 +898,13 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    pub fn get_or_make_global(&mut self, name: &ast::AstSymbol, mut v: GlobalData) -> Global {
+    pub fn get_or_make_global(&mut self, name: &ast::AstSymbol, mut global: GlobalData) -> Global {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,
             None => {
                 let name = match self.builder.function {
-                    Some(func) if !v.is_global => {
+                    Some(func) if !global.is_global => {
                         let fname = self.builder.program.functions[func].name;
                         let fname = self.builder.interner.lookup(fname);
                         let name = self.builder.interner.lookup(name.name);
@@ -1007,8 +913,8 @@ impl<'ctx> SSABuilder<'ctx> {
                     }
                     _ => name.name,
                 };
-                v.name = name;
-                let v = self.builder.program.globals.push(v);
+                global.name = name;
+                let v = self.builder.program.globals.push(global);
                 self.symbols[sym] = Some(SymbolEntry::Global(v));
                 v
             }
@@ -1023,8 +929,8 @@ impl<'ctx> SSABuilder<'ctx> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExprMode {
-    LeftValue,
-    RightValue,
+    LValue,
+    RValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

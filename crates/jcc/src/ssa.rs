@@ -101,10 +101,8 @@ impl<'ctx> SSABuilder<'ctx> {
                                 let arg = self
                                     .builder
                                     .build_val(Inst::param(ty, idx as u32), param.span);
-                                self.insert_var(
-                                    param.name.sema.get().expect("sema symbol not set"),
-                                    arg,
-                                );
+                                let sema = param.name.sema.get().expect("sema symbol not set");
+                                self.symbols[sema] = Some(SymbolEntry::Value(arg));
                             });
 
                         self.ast.items[body].iter().for_each(|item| match item {
@@ -138,15 +136,15 @@ impl<'ctx> SSABuilder<'ctx> {
         match data.kind {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
-                let info = self.sema.symbols[data.name.sema.get().expect("sema symbol not set")]
-                    .expect("expected a sema symbol");
+                let sema = data.name.sema.get().expect("sema symbol not set");
+                let info = self.sema.symbols[sema].expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => panic!("unexpected function attribute"),
                     Attribute::Local => {
                         let alloca = self
                             .builder
                             .build_val(Inst::alloca(data.ty.as_ref().into(), 0), data.span);
-                        self.insert_var(data.name.sema.get().expect("sema symbol not set"), alloca);
+                        self.symbols[sema] = Some(SymbolEntry::Value(alloca));
                         if let Some(init) = init {
                             let value = self.visit_expr_rvalue(init);
                             self.builder
@@ -436,7 +434,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 match info.attr {
                     Attribute::Function { .. } => todo!("handle function variables"),
                     Attribute::Local => {
-                        let ptr = self.get_var(name.sema.get().expect("sema symbol not set"));
+                        let ptr = self.get_value(name.sema.get().expect("sema symbol not set"));
                         match mode {
                             ExprMode::LValue => ptr,
                             ExprMode::RValue => match *info.ty {
@@ -759,19 +757,19 @@ impl<'ctx> SSABuilder<'ctx> {
 
         let rty = self.ast.expr[rhs].ty.get();
         let r = self.visit_expr_rvalue(rhs);
-        let mut inst = self
+        let mut value = self
             .builder
             .build_val(Inst::binary(op, rty.as_ref().into(), l, r), span);
         if lty == self.sema.ty.int_ty && rty == self.sema.ty.long_ty {
-            inst = self.builder.build_val(Inst::trunc(Ty::I32, inst), span);
+            value = self.builder.build_val(Inst::trunc(Ty::I32, value), span);
         }
 
         let ptr = self.visit_expr_lvalue(lhs);
-        self.builder.build_val(Inst::store(ptr, inst, 0), span);
+        self.builder.build_val(Inst::store(ptr, value, 0), span);
 
         match mode {
             ExprMode::LValue => ptr,
-            ExprMode::RValue => inst,
+            ExprMode::RValue => value,
         }
     }
 
@@ -825,46 +823,42 @@ impl<'ctx> SSABuilder<'ctx> {
     // Auxiliary Methods
     // ---------------------------------------------------------------------------
 
-    pub fn get_var(&self, sym: sema::Symbol) -> Value {
+    fn get_value(&self, sym: sema::Symbol) -> Value {
         match self.symbols[sym] {
-            Some(SymbolEntry::Value(inst)) => inst,
+            Some(SymbolEntry::Value(value)) => value,
             _ => panic!("expected an inst ref"),
         }
     }
 
-    pub fn get_global(&self, sym: sema::Symbol) -> Global {
+    fn get_global(&self, sym: sema::Symbol) -> Global {
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,
             _ => panic!("expected a static var ref"),
         }
     }
 
-    pub fn insert_var(&mut self, sym: sema::Symbol, var: Value) {
-        self.symbols[sym] = Some(SymbolEntry::Value(var));
-    }
-
-    pub fn get_break_block(&self, stmt: ast::Stmt) -> Block {
+    fn get_break_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
             _ => panic!("expected a break block"),
         }
     }
 
-    pub fn get_continue_block(&self, stmt: ast::Stmt) -> Block {
+    fn get_continue_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
             _ => panic!("expected a break block"),
         }
     }
 
-    pub fn remove_case_block(&mut self, stmt: ast::Stmt) -> Block {
+    fn remove_case_block(&mut self, stmt: ast::Stmt) -> Block {
         match self.tracked.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
             _ => panic!("expected a break block"),
         }
     }
 
-    pub fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: Ident, span: Span) -> Block {
+    fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: Ident, span: Span) -> Block {
         let entry = self
             .tracked
             .entry(stmt)
@@ -875,7 +869,7 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    pub fn get_or_make_function(
+    fn get_or_make_function(
         &mut self,
         name: &ast::AstSymbol,
         is_global: bool,
@@ -898,7 +892,7 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    pub fn get_or_make_global(&mut self, name: &ast::AstSymbol, mut global: GlobalData) -> Global {
+    fn get_or_make_global(&mut self, name: &ast::AstSymbol, mut global: GlobalData) -> Global {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,

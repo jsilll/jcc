@@ -27,7 +27,7 @@ pub struct SSABuilder<'ctx> {
     /// Blocks tracked for statements
     tracked: HashMap<ast::Stmt, TrackedBlock>,
     /// Mapping from semantic symbols to SSA symbols
-    symbols: SecondaryMap<sema::Symbol, SymbolEntry>,
+    symbols: SecondaryMap<sema::Symbol, Option<SymbolEntry>>,
 }
 
 impl<'ctx> SSABuilder<'ctx> {
@@ -58,7 +58,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         Attribute::Local => panic!("unexpected local attribute"),
                         Attribute::Function { .. } => panic!("unexpected function attribute"),
                         Attribute::Static { is_global, init } => {
-                            self.get_or_make_static(
+                            self.get_or_make_global(
                                 &data.name,
                                 GlobalData {
                                     is_global,
@@ -154,7 +154,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         }
                     }
                     Attribute::Static { is_global, init } => {
-                        self.get_or_make_static(
+                        self.get_or_make_global(
                             &data.name,
                             GlobalData {
                                 is_global,
@@ -442,7 +442,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         }
                     }
                     Attribute::Static { .. } => {
-                        let var = self.get_static(name.sema.get().expect("sema symbol not set"));
+                        let var = self.get_global(name.sema.get().expect("sema symbol not set"));
                         let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
                         match mode {
                             ExprMode::LeftValue => ptr,
@@ -462,9 +462,9 @@ impl<'ctx> SSABuilder<'ctx> {
             ast::ExprKind::Cast { ty, expr: inner } => {
                 let expr_ty = self.ast.expr[*inner].ty.get();
                 let val = self.visit_expr(*inner, ExprMode::RightValue);
-                if *ty == self.sema.tys.int_ty && expr_ty == self.sema.tys.long_ty {
+                if *ty == self.sema.ty.int_ty && expr_ty == self.sema.ty.long_ty {
                     self.builder.build_val(Inst::trunc(Ty::I32, val), expr.span)
-                } else if *ty == self.sema.tys.long_ty && expr_ty == self.sema.tys.int_ty {
+                } else if *ty == self.sema.ty.long_ty && expr_ty == self.sema.ty.int_ty {
                     self.builder.build_val(Inst::sext(Ty::I64, val), expr.span)
                 } else {
                     val
@@ -514,8 +514,8 @@ impl<'ctx> SSABuilder<'ctx> {
                 }
             },
             ast::ExprKind::Binary { op, lhs, rhs } => match op {
-                ast::BinaryOp::LogicalOr => self.build_sc(LogicalOp::Or, *lhs, *rhs, expr.span),
-                ast::BinaryOp::LogicalAnd => self.build_sc(LogicalOp::And, *lhs, *rhs, expr.span),
+                ast::BinaryOp::LogicalOr => self.build_sc(true, *lhs, *rhs, expr.span),
+                ast::BinaryOp::LogicalAnd => self.build_sc(false, *lhs, *rhs, expr.span),
                 ast::BinaryOp::Equal => {
                     let lhs = self.visit_expr(*lhs, ExprMode::RightValue);
                     let rhs = self.visit_expr(*rhs, ExprMode::RightValue);
@@ -847,7 +847,7 @@ impl<'ctx> SSABuilder<'ctx> {
     ) -> Value {
         let lty = self.ast.expr[lhs].ty.get();
         let mut l = self.visit_expr(lhs, ExprMode::RightValue);
-        if lty == self.sema.tys.int_ty && ty == self.sema.tys.long_ty {
+        if lty == self.sema.ty.int_ty && ty == self.sema.ty.long_ty {
             l = self.builder.build_val(Inst::sext(Ty::I64, l), span);
         }
 
@@ -856,7 +856,7 @@ impl<'ctx> SSABuilder<'ctx> {
         let mut inst = self
             .builder
             .build_val(Inst::binary(op, rty.as_ref().into(), l, r), span);
-        if lty == self.sema.tys.int_ty && rty == self.sema.tys.long_ty {
+        if lty == self.sema.ty.int_ty && rty == self.sema.ty.long_ty {
             inst = self.builder.build_val(Inst::trunc(Ty::I32, inst), span);
         }
 
@@ -869,38 +869,32 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn build_sc(&mut self, op: LogicalOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
-        let rhs_block = self.builder.build_block(
-            match op {
-                LogicalOp::Or => "or",
-                LogicalOp::And => "and",
-            },
-            span,
-        );
-        let cont_block = self.builder.build_block(
-            match op {
-                LogicalOp::Or => "or.cont",
-                LogicalOp::And => "and.cont",
-            },
-            span,
-        );
+    fn build_sc(&mut self, is_or: bool, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
+        let rhs_block = self
+            .builder
+            .build_block(if is_or { "or" } else { "and" }, span);
+        let cont_block = self
+            .builder
+            .build_block(if is_or { "or.cont" } else { "and.cont" }, span);
 
         let phi = self.builder.build_phi(Ty::I32, span);
 
         // === LHS Block ===
         let lhs_val = self.visit_expr(lhs, ExprMode::RightValue);
         let short_circuit_val = self.builder.build_val(
-            match op {
-                LogicalOp::Or => Inst::const_int(Ty::I32, 1),
-                LogicalOp::And => Inst::const_int(Ty::I32, 0),
+            if is_or {
+                Inst::const_int(Ty::I32, 1)
+            } else {
+                Inst::const_int(Ty::I32, 0)
             },
             span,
         );
         self.builder
             .build_val(Inst::upsilon(phi, short_circuit_val), span);
-        let (true_target, false_target) = match op {
-            LogicalOp::Or => (cont_block, rhs_block),
-            LogicalOp::And => (rhs_block, cont_block),
+        let (true_target, false_target) = if is_or {
+            (cont_block, rhs_block)
+        } else {
+            (rhs_block, cont_block)
         };
         self.builder
             .build_val(Inst::cond_br(lhs_val, true_target, false_target), span);
@@ -927,20 +921,20 @@ impl<'ctx> SSABuilder<'ctx> {
 
     pub fn get_var(&self, sym: sema::Symbol) -> Value {
         match self.symbols[sym] {
-            SymbolEntry::Inst(inst) => inst,
+            Some(SymbolEntry::Value(inst)) => inst,
             _ => panic!("expected an inst ref"),
         }
     }
 
-    pub fn get_static(&self, sym: sema::Symbol) -> Global {
+    pub fn get_global(&self, sym: sema::Symbol) -> Global {
         match self.symbols[sym] {
-            SymbolEntry::Static(v) => v,
+            Some(SymbolEntry::Global(v)) => v,
             _ => panic!("expected a static var ref"),
         }
     }
 
     pub fn insert_var(&mut self, sym: sema::Symbol, var: Value) {
-        self.symbols[sym] = SymbolEntry::Inst(var);
+        self.symbols[sym] = Some(SymbolEntry::Value(var));
     }
 
     pub fn get_break_block(&self, stmt: ast::Stmt) -> Block {
@@ -983,27 +977,26 @@ impl<'ctx> SSABuilder<'ctx> {
     ) -> Function {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
-            SymbolEntry::Inst(_) | SymbolEntry::Static(_) => panic!("expected a function"),
-            SymbolEntry::Function(f) => f,
-            SymbolEntry::None => {
+            Some(SymbolEntry::Function(f)) => f,
+            None => {
                 let f = self.builder.program.functions.push(FunctionData {
                     span,
                     is_global,
                     name: name.name,
                     blocks: Vec::new(),
                 });
-                self.symbols[sym] = SymbolEntry::Function(f);
+                self.symbols[sym] = Some(SymbolEntry::Function(f));
                 f
             }
+            _ => panic!("expected a function"),
         }
     }
 
-    pub fn get_or_make_static(&mut self, name: &ast::AstSymbol, mut v: GlobalData) -> Global {
+    pub fn get_or_make_global(&mut self, name: &ast::AstSymbol, mut v: GlobalData) -> Global {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
-            SymbolEntry::Inst(_) | SymbolEntry::Function(_) => panic!("expected a static"),
-            SymbolEntry::Static(v) => v,
-            SymbolEntry::None => {
+            Some(SymbolEntry::Global(v)) => v,
+            None => {
                 let name = match self.builder.function {
                     Some(func) if !v.is_global => {
                         let fname = self.builder.program.functions[func].name;
@@ -1016,9 +1009,10 @@ impl<'ctx> SSABuilder<'ctx> {
                 };
                 v.name = name;
                 let v = self.builder.program.globals.push(v);
-                self.symbols[sym] = SymbolEntry::Static(v);
+                self.symbols[sym] = Some(SymbolEntry::Global(v));
                 v
             }
+            _ => panic!("expected a static"),
         }
     }
 }
@@ -1026,12 +1020,6 @@ impl<'ctx> SSABuilder<'ctx> {
 // ---------------------------------------------------------------------------
 // Auxiliary Structures
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LogicalOp {
-    Or,
-    And,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExprMode {
@@ -1046,11 +1034,9 @@ pub enum TrackedBlock {
     BreakAndContinue(Block, Block),
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SymbolEntry {
-    #[default]
-    None,
-    Inst(Value),
-    Static(Global),
+    Value(Value),
+    Global(Global),
     Function(Function),
 }

@@ -31,7 +31,7 @@ pub struct TypeChecker<'a, 'ctx> {
 
 impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     pub fn new(ast: &'a Ast<'ctx>, ctx: &'a mut SemaCtx<'ctx>) -> Self {
-        let curr_ret = ctx.tys.void_ty;
+        let curr_ret = ctx.ty.void_ty;
         Self {
             ast,
             ctx,
@@ -234,7 +234,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     self.visit_block_scope_decl(*param)
                 });
                 if let Some(body) = body {
-                    self.curr_ret = self.get_return_type(decl).unwrap_or(self.ctx.tys.void_ty);
+                    self.curr_ret = decl.ty.as_ref().ret().unwrap_or(self.ctx.ty.void_ty);
                     self.ast.items[body].iter().for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
@@ -375,8 +375,8 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
         let data = &self.ast.expr[expr];
         let ty = match &data.kind {
-            ExprKind::Const(ConstValue::Int32(_)) => self.ctx.tys.int_ty,
-            ExprKind::Const(ConstValue::Int64(_)) => self.ctx.tys.long_ty,
+            ExprKind::Const(ConstValue::Int32(_)) => self.ctx.ty.int_ty,
+            ExprKind::Const(ConstValue::Int64(_)) => self.ctx.ty.long_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);
@@ -386,7 +386,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 self.visit_expr(*cond);
                 let tty = self.visit_expr(*then);
                 let oty = self.visit_expr(*other);
-                let common = self.get_common_type(tty, oty, data.span);
+                let common = self.assert_common_type(tty, oty, data.span);
                 if tty != common {
                     self.result.actions.cast(common, *then);
                 }
@@ -398,7 +398,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             ExprKind::Unary { op, expr } => {
                 let ty = self.visit_expr(*expr);
                 match op {
-                    UnaryOp::LogicalNot => self.ctx.tys.int_ty,
+                    UnaryOp::LogicalNot => self.ctx.ty.int_ty,
                     UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
                         self.assert_is_lvalue(*expr);
                         ty
@@ -410,7 +410,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 let lty = self.visit_expr(*lhs);
                 let rty = self.visit_expr(*rhs);
                 match op {
-                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => self.ctx.tys.int_ty,
+                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => self.ctx.ty.int_ty,
                     BinaryOp::BitShl | BinaryOp::BitShr => lty,
                     BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
                         self.assert_is_lvalue(*lhs);
@@ -422,14 +422,14 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::LessEqual
                     | BinaryOp::GreaterThan
                     | BinaryOp::GreaterEqual => {
-                        let common = self.get_common_type(lty, rty, data.span);
+                        let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
                         }
                         if rty != common {
                             self.result.actions.cast(common, *rhs);
                         }
-                        self.ctx.tys.int_ty
+                        self.ctx.ty.int_ty
                     }
                     BinaryOp::Assign
                     | BinaryOp::AddAssign
@@ -441,7 +441,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::BitAndAssign
                     | BinaryOp::BitXorAssign => {
                         self.assert_is_lvalue(*lhs);
-                        let common = self.get_common_type(lty, rty, data.span);
+                        let common = self.assert_common_type(lty, rty, data.span);
                         if rty != common {
                             self.result.actions.cast(common, *rhs);
                         }
@@ -455,7 +455,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::BitOr
                     | BinaryOp::BitAnd
                     | BinaryOp::BitXor => {
-                        let common = self.get_common_type(lty, rty, data.span);
+                        let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
                         }
@@ -511,7 +511,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             file: self.ast.file,
                             kind: TyperDiagnosticKind::VariableUsedAsFunction,
                         });
-                        self.ctx.tys.void_ty
+                        self.ctx.ty.void_ty
                     }
                 }
             }
@@ -524,9 +524,8 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     // Auxiliary methods
     // ---------------------------------------------------------------------------
 
-    #[inline]
     fn assert_is_lvalue(&mut self, expr: Expr) -> bool {
-        if !is_lvalue(self.ast, expr) {
+        if !self.ast.expr[expr].kind.is_lvalue(self.ast) {
             self.result.diagnostics.push(TyperDiagnostic {
                 file: self.ast.file,
                 span: self.ast.expr[expr].span,
@@ -537,48 +536,23 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
         true
     }
 
-    #[inline]
-    fn get_return_type(&self, decl: &DeclData<'ctx>) -> Option<Ty<'ctx>> {
-        match *decl.ty {
-            TyKind::Func { ret, .. } => Some(ret),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    fn get_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
-        match (&*lhs, &*rhs) {
-            (TyKind::Int, TyKind::Int) => self.ctx.tys.int_ty,
-            (TyKind::Long, TyKind::Long) => self.ctx.tys.long_ty,
-            (TyKind::Int, TyKind::Long) | (TyKind::Long, TyKind::Int) => self.ctx.tys.long_ty,
-            _ => {
+    fn assert_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
+        lhs.as_ref()
+            .common(rhs.as_ref(), self.ctx.ty)
+            .unwrap_or_else(|| {
                 self.result.diagnostics.push(TyperDiagnostic {
                     span,
                     file: self.ast.file,
                     kind: TyperDiagnosticKind::TypeMismatch,
                 });
-                self.ctx.tys.void_ty
-            }
-        }
+                self.ctx.ty.void_ty
+            })
     }
 }
 
 // ---------------------------------------------------------------------------
 // Auxiliary functions
 // ---------------------------------------------------------------------------
-
-fn is_lvalue(ast: &Ast, expr: Expr) -> bool {
-    match ast.expr[expr].kind {
-        ExprKind::Var { .. } => true,
-        ExprKind::Cast { .. } => todo!("handle cast expressions"),
-        ExprKind::Grouped(expr) => is_lvalue(ast, expr),
-        ExprKind::Const(_)
-        | ExprKind::Unary { .. }
-        | ExprKind::Binary { .. }
-        | ExprKind::Ternary { .. }
-        | ExprKind::Call { .. } => false,
-    }
-}
 
 fn eval_constant(ast: &Ast, expr: Expr) -> Option<ConstValue> {
     match ast.expr[expr].kind {

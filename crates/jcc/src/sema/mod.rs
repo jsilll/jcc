@@ -20,15 +20,15 @@ pub struct Symbol(u32);
 entity_impl!(Symbol, "symbol");
 
 pub struct SemaCtx<'ctx> {
-    pub tys: &'ctx TyCtx<'ctx>,
+    pub ty: &'ctx TyCtx<'ctx>,
     pub switches: HashMap<Stmt, SwitchCases>,
     pub symbols: SecondaryMap<Symbol, Option<SymbolInfo<'ctx>>>,
 }
 
 impl<'ctx> SemaCtx<'ctx> {
-    pub fn new(tys: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
+    pub fn new(ty: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
         Self {
-            tys,
+            ty,
             switches: HashMap::new(),
             symbols: SecondaryMap::with_capacity(capacity),
         }

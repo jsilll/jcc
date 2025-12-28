@@ -293,3 +293,17 @@ pub enum ExprKind<'ctx> {
     /// A function call expression.
     Call { name: AstSymbol, args: ExprList },
 }
+
+impl ExprKind<'_> {
+    pub fn is_lvalue(&self, ctx: &Ast) -> bool {
+        match self {
+            Self::Var { .. } => true,
+            Self::Grouped(expr) => ctx.expr[*expr].kind.is_lvalue(ctx),
+            Self::Unary {
+                op: UnaryOp::PreInc | UnaryOp::PreDec,
+                ..
+            } => true,
+            _ => false,
+        }
+    }
+}

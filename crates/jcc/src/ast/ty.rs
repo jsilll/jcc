@@ -1,4 +1,5 @@
 use jcc_arena::intern::{InternArena, Interned};
+use jcc_ssa::ir::ty::Ty as SsaTy;
 
 // ---------------------------------------------------------------------------
 // Ty
@@ -17,6 +18,37 @@ pub enum TyKind<'ctx> {
         ret: Ty<'ctx>,
         params: Vec<Ty<'ctx>>,
     },
+}
+
+impl<'ctx> TyKind<'ctx> {
+    /// Returns the return type if the type is a function type.
+    pub fn ret(&self) -> Option<Ty<'ctx>> {
+        match *self {
+            TyKind::Func { ret, .. } => Some(ret),
+            _ => None,
+        }
+    }
+
+    /// Returns the common type between two types, if any.
+    pub fn common(&self, other: &TyKind<'ctx>, ctx: &TyCtx<'ctx>) -> Option<Ty<'ctx>> {
+        match (self, other) {
+            (TyKind::Int, TyKind::Int) => Some(ctx.int_ty),
+            (TyKind::Long, TyKind::Long) => Some(ctx.long_ty),
+            (TyKind::Int, TyKind::Long) | (TyKind::Long, TyKind::Int) => Some(ctx.long_ty),
+            _ => None,
+        }
+    }
+}
+
+impl From<&TyKind<'_>> for SsaTy {
+    fn from(val: &TyKind<'_>) -> Self {
+        match val {
+            TyKind::Void => SsaTy::Void,
+            TyKind::Int => SsaTy::I32,
+            TyKind::Long => SsaTy::I64,
+            TyKind::Ptr(_) | TyKind::Func { .. } => SsaTy::Ptr,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -181,10 +181,15 @@ impl<T> Ord for Interned<'_, T> {
         std::ptr::from_ref::<T>(self.0).cmp(&std::ptr::from_ref::<T>(other.0))
     }
 }
-
 impl<T> PartialOrd for Interned<'_, T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl<T> AsRef<T> for Interned<'_, T> {
+    fn as_ref(&self) -> &T {
+        self.0
     }
 }
 

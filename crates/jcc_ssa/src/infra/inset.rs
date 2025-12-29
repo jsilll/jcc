@@ -10,7 +10,7 @@ use super::{Indexed, IR};
 /// # Usage Pattern
 ///
 /// 1. Create a new `InsertionSet`
-/// 2. Queue insertions using `insert_before`
+/// 2. Queue insertions using `insert_before` or `insert_after`
 /// 3. Apply all insertions with `execute`
 /// 4. Reuse the same `InsertionSet` for multiple blocks
 #[derive(Debug)]

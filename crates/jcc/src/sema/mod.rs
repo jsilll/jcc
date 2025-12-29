@@ -4,11 +4,10 @@ pub mod typing;
 
 use crate::ast::{
     ty::{Ty, TyCtx},
-    Stmt,
+    ConstValue, Stmt,
 };
 
 use jcc_entity::{entity_impl, SecondaryMap};
-use jcc_ssa::ir::ConstValue;
 
 use std::collections::HashMap;
 
@@ -21,15 +20,15 @@ pub struct Symbol(u32);
 entity_impl!(Symbol, "symbol");
 
 pub struct SemaCtx<'ctx> {
-    pub tys: &'ctx TyCtx<'ctx>,
+    pub ty: &'ctx TyCtx<'ctx>,
     pub switches: HashMap<Stmt, SwitchCases>,
     pub symbols: SecondaryMap<Symbol, Option<SymbolInfo<'ctx>>>,
 }
 
 impl<'ctx> SemaCtx<'ctx> {
-    pub fn new(tys: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
+    pub fn new(ty: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
         Self {
-            tys,
+            ty,
             switches: HashMap::new(),
             symbols: SecondaryMap::with_capacity(capacity),
         }
@@ -41,7 +40,7 @@ impl<'ctx> SemaCtx<'ctx> {
 // ---------------------------------------------------------------------------
 
 // TODO:(perf) Consider flattening the cases into a pool
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone)]
 pub struct SwitchCases {
     pub cases: Vec<Stmt>,
     pub default: Option<Stmt>,
@@ -51,7 +50,7 @@ pub struct SwitchCases {
 // SymbolInfo
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub struct SymbolInfo<'ctx> {
     pub ty: Ty<'ctx>,
     pub attr: Attribute,
@@ -100,7 +99,7 @@ impl<'ctx> SymbolInfo<'ctx> {
 // Attribute
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum Attribute {
     /// A local variable
     #[default]
@@ -115,7 +114,7 @@ pub enum Attribute {
 // StaticValue
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum StaticValue {
     /// No initializer
     #[default]
@@ -124,4 +123,16 @@ pub enum StaticValue {
     Tentative,
     /// Initialized with a value
     Init(ConstValue),
+}
+
+impl StaticValue {
+    /// Returns the integer value if it exists
+    pub fn value(&self) -> Option<i64> {
+        match self {
+            StaticValue::NoInit => None,
+            StaticValue::Tentative => Some(0),
+            StaticValue::Init(ConstValue::Int64(value)) => Some(*value),
+            StaticValue::Init(ConstValue::Int32(value)) => Some(*value as i64),
+        }
+    }
 }

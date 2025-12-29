@@ -17,7 +17,7 @@ use jcc_ssa::{
         span::Span,
         Diagnostic, Label,
     },
-    IdentId, IdentInterner,
+    Ident, IdentInterner,
 };
 
 use std::iter::Peekable;
@@ -719,7 +719,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn intern_span(&mut self, span: Span) -> IdentId {
+    fn intern_span(&mut self, span: Span) -> Ident {
         self.interner
             .intern(self.file.slice(span).expect("expected span to be valid"))
     }
@@ -841,7 +841,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         })
     }
 
-    fn eat_identifier(&mut self) -> Option<(Span, IdentId)> {
+    fn eat_identifier(&mut self) -> Option<(Span, Ident)> {
         let token = self.peek_some()?;
         match token.kind {
             TokenKind::Identifier => {

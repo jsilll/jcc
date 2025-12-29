@@ -10,7 +10,7 @@ use jcc_entity::EntityRef;
 use jcc_ssa::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
     interner::symtab::SymbolTable,
-    IdentId,
+    Ident,
 };
 
 use std::collections::HashMap;
@@ -27,9 +27,9 @@ pub struct ResolverPass<'a, 'ctx> {
     /// The current symbol count
     symbol_count: usize,
     /// The current scope symbol table
-    scope: SymbolTable<IdentId, SymbolInfo>,
+    scope: SymbolTable<Ident, SymbolInfo>,
     /// The global symbols map
-    globals: HashMap<IdentId, sema::Symbol>,
+    globals: HashMap<Ident, sema::Symbol>,
 }
 
 impl<'a, 'ctx> ResolverPass<'a, 'ctx> {

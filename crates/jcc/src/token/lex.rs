@@ -1,6 +1,7 @@
 use super::{Token, TokenKind};
 
 use jcc_ssa::codemap::{
+    byte::BytePos,
     file::{FileId, SourceFile},
     span::Span,
     Diagnostic, Label,
@@ -14,7 +15,7 @@ use std::{iter::Peekable, str::CharIndices};
 
 #[derive(Clone)]
 pub struct Lexer<'a> {
-    idx: u32,
+    pos: BytePos,
     file: &'a SourceFile,
     chars: Peekable<CharIndices<'a>>,
 }
@@ -30,7 +31,7 @@ impl<'a> Iterator for Lexer<'a> {
             self.chars.next();
         }
         self.chars.next().map(|(idx, c)| {
-            self.idx = idx as u32;
+            self.pos = BytePos::from(idx);
             match c {
                 c if c.is_ascii_digit() => self.number(),
                 c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
@@ -85,8 +86,8 @@ impl<'a> Iterator for Lexer<'a> {
                 )),
                 _ => Err(LexerDiagnostic {
                     file: self.file.id(),
+                    span: Span::single(self.pos),
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
-                    span: Span::new(self.idx, self.idx + 1).unwrap_or_default(),
                 }),
             }
         })
@@ -97,7 +98,7 @@ impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile) -> Self {
         Self {
             file,
-            idx: 0,
+            pos: BytePos::ZERO,
             chars: file.source().char_indices().peekable(),
         }
     }
@@ -106,7 +107,7 @@ impl<'a> Lexer<'a> {
     fn token(&mut self, kind: TokenKind, len: u32) -> Token {
         Token {
             kind,
-            span: Span::new(self.idx, self.idx + len).unwrap_or_default(),
+            span: Span::new(self.pos, self.pos + len).unwrap_or_default(),
         }
     }
 
@@ -181,14 +182,14 @@ impl<'a> Lexer<'a> {
             if c.is_ascii_alphabetic() {
                 return Err(LexerDiagnostic {
                     file: self.file.id(),
-                    span: Span::new(self.idx, end).unwrap_or_default(),
+                    span: Span::new(self.pos, end).unwrap_or_default(),
                     kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
                 });
             }
         }
         Ok(Token {
             kind,
-            span: Span::new(self.idx, end).unwrap_or_default(),
+            span: Span::new(self.pos, end).unwrap_or_default(),
         })
     }
 
@@ -216,7 +217,7 @@ impl<'a> Lexer<'a> {
         let ident = self
             .file
             .source()
-            .get(self.idx as usize..end as usize)
+            .get(self.pos.to_usize()..end.to_usize())
             .unwrap_or_default();
         let kind = KEYWORDS
             .get(ident)
@@ -224,12 +225,12 @@ impl<'a> Lexer<'a> {
             .unwrap_or(TokenKind::Identifier);
         Token {
             kind,
-            span: Span::new(self.idx, end).unwrap_or_default(),
+            span: Span::new(self.pos, end).unwrap_or_default(),
         }
     }
 
     #[inline]
-    fn next_while<F>(&mut self, mut predicate: F) -> u32
+    fn next_while<F>(&mut self, mut predicate: F) -> BytePos
     where
         F: FnMut(char) -> bool,
     {
@@ -241,8 +242,8 @@ impl<'a> Lexer<'a> {
         }
         self.chars
             .peek()
-            .map(|(idx, _)| *idx as u32)
-            .unwrap_or(self.idx + 1)
+            .map(|(idx, _)| BytePos::from(*idx))
+            .unwrap_or(self.pos + 1)
     }
 }
 

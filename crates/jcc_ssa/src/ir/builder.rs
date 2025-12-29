@@ -1,96 +1,89 @@
 use jcc_codemap::span::Span;
 
 use crate::{
-    ir::{Block, BlockRef, FuncRef, Inst, InstIdx, InstRef, Program},
-    IdentId, IdentInterner,
+    ir::{inst::Inst, ty::Ty, Block, BlockData, Function, Program, Value, ValueData},
+    Ident, IdentInterner,
 };
 
-// ---------------------------------------------------------------------------
-// IRBuilder
-// ---------------------------------------------------------------------------
-
-pub struct IRBuilder<'p> {
-    block: BlockRef,
-    func: Option<FuncRef>,
-    pub prog: Program<'p>,
+pub struct Builder<'a> {
+    pub program: Program,
+    pub interner: &'a mut IdentInterner,
+    pub block: Option<Block>,
+    pub function: Option<Function>,
 }
 
-impl<'p> IRBuilder<'p> {
-    pub fn new(interner: &'p mut IdentInterner) -> Self {
+impl<'a> Builder<'a> {
+    pub fn new(interner: &'a mut IdentInterner) -> Self {
         Self {
-            func: None,
-            block: BlockRef::default(),
-            prog: Program::new(interner),
+            interner,
+            block: None,
+            function: None,
+            program: Program::default(),
         }
     }
 
-    #[inline]
-    pub fn build(self) -> Program<'p> {
-        self.prog
+    pub fn finish(self) -> Program {
+        self.program
     }
 
-    #[inline]
-    pub fn block(&self) -> BlockRef {
-        self.block
+    /// Pushes a value into the current block.
+    pub fn push(&mut self, value: Value) {
+        if let Some(block) = self.block {
+            let block_data = &mut self.program.blocks[block];
+            let index = block_data.insts.len() as u32;
+            block_data.insts.push(value);
+
+            let value = &mut self.program.values[value];
+            value.index = index;
+            value.block = block;
+        }
     }
 
-    #[inline]
-    pub fn func(&self) -> Option<FuncRef> {
-        self.func
-    }
-
-    #[inline]
-    pub fn clear_func(&mut self) {
-        self.func = None;
-    }
-
-    #[inline]
-    pub fn switch_to_func(&mut self, func: FuncRef) {
-        self.func = Some(func);
-    }
-
-    #[inline]
-    pub fn switch_to_block(&mut self, block: BlockRef) {
-        self.block = block;
-    }
-
-    #[inline]
-    pub fn insert_skipped(&mut self, inst: InstRef) {
-        self.prog.block_mut(self.block).insts.push(inst);
-    }
-
-    #[inline]
-    pub fn insert_inst(&mut self, mut inst: Inst) -> InstRef {
-        inst.block = self.block;
-        inst.idx = InstIdx(self.prog.block_mut(self.block).insts.len() as u32);
-        let inst_ref = self.prog.new_inst(inst);
-        self.prog.block_mut(self.block).insts.push(inst_ref);
-        inst_ref
-    }
-
-    #[inline]
-    pub fn insert_inst_skip(&mut self, mut inst: Inst) -> InstRef {
-        inst.block = self.block;
-        self.prog.new_inst(inst)
-    }
-
-    #[inline]
-    pub fn new_block(&mut self, name: &str, span: Span) -> BlockRef {
-        let name = self.prog.interner.intern(name);
-        self.new_block_interned(name, span)
-    }
-
-    #[inline]
-    pub fn new_block_interned(&mut self, name: IdentId, span: Span) -> BlockRef {
-        let block = self.prog.new_block(Block {
-            name,
+    /// Builds a phi node but doesn't insert it into the current block.
+    pub fn build_phi(&mut self, ty: Ty, span: Span) -> Value {
+        let inst = Inst::phi(ty);
+        let block = self.block.expect("no current block");
+        let data = ValueData {
+            inst,
             span,
-            ..Default::default()
+            block,
+            index: Default::default(),
+        };
+        self.program.values.push(data)
+    }
+
+    /// Creates a new value in the current block.
+    pub fn build_val(&mut self, inst: Inst, span: Span) -> Value {
+        let block = self.block.expect("no current block");
+        let index = self.program.blocks[block].insts.len() as u32;
+        let value = self.program.values.push(ValueData {
+            inst,
+            span,
+            block,
+            index,
         });
-        self.prog
-            .func_mut(self.func.expect("expected a function"))
-            .blocks
-            .push(block);
+        self.program.blocks[block].insts.push(value);
+        value
+    }
+
+    /// Builds a new block in the current function.
+    pub fn build_block(&mut self, name: &str, span: Span) -> Block {
+        let sym = self.interner.intern(name);
+        self.build_block_sym(sym, span)
+    }
+
+    /// Builds a new block in the current function.
+    pub fn build_block_sym(&mut self, name: Ident, span: Span) -> Block {
+        let function = self.function.expect("no current function");
+        let block = self.program.blocks.push(BlockData {
+            span,
+            insts: Vec::new(),
+            preds: Vec::new(),
+            dom_parent: None,
+            dom_children: Vec::new(),
+            name,
+        });
+        self.program.functions[function].blocks.push(block);
         block
     }
 }

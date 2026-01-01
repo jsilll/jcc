@@ -67,17 +67,21 @@ impl<'ctx> Ast<'ctx> {
 //============================================================================
 
 #[derive(Debug, Clone)]
-pub struct AstSymbol {
+pub struct Symbol {
     pub name: Ident,
     pub sema: Cell<Option<sema::Symbol>>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum ConstValue {
-    /// A 32-bit const value.
-    Int32(i32),
-    /// A 64-bit const value.
-    Int64(i64),
+pub enum Const {
+    /// A constant integer value.
+    Int(i32),
+    /// A constant long integer value.
+    Long(i64),
+    /// A constant unsigned integer value.
+    UInt(u32),
+    /// A constant unsigned long integer value.
+    ULong(u64),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -111,7 +115,7 @@ pub enum UnaryOp {
     /// The `~` operator.
     BitNot,
     /// The `!` operator.
-    LogicalNot,
+    LogNot,
     /// The prefix `++` operator.
     PreInc,
     /// The prefix `--` operator.
@@ -125,21 +129,21 @@ pub enum UnaryOp {
 #[derive(Debug, Clone)]
 pub enum BinaryOp {
     /// The `||` operator.
-    LogicalOr,
+    LogOr,
     /// The `&&` operator.
-    LogicalAnd,
+    LogAnd,
     /// The `==` operator.
-    Equal,
+    Eq,
     /// The `!=` operator.
-    NotEqual,
+    Ne,
     /// The `<` operator.
-    LessThan,
+    Lt,
     /// The `<=` operator.
-    LessEqual,
+    Le,
     /// The `>` operator.
-    GreaterThan,
+    Gt,
     /// The `>=` operator.
-    GreaterEqual,
+    Ge,
     /// The `+` operator.
     Add,
     /// The `-` operator.
@@ -187,9 +191,9 @@ pub enum BinaryOp {
 #[derive(Debug, Clone)]
 pub struct DeclData<'ctx> {
     pub span: Span,
+    pub name: Symbol,
     pub ty: Ty<'ctx>,
     pub kind: DeclKind,
-    pub name: AstSymbol,
     pub storage: Option<StorageClass>,
 }
 
@@ -218,10 +222,10 @@ pub enum StmtKind {
     Expr(Expr),
     /// A return statement.
     Return(Expr),
-    /// A compound statement.
-    Compound(Block),
     /// A default statement.
     Default(Stmt),
+    /// A compound statement.
+    Compound(Block),
     /// A break statement.
     Break(Cell<Option<Stmt>>),
     /// A continue statement.
@@ -277,11 +281,11 @@ impl<'ctx> ExprData<'ctx> {
 #[derive(Debug, Clone)]
 pub enum ExprKind<'ctx> {
     /// A variable reference.
-    Var(AstSymbol),
+    Var(Symbol),
+    /// A constant integer value.
+    Const(Const),
     /// A grouped expression.
     Grouped(Expr),
-    /// A constant integer value.
-    Const(ConstValue),
     /// A cast expression.
     Cast { ty: Ty<'ctx>, expr: Expr },
     /// An unary expression.
@@ -291,7 +295,7 @@ pub enum ExprKind<'ctx> {
     /// A ternary expression.
     Ternary { cond: Expr, then: Expr, other: Expr },
     /// A function call expression.
-    Call { name: AstSymbol, args: ExprList },
+    Call { name: Symbol, args: ExprList },
 }
 
 impl ExprKind<'_> {

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, ConstValue},
+    ast::{self, Const},
     sema::{self, Attribute, SemaCtx},
 };
 
@@ -370,8 +370,8 @@ impl<'ctx> SSABuilder<'ctx> {
                         let inner = &self.ast.stmt[*inner_ref];
                         if let ast::StmtKind::Case { expr, .. } = inner.kind {
                             let val = match self.ast.expr[expr].kind {
-                                ast::ExprKind::Const(ConstValue::Int64(c)) => c,
-                                ast::ExprKind::Const(ConstValue::Int32(c)) => c as i64,
+                                ast::ExprKind::Const(Const::Long(c)) => c,
+                                ast::ExprKind::Const(Const::Int(c)) => c as i64,
                                 _ => panic!("expected a constant expression"),
                             };
                             let case_block = self.builder.build_block("switch.case", inner.span);
@@ -421,12 +421,18 @@ impl<'ctx> SSABuilder<'ctx> {
         let ty = expr.ty.get().as_ref().into();
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
-            ast::ExprKind::Const(ConstValue::Int32(c)) => self
-                .builder
-                .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
-            ast::ExprKind::Const(ConstValue::Int64(c)) => self
+            ast::ExprKind::Const(Const::Long(c)) => self
                 .builder
                 .build_val(Inst::const_int(Ty::I64, *c), expr.span),
+            ast::ExprKind::Const(Const::ULong(c)) => self
+                .builder
+                .build_val(Inst::const_int(Ty::I64, *c as i64), expr.span),
+            ast::ExprKind::Const(Const::Int(c)) => self
+                .builder
+                .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
+            ast::ExprKind::Const(Const::UInt(c)) => self
+                .builder
+                .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
                 let info = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
@@ -499,7 +505,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::UnaryOp::PostDec => self.build_postfix_incdec(*inner, false, expr.span),
                 ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
                 ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
-                ast::UnaryOp::LogicalNot => {
+                ast::UnaryOp::LogNot => {
                     let val = self.visit_expr_rvalue(*inner);
                     let zero = self
                         .builder
@@ -513,42 +519,42 @@ impl<'ctx> SSABuilder<'ctx> {
             ast::ExprKind::Binary { op, lhs, rhs } => {
                 let rhs_ty = self.ast.expr[*rhs].ty.get();
                 match op {
-                    ast::BinaryOp::LogicalOr => self.build_sc(true, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::LogicalAnd => self.build_sc(false, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Equal => {
+                    ast::BinaryOp::LogOr => self.build_sc(true, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::LogAnd => self.build_sc(false, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Eq => {
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
                             .build_val(Inst::icmp(ICmpOp::Eq, lhs, rhs), expr.span)
                     }
-                    ast::BinaryOp::NotEqual => {
+                    ast::BinaryOp::Ne => {
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
                             .build_val(Inst::icmp(ICmpOp::Ne, lhs, rhs), expr.span)
                     }
-                    ast::BinaryOp::LessThan => {
+                    ast::BinaryOp::Lt => {
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
                             .build_val(Inst::icmp(ICmpOp::Lt, lhs, rhs), expr.span)
                     }
 
-                    ast::BinaryOp::LessEqual => {
+                    ast::BinaryOp::Le => {
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
                             .build_val(Inst::icmp(ICmpOp::Le, lhs, rhs), expr.span)
                     }
 
-                    ast::BinaryOp::GreaterThan => {
+                    ast::BinaryOp::Gt => {
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
                             .build_val(Inst::icmp(ICmpOp::Gt, lhs, rhs), expr.span)
                     }
 
-                    ast::BinaryOp::GreaterEqual => {
+                    ast::BinaryOp::Ge => {
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
@@ -871,7 +877,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
     fn get_or_make_function(
         &mut self,
-        name: &ast::AstSymbol,
+        name: &ast::Symbol,
         is_global: bool,
         span: Span,
     ) -> Function {
@@ -892,7 +898,7 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn get_or_make_global(&mut self, name: &ast::AstSymbol, mut global: GlobalData) -> Global {
+    fn get_or_make_global(&mut self, name: &ast::Symbol, mut global: GlobalData) -> Global {
         let sym = name.sema.get().expect("sema symbol not set");
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,

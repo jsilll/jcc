@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        Ast, AstSymbol, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind,
-        StorageClass,
+        Ast, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind, StorageClass,
+        Symbol,
     },
     sema,
 };
@@ -247,7 +247,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn get_or_create_global_symbol(&mut self, name: &AstSymbol) -> sema::Symbol {
+    fn get_or_create_global_symbol(&mut self, name: &Symbol) -> sema::Symbol {
         let symbol = self.globals.entry(name.name).or_insert_with(|| {
             let symbol = sema::Symbol::new(self.symbol_count);
             self.symbol_count += 1;
@@ -257,7 +257,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         *symbol
     }
 
-    fn get_or_create_scoped_symbol(&mut self, decl: Decl, name: &AstSymbol, has_linkage: bool) {
+    fn get_or_create_scoped_symbol(&mut self, decl: Decl, name: &Symbol, has_linkage: bool) {
         let entry = if has_linkage {
             SymbolInfo::with_linkage(self.get_or_create_global_symbol(name))
         } else {

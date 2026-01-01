@@ -1,9 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyCtx},
-        Ast, AstSymbol, BinaryOp, Block, BlockItem, ConstValue, Decl, DeclData, DeclKind, DeclList,
-        Expr, ExprData, ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass,
-        UnaryOp,
+        Ast, BinaryOp, Block, BlockItem, Const, Decl, DeclData, DeclKind, DeclList, Expr, ExprData,
+        ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol, UnaryOp,
     },
     token::{
         lex::{Lexer, LexerDiagnostic},
@@ -161,7 +160,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             span,
             storage,
             kind: DeclKind::Var(init),
-            name: AstSymbol {
+            name: Symbol {
                 name,
                 sema: Default::default(),
             },
@@ -178,7 +177,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 span,
                 storage,
                 kind: DeclKind::Var(None),
-                name: AstSymbol {
+                name: Symbol {
                     name,
                     sema: Default::default(),
                 },
@@ -191,7 +190,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     span,
                     storage,
                     kind: DeclKind::Var(Some(init)),
-                    name: AstSymbol {
+                    name: Symbol {
                         name,
                         sema: Default::default(),
                     },
@@ -219,7 +218,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     span,
                     storage,
                     kind: DeclKind::Func { params, body },
-                    name: AstSymbol {
+                    name: Symbol {
                         name,
                         sema: Default::default(),
                     },
@@ -243,7 +242,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             span,
             storage: None,
             kind: DeclKind::Var(None),
-            name: AstSymbol {
+            name: Symbol {
                 name,
                 sema: Default::default(),
             },
@@ -562,8 +561,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         let Token { kind, span } = self.eat_some()?;
         if let Some(op) = match kind {
             TokenKind::Minus => Some(UnaryOp::Neg),
+            TokenKind::Bang => Some(UnaryOp::LogNot),
             TokenKind::Tilde => Some(UnaryOp::BitNot),
-            TokenKind::Bang => Some(UnaryOp::LogicalNot),
             TokenKind::PlusPlus => Some(UnaryOp::PreInc),
             TokenKind::MinusMinus => Some(UnaryOp::PreDec),
             _ => None,
@@ -583,7 +582,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some(self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(ConstValue::Int64(n)),
+                    kind: ExprKind::Const(Const::Long(n)),
                 }))
             }
             TokenKind::IntNumber => {
@@ -592,14 +591,14 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     Ok(n) => Some(self.result.ast.expr.push(ExprData {
                         span,
                         ty: self.tys.void_ty.into(),
-                        kind: ExprKind::Const(ConstValue::Int32(n)),
+                        kind: ExprKind::Const(Const::Int(n)),
                     })),
                     Err(_) => {
                         let n = n.parse::<i64>().expect("expected number to be valid");
                         Some(self.result.ast.expr.push(ExprData {
                             span,
                             ty: self.tys.void_ty.into(),
-                            kind: ExprKind::Const(ConstValue::Int64(n)),
+                            kind: ExprKind::Const(Const::Long(n)),
                         }))
                     }
                 }
@@ -609,7 +608,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let expr = self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Var(AstSymbol {
+                    kind: ExprKind::Var(Symbol {
                         name,
                         sema: Default::default(),
                     }),
@@ -627,7 +626,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                             ty: self.tys.void_ty.into(),
                             kind: ExprKind::Call {
                                 args,
-                                name: AstSymbol {
+                                name: Symbol {
                                     name,
                                     sema: Default::default(),
                                 },
@@ -940,10 +939,10 @@ impl From<TokenKind> for Option<Precedence> {
             TokenKind::Question => Some(Precedence::ternary(1)),
 
             // Group: Left-to-right Associativity
-            TokenKind::PipePipe => Some(Precedence::binary_left(2, BinaryOp::LogicalOr)),
+            TokenKind::PipePipe => Some(Precedence::binary_left(2, BinaryOp::LogOr)),
 
             // Group: Left-to-right Associativity
-            TokenKind::AmpAmp => Some(Precedence::binary_left(3, BinaryOp::LogicalAnd)),
+            TokenKind::AmpAmp => Some(Precedence::binary_left(3, BinaryOp::LogAnd)),
 
             // Group: Left-to-right Associativity
             TokenKind::Pipe => Some(Precedence::binary_left(4, BinaryOp::BitOr)),
@@ -955,14 +954,14 @@ impl From<TokenKind> for Option<Precedence> {
             TokenKind::Amp => Some(Precedence::binary_left(6, BinaryOp::BitAnd)),
 
             // Group: Left-to-right Associativity
-            TokenKind::EqEq => Some(Precedence::binary_left(7, BinaryOp::Equal)),
-            TokenKind::BangEq => Some(Precedence::binary_left(7, BinaryOp::NotEqual)),
+            TokenKind::EqEq => Some(Precedence::binary_left(7, BinaryOp::Eq)),
+            TokenKind::BangEq => Some(Precedence::binary_left(7, BinaryOp::Ne)),
 
             // Group: Left-to-right Associativity
-            TokenKind::Lt => Some(Precedence::binary_left(8, BinaryOp::LessThan)),
-            TokenKind::Gt => Some(Precedence::binary_left(8, BinaryOp::GreaterThan)),
-            TokenKind::LtEq => Some(Precedence::binary_left(8, BinaryOp::LessEqual)),
-            TokenKind::GtEq => Some(Precedence::binary_left(8, BinaryOp::GreaterEqual)),
+            TokenKind::Lt => Some(Precedence::binary_left(8, BinaryOp::Lt)),
+            TokenKind::Gt => Some(Precedence::binary_left(8, BinaryOp::Gt)),
+            TokenKind::LtEq => Some(Precedence::binary_left(8, BinaryOp::Le)),
+            TokenKind::GtEq => Some(Precedence::binary_left(8, BinaryOp::Ge)),
 
             // Group: Left-to-right Associativity
             TokenKind::LtLt => Some(Precedence::binary_left(9, BinaryOp::BitShl)),

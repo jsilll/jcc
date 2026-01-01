@@ -1,8 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyKind},
-        Ast, BinaryOp, BlockItem, ConstValue, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit,
-        Stmt, StmtKind, StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, Const, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
+        StmtKind, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
@@ -26,7 +26,7 @@ pub struct TypeChecker<'a, 'ctx> {
     /// The result of the type checking
     result: TyperResult<'ctx>,
     /// The set of switch case values encountered
-    switch_cases: HashSet<ConstValue>,
+    switch_cases: HashSet<Const>,
 }
 
 impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
@@ -334,24 +334,18 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
-                                Some(ConstValue::Int32(v)) => {
+                                Some(c) => {
                                     let v = match *cty {
-                                        TyKind::Int => ConstValue::Int32(v),
-                                        TyKind::Long => ConstValue::Int64(v as i64),
-                                        _ => panic!("invalid switch condition type"),
-                                    };
-                                    if !self.switch_cases.insert(v) {
-                                        self.result.diagnostics.push(TyperDiagnostic {
-                                            file: self.ast.file,
-                                            span: self.ast.expr[*expr].span,
-                                            kind: TyperDiagnosticKind::DuplicateSwitchCase,
-                                        });
-                                    }
-                                }
-                                Some(ConstValue::Int64(v)) => {
-                                    let v = match *cty {
-                                        TyKind::Int => ConstValue::Int32(v as i32),
-                                        TyKind::Long => ConstValue::Int64(v),
+                                        TyKind::Int => match c {
+                                            Const::Int(v) => Const::Int(v),
+                                            Const::Long(v) => Const::Int(v as i32),
+                                            _ => panic!("invalid switch condition type"),
+                                        },
+                                        TyKind::Long => match c {
+                                            Const::Long(v) => Const::Long(v),
+                                            Const::Int(v) => Const::Long(v as i64),
+                                            _ => panic!("invalid switch condition type"),
+                                        },
                                         _ => panic!("invalid switch condition type"),
                                     };
                                     if !self.switch_cases.insert(v) {
@@ -375,8 +369,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
         let data = &self.ast.expr[expr];
         let ty = match &data.kind {
-            ExprKind::Const(ConstValue::Int32(_)) => self.ctx.ty.int_ty,
-            ExprKind::Const(ConstValue::Int64(_)) => self.ctx.ty.long_ty,
+            ExprKind::Const(Const::UInt(_)) => todo!(),
+            ExprKind::Const(Const::ULong(_)) => todo!(),
+            ExprKind::Const(Const::Int(_)) => self.ctx.ty.int_ty,
+            ExprKind::Const(Const::Long(_)) => self.ctx.ty.long_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);
@@ -398,7 +394,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             ExprKind::Unary { op, expr } => {
                 let ty = self.visit_expr(*expr);
                 match op {
-                    UnaryOp::LogicalNot => self.ctx.ty.int_ty,
+                    UnaryOp::LogNot => self.ctx.ty.int_ty,
                     UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
                         self.assert_is_lvalue(*expr);
                         ty
@@ -410,18 +406,18 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 let lty = self.visit_expr(*lhs);
                 let rty = self.visit_expr(*rhs);
                 match op {
-                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => self.ctx.ty.int_ty,
+                    BinaryOp::LogAnd | BinaryOp::LogOr => self.ctx.ty.int_ty,
                     BinaryOp::BitShl | BinaryOp::BitShr => lty,
                     BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
                         self.assert_is_lvalue(*lhs);
                         lty
                     }
-                    BinaryOp::Equal
-                    | BinaryOp::NotEqual
-                    | BinaryOp::LessThan
-                    | BinaryOp::LessEqual
-                    | BinaryOp::GreaterThan
-                    | BinaryOp::GreaterEqual => {
+                    BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Le
+                    | BinaryOp::Gt
+                    | BinaryOp::Ge => {
                         let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
@@ -554,7 +550,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 // Auxiliary functions
 // ---------------------------------------------------------------------------
 
-fn eval_constant(ast: &Ast, expr: Expr) -> Option<ConstValue> {
+fn eval_constant(ast: &Ast, expr: Expr) -> Option<Const> {
     match ast.expr[expr].kind {
         ExprKind::Const(value) => Some(value),
         ExprKind::Cast { .. } => todo!("handle cast expressions"),

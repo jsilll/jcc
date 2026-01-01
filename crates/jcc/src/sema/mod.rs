@@ -4,7 +4,7 @@ pub mod typing;
 
 use crate::ast::{
     ty::{Ty, TyCtx},
-    ConstValue, Stmt,
+    Const, Stmt,
 };
 
 use jcc_entity::{entity_impl, SecondaryMap};
@@ -122,7 +122,7 @@ pub enum StaticValue {
     /// Tentative initializer
     Tentative,
     /// Initialized with a value
-    Init(ConstValue),
+    Init(Const),
 }
 
 impl StaticValue {
@@ -131,8 +131,10 @@ impl StaticValue {
         match self {
             StaticValue::NoInit => None,
             StaticValue::Tentative => Some(0),
-            StaticValue::Init(ConstValue::Int64(value)) => Some(*value),
-            StaticValue::Init(ConstValue::Int32(value)) => Some(*value as i64),
+            StaticValue::Init(Const::Long(v)) => Some(*v),
+            StaticValue::Init(Const::Int(v)) => Some(*v as i64),
+            StaticValue::Init(Const::UInt(v)) => Some(*v as i64),
+            StaticValue::Init(Const::ULong(v)) => Some(*v as i64),
         }
     }
 }

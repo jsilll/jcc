@@ -575,7 +575,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             }));
         }
         match kind {
-            TokenKind::LongIntNumber => {
+            TokenKind::NumLong => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 let n = &n[0..n.len() - 1]; // remove 'L' suffix
                 let n = n.parse::<i64>().expect("expected number to be valid");
@@ -585,7 +585,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     kind: ExprKind::Const(Const::Long(n)),
                 }))
             }
-            TokenKind::IntNumber => {
+            TokenKind::NumInt => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 match n.parse::<i32>() {
                     Ok(n) => Some(self.result.ast.expr.push(ExprData {

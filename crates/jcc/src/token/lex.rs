@@ -172,9 +172,9 @@ impl<'a> Lexer<'a> {
                 match self.chars.peek() {
                     Some((_, 'l' | 'L')) => {
                         self.chars.next();
-                        TokenKind::UnsignedLongIntNumber
+                        TokenKind::NumULong
                     }
-                    _ => TokenKind::UnsignedIntNumber,
+                    _ => TokenKind::NumUInt,
                 }
             }
             Some((_, 'l' | 'L')) => {
@@ -182,12 +182,12 @@ impl<'a> Lexer<'a> {
                 match self.chars.peek() {
                     Some((_, 'u' | 'U')) => {
                         self.chars.next();
-                        TokenKind::UnsignedLongIntNumber
+                        TokenKind::NumULong
                     }
-                    _ => TokenKind::LongIntNumber,
+                    _ => TokenKind::NumLong,
                 }
             }
-            _ => TokenKind::IntNumber,
+            _ => TokenKind::NumInt,
         };
         let end = self
             .chars

@@ -143,13 +143,13 @@ pub enum TokenKind {
     /// The `while` keyword.
     KwWhile,
     /// A regular integer literal.
-    IntNumber,
+    NumInt,
     /// A long integer literal (e.g., 123L).
-    LongIntNumber,
+    NumLong,
     /// An unsigned integer literal (e.g. 123u).
-    UnsignedIntNumber,
+    NumUInt,
     /// An unsigned long integer literal (e.g. 123ul).
-    UnsignedLongIntNumber,
+    NumULong,
     /// An identifier.
     Identifier,
 }
@@ -157,10 +157,10 @@ pub enum TokenKind {
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenKind::IntNumber
-            | TokenKind::LongIntNumber
-            | TokenKind::UnsignedIntNumber
-            | TokenKind::UnsignedLongIntNumber
+            TokenKind::NumInt
+            | TokenKind::NumLong
+            | TokenKind::NumUInt
+            | TokenKind::NumULong
             | TokenKind::Identifier => f.write_str(self.as_str()),
             _ => write!(f, "`{}`", self.as_str()),
         }
@@ -232,10 +232,10 @@ impl TokenKind {
             TokenKind::KwUnsigned => "unsigned",
             TokenKind::KwVoid => "void",
             TokenKind::KwWhile => "while",
-            TokenKind::IntNumber => "a number",
-            TokenKind::LongIntNumber => "a long number",
-            TokenKind::UnsignedIntNumber => "an unsigned number",
-            TokenKind::UnsignedLongIntNumber => "an unsigned long number",
+            TokenKind::NumInt => "a number",
+            TokenKind::NumLong => "a long number",
+            TokenKind::NumUInt => "an unsigned number",
+            TokenKind::NumULong => "an unsigned long number",
             TokenKind::Identifier => "an identifier",
         }
     }

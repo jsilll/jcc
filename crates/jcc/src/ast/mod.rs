@@ -84,6 +84,48 @@ pub enum Const {
     ULong(u64),
 }
 
+impl Const {
+    /// Converts the constant to a signed variant.
+    pub fn to_int(&self) -> Const {
+        match self {
+            Const::Int(v) => Const::Int(*v),
+            Const::Long(v) => Const::Int(*v as i32),
+            Const::UInt(v) => Const::Int(*v as i32),
+            Const::ULong(v) => Const::Int(*v as i32),
+        }
+    }
+
+    /// Converts the constant to a long variant.
+    pub fn to_long(&self) -> Const {
+        match self {
+            Const::Long(v) => Const::Long(*v),
+            Const::Int(v) => Const::Long(*v as i64),
+            Const::UInt(v) => Const::Long(*v as i64),
+            Const::ULong(v) => Const::Long(*v as i64),
+        }
+    }
+
+    /// Converts the constant to an unsigned variant.
+    pub fn to_uint(&self) -> Const {
+        match self {
+            Const::UInt(v) => Const::UInt(*v),
+            Const::Int(v) => Const::UInt(*v as u32),
+            Const::Long(v) => Const::UInt(*v as u32),
+            Const::ULong(v) => Const::UInt(*v as u32),
+        }
+    }
+
+    /// Converts the constant to an unsigned long variant.
+    pub fn to_ulong(&self) -> Const {
+        match self {
+            Const::ULong(v) => Const::ULong(*v),
+            Const::Int(v) => Const::ULong(*v as u64),
+            Const::UInt(v) => Const::ULong(*v as u64),
+            Const::Long(v) => Const::ULong(*v as u64),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum BlockItem {
     /// A declaration.

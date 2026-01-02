@@ -60,23 +60,23 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         Some(StorageClass::Extern) => StaticValue::NoInit,
                         _ => StaticValue::Tentative,
                     },
-                    Some(init) => {
-                        let ty = self.visit_expr(init);
-                        if ty != data.ty {
-                            self.result.actions.cast(data.ty, init);
+                    Some(init) => match eval_constant(self.ast, init) {
+                        Some(value) => match data.ty.as_ref() {
+                            TyKind::Int => StaticValue::Init(value.to_int()),
+                            TyKind::Long => StaticValue::Init(value.to_long()),
+                            TyKind::UInt => StaticValue::Init(value.to_uint()),
+                            TyKind::ULong => StaticValue::Init(value.to_ulong()),
+                            _ => StaticValue::Init(value),
+                        },
+                        None => {
+                            self.result.diagnostics.push(TyperDiagnostic {
+                                file: self.ast.file,
+                                span: self.ast.expr[init].span,
+                                kind: TyperDiagnosticKind::NotConstant,
+                            });
+                            StaticValue::NoInit
                         }
-                        match eval_constant(self.ast, init) {
-                            Some(value) => StaticValue::Init(value),
-                            None => {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    file: self.ast.file,
-                                    span: self.ast.expr[init].span,
-                                    kind: TyperDiagnosticKind::NotConstant,
-                                });
-                                StaticValue::NoInit
-                            }
-                        }
-                    }
+                    },
                 };
 
                 let info =
@@ -369,10 +369,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
         let data = &self.ast.expr[expr];
         let ty = match &data.kind {
-            ExprKind::Const(Const::UInt(_)) => todo!(),
-            ExprKind::Const(Const::ULong(_)) => todo!(),
             ExprKind::Const(Const::Int(_)) => self.ctx.ty.int_ty,
+            ExprKind::Const(Const::UInt(_)) => self.ctx.ty.uint_ty,
             ExprKind::Const(Const::Long(_)) => self.ctx.ty.long_ty,
+            ExprKind::Const(Const::ULong(_)) => self.ctx.ty.ulong_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);

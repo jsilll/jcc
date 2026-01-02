@@ -154,6 +154,21 @@ pub enum TokenKind {
     Identifier,
 }
 
+impl TokenKind {
+    pub fn is_decl_start(self) -> bool {
+        matches!(
+            self,
+            Self::KwInt
+                | Self::KwLong
+                | Self::KwVoid
+                | Self::KwStatic
+                | Self::KwExtern
+                | Self::KwSigned
+                | Self::KwUnsigned
+        )
+    }
+}
+
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

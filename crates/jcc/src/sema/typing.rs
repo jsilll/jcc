@@ -533,16 +533,14 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     fn assert_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
-        lhs.as_ref()
-            .common(rhs.as_ref(), self.ctx.ty)
-            .unwrap_or_else(|| {
-                self.result.diagnostics.push(TyperDiagnostic {
-                    span,
-                    file: self.ast.file,
-                    kind: TyperDiagnosticKind::TypeMismatch,
-                });
-                self.ctx.ty.void_ty
-            })
+        TyKind::common(lhs, rhs).unwrap_or_else(|| {
+            self.result.diagnostics.push(TyperDiagnostic {
+                span,
+                file: self.ast.file,
+                kind: TyperDiagnosticKind::TypeMismatch,
+            });
+            self.ctx.ty.void_ty
+        })
     }
 }
 

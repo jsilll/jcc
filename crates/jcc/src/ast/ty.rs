@@ -30,21 +30,47 @@ pub enum TyKind<'ctx> {
 }
 
 impl<'ctx> TyKind<'ctx> {
+    /// Returns true if the type is signed.
+    pub fn is_signed(&self) -> bool {
+        matches!(self, TyKind::Int | TyKind::Long)
+    }
+
+    /// Returns the size of the type in bytes.
+    pub fn byte_size(&self) -> usize {
+        match self {
+            TyKind::Void | TyKind::Func { .. } => 0,
+            TyKind::Int | TyKind::UInt => 4,
+            TyKind::Long | TyKind::ULong => 8,
+            TyKind::Ptr(_) => 8,
+        }
+    }
+
     /// Returns the return type if the type is a function type.
     pub fn ret(&self) -> Option<Ty<'ctx>> {
-        match *self {
-            TyKind::Func { ret, .. } => Some(ret),
+        match self {
+            TyKind::Func { ret, .. } => Some(*ret),
             _ => None,
         }
     }
 
     /// Returns the common type between two types, if any.
-    pub fn common(&self, other: &TyKind<'ctx>, ctx: &TyCtx<'ctx>) -> Option<Ty<'ctx>> {
-        match (self, other) {
-            (TyKind::Int, TyKind::Int) => Some(ctx.int_ty),
-            (TyKind::Long, TyKind::Long) => Some(ctx.long_ty),
-            (TyKind::Int, TyKind::Long) | (TyKind::Long, TyKind::Int) => Some(ctx.long_ty),
-            _ => None,
+    pub fn common(lhs: Ty<'ctx>, rhs: Ty<'ctx>) -> Option<Ty<'ctx>> {
+        if lhs == rhs {
+            Some(lhs)
+        } else {
+            let lhs_ref = lhs.as_ref();
+            let rhs_ref = rhs.as_ref();
+            match lhs_ref.byte_size().cmp(&rhs_ref.byte_size()) {
+                std::cmp::Ordering::Less => Some(rhs),
+                std::cmp::Ordering::Greater => Some(lhs),
+                std::cmp::Ordering::Equal => {
+                    if lhs_ref.is_signed() {
+                        Some(rhs)
+                    } else {
+                        Some(lhs)
+                    }
+                }
+            }
         }
     }
 }
@@ -52,12 +78,12 @@ impl<'ctx> TyKind<'ctx> {
 impl From<&TyKind<'_>> for SsaTy {
     fn from(val: &TyKind<'_>) -> Self {
         match val {
-            TyKind::Void => SsaTy::Void,
+            TyKind::Void | TyKind::Func { .. } => SsaTy::Void,
             TyKind::Int => SsaTy::I32,
             TyKind::UInt => SsaTy::I32,
             TyKind::Long => SsaTy::I64,
             TyKind::ULong => SsaTy::I64,
-            TyKind::Ptr(_) | TyKind::Func { .. } => SsaTy::Ptr,
+            TyKind::Ptr(_) => SsaTy::Ptr,
         }
     }
 }

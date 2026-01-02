@@ -35,7 +35,7 @@ pub struct Parser<'a, 'ctx> {
     /// The interner for identifier interning.
     interner: &'a mut IdentInterner,
     /// A temporary buffer for collecting type specifiers.
-    types: Vec<Ty<'ctx>>,
+    specifiers: Vec<TokenKind>,
     /// The result of the parsing process, containing the AST and diagnostics.
     result: ParserResult<'ctx>,
     /// A stack used for building expression lists, like function arguments.
@@ -58,7 +58,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             file,
             interner,
             lexer: lexer.peekable(),
-            types: Vec::with_capacity(16),
+            specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
             items_stack: Vec::with_capacity(16),
@@ -77,12 +77,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     fn parse_type(&mut self) -> Ty<'ctx> {
-        let ty = match self.types.as_slice() {
-            [ty] if *ty == self.tys.int_ty => self.tys.int_ty,
-            [ty] if *ty == self.tys.long_ty => self.tys.long_ty,
-            [ty] if *ty == self.tys.void_ty => self.tys.void_ty,
-            [ty1, ty2] if *ty1 == self.tys.int_ty && *ty2 == self.tys.long_ty => self.tys.long_ty,
-            [ty1, ty2] if *ty1 == self.tys.long_ty && *ty2 == self.tys.int_ty => self.tys.long_ty,
+        let ty = match self.specifiers.as_slice() {
+            [TokenKind::KwInt] => self.tys.int_ty,
+            [TokenKind::KwLong] => self.tys.long_ty,
+            [TokenKind::KwVoid] => self.tys.void_ty,
+            [TokenKind::KwInt, TokenKind::KwLong] => self.tys.long_ty,
+            [TokenKind::KwLong, TokenKind::KwInt] => self.tys.long_ty,
             t => {
                 let is_empty = t.is_empty();
                 let span = self.peek_span();
@@ -98,26 +98,18 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.tys.void_ty
             }
         };
-        self.types.clear();
+        self.specifiers.clear();
         ty
     }
 
-    fn parse_specifiers(&mut self) -> Option<(Ty<'ctx>, Option<StorageClass>)> {
+    fn parse_specifiers(&mut self) -> (Ty<'ctx>, Option<StorageClass>) {
         let mut count = 0;
         let mut storage = None;
         let start_span = self.peek_span();
+
         let mut end_span = start_span;
-        while let Some(t) = self.peek() {
-            match t.kind {
-                TokenKind::KwInt => {
-                    self.types.push(self.tys.int_ty);
-                }
-                TokenKind::KwLong => {
-                    self.types.push(self.tys.long_ty);
-                }
-                TokenKind::KwVoid => {
-                    self.types.push(self.tys.void_ty);
-                }
+        while let Some(token) = self.peek() {
+            match token.kind {
                 TokenKind::KwStatic => {
                     storage = Some(StorageClass::Static);
                     count += 1;
@@ -126,11 +118,15 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     storage = Some(StorageClass::Extern);
                     count += 1;
                 }
+                TokenKind::KwInt | TokenKind::KwLong | TokenKind::KwVoid => {
+                    self.specifiers.push(token.kind);
+                }
                 _ => break,
             }
-            end_span = t.span;
+            end_span = token.span;
             self.next();
         }
+
         if count > 1 {
             self.result.parser_diagnostics.push(ParserDiagnostic {
                 file: self.file.id(),
@@ -138,11 +134,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 kind: ParserDiagnosticKind::MultipleStorageClasses,
             });
         }
-        Some((self.parse_type(), storage))
+
+        (self.parse_type(), storage)
     }
 
     fn parse_var_decl(&mut self) -> Option<Decl> {
-        let (ty, storage) = self.parse_specifiers()?;
+        let (ty, storage) = self.parse_specifiers();
         let (span, name) = self.eat_identifier()?;
         let init = if let Some(Token {
             kind: TokenKind::Eq,
@@ -168,7 +165,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     fn parse_decl(&mut self) -> Option<Decl> {
-        let (ty, storage) = self.parse_specifiers()?;
+        let (ty, storage) = self.parse_specifiers();
         let (span, name) = self.eat_identifier()?;
         let token = self.eat_some()?;
         match token.kind {
@@ -638,7 +635,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             }
             TokenKind::LParen => {
                 self.collect_types();
-                if self.types.is_empty() {
+                if self.specifiers.is_empty() {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::RParen)?;
                     let expr = self.result.ast.expr.push(ExprData {
@@ -732,17 +729,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         self.tys.func(ret, params)
     }
 
+    #[inline]
     fn collect_types(&mut self) {
         while let Some(token) = self.peek() {
             match token.kind {
-                TokenKind::KwInt => {
-                    self.types.push(self.tys.int_ty);
-                }
-                TokenKind::KwLong => {
-                    self.types.push(self.tys.long_ty);
-                }
-                TokenKind::KwVoid => {
-                    self.types.push(self.tys.void_ty);
+                TokenKind::KwInt | TokenKind::KwLong | TokenKind::KwVoid => {
+                    self.specifiers.push(token.kind);
                 }
                 _ => break,
             }

@@ -76,20 +76,36 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         self.result
     }
 
-    fn parse_type(&mut self) -> Ty<'ctx> {
+    fn collect_types(&mut self) -> Span {
+        let start_span = self.peek_span();
+        let mut end_span = None;
+        while let Some(token) = self.peek() {
+            match token.kind {
+                TokenKind::KwInt | TokenKind::KwLong | TokenKind::KwVoid => {
+                    self.specifiers.push(token.kind);
+                    end_span = Some(token.span);
+                }
+                _ => break,
+            }
+            self.next();
+        }
+        end_span
+            .map(|s| start_span.merge(s))
+            .unwrap_or(Span::empty(start_span.start()))
+    }
+
+    fn parse_type(&mut self, span: Span) -> Ty<'ctx> {
         let ty = match self.specifiers.as_slice() {
             [TokenKind::KwInt] => self.tys.int_ty,
             [TokenKind::KwLong] => self.tys.long_ty,
             [TokenKind::KwVoid] => self.tys.void_ty,
             [TokenKind::KwInt, TokenKind::KwLong] => self.tys.long_ty,
             [TokenKind::KwLong, TokenKind::KwInt] => self.tys.long_ty,
-            t => {
-                let is_empty = t.is_empty();
-                let span = self.peek_span();
+            specifiers => {
                 self.result.parser_diagnostics.push(ParserDiagnostic {
                     span,
                     file: self.file.id(),
-                    kind: if is_empty {
+                    kind: if specifiers.is_empty() {
                         ParserDiagnosticKind::MissingTypeSpecifier
                     } else {
                         ParserDiagnosticKind::InvalidTypeSpecifier
@@ -127,15 +143,16 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             self.next();
         }
 
+        let span = start_span.merge(end_span);
         if count > 1 {
             self.result.parser_diagnostics.push(ParserDiagnostic {
+                span,
                 file: self.file.id(),
-                span: start_span.merge(end_span),
                 kind: ParserDiagnosticKind::MultipleStorageClasses,
             });
         }
 
-        (self.parse_type(), storage)
+        (self.parse_type(span), storage)
     }
 
     fn parse_var_decl(&mut self) -> Option<Decl> {
@@ -257,8 +274,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             }
             TokenKind::RParen => DeclList::default(),
             _ => {
-                self.collect_types();
-                let ty = self.parse_type();
+                let ty_span = self.collect_types();
+                let ty = self.parse_type(ty_span);
                 let base = self.decl_stack.len();
                 if let Some(decl) = self.parse_param(ty) {
                     self.decl_stack.push(decl);
@@ -269,8 +286,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }) = self.peek()
                 {
                     self.next();
-                    self.collect_types();
-                    let ty = self.parse_type();
+                    let ty_span = self.collect_types();
+                    let ty = self.parse_type(ty_span);
                     if let Some(decl) = self.parse_param(ty) {
                         self.decl_stack.push(decl);
                     }
@@ -634,8 +651,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }
             }
             TokenKind::LParen => {
-                self.collect_types();
-                if self.specifiers.is_empty() {
+                let ty_span = self.collect_types();
+                if ty_span.is_empty() {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::RParen)?;
                     let expr = self.result.ast.expr.push(ExprData {
@@ -645,7 +662,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     });
                     Some(self.parse_expr_postfix(expr))
                 } else {
-                    let ty = self.parse_type();
+                    let ty = self.parse_type(ty_span);
                     self.eat(TokenKind::RParen)?;
                     let expr = self.parse_expr_prefix()?;
                     let expr = self.result.ast.expr.push(ExprData {
@@ -727,19 +744,6 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             params.push(self.result.ast.decl[*d].ty);
         });
         self.tys.func(ret, params)
-    }
-
-    #[inline]
-    fn collect_types(&mut self) {
-        while let Some(token) = self.peek() {
-            match token.kind {
-                TokenKind::KwInt | TokenKind::KwLong | TokenKind::KwVoid => {
-                    self.specifiers.push(token.kind);
-                }
-                _ => break,
-            }
-            self.next();
-        }
     }
 
     // ---------------------------------------------------------------------------

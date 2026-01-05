@@ -71,7 +71,7 @@ impl<'a> AMD64Fixer<'a> {
             }
             InstKind::Push(dst) => {
                 self.fix_operand(dst);
-                if matches!(dst, Operand::Imm(v) if v.abs() > i32::MAX as i64) {
+                if matches!(dst, Operand::Imm(v) if *v < i32::MIN as i64 || *v > i32::MAX as i64) {
                     // NOTE
                     //
                     // The quadword versions of our three binary arithmetic instructions
@@ -167,7 +167,7 @@ impl<'a> AMD64Fixer<'a> {
                     );
                 }
                 if let Operand::Imm(c) = src {
-                    if c.abs() > i32::MAX as i64 {
+                    if *c < i32::MIN as i64 || *c > i32::MAX as i64 {
                         match inst.ty {
                             Type::Byte => {}
                             Type::Long => {
@@ -229,7 +229,7 @@ impl<'a> AMD64Fixer<'a> {
                         Inst::mov(inst.ty, tmp, Operand::Reg(Reg::Rg11), inst.span),
                     );
                 }
-                if matches!(lhs, Operand::Imm(v) if v.abs() > i32::MAX as i64) {
+                if matches!(lhs, Operand::Imm(v) if *v < i32::MIN as i64 || *v > i32::MAX as i64) {
                     // NOTE
                     //
                     // The quadword versions of our three binary arithmetic instructions
@@ -304,7 +304,7 @@ impl<'a> AMD64Fixer<'a> {
             InstKind::Binary { op, src, dst } => {
                 self.fix_operand(src);
                 self.fix_operand(dst);
-                if matches!(src, Operand::Imm(v) if v.abs() > i32::MAX as i64) {
+                if matches!(src, Operand::Imm(v) if *v < i32::MIN as i64 || *v > i32::MAX as i64) {
                     // NOTE
                     //
                     // The quadword versions of our three binary arithmetic instructions

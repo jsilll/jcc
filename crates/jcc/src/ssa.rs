@@ -414,7 +414,8 @@ impl<'ctx> SSABuilder<'ctx> {
 
     fn visit_expr_inner(&mut self, expr: ast::Expr, mode: ExprMode) -> Value {
         let expr = &self.ast.expr[expr];
-        let ty = expr.ty.get().as_ref().into();
+        let ty = expr.ty.get();
+        let ty_ref = ty.as_ref();
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
             ast::ExprKind::Const(Const::Long(c)) => self
@@ -439,9 +440,9 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.get_value(name.sema.get().expect("sema symbol not set"));
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => {
-                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
-                            }
+                            ExprMode::RValue => self
+                                .builder
+                                .build_val(Inst::load(ty_ref.into(), ptr, 0), span),
                         }
                     }
                     Attribute::Static { .. } => {
@@ -449,9 +450,9 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => {
-                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
-                            }
+                            ExprMode::RValue => self
+                                .builder
+                                .build_val(Inst::load(ty_ref.into(), ptr, 0), span),
                         }
                     }
                 }
@@ -495,8 +496,12 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::UnaryOp::PreDec => self.build_prefix_incdec(*inner, false, expr.span),
                 ast::UnaryOp::PostInc => self.build_postfix_incdec(*inner, true, expr.span),
                 ast::UnaryOp::PostDec => self.build_postfix_incdec(*inner, false, expr.span),
-                ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
-                ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
+                ast::UnaryOp::Neg => {
+                    self.build_unary(ty_ref.into(), UnaryOp::Neg, *inner, expr.span)
+                }
+                ast::UnaryOp::BitNot => {
+                    self.build_unary(ty_ref.into(), UnaryOp::Not, *inner, expr.span)
+                }
                 ast::UnaryOp::LogNot => {
                     let val = self.visit_expr_rvalue(*inner);
                     let zero = self
@@ -552,24 +557,29 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.builder
                             .build_val(Inst::icmp(ICmpOp::Ge, lhs, rhs), expr.span)
                     }
-
-                    ast::BinaryOp::Add => self.build_bin(ty, BinaryOp::Add, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Sub => self.build_bin(ty, BinaryOp::Sub, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Mul => self.build_bin(ty, BinaryOp::Mul, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Div => self.build_bin(ty, BinaryOp::Div, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Rem => self.build_bin(ty, BinaryOp::Rem, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::BitOr => self.build_bin(ty, BinaryOp::Or, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Add => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Add, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Sub => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Sub, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Mul => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Mul, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitOr => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Or, *lhs, *rhs, expr.span)
+                    }
                     ast::BinaryOp::BitAnd => {
-                        self.build_bin(ty, BinaryOp::And, *lhs, *rhs, expr.span)
+                        self.build_bin(ty_ref.into(), BinaryOp::And, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitXor => {
-                        self.build_bin(ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
+                        self.build_bin(ty_ref.into(), BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitShl => {
-                        self.build_bin(ty, BinaryOp::Shl, *lhs, *rhs, expr.span)
+                        self.build_bin(ty_ref.into(), BinaryOp::Shl, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitShr => {
-                        self.build_bin(ty, BinaryOp::Shr, *lhs, *rhs, expr.span)
+                        self.build_bin(ty_ref.into(), BinaryOp::Shr, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::AddAssign => {
                         self.build_bin_asgn(mode, rhs_ty, BinaryOp::Add, *lhs, *rhs, expr.span)
@@ -595,13 +605,23 @@ impl<'ctx> SSABuilder<'ctx> {
                     ast::BinaryOp::BitXorAssign => {
                         self.build_bin_asgn(mode, rhs_ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
+                    ast::BinaryOp::Assign => {
+                        let lhs = self.visit_expr_lvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        self.builder.build_val(Inst::store(lhs, rhs, 0), expr.span);
+                        match mode {
+                            ExprMode::LValue => lhs,
+                            ExprMode::RValue => rhs,
+                        }
+                    }
                     ast::BinaryOp::BitShlAssign => {
                         let ptr = self.visit_expr_lvalue(*lhs);
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
-                        let inst = self
-                            .builder
-                            .build_val(Inst::binary(BinaryOp::Shl, ty, lhs, rhs), expr.span);
+                        let inst = self.builder.build_val(
+                            Inst::binary(BinaryOp::Shl, ty_ref.into(), lhs, rhs),
+                            expr.span,
+                        );
                         self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
@@ -612,22 +632,28 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.visit_expr_lvalue(*lhs);
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
-                        let inst = self
-                            .builder
-                            .build_val(Inst::binary(BinaryOp::Shr, ty, lhs, rhs), expr.span);
+                        let inst = self.builder.build_val(
+                            Inst::binary(BinaryOp::Shr, ty_ref.into(), lhs, rhs),
+                            expr.span,
+                        );
                         self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
                             ExprMode::RValue => inst,
                         }
                     }
-                    ast::BinaryOp::Assign => {
-                        let lhs = self.visit_expr_lvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder.build_val(Inst::store(lhs, rhs, 0), expr.span);
-                        match mode {
-                            ExprMode::LValue => lhs,
-                            ExprMode::RValue => rhs,
+                    ast::BinaryOp::Div => {
+                        if ty_ref.is_signed() {
+                            self.build_bin(ty_ref.into(), BinaryOp::Div, *lhs, *rhs, expr.span)
+                        } else {
+                            self.build_bin(ty_ref.into(), BinaryOp::UDiv, *lhs, *rhs, expr.span)
+                        }
+                    }
+                    ast::BinaryOp::Rem => {
+                        if ty_ref.is_signed() {
+                            self.build_bin(ty_ref.into(), BinaryOp::Rem, *lhs, *rhs, expr.span)
+                        } else {
+                            self.build_bin(ty_ref.into(), BinaryOp::URem, *lhs, *rhs, expr.span)
                         }
                     }
                 }
@@ -639,7 +665,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 let else_block = self.builder.build_block("tern.else", expr.span);
                 let cont_block = self.builder.build_block("tern.cont", expr.span);
 
-                let phi = self.builder.build_phi(ty, expr.span);
+                let phi = self.builder.build_phi(ty_ref.into(), expr.span);
 
                 self.builder
                     .build_val(Inst::cond_br(cond_val, then_block, else_block), expr.span);

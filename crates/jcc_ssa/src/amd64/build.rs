@@ -126,17 +126,19 @@ impl<'a> Builder<'a> {
             ir::inst::Inst::GlobalAddr(global) => {
                 self.operands.insert(inst_ref, Operand::Data(global));
             }
-            ir::inst::Inst::Sext { value, .. } => {
-                let dst = self.make_pseudo(Type::Quad);
+            ir::inst::Inst::Sext { value, to } => {
+                let ty = to.try_into().unwrap();
+                let dst = self.make_pseudo(ty);
                 let src = self.get_operand(value);
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::movsx(src, dst, inst.span));
             }
-            ir::inst::Inst::Zext { value, .. } => {
-                let dst = self.make_pseudo(Type::Long);
+            ir::inst::Inst::Zext { value, to } => {
+                let ty = to.try_into().unwrap();
+                let dst = self.make_pseudo(ty);
                 let src = self.get_operand(value);
                 self.operands.insert(inst_ref, dst);
-                self.insert_inst(Inst::mov(Type::Long, src, dst, inst.span));
+                self.insert_inst(Inst::mov(ty, src, dst, inst.span));
             }
             ir::inst::Inst::Trunc { value, .. } => {
                 let dst = self.make_pseudo(Type::Long);

@@ -93,14 +93,10 @@ impl<'ctx> SSABuilder<'ctx> {
                             .enumerate()
                             .for_each(|(idx, param)| {
                                 let param = &self.ast.decl[*param];
-                                let ty = match *param.ty {
-                                    ast::TyKind::Int => Ty::I32,
-                                    ast::TyKind::Long => Ty::I64,
-                                    _ => todo!(),
-                                };
-                                let arg = self
-                                    .builder
-                                    .build_val(Inst::param(ty, idx as u32), param.span);
+                                let arg = self.builder.build_val(
+                                    Inst::param(param.ty.as_ref().into(), idx as u32),
+                                    param.span,
+                                );
                                 let sema = param.name.sema.get().expect("sema symbol not set");
                                 self.symbols[sema] = Some(SymbolEntry::Value(arg));
                             });
@@ -443,15 +439,9 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.get_value(name.sema.get().expect("sema symbol not set"));
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => match *info.ty {
-                                ast::TyKind::Int => {
-                                    self.builder.build_val(Inst::load(Ty::I32, ptr, 0), span)
-                                }
-                                ast::TyKind::Long => {
-                                    self.builder.build_val(Inst::load(Ty::I64, ptr, 0), span)
-                                }
-                                _ => todo!("handle other types"),
-                            },
+                            ExprMode::RValue => {
+                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
+                            }
                         }
                     }
                     Attribute::Static { .. } => {
@@ -459,28 +449,30 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => match *info.ty {
-                                ast::TyKind::Int => {
-                                    self.builder.build_val(Inst::load(Ty::I32, ptr, 0), span)
-                                }
-                                ast::TyKind::Long => {
-                                    self.builder.build_val(Inst::load(Ty::I64, ptr, 0), span)
-                                }
-                                _ => todo!("handle other types"),
-                            },
+                            ExprMode::RValue => {
+                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
+                            }
                         }
                     }
                 }
             }
             ast::ExprKind::Cast { ty, expr: inner } => {
-                let inner_ty = self.ast.expr[*inner].ty.get();
                 let val = self.visit_expr_rvalue(*inner);
-                if *ty == self.sema.ty.int_ty && inner_ty == self.sema.ty.long_ty {
-                    self.builder.build_val(Inst::trunc(Ty::I32, val), expr.span)
-                } else if *ty == self.sema.ty.long_ty && inner_ty == self.sema.ty.int_ty {
-                    self.builder.build_val(Inst::sext(Ty::I64, val), expr.span)
-                } else {
-                    val
+                let inner_ty = self.ast.expr[*inner].ty.get();
+                match ty.as_ref().byte_size().cmp(&inner_ty.as_ref().byte_size()) {
+                    std::cmp::Ordering::Equal => val,
+                    std::cmp::Ordering::Less => self
+                        .builder
+                        .build_val(Inst::trunc(ty.as_ref().into(), val), expr.span),
+                    std::cmp::Ordering::Greater => {
+                        if inner_ty.is_signed() {
+                            self.builder
+                                .build_val(Inst::sext(ty.as_ref().into(), val), expr.span)
+                        } else {
+                            self.builder
+                                .build_val(Inst::zext(ty.as_ref().into(), val), expr.span)
+                        }
+                    }
                 }
             }
             ast::ExprKind::Call { name, args, .. } => {
@@ -838,21 +830,21 @@ impl<'ctx> SSABuilder<'ctx> {
 
     fn get_global(&self, sym: sema::Symbol) -> Global {
         match self.symbols[sym] {
-            Some(SymbolEntry::Global(v)) => v,
+            Some(SymbolEntry::Global(global)) => global,
             _ => panic!("expected a static var ref"),
         }
     }
 
     fn get_break_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
-            Some(TrackedBlock::BreakAndContinue(b, _)) => *b,
+            Some(TrackedBlock::BreakAndContinue(brk, _)) => *brk,
             _ => panic!("expected a break block"),
         }
     }
 
     fn get_continue_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
-            Some(TrackedBlock::BreakAndContinue(_, c)) => *c,
+            Some(TrackedBlock::BreakAndContinue(_, cont)) => *cont,
             _ => panic!("expected a break block"),
         }
     }

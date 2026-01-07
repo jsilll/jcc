@@ -87,7 +87,7 @@ impl<'a> AMD64Fixer<'a> {
                     );
                 }
             }
-            InstKind::Idiv(oper) => {
+            InstKind::Div(oper) | InstKind::Idiv(oper) => {
                 self.fix_operand(oper);
                 if let Operand::Imm(_) = oper {
                     // NOTE
@@ -140,6 +140,30 @@ impl<'a> AMD64Fixer<'a> {
                     *dst = Operand::Reg(Reg::Rg10);
                     self.inset
                         .after(inst.idx, Inst::mov(inst.ty, *dst, tmp, inst.span));
+                }
+            }
+            InstKind::Movzx { src, dst } => {
+                self.fix_operand(src);
+                self.fix_operand(dst);
+                match dst {
+                    Operand::Reg(_) => {
+                        // NOTE
+                        //
+                        // If the destination is a register,
+                        // we can just use a normal movl instruction.
+                        *inst = Inst::mov(Type::Long, *src, *dst, inst.span);
+                    }
+                    Operand::Stack(_) => {
+                        // NOTE
+                        //
+                        // If the destination is a memory address,
+                        // we need to use a temporary register.
+                        let tmp = *dst;
+                        *dst = Operand::Reg(Reg::Rg11);
+                        self.inset
+                            .after(inst.idx, Inst::mov(Type::Long, *dst, tmp, inst.span));
+                    }
+                    _ => {}
                 }
             }
             InstKind::Mov { src, dst } => {

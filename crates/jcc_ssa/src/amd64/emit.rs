@@ -152,6 +152,10 @@ impl<'a> AMD64Emitter<'a> {
                 let oper = self.emit_operand(&oper, inst.ty);
                 writeln!(self.e, "pushq {oper}")
             }
+            InstKind::Div(oper) => {
+                let oper = self.emit_operand(&oper, inst.ty);
+                writeln!(self.e, "div{} {oper}", inst.ty)
+            }
             InstKind::Idiv(oper) => {
                 let oper = self.emit_operand(&oper, inst.ty);
                 writeln!(self.e, "idiv{} {oper}", inst.ty)
@@ -189,6 +193,11 @@ impl<'a> AMD64Emitter<'a> {
                 let src = self.emit_operand(&src, Type::Long);
                 let dst = self.emit_operand(&dst, Type::Quad);
                 writeln!(self.e, "movslq {src}, {dst}")
+            }
+            InstKind::Movzx { src, dst } => {
+                let src = self.emit_operand(&src, Type::Long);
+                let dst = self.emit_operand(&dst, Type::Quad);
+                writeln!(self.e, "movzlq {src}, {dst}")
             }
             InstKind::Mov { src, dst } => {
                 let src = self.emit_operand(&src, inst.ty);

@@ -231,7 +231,6 @@ impl<'a> Builder<'a> {
                 let rhs = self.get_operand(rhs);
                 self.operands.insert(inst_ref, dst);
                 match op {
-                    ir::inst::BinaryOp::AShr => todo!(),
                     ir::inst::BinaryOp::Or => {
                         self.build_binary(lhs_ty, BinaryOp::Or, lhs, rhs, dst, inst.span)
                     }
@@ -244,8 +243,9 @@ impl<'a> Builder<'a> {
                     ir::inst::BinaryOp::Shl => {
                         self.build_binary(lhs_ty, BinaryOp::Shl, lhs, rhs, dst, inst.span)
                     }
-                    ir::inst::BinaryOp::Shr => {
-                        self.build_binary(lhs_ty, BinaryOp::Shr, lhs, rhs, dst, inst.span)
+                    ir::inst::BinaryOp::Shr => todo!(),
+                    ir::inst::BinaryOp::AShr => {
+                        self.build_binary(lhs_ty, BinaryOp::Sar, lhs, rhs, dst, inst.span)
                     }
                     ir::inst::BinaryOp::Add => {
                         self.build_binary(lhs_ty, BinaryOp::Add, lhs, rhs, dst, inst.span)

@@ -536,7 +536,7 @@ pub enum BinaryOp {
     /// The `sal` operator.
     Shl,
     /// The `sar` operator.
-    Shr,
+    Sar,
     /// The `add` operator.
     Add,
     /// The `sub` operator.

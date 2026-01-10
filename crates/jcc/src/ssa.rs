@@ -518,44 +518,40 @@ impl<'ctx> SSABuilder<'ctx> {
                 match op {
                     ast::BinaryOp::LogOr => self.build_sc(true, *lhs, *rhs, expr.span),
                     ast::BinaryOp::LogAnd => self.build_sc(false, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Eq => {
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder
-                            .build_val(Inst::icmp(ICmpOp::Eq, lhs, rhs), expr.span)
-                    }
-                    ast::BinaryOp::Ne => {
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder
-                            .build_val(Inst::icmp(ICmpOp::Ne, lhs, rhs), expr.span)
-                    }
+                    ast::BinaryOp::Eq => self.build_icmp(ICmpOp::Eq, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Ne => self.build_icmp(ICmpOp::Ne, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Lt => {
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder
-                            .build_val(Inst::icmp(ICmpOp::Lt, lhs, rhs), expr.span)
+                        let op = if ty.is_signed() {
+                            ICmpOp::Lt
+                        } else {
+                            ICmpOp::Ult
+                        };
+                        self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
-
                     ast::BinaryOp::Le => {
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder
-                            .build_val(Inst::icmp(ICmpOp::Le, lhs, rhs), expr.span)
+                        let op = if ty.is_signed() {
+                            ICmpOp::Le
+                        } else {
+                            ICmpOp::Ule
+                        };
+                        self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
 
                     ast::BinaryOp::Gt => {
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder
-                            .build_val(Inst::icmp(ICmpOp::Gt, lhs, rhs), expr.span)
+                        let op = if ty.is_signed() {
+                            ICmpOp::Gt
+                        } else {
+                            ICmpOp::Ugt
+                        };
+                        self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
-
                     ast::BinaryOp::Ge => {
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder
-                            .build_val(Inst::icmp(ICmpOp::Ge, lhs, rhs), expr.span)
+                        let op = if ty.is_signed() {
+                            ICmpOp::Ge
+                        } else {
+                            ICmpOp::Uge
+                        };
+                        self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Add => {
                         self.build_bin(ty_ref.into(), BinaryOp::Add, *lhs, *rhs, expr.span)
@@ -749,6 +745,12 @@ impl<'ctx> SSABuilder<'ctx> {
         self.builder.build_val(Inst::store(ptr, new, 0), span);
 
         old
+    }
+
+    fn build_icmp(&mut self, op: ICmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
+        let lhs = self.visit_expr_rvalue(lhs);
+        let rhs = self.visit_expr_rvalue(rhs);
+        self.builder.build_val(Inst::icmp(op, lhs, rhs), span)
     }
 
     fn build_bin(

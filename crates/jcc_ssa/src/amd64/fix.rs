@@ -151,17 +151,27 @@ impl<'a> AMD64Fixer<'a> {
                         //
                         // If the destination is a register,
                         // we can just use a normal movl instruction.
-                        *inst = Inst::mov(Type::Long, *src, *dst, inst.span);
+                        inst.ty = Type::Long;
+                        inst.kind = InstKind::Mov {
+                            src: *src,
+                            dst: *dst,
+                        };
                     }
                     Operand::Stack(_) => {
                         // NOTE
                         //
                         // If the destination is a memory address,
                         // we need to use a temporary register.
-                        let tmp = *dst;
-                        *dst = Operand::Reg(Reg::Rg11);
-                        self.inset
-                            .after(inst.idx, Inst::mov(Type::Long, *dst, tmp, inst.span));
+                        let dst = *dst;
+                        inst.ty = Type::Long;
+                        inst.kind = InstKind::Mov {
+                            src: *src,
+                            dst: Operand::Reg(Reg::Rg11),
+                        };
+                        self.inset.after(
+                            inst.idx,
+                            Inst::mov(Type::Quad, Operand::Reg(Reg::Rg11), dst, inst.span),
+                        );
                     }
                     _ => {}
                 }

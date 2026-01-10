@@ -229,6 +229,7 @@ impl<'a> AMD64Emitter<'a> {
                     BinaryOp::And => writeln!(self.e, "and{} {src}, {dst}", inst.ty),
                     BinaryOp::Xor => writeln!(self.e, "xor{} {src}, {dst}", inst.ty),
                     BinaryOp::Shl => writeln!(self.e, "sal{} {src}, {dst}", inst.ty),
+                    BinaryOp::Shr => writeln!(self.e, "sar{} {src}, {dst}", inst.ty),
                     BinaryOp::Sar => writeln!(self.e, "sar{} {src}, {dst}", inst.ty),
                     BinaryOp::Mul => writeln!(self.e, "imul{} {src}, {dst}", inst.ty),
                 }

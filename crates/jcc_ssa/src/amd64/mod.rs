@@ -535,6 +535,8 @@ pub enum BinaryOp {
     Xor,
     /// The `sal` operator.
     Shl,
+    /// The `shr` operator.
+    Shr,
     /// The `sar` operator.
     Sar,
     /// The `add` operator.

@@ -521,7 +521,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     ast::BinaryOp::Eq => self.build_icmp(ICmpOp::Eq, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Ne => self.build_icmp(ICmpOp::Ne, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Lt => {
-                        let op = if ty.is_signed() {
+                        let op = if rhs_ty.is_signed() {
                             ICmpOp::Lt
                         } else {
                             ICmpOp::Ult
@@ -529,7 +529,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Le => {
-                        let op = if ty.is_signed() {
+                        let op = if rhs_ty.is_signed() {
                             ICmpOp::Le
                         } else {
                             ICmpOp::Ule
@@ -538,7 +538,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     }
 
                     ast::BinaryOp::Gt => {
-                        let op = if ty.is_signed() {
+                        let op = if rhs_ty.is_signed() {
                             ICmpOp::Gt
                         } else {
                             ICmpOp::Ugt
@@ -546,12 +546,28 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Ge => {
-                        let op = if ty.is_signed() {
+                        let op = if rhs_ty.is_signed() {
                             ICmpOp::Ge
                         } else {
                             ICmpOp::Uge
                         };
                         self.build_icmp(op, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Div => {
+                        let op = if rhs_ty.is_signed() {
+                            BinaryOp::Div
+                        } else {
+                            BinaryOp::UDiv
+                        };
+                        self.build_bin(ty_ref.into(), op, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Rem => {
+                        let op = if rhs_ty.is_signed() {
+                            BinaryOp::Rem
+                        } else {
+                            BinaryOp::URem
+                        };
+                        self.build_bin(ty_ref.into(), op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Add => {
                         self.build_bin(ty_ref.into(), BinaryOp::Add, *lhs, *rhs, expr.span)
@@ -636,20 +652,6 @@ impl<'ctx> SSABuilder<'ctx> {
                         match mode {
                             ExprMode::LValue => ptr,
                             ExprMode::RValue => inst,
-                        }
-                    }
-                    ast::BinaryOp::Div => {
-                        if ty_ref.is_signed() {
-                            self.build_bin(ty_ref.into(), BinaryOp::Div, *lhs, *rhs, expr.span)
-                        } else {
-                            self.build_bin(ty_ref.into(), BinaryOp::UDiv, *lhs, *rhs, expr.span)
-                        }
-                    }
-                    ast::BinaryOp::Rem => {
-                        if ty_ref.is_signed() {
-                            self.build_bin(ty_ref.into(), BinaryOp::Rem, *lhs, *rhs, expr.span)
-                        } else {
-                            self.build_bin(ty_ref.into(), BinaryOp::URem, *lhs, *rhs, expr.span)
                         }
                     }
                 }

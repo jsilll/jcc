@@ -520,6 +520,48 @@ impl<'ctx> SSABuilder<'ctx> {
                     ast::BinaryOp::LogAnd => self.build_sc(false, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Eq => self.build_icmp(ICmpOp::Eq, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Ne => self.build_icmp(ICmpOp::Ne, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Add => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Add, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Sub => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Sub, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Mul => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Mul, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitOr => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Or, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitAnd => {
+                        self.build_bin(ty_ref.into(), BinaryOp::And, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitXor => {
+                        self.build_bin(ty_ref.into(), BinaryOp::Xor, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::AddAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Add, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::SubAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Sub, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::MulAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Mul, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::DivAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Div, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::RemAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Rem, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitOrAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Or, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitAndAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::And, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitXorAssign => {
+                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
+                    }
                     ast::BinaryOp::Lt => {
                         let op = if rhs_ty.is_signed() {
                             ICmpOp::Lt
@@ -569,54 +611,6 @@ impl<'ctx> SSABuilder<'ctx> {
                         };
                         self.build_bin(ty_ref.into(), op, *lhs, *rhs, expr.span)
                     }
-                    ast::BinaryOp::Add => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Add, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::Sub => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Sub, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::Mul => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Mul, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitOr => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Or, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitAnd => {
-                        self.build_bin(ty_ref.into(), BinaryOp::And, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitXor => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Xor, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitShl => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Shl, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitShr => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Shr, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::AddAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Add, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::SubAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Sub, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::MulAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Mul, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::DivAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Div, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::RemAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Rem, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitOrAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Or, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitAndAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::And, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitXorAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
-                    }
                     ast::BinaryOp::Assign => {
                         let lhs = self.visit_expr_lvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
@@ -626,28 +620,29 @@ impl<'ctx> SSABuilder<'ctx> {
                             ExprMode::RValue => rhs,
                         }
                     }
-                    ast::BinaryOp::BitShlAssign => {
-                        let ptr = self.visit_expr_lvalue(*lhs);
+                    ast::BinaryOp::BitShl | ast::BinaryOp::BitShr => {
+                        let op = if matches!(op, ast::BinaryOp::BitShl) {
+                            BinaryOp::Shl
+                        } else {
+                            BinaryOp::Shr
+                        };
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
-                        let inst = self.builder.build_val(
-                            Inst::binary(BinaryOp::Shl, ty_ref.into(), lhs, rhs),
-                            expr.span,
-                        );
-                        self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
-                        match mode {
-                            ExprMode::LValue => ptr,
-                            ExprMode::RValue => inst,
-                        }
+                        self.builder
+                            .build_val(Inst::binary(op, ty_ref.into(), lhs, rhs), expr.span)
                     }
-                    ast::BinaryOp::BitShrAssign => {
+                    ast::BinaryOp::BitShlAssign | ast::BinaryOp::BitShrAssign => {
                         let ptr = self.visit_expr_lvalue(*lhs);
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
-                        let inst = self.builder.build_val(
-                            Inst::binary(BinaryOp::Shr, ty_ref.into(), lhs, rhs),
-                            expr.span,
-                        );
+                        let op = if matches!(op, ast::BinaryOp::BitShlAssign) {
+                            BinaryOp::Shl
+                        } else {
+                            BinaryOp::Shr
+                        };
+                        let inst = self
+                            .builder
+                            .build_val(Inst::binary(op, ty_ref.into(), lhs, rhs), expr.span);
                         self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,

@@ -380,7 +380,7 @@ impl<'a> AMD64Fixer<'a> {
                             );
                         }
                     }
-                    BinaryOp::Shl | BinaryOp::Sar => {
+                    BinaryOp::Shl | BinaryOp::Shr | BinaryOp::Sar => {
                         if !matches!(src, Operand::Imm(_)) && !matches!(src, Operand::Reg(Reg::Rcx))
                         {
                             // NOTE

@@ -456,12 +456,11 @@ impl<'ctx> SSABuilder<'ctx> {
                         .builder
                         .build_val(Inst::trunc(ty.as_ref().into(), val), expr.span),
                     std::cmp::Ordering::Greater => {
+                        let ty = ty.as_ref().into();
                         if inner_ty.is_signed() {
-                            self.builder
-                                .build_val(Inst::sext(ty.as_ref().into(), val), expr.span)
+                            self.builder.build_val(Inst::sext(ty, val), expr.span)
                         } else {
-                            self.builder
-                                .build_val(Inst::zext(ty.as_ref().into(), val), expr.span)
+                            self.builder.build_val(Inst::zext(ty, val), expr.span)
                         }
                     }
                 }
@@ -529,28 +528,28 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.build_bin(ty_ref.into(), BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::AddAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Add, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Add, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::SubAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Sub, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Sub, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::MulAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Mul, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Mul, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::DivAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Div, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Div, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::RemAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Rem, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Rem, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitOrAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Or, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Or, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitAndAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::And, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::And, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitXorAssign => {
-                        self.build_bin_asgn(mode, rhs_ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
+                        self.build_bin_asgn(mode, BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Lt => {
                         let op = if rhs_ty.is_signed() {
@@ -727,28 +726,51 @@ impl<'ctx> SSABuilder<'ctx> {
     fn build_bin_asgn(
         &mut self,
         mode: ExprMode,
-        ty: ast::Ty<'ctx>,
         op: BinaryOp,
         lhs: ast::Expr,
         rhs: ast::Expr,
         span: Span,
     ) -> Value {
-        let lty = self.ast.expr[lhs].ty.get();
-        let mut l = self.visit_expr_rvalue(lhs);
-        if lty == self.sema.ty.int_ty && ty == self.sema.ty.long_ty {
-            l = self.builder.build_val(Inst::sext(Ty::I64, l), span);
-        }
-
-        let rty = self.ast.expr[rhs].ty.get();
-        let r = self.visit_expr_rvalue(rhs);
-        let mut value = self
-            .builder
-            .build_val(Inst::binary(op, rty.as_ref().into(), l, r), span);
-        if lty == self.sema.ty.int_ty && rty == self.sema.ty.long_ty {
-            value = self.builder.build_val(Inst::trunc(Ty::I32, value), span);
-        }
+        let lhs_ty = self.ast.expr[lhs].ty.get();
+        let rhs_ty = self.ast.expr[rhs].ty.get();
+        let lhs_ty_ir = lhs_ty.as_ref().into();
+        let rhs_ty_ir = rhs_ty.as_ref().into();
+        let lhs_rhs_cmp = lhs_ty
+            .as_ref()
+            .byte_size()
+            .cmp(&rhs_ty.as_ref().byte_size());
 
         let ptr = self.visit_expr_lvalue(lhs);
+        let lhs = self.visit_expr_rvalue(lhs);
+        let lhs = match lhs_rhs_cmp {
+            std::cmp::Ordering::Equal => lhs,
+            std::cmp::Ordering::Greater => {
+                self.builder.build_val(Inst::trunc(rhs_ty_ir, lhs), span)
+            }
+            std::cmp::Ordering::Less => {
+                if lhs_ty.is_signed() {
+                    self.builder.build_val(Inst::sext(rhs_ty_ir, lhs), span)
+                } else {
+                    self.builder.build_val(Inst::zext(rhs_ty_ir, lhs), span)
+                }
+            }
+        };
+
+        let rhs = self.visit_expr_rvalue(rhs);
+        let value = self
+            .builder
+            .build_val(Inst::binary(op, rhs_ty_ir, lhs, rhs), span);
+        let value = match lhs_rhs_cmp {
+            std::cmp::Ordering::Equal => value,
+            std::cmp::Ordering::Less => self.builder.build_val(Inst::trunc(lhs_ty_ir, value), span),
+            std::cmp::Ordering::Greater => {
+                if rhs_ty.is_signed() {
+                    self.builder.build_val(Inst::sext(lhs_ty_ir, value), span)
+                } else {
+                    self.builder.build_val(Inst::zext(lhs_ty_ir, value), span)
+                }
+            }
+        };
         self.builder.build_val(Inst::store(ptr, value, 0), span);
 
         match mode {

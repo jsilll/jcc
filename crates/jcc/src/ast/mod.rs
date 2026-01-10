@@ -8,7 +8,7 @@ pub use ty::{Ty, TyKind};
 use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 use jcc_ssa::{
     codemap::{file::FileId, span::Span},
-    Ident,
+    ir, Ident,
 };
 
 use std::cell::Cell;
@@ -86,42 +86,64 @@ pub enum Const {
 
 impl Const {
     /// Converts the constant to a signed variant.
-    pub fn to_int(&self) -> Const {
+    pub fn to_int(&self) -> Self {
         match self {
-            Const::Int(v) => Const::Int(*v),
-            Const::Long(v) => Const::Int(*v as i32),
-            Const::UInt(v) => Const::Int(*v as i32),
-            Const::ULong(v) => Const::Int(*v as i32),
+            Self::Int(v) => Self::Int(*v),
+            Self::Long(v) => Self::Int(*v as i32),
+            Self::UInt(v) => Self::Int(*v as i32),
+            Self::ULong(v) => Self::Int(*v as i32),
         }
     }
 
     /// Converts the constant to a long variant.
-    pub fn to_long(&self) -> Const {
+    pub fn to_long(&self) -> Self {
         match self {
-            Const::Long(v) => Const::Long(*v),
-            Const::Int(v) => Const::Long(*v as i64),
-            Const::UInt(v) => Const::Long(*v as i64),
-            Const::ULong(v) => Const::Long(*v as i64),
+            Self::Long(v) => Self::Long(*v),
+            Self::Int(v) => Self::Long(*v as i64),
+            Self::UInt(v) => Self::Long(*v as i64),
+            Self::ULong(v) => Self::Long(*v as i64),
         }
     }
 
     /// Converts the constant to an unsigned variant.
-    pub fn to_uint(&self) -> Const {
+    pub fn to_uint(&self) -> Self {
         match self {
-            Const::UInt(v) => Const::UInt(*v),
-            Const::Int(v) => Const::UInt(*v as u32),
-            Const::Long(v) => Const::UInt(*v as u32),
-            Const::ULong(v) => Const::UInt(*v as u32),
+            Self::UInt(v) => Self::UInt(*v),
+            Self::Int(v) => Self::UInt(*v as u32),
+            Self::Long(v) => Self::UInt(*v as u32),
+            Self::ULong(v) => Self::UInt(*v as u32),
         }
     }
 
     /// Converts the constant to an unsigned long variant.
-    pub fn to_ulong(&self) -> Const {
+    pub fn to_ulong(&self) -> Self {
         match self {
-            Const::ULong(v) => Const::ULong(*v),
-            Const::Int(v) => Const::ULong(*v as u64),
-            Const::UInt(v) => Const::ULong(*v as u64),
-            Const::Long(v) => Const::ULong(*v as u64),
+            Self::ULong(v) => Self::ULong(*v),
+            Self::Int(v) => Self::ULong(*v as u64),
+            Self::UInt(v) => Self::ULong(*v as u64),
+            Self::Long(v) => Self::ULong(*v as u64),
+        }
+    }
+
+    /// Converts the constant to the specified type
+    pub fn cast(&self, ty: Ty<'_>) -> Self {
+        match *ty {
+            TyKind::Int => self.to_int(),
+            TyKind::Long => self.to_long(),
+            TyKind::UInt => self.to_uint(),
+            TyKind::ULong => self.to_ulong(),
+            _ => *self,
+        }
+    }
+
+    /// Lowers the constant to tuple with its value and type
+    pub fn lower(&self) -> (i64, ir::ty::Ty) {
+        use ir::ty::*;
+        match self {
+            Self::Long(v) => (*v, Ty::I64),
+            Self::Int(v) => (*v as i64, Ty::I32),
+            Self::UInt(v) => (*v as i64, Ty::I32),
+            Self::ULong(v) => (*v as i64, Ty::I64),
         }
     }
 }

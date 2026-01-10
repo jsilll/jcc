@@ -61,13 +61,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         _ => StaticValue::Tentative,
                     },
                     Some(init) => match eval_constant(self.ast, init) {
-                        Some(value) => match data.ty.as_ref() {
-                            TyKind::Int => StaticValue::Init(value.to_int()),
-                            TyKind::Long => StaticValue::Init(value.to_long()),
-                            TyKind::UInt => StaticValue::Init(value.to_uint()),
-                            TyKind::ULong => StaticValue::Init(value.to_ulong()),
-                            _ => StaticValue::Init(value),
-                        },
+                        Some(value) => StaticValue::Init(value.cast(data.ty)),
                         None => {
                             self.result.diagnostics.push(TyperDiagnostic {
                                 file: self.ast.file,
@@ -335,20 +329,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     });
                                 }
                                 Some(c) => {
-                                    let v = match *cty {
-                                        TyKind::Int => match c {
-                                            Const::Int(v) => Const::Int(v),
-                                            Const::Long(v) => Const::Int(v as i32),
-                                            _ => panic!("invalid switch condition type"),
-                                        },
-                                        TyKind::Long => match c {
-                                            Const::Long(v) => Const::Long(v),
-                                            Const::Int(v) => Const::Long(v as i64),
-                                            _ => panic!("invalid switch condition type"),
-                                        },
-                                        _ => panic!("invalid switch condition type"),
-                                    };
-                                    if !self.switch_cases.insert(v) {
+                                    if !self.switch_cases.insert(c.cast(cty)) {
                                         self.result.diagnostics.push(TyperDiagnostic {
                                             file: self.ast.file,
                                             span: self.ast.expr[*expr].span,

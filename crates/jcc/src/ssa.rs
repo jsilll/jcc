@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, Const},
+    ast::{self},
     sema::{self, Attribute, SemaCtx},
 };
 
@@ -365,15 +365,13 @@ impl<'ctx> SSABuilder<'ctx> {
                     switch.cases.iter().for_each(|inner_ref| {
                         let inner = &self.ast.stmt[*inner_ref];
                         if let ast::StmtKind::Case { expr, .. } = inner.kind {
-                            let val = match self.ast.expr[expr].kind {
-                                ast::ExprKind::Const(Const::Long(c)) => c,
-                                ast::ExprKind::Const(Const::Int(c)) => c as i64,
-                                _ => panic!("expected a constant expression"),
-                            };
-                            let case_block = self.builder.build_block("switch.case", inner.span);
-                            self.tracked
-                                .insert(*inner_ref, TrackedBlock::Case(case_block));
-                            cases.push((val, case_block));
+                            if let ast::ExprKind::Const(c) = self.ast.expr[expr].kind {
+                                let case_block =
+                                    self.builder.build_block("switch.case", inner.span);
+                                self.tracked
+                                    .insert(*inner_ref, TrackedBlock::Case(case_block));
+                                cases.push((c.lower().0, case_block));
+                            }
                         }
                     });
                     if let Some(inner) = switch.default {
@@ -418,18 +416,10 @@ impl<'ctx> SSABuilder<'ctx> {
         let ty_ref = ty.as_ref();
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
-            ast::ExprKind::Const(Const::Long(c)) => self
-                .builder
-                .build_val(Inst::const_int(Ty::I64, *c), expr.span),
-            ast::ExprKind::Const(Const::ULong(c)) => self
-                .builder
-                .build_val(Inst::const_int(Ty::I64, *c as i64), expr.span),
-            ast::ExprKind::Const(Const::Int(c)) => self
-                .builder
-                .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
-            ast::ExprKind::Const(Const::UInt(c)) => self
-                .builder
-                .build_val(Inst::const_int(Ty::I32, *c as i64), expr.span),
+            ast::ExprKind::Const(c) => {
+                let (c, ty) = c.lower();
+                self.builder.build_val(Inst::const_int(ty, c), expr.span)
+            }
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
                 let info = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
@@ -492,10 +482,10 @@ impl<'ctx> SSABuilder<'ctx> {
                     .build_val(Inst::call(ty, func, args), expr.span)
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
-                ast::UnaryOp::PreInc => self.build_prefix_incdec(*inner, true, expr.span),
-                ast::UnaryOp::PreDec => self.build_prefix_incdec(*inner, false, expr.span),
-                ast::UnaryOp::PostInc => self.build_postfix_incdec(*inner, true, expr.span),
-                ast::UnaryOp::PostDec => self.build_postfix_incdec(*inner, false, expr.span),
+                ast::UnaryOp::PreInc => self.build_incdec(*inner, true, false, expr.span),
+                ast::UnaryOp::PreDec => self.build_incdec(*inner, false, false, expr.span),
+                ast::UnaryOp::PostInc => self.build_incdec(*inner, true, true, expr.span),
+                ast::UnaryOp::PostDec => self.build_incdec(*inner, false, true, expr.span),
                 ast::UnaryOp::Neg => {
                     self.build_unary(ty_ref.into(), UnaryOp::Neg, *inner, expr.span)
                 }
@@ -621,22 +611,32 @@ impl<'ctx> SSABuilder<'ctx> {
                         }
                     }
                     ast::BinaryOp::BitShl | ast::BinaryOp::BitShr => {
+                        let lhs_ty = self.ast.expr[*lhs].ty.get();
+
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+
                         let op = if matches!(op, ast::BinaryOp::BitShl) {
                             BinaryOp::Shl
+                        } else if lhs_ty.is_signed() {
+                            BinaryOp::AShr
                         } else {
                             BinaryOp::Shr
                         };
-                        let lhs = self.visit_expr_rvalue(*lhs);
-                        let rhs = self.visit_expr_rvalue(*rhs);
                         self.builder
                             .build_val(Inst::binary(op, ty_ref.into(), lhs, rhs), expr.span)
                     }
                     ast::BinaryOp::BitShlAssign | ast::BinaryOp::BitShrAssign => {
+                        let lhs_ty = self.ast.expr[*lhs].ty.get();
+
                         let ptr = self.visit_expr_lvalue(*lhs);
                         let lhs = self.visit_expr_rvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
+
                         let op = if matches!(op, ast::BinaryOp::BitShlAssign) {
                             BinaryOp::Shl
+                        } else if lhs_ty.is_signed() {
+                            BinaryOp::AShr
                         } else {
                             BinaryOp::Shr
                         };
@@ -690,64 +690,25 @@ impl<'ctx> SSABuilder<'ctx> {
         self.builder.build_val(Inst::unary(op, ty, val), span)
     }
 
-    fn build_prefix_incdec(&mut self, expr: ast::Expr, is_inc: bool, span: Span) -> Value {
-        let obj_ty = self.ast.expr[expr].ty.get();
-        let ssa_obj_ty = obj_ty.as_ref().into();
-
-        let ptr = self.visit_expr_lvalue(expr);
-        let old = self.builder.build_val(Inst::load(ssa_obj_ty, ptr, 0), span);
-
-        let arith_ty = obj_ty;
-        let promoted = old;
-
-        let one = self
-            .builder
-            .build_val(Inst::const_int(arith_ty.as_ref().into(), 1), span);
-
-        let new = self.builder.build_val(
-            Inst::binary(
-                if is_inc { BinaryOp::Add } else { BinaryOp::Sub },
-                arith_ty.as_ref().into(),
-                promoted,
-                one,
-            ),
-            span,
-        );
-
-        self.builder.build_val(Inst::store(ptr, new, 0), span);
-
-        new
-    }
-
-    fn build_postfix_incdec(&mut self, expr: ast::Expr, is_inc: bool, span: Span) -> Value {
-        let obj_ty = self.ast.expr[expr].ty.get();
-        let ssa_obj_ty = obj_ty.as_ref().into();
-
-        let ptr = self.visit_expr_lvalue(expr);
-
-        let old = self.builder.build_val(Inst::load(ssa_obj_ty, ptr, 0), span);
-
-        let one = self.builder.build_val(Inst::const_int(ssa_obj_ty, 1), span);
-
-        let new = self.builder.build_val(
-            Inst::binary(
-                if is_inc { BinaryOp::Add } else { BinaryOp::Sub },
-                ssa_obj_ty,
-                old,
-                one,
-            ),
-            span,
-        );
-
-        self.builder.build_val(Inst::store(ptr, new, 0), span);
-
-        old
-    }
-
     fn build_icmp(&mut self, op: ICmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
         self.builder.build_val(Inst::icmp(op, lhs, rhs), span)
+    }
+
+    fn build_incdec(&mut self, expr: ast::Expr, is_inc: bool, postfix: bool, span: Span) -> Value {
+        let ty = self.ast.expr[expr].ty.get().as_ref().into();
+        let ptr = self.visit_expr_lvalue(expr);
+        let old = self.builder.build_val(Inst::load(ty, ptr, 0), span);
+        let one = self.builder.build_val(Inst::const_int(ty, 1), span);
+        let op = if is_inc { BinaryOp::Add } else { BinaryOp::Sub };
+        let new = self.builder.build_val(Inst::binary(op, ty, old, one), span);
+        self.builder.build_val(Inst::store(ptr, new, 0), span);
+        if postfix {
+            old
+        } else {
+            new
+        }
     }
 
     fn build_bin(

@@ -49,10 +49,9 @@ impl<'a> AMD64Emitter<'a> {
                     } else {
                         writeln!(s.e, ".data")?;
                     }
-                    if target == TargetOs::Macos {
-                        writeln!(s.e, ".balign {}", var.ty.size_bytes().unwrap_or(1))?;
-                    } else {
-                        writeln!(s.e, ".align {}", var.ty.size_bytes().unwrap_or(1))?;
+                    match target {
+                        TargetOs::Linux => writeln!(s.e, ".align {}", var.ty.size_bytes())?,
+                        TargetOs::Macos => writeln!(s.e, ".balign {}", var.ty.size_bytes())?,
                     }
                     Ok(())
                 })?;

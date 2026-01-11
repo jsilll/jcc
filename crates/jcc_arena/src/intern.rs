@@ -187,12 +187,6 @@ impl<T> PartialOrd for Interned<'_, T> {
     }
 }
 
-impl<T> AsRef<T> for Interned<'_, T> {
-    fn as_ref(&self) -> &T {
-        self.0
-    }
-}
-
 impl<T> std::hash::Hash for Interned<'_, T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::ptr::from_ref::<T>(self.0).hash(state);

@@ -228,7 +228,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     self.visit_block_scope_decl(*param)
                 });
                 if let Some(body) = body {
-                    self.curr_ret = decl.ty.as_ref().ret().unwrap_or(self.ctx.ty.void_ty);
+                    self.curr_ret = decl.ty.ret().unwrap_or(self.ctx.ty.void_ty);
                     self.ast.items[body].iter().for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),

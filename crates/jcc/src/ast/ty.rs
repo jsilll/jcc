@@ -35,16 +35,6 @@ impl<'ctx> TyKind<'ctx> {
         matches!(self, TyKind::Int | TyKind::Long)
     }
 
-    /// Returns the size of the type in bytes.
-    pub fn byte_size(&self) -> usize {
-        match self {
-            TyKind::Void | TyKind::Func { .. } => 0,
-            TyKind::Int | TyKind::UInt => 4,
-            TyKind::Long | TyKind::ULong => 8,
-            TyKind::Ptr(_) => 8,
-        }
-    }
-
     /// Returns the return type if the type is a function type.
     pub fn ret(&self) -> Option<Ty<'ctx>> {
         match self {
@@ -53,37 +43,36 @@ impl<'ctx> TyKind<'ctx> {
         }
     }
 
+    /// Lowers the type to a tuple with the ssa type and signdness
+    pub fn lower(&self) -> (SsaTy, bool) {
+        match self {
+            TyKind::Void => (SsaTy::Void, false),
+            TyKind::Int => (SsaTy::I32, true),
+            TyKind::Long => (SsaTy::I64, true),
+            TyKind::UInt => (SsaTy::I32, false),
+            TyKind::ULong => (SsaTy::I64, false),
+            TyKind::Ptr(_) | TyKind::Func { .. } => (SsaTy::Ptr, false),
+        }
+    }
+
     /// Returns the common type between two types, if any.
     pub fn common(lhs: Ty<'ctx>, rhs: Ty<'ctx>) -> Option<Ty<'ctx>> {
         if lhs == rhs {
             Some(lhs)
         } else {
-            let lhs_ref = lhs.as_ref();
-            let rhs_ref = rhs.as_ref();
-            match lhs_ref.byte_size().cmp(&rhs_ref.byte_size()) {
+            let lhs_size = lhs.lower().0.size_bytes();
+            let rhs_size = rhs.lower().0.size_bytes();
+            match lhs_size.cmp(&rhs_size) {
                 std::cmp::Ordering::Less => Some(rhs),
                 std::cmp::Ordering::Greater => Some(lhs),
                 std::cmp::Ordering::Equal => {
-                    if lhs_ref.is_signed() {
+                    if lhs.is_signed() {
                         Some(rhs)
                     } else {
                         Some(lhs)
                     }
                 }
             }
-        }
-    }
-}
-
-impl From<&TyKind<'_>> for SsaTy {
-    fn from(val: &TyKind<'_>) -> Self {
-        match val {
-            TyKind::Void | TyKind::Func { .. } => SsaTy::Void,
-            TyKind::Int => SsaTy::I32,
-            TyKind::UInt => SsaTy::I32,
-            TyKind::Long => SsaTy::I64,
-            TyKind::ULong => SsaTy::I64,
-            TyKind::Ptr(_) => SsaTy::Ptr,
         }
     }
 }

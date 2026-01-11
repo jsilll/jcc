@@ -17,15 +17,15 @@ pub enum Ty {
 }
 
 impl Ty {
-    pub fn size_bytes(&self) -> Option<u32> {
+    pub fn size_bytes(&self) -> u32 {
         match self {
-            Ty::Void => None,
-            Ty::I1 => Some(1),
-            Ty::I8 => Some(1),
-            Ty::I16 => Some(2),
-            Ty::I32 => Some(4),
-            Ty::I64 => Some(8),
-            Ty::Ptr => Some(8),
+            Ty::Void => 0,
+            Ty::I1 => 1,
+            Ty::I8 => 1,
+            Ty::I16 => 2,
+            Ty::I32 => 4,
+            Ty::I64 => 8,
+            Ty::Ptr => 8,
         }
     }
 }

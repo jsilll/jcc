@@ -65,7 +65,7 @@ impl<'ctx> SSABuilder<'ctx> {
                                     span: data.span,
                                     init: init.value(),
                                     name: data.name.name,
-                                    ty: data.ty.as_ref().into(),
+                                    ty: data.ty.lower().0,
                                 },
                             );
                         }
@@ -94,7 +94,7 @@ impl<'ctx> SSABuilder<'ctx> {
                             .for_each(|(idx, param)| {
                                 let param = &self.ast.decl[*param];
                                 let arg = self.builder.build_val(
-                                    Inst::param(param.ty.as_ref().into(), idx as u32),
+                                    Inst::param(param.ty.lower().0, idx as u32),
                                     param.span,
                                 );
                                 let sema = param.name.sema.get().expect("sema symbol not set");
@@ -139,7 +139,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     Attribute::Local => {
                         let alloca = self
                             .builder
-                            .build_val(Inst::alloca(data.ty.as_ref().into(), 0), data.span);
+                            .build_val(Inst::alloca(data.ty.lower().0, 0), data.span);
                         self.symbols[sema] = Some(SymbolEntry::Value(alloca));
                         if let Some(init) = init {
                             let value = self.visit_expr_rvalue(init);
@@ -155,7 +155,7 @@ impl<'ctx> SSABuilder<'ctx> {
                                 span: data.span,
                                 init: init.value(),
                                 name: data.name.name,
-                                ty: data.ty.as_ref().into(),
+                                ty: data.ty.lower().0,
                             },
                         );
                     }
@@ -412,8 +412,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
     fn visit_expr_inner(&mut self, expr: ast::Expr, mode: ExprMode) -> Value {
         let expr = &self.ast.expr[expr];
-        let ty = expr.ty.get();
-        let ty_ref = ty.as_ref();
+        let ty = expr.ty.get().lower().0;
         match &expr.kind {
             ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
             ast::ExprKind::Const(c) => {
@@ -430,9 +429,9 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.get_value(name.sema.get().expect("sema symbol not set"));
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => self
-                                .builder
-                                .build_val(Inst::load(ty_ref.into(), ptr, 0), span),
+                            ExprMode::RValue => {
+                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
+                            }
                         }
                     }
                     Attribute::Static { .. } => {
@@ -440,27 +439,26 @@ impl<'ctx> SSABuilder<'ctx> {
                         let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => self
-                                .builder
-                                .build_val(Inst::load(ty_ref.into(), ptr, 0), span),
+                            ExprMode::RValue => {
+                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
+                            }
                         }
                     }
                 }
             }
-            ast::ExprKind::Cast { ty, expr: inner } => {
-                let val = self.visit_expr_rvalue(*inner);
-                let inner_ty = self.ast.expr[*inner].ty.get();
-                match ty.as_ref().byte_size().cmp(&inner_ty.as_ref().byte_size()) {
-                    std::cmp::Ordering::Equal => val,
-                    std::cmp::Ordering::Less => self
-                        .builder
-                        .build_val(Inst::trunc(ty.as_ref().into(), val), expr.span),
+            ast::ExprKind::Cast { expr: inner, .. } => {
+                let value = self.visit_expr_rvalue(*inner);
+                let (inner_ty, is_inner_signed) = self.ast.expr[*inner].ty.get().lower();
+                match ty.size_bytes().cmp(&inner_ty.size_bytes()) {
+                    std::cmp::Ordering::Equal => value,
+                    std::cmp::Ordering::Less => {
+                        self.builder.build_val(Inst::trunc(ty, value), expr.span)
+                    }
                     std::cmp::Ordering::Greater => {
-                        let ty = ty.as_ref().into();
-                        if inner_ty.is_signed() {
-                            self.builder.build_val(Inst::sext(ty, val), expr.span)
+                        if is_inner_signed {
+                            self.builder.build_val(Inst::sext(ty, value), expr.span)
                         } else {
-                            self.builder.build_val(Inst::zext(ty, val), expr.span)
+                            self.builder.build_val(Inst::zext(ty, value), expr.span)
                         }
                     }
                 }
@@ -473,10 +471,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 let symbol = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
                     .expect("expected a sema symbol");
                 let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
-                let ty = match *symbol.ty {
-                    ast::TyKind::Func { ret, .. } => ret.as_ref().into(),
-                    _ => panic!("expected a function type"),
-                };
+                let ty = symbol.ty.ret().unwrap().lower().0;
                 self.builder
                     .build_val(Inst::call(ty, func, args), expr.span)
             }
@@ -485,12 +480,8 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::UnaryOp::PreDec => self.build_incdec(*inner, false, false, expr.span),
                 ast::UnaryOp::PostInc => self.build_incdec(*inner, true, true, expr.span),
                 ast::UnaryOp::PostDec => self.build_incdec(*inner, false, true, expr.span),
-                ast::UnaryOp::Neg => {
-                    self.build_unary(ty_ref.into(), UnaryOp::Neg, *inner, expr.span)
-                }
-                ast::UnaryOp::BitNot => {
-                    self.build_unary(ty_ref.into(), UnaryOp::Not, *inner, expr.span)
-                }
+                ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
+                ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
                 ast::UnaryOp::LogNot => {
                     let val = self.visit_expr_rvalue(*inner);
                     let zero = self
@@ -509,23 +500,15 @@ impl<'ctx> SSABuilder<'ctx> {
                     ast::BinaryOp::LogAnd => self.build_sc(false, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Eq => self.build_icmp(ICmpOp::Eq, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Ne => self.build_icmp(ICmpOp::Ne, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Add => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Add, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::Sub => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Sub, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::Mul => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Mul, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitOr => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Or, *lhs, *rhs, expr.span)
-                    }
+                    ast::BinaryOp::Add => self.build_bin(ty, BinaryOp::Add, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Sub => self.build_bin(ty, BinaryOp::Sub, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::Mul => self.build_bin(ty, BinaryOp::Mul, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::BitOr => self.build_bin(ty, BinaryOp::Or, *lhs, *rhs, expr.span),
                     ast::BinaryOp::BitAnd => {
-                        self.build_bin(ty_ref.into(), BinaryOp::And, *lhs, *rhs, expr.span)
+                        self.build_bin(ty, BinaryOp::And, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitXor => {
-                        self.build_bin(ty_ref.into(), BinaryOp::Xor, *lhs, *rhs, expr.span)
+                        self.build_bin(ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::AddAssign => {
                         self.build_bin_asgn(mode, BinaryOp::Add, *lhs, *rhs, expr.span)
@@ -590,7 +573,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         } else {
                             BinaryOp::UDiv
                         };
-                        self.build_bin(ty_ref.into(), op, *lhs, *rhs, expr.span)
+                        self.build_bin(ty, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Rem => {
                         let op = if rhs_ty.is_signed() {
@@ -598,7 +581,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         } else {
                             BinaryOp::URem
                         };
-                        self.build_bin(ty_ref.into(), op, *lhs, *rhs, expr.span)
+                        self.build_bin(ty, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Assign => {
                         let lhs = self.visit_expr_lvalue(*lhs);
@@ -623,7 +606,7 @@ impl<'ctx> SSABuilder<'ctx> {
                             BinaryOp::Shr
                         };
                         self.builder
-                            .build_val(Inst::binary(op, ty_ref.into(), lhs, rhs), expr.span)
+                            .build_val(Inst::binary(op, ty, lhs, rhs), expr.span)
                     }
                     ast::BinaryOp::BitShlAssign | ast::BinaryOp::BitShrAssign => {
                         let lhs_ty = self.ast.expr[*lhs].ty.get();
@@ -641,7 +624,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         };
                         let inst = self
                             .builder
-                            .build_val(Inst::binary(op, ty_ref.into(), lhs, rhs), expr.span);
+                            .build_val(Inst::binary(op, ty, lhs, rhs), expr.span);
                         self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
@@ -657,7 +640,7 @@ impl<'ctx> SSABuilder<'ctx> {
                 let else_block = self.builder.build_block("tern.else", expr.span);
                 let cont_block = self.builder.build_block("tern.cont", expr.span);
 
-                let phi = self.builder.build_phi(ty_ref.into(), expr.span);
+                let phi = self.builder.build_phi(ty, expr.span);
 
                 self.builder
                     .build_val(Inst::cond_br(cond_val, then_block, else_block), expr.span);
@@ -696,7 +679,7 @@ impl<'ctx> SSABuilder<'ctx> {
     }
 
     fn build_incdec(&mut self, expr: ast::Expr, is_inc: bool, postfix: bool, span: Span) -> Value {
-        let ty = self.ast.expr[expr].ty.get().as_ref().into();
+        let ty = self.ast.expr[expr].ty.get().lower().0;
         let ptr = self.visit_expr_lvalue(expr);
         let old = self.builder.build_val(Inst::load(ty, ptr, 0), span);
         let one = self.builder.build_val(Inst::const_int(ty, 1), span);
@@ -731,27 +714,20 @@ impl<'ctx> SSABuilder<'ctx> {
         rhs: ast::Expr,
         span: Span,
     ) -> Value {
-        let lhs_ty = self.ast.expr[lhs].ty.get();
-        let rhs_ty = self.ast.expr[rhs].ty.get();
-        let lhs_ty_ir = lhs_ty.as_ref().into();
-        let rhs_ty_ir = rhs_ty.as_ref().into();
-        let lhs_rhs_cmp = lhs_ty
-            .as_ref()
-            .byte_size()
-            .cmp(&rhs_ty.as_ref().byte_size());
+        let (lhs_ty, is_lhs_signed) = self.ast.expr[lhs].ty.get().lower();
+        let (rhs_ty, is_rhs_signed) = self.ast.expr[rhs].ty.get().lower();
+        let lhs_rhs_cmp = lhs_ty.size_bytes().cmp(&rhs_ty.size_bytes());
 
         let ptr = self.visit_expr_lvalue(lhs);
         let lhs = self.visit_expr_rvalue(lhs);
         let lhs = match lhs_rhs_cmp {
             std::cmp::Ordering::Equal => lhs,
-            std::cmp::Ordering::Greater => {
-                self.builder.build_val(Inst::trunc(rhs_ty_ir, lhs), span)
-            }
+            std::cmp::Ordering::Greater => self.builder.build_val(Inst::trunc(rhs_ty, lhs), span),
             std::cmp::Ordering::Less => {
-                if lhs_ty.is_signed() {
-                    self.builder.build_val(Inst::sext(rhs_ty_ir, lhs), span)
+                if is_lhs_signed {
+                    self.builder.build_val(Inst::sext(rhs_ty, lhs), span)
                 } else {
-                    self.builder.build_val(Inst::zext(rhs_ty_ir, lhs), span)
+                    self.builder.build_val(Inst::zext(rhs_ty, lhs), span)
                 }
             }
         };
@@ -759,15 +735,15 @@ impl<'ctx> SSABuilder<'ctx> {
         let rhs = self.visit_expr_rvalue(rhs);
         let value = self
             .builder
-            .build_val(Inst::binary(op, rhs_ty_ir, lhs, rhs), span);
+            .build_val(Inst::binary(op, rhs_ty, lhs, rhs), span);
         let value = match lhs_rhs_cmp {
             std::cmp::Ordering::Equal => value,
-            std::cmp::Ordering::Less => self.builder.build_val(Inst::trunc(lhs_ty_ir, value), span),
+            std::cmp::Ordering::Less => self.builder.build_val(Inst::trunc(lhs_ty, value), span),
             std::cmp::Ordering::Greater => {
-                if rhs_ty.is_signed() {
-                    self.builder.build_val(Inst::sext(lhs_ty_ir, value), span)
+                if is_rhs_signed {
+                    self.builder.build_val(Inst::sext(lhs_ty, value), span)
                 } else {
-                    self.builder.build_val(Inst::zext(lhs_ty_ir, value), span)
+                    self.builder.build_val(Inst::zext(lhs_ty, value), span)
                 }
             }
         };

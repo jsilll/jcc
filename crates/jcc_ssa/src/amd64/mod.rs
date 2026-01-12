@@ -243,6 +243,11 @@ impl Inst {
     }
 
     #[inline]
+    fn div(ty: Type, dst: Operand, span: Span) -> Self {
+        Self::new(ty, InstKind::Div(dst), span)
+    }
+
+    #[inline]
     fn idiv(ty: Type, dst: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Idiv(dst), span)
     }
@@ -250,11 +255,6 @@ impl Inst {
     #[inline]
     fn test(ty: Type, lhs: Operand, rhs: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Test { lhs, rhs }, span)
-    }
-
-    #[inline]
-    fn movsx(src: Operand, dst: Operand, span: Span) -> Self {
-        Self::new(Type::Quad, InstKind::Movsx { src, dst }, span)
     }
 
     #[inline]
@@ -270,6 +270,16 @@ impl Inst {
     #[inline]
     fn mov(ty: Type, src: Operand, dst: Operand, span: Span) -> Self {
         Self::new(ty, InstKind::Mov { src, dst }, span)
+    }
+
+    #[inline]
+    fn movsx(src: Operand, dst: Operand, span: Span) -> Self {
+        Self::new(Type::Quad, InstKind::Movsx { src, dst }, span)
+    }
+
+    #[inline]
+    fn movzx(src: Operand, dst: Operand, span: Span) -> Self {
+        Self::new(Type::Quad, InstKind::Movzx { src, dst }, span)
     }
 
     #[inline]
@@ -385,20 +395,24 @@ pub enum InstKind {
     Push(Operand),
     /// A `jmp` instruction.
     Jmp(BlockRef),
+    /// A `div` instruction.
+    Div(Operand),
     /// An `idiv` instruction.
     Idiv(Operand),
     /// A `cmp` instruction.
     Cmp { lhs: Operand, rhs: Operand },
     /// A `test` instruction.
     Test { lhs: Operand, rhs: Operand },
-    /// A `movsx` instruction.
-    Movsx { src: Operand, dst: Operand },
     /// A conditional set instruction.
     SetCC { code: CondCode, dst: Operand },
     /// A conditional jump instruction.
     JmpCC { code: CondCode, target: BlockRef },
     /// A `mov` instruction.
     Mov { src: Operand, dst: Operand },
+    /// A `movsx` instruction.
+    Movsx { src: Operand, dst: Operand },
+    /// A `movzx` instruction.
+    Movzx { src: Operand, dst: Operand },
     /// A unary operation instruction.
     Unary { op: UnaryOp, dst: Operand },
     /// A binary operation instruction.
@@ -521,8 +535,10 @@ pub enum BinaryOp {
     Xor,
     /// The `sal` operator.
     Shl,
-    /// The `sar` operator.
+    /// The `shr` operator.
     Shr,
+    /// The `sar` operator.
+    Sar,
     /// The `add` operator.
     Add,
     /// The `sub` operator.
@@ -534,9 +550,15 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CondCode {
     /// The `sete` condition.
-    Eq,
-    /// The `setne` condition.
-    Ne,
+    E,
+    /// The `seta` condition.
+    A,
+    /// The `setae` condition.
+    Ae,
+    /// The `setb` condition.
+    B,
+    /// The `setbe` condition.
+    Be,
     /// The `setl` condition.
     Lt,
     /// The `setle` condition.
@@ -545,6 +567,8 @@ pub enum CondCode {
     Gt,
     /// The `setge` condition.
     Ge,
+    /// The `setne` condition.
+    Ne,
 }
 
 impl std::fmt::Display for CondCode {
@@ -556,27 +580,34 @@ impl std::fmt::Display for CondCode {
 impl CondCode {
     fn as_str(&self) -> &'static str {
         match self {
-            CondCode::Eq => "e",
-            CondCode::Ne => "ne",
+            CondCode::E => "e",
+            CondCode::A => "a",
+            CondCode::Ae => "ae",
+            CondCode::B => "b",
+            CondCode::Be => "be",
             CondCode::Lt => "l",
             CondCode::Le => "le",
             CondCode::Gt => "g",
             CondCode::Ge => "ge",
+            CondCode::Ne => "ne",
         }
     }
 }
 
-impl TryFrom<ir::inst::ICmpOp> for CondCode {
-    type Error = ();
-    fn try_from(op: ir::inst::ICmpOp) -> Result<Self, Self::Error> {
+impl From<ir::inst::ICmpOp> for CondCode {
+    fn from(op: ir::inst::ICmpOp) -> Self {
+        use ir::inst::*;
         match op {
-            ir::inst::ICmpOp::Eq => Ok(Self::Eq),
-            ir::inst::ICmpOp::Ne => Ok(Self::Ne),
-            ir::inst::ICmpOp::Lt => Ok(Self::Lt),
-            ir::inst::ICmpOp::Le => Ok(Self::Le),
-            ir::inst::ICmpOp::Gt => Ok(Self::Gt),
-            ir::inst::ICmpOp::Ge => Ok(Self::Ge),
-            _ => Err(()),
+            ICmpOp::Eq => CondCode::E,
+            ICmpOp::Ne => CondCode::Ne,
+            ICmpOp::Lt => CondCode::Lt,
+            ICmpOp::Le => CondCode::Le,
+            ICmpOp::Gt => CondCode::Gt,
+            ICmpOp::Ge => CondCode::Ge,
+            ICmpOp::Ult => CondCode::B,
+            ICmpOp::Ule => CondCode::Be,
+            ICmpOp::Ugt => CondCode::A,
+            ICmpOp::Uge => CondCode::Ae,
         }
     }
 }

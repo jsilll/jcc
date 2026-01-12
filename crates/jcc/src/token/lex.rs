@@ -167,11 +167,27 @@ impl<'a> Lexer<'a> {
     fn number(&mut self) -> Result<Token, LexerDiagnostic> {
         self.next_while(|c| c.is_ascii_digit());
         let kind = match self.chars.peek() {
+            Some((_, 'u' | 'U')) => {
+                self.chars.next();
+                match self.chars.peek() {
+                    Some((_, 'l' | 'L')) => {
+                        self.chars.next();
+                        TokenKind::NumULong
+                    }
+                    _ => TokenKind::NumUInt,
+                }
+            }
             Some((_, 'l' | 'L')) => {
                 self.chars.next();
-                TokenKind::LongIntNumber
+                match self.chars.peek() {
+                    Some((_, 'u' | 'U')) => {
+                        self.chars.next();
+                        TokenKind::NumULong
+                    }
+                    _ => TokenKind::NumLong,
+                }
             }
-            _ => TokenKind::IntNumber,
+            _ => TokenKind::NumInt,
         };
         let end = self
             .chars
@@ -208,8 +224,10 @@ impl<'a> Lexer<'a> {
             "int" => TokenKind::KwInt,
             "long" => TokenKind::KwLong,
             "return" => TokenKind::KwReturn,
+            "signed" => TokenKind::KwSigned,
             "static" => TokenKind::KwStatic,
             "switch" => TokenKind::KwSwitch,
+            "unsigned" => TokenKind::KwUnsigned,
             "void" => TokenKind::KwVoid,
             "while" => TokenKind::KwWhile,
         };

@@ -1,8 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyKind},
-        Ast, BinaryOp, BlockItem, ConstValue, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit,
-        Stmt, StmtKind, StorageClass, UnaryOp,
+        Ast, BinaryOp, BlockItem, Const, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
+        StmtKind, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
@@ -26,7 +26,7 @@ pub struct TypeChecker<'a, 'ctx> {
     /// The result of the type checking
     result: TyperResult<'ctx>,
     /// The set of switch case values encountered
-    switch_cases: HashSet<ConstValue>,
+    switch_cases: HashSet<Const>,
 }
 
 impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
@@ -60,23 +60,17 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         Some(StorageClass::Extern) => StaticValue::NoInit,
                         _ => StaticValue::Tentative,
                     },
-                    Some(init) => {
-                        let ty = self.visit_expr(init);
-                        if ty != data.ty {
-                            self.result.actions.cast(data.ty, init);
+                    Some(init) => match eval_constant(self.ast, init) {
+                        Some(value) => StaticValue::Init(value.cast(data.ty)),
+                        None => {
+                            self.result.diagnostics.push(TyperDiagnostic {
+                                file: self.ast.file,
+                                span: self.ast.expr[init].span,
+                                kind: TyperDiagnosticKind::NotConstant,
+                            });
+                            StaticValue::NoInit
                         }
-                        match eval_constant(self.ast, init) {
-                            Some(value) => StaticValue::Init(value),
-                            None => {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    file: self.ast.file,
-                                    span: self.ast.expr[init].span,
-                                    kind: TyperDiagnosticKind::NotConstant,
-                                });
-                                StaticValue::NoInit
-                            }
-                        }
-                    }
+                    },
                 };
 
                 let info =
@@ -234,7 +228,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     self.visit_block_scope_decl(*param)
                 });
                 if let Some(body) = body {
-                    self.curr_ret = decl.ty.as_ref().ret().unwrap_or(self.ctx.ty.void_ty);
+                    self.curr_ret = decl.ty.ret().unwrap_or(self.ctx.ty.void_ty);
                     self.ast.items[body].iter().for_each(|item| match item {
                         BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                         BlockItem::Decl(decl) => self.visit_block_scope_decl(*decl),
@@ -334,27 +328,8 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
-                                Some(ConstValue::Int32(v)) => {
-                                    let v = match *cty {
-                                        TyKind::Int => ConstValue::Int32(v),
-                                        TyKind::Long => ConstValue::Int64(v as i64),
-                                        _ => panic!("invalid switch condition type"),
-                                    };
-                                    if !self.switch_cases.insert(v) {
-                                        self.result.diagnostics.push(TyperDiagnostic {
-                                            file: self.ast.file,
-                                            span: self.ast.expr[*expr].span,
-                                            kind: TyperDiagnosticKind::DuplicateSwitchCase,
-                                        });
-                                    }
-                                }
-                                Some(ConstValue::Int64(v)) => {
-                                    let v = match *cty {
-                                        TyKind::Int => ConstValue::Int32(v as i32),
-                                        TyKind::Long => ConstValue::Int64(v),
-                                        _ => panic!("invalid switch condition type"),
-                                    };
-                                    if !self.switch_cases.insert(v) {
+                                Some(c) => {
+                                    if !self.switch_cases.insert(c.cast(cty)) {
                                         self.result.diagnostics.push(TyperDiagnostic {
                                             file: self.ast.file,
                                             span: self.ast.expr[*expr].span,
@@ -375,8 +350,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
         let data = &self.ast.expr[expr];
         let ty = match &data.kind {
-            ExprKind::Const(ConstValue::Int32(_)) => self.ctx.ty.int_ty,
-            ExprKind::Const(ConstValue::Int64(_)) => self.ctx.ty.long_ty,
+            ExprKind::Const(Const::Int(_)) => self.ctx.ty.int_ty,
+            ExprKind::Const(Const::UInt(_)) => self.ctx.ty.uint_ty,
+            ExprKind::Const(Const::Long(_)) => self.ctx.ty.long_ty,
+            ExprKind::Const(Const::ULong(_)) => self.ctx.ty.ulong_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);
@@ -398,7 +375,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             ExprKind::Unary { op, expr } => {
                 let ty = self.visit_expr(*expr);
                 match op {
-                    UnaryOp::LogicalNot => self.ctx.ty.int_ty,
+                    UnaryOp::LogNot => self.ctx.ty.int_ty,
                     UnaryOp::PreInc | UnaryOp::PreDec | UnaryOp::PostInc | UnaryOp::PostDec => {
                         self.assert_is_lvalue(*expr);
                         ty
@@ -410,18 +387,18 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 let lty = self.visit_expr(*lhs);
                 let rty = self.visit_expr(*rhs);
                 match op {
-                    BinaryOp::LogicalAnd | BinaryOp::LogicalOr => self.ctx.ty.int_ty,
+                    BinaryOp::LogAnd | BinaryOp::LogOr => self.ctx.ty.int_ty,
                     BinaryOp::BitShl | BinaryOp::BitShr => lty,
                     BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
                         self.assert_is_lvalue(*lhs);
                         lty
                     }
-                    BinaryOp::Equal
-                    | BinaryOp::NotEqual
-                    | BinaryOp::LessThan
-                    | BinaryOp::LessEqual
-                    | BinaryOp::GreaterThan
-                    | BinaryOp::GreaterEqual => {
+                    BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Le
+                    | BinaryOp::Gt
+                    | BinaryOp::Ge => {
                         let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
@@ -537,16 +514,14 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     }
 
     fn assert_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
-        lhs.as_ref()
-            .common(rhs.as_ref(), self.ctx.ty)
-            .unwrap_or_else(|| {
-                self.result.diagnostics.push(TyperDiagnostic {
-                    span,
-                    file: self.ast.file,
-                    kind: TyperDiagnosticKind::TypeMismatch,
-                });
-                self.ctx.ty.void_ty
-            })
+        TyKind::common(lhs, rhs).unwrap_or_else(|| {
+            self.result.diagnostics.push(TyperDiagnostic {
+                span,
+                file: self.ast.file,
+                kind: TyperDiagnosticKind::TypeMismatch,
+            });
+            self.ctx.ty.void_ty
+        })
     }
 }
 
@@ -554,7 +529,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 // Auxiliary functions
 // ---------------------------------------------------------------------------
 
-fn eval_constant(ast: &Ast, expr: Expr) -> Option<ConstValue> {
+fn eval_constant(ast: &Ast, expr: Expr) -> Option<Const> {
     match ast.expr[expr].kind {
         ExprKind::Const(value) => Some(value),
         ExprKind::Cast { .. } => todo!("handle cast expressions"),

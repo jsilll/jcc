@@ -1,9 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyCtx},
-        Ast, AstSymbol, BinaryOp, Block, BlockItem, ConstValue, Decl, DeclData, DeclKind, DeclList,
-        Expr, ExprData, ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass,
-        UnaryOp,
+        Ast, BinaryOp, Block, BlockItem, Const, Decl, DeclData, DeclKind, DeclList, Expr, ExprData,
+        ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol, UnaryOp,
     },
     token::{
         lex::{Lexer, LexerDiagnostic},
@@ -36,7 +35,7 @@ pub struct Parser<'a, 'ctx> {
     /// The interner for identifier interning.
     interner: &'a mut IdentInterner,
     /// A temporary buffer for collecting type specifiers.
-    types: Vec<Ty<'ctx>>,
+    specifiers: Vec<TokenKind>,
     /// The result of the parsing process, containing the AST and diagnostics.
     result: ParserResult<'ctx>,
     /// A stack used for building expression lists, like function arguments.
@@ -59,7 +58,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             file,
             interner,
             lexer: lexer.peekable(),
-            types: Vec::with_capacity(16),
+            specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
             items_stack: Vec::with_capacity(16),
@@ -77,48 +76,91 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         self.result
     }
 
-    fn parse_type(&mut self) -> Ty<'ctx> {
-        let ty = match self.types.as_slice() {
-            [ty] if *ty == self.tys.int_ty => self.tys.int_ty,
-            [ty] if *ty == self.tys.long_ty => self.tys.long_ty,
-            [ty] if *ty == self.tys.void_ty => self.tys.void_ty,
-            [ty1, ty2] if *ty1 == self.tys.int_ty && *ty2 == self.tys.long_ty => self.tys.long_ty,
-            [ty1, ty2] if *ty1 == self.tys.long_ty && *ty2 == self.tys.int_ty => self.tys.long_ty,
-            t => {
-                let is_empty = t.is_empty();
-                let span = self.peek_span();
+    fn collect_types(&mut self) -> Span {
+        let start_span = self.peek_span();
+        let mut end_span = None;
+        while let Some(token) = self.peek() {
+            match token.kind {
+                TokenKind::KwVoid
+                | TokenKind::KwInt
+                | TokenKind::KwLong
+                | TokenKind::KwSigned
+                | TokenKind::KwUnsigned => {
+                    self.specifiers.push(token.kind);
+                    end_span = Some(token.span);
+                }
+                _ => break,
+            }
+            self.next();
+        }
+        end_span
+            .map(|s| start_span.merge(s))
+            .unwrap_or(Span::empty(start_span.start()))
+    }
+
+    fn parse_type(&mut self, span: Span) -> Ty<'ctx> {
+        if self.specifiers.is_empty() {
+            self.result.parser_diagnostics.push(ParserDiagnostic {
+                span,
+                file: self.file.id(),
+                kind: ParserDiagnosticKind::MissingTypeSpecifier,
+            });
+            self.tys.void_ty
+        } else {
+            let mut has_int = false;
+            let mut has_long = false;
+            let mut has_signed = false;
+            let mut has_unsigned = false;
+            for token in &self.specifiers {
+                match token {
+                    TokenKind::KwInt if !has_int => has_int = true,
+                    TokenKind::KwLong if !has_long => has_long = true,
+                    TokenKind::KwSigned if !has_signed => has_signed = true,
+                    TokenKind::KwUnsigned if !has_unsigned => has_unsigned = true,
+                    TokenKind::KwInt
+                    | TokenKind::KwLong
+                    | TokenKind::KwSigned
+                    | TokenKind::KwUnsigned => {
+                        self.result.parser_diagnostics.push(ParserDiagnostic {
+                            span,
+                            file: self.file.id(),
+                            kind: ParserDiagnosticKind::DuplicateTypeSpecifier,
+                        });
+                    }
+                    _ => {
+                        self.result.parser_diagnostics.push(ParserDiagnostic {
+                            span,
+                            file: self.file.id(),
+                            kind: ParserDiagnosticKind::InvalidTypeSpecifier,
+                        });
+                    }
+                }
+            }
+            self.specifiers.clear();
+            if has_signed && has_unsigned {
                 self.result.parser_diagnostics.push(ParserDiagnostic {
                     span,
                     file: self.file.id(),
-                    kind: if is_empty {
-                        ParserDiagnosticKind::MissingTypeSpecifier
-                    } else {
-                        ParserDiagnosticKind::InvalidTypeSpecifier
-                    },
+                    kind: ParserDiagnosticKind::ConflictingTypeSpecifiers,
                 });
-                self.tys.void_ty
             }
-        };
-        self.types.clear();
-        ty
+            match (has_unsigned, has_long) {
+                (true, true) => self.tys.ulong_ty,
+                (true, false) => self.tys.uint_ty,
+                (false, true) => self.tys.long_ty,
+                (false, false) => self.tys.int_ty,
+            }
+        }
     }
 
-    fn parse_specifiers(&mut self) -> Option<(Ty<'ctx>, Option<StorageClass>)> {
+    fn parse_specifiers(&mut self) -> (Ty<'ctx>, Option<StorageClass>) {
         let mut count = 0;
         let mut storage = None;
         let start_span = self.peek_span();
+
         let mut end_span = start_span;
-        while let Some(t) = self.peek() {
-            match t.kind {
-                TokenKind::KwInt => {
-                    self.types.push(self.tys.int_ty);
-                }
-                TokenKind::KwLong => {
-                    self.types.push(self.tys.long_ty);
-                }
-                TokenKind::KwVoid => {
-                    self.types.push(self.tys.void_ty);
-                }
+        while let Some(token) = self.peek() {
+            match token.kind {
                 TokenKind::KwStatic => {
                     storage = Some(StorageClass::Static);
                     count += 1;
@@ -127,23 +169,33 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     storage = Some(StorageClass::Extern);
                     count += 1;
                 }
+                TokenKind::KwVoid
+                | TokenKind::KwInt
+                | TokenKind::KwLong
+                | TokenKind::KwSigned
+                | TokenKind::KwUnsigned => {
+                    self.specifiers.push(token.kind);
+                }
                 _ => break,
             }
-            end_span = t.span;
+            end_span = token.span;
             self.next();
         }
+
+        let span = start_span.merge(end_span);
         if count > 1 {
             self.result.parser_diagnostics.push(ParserDiagnostic {
+                span,
                 file: self.file.id(),
-                span: start_span.merge(end_span),
                 kind: ParserDiagnosticKind::MultipleStorageClasses,
             });
         }
-        Some((self.parse_type(), storage))
+
+        (self.parse_type(span), storage)
     }
 
     fn parse_var_decl(&mut self) -> Option<Decl> {
-        let (ty, storage) = self.parse_specifiers()?;
+        let (ty, storage) = self.parse_specifiers();
         let (span, name) = self.eat_identifier()?;
         let init = if let Some(Token {
             kind: TokenKind::Eq,
@@ -161,7 +213,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             span,
             storage,
             kind: DeclKind::Var(init),
-            name: AstSymbol {
+            name: Symbol {
                 name,
                 sema: Default::default(),
             },
@@ -169,7 +221,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     fn parse_decl(&mut self) -> Option<Decl> {
-        let (ty, storage) = self.parse_specifiers()?;
+        let (ty, storage) = self.parse_specifiers();
         let (span, name) = self.eat_identifier()?;
         let token = self.eat_some()?;
         match token.kind {
@@ -178,7 +230,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 span,
                 storage,
                 kind: DeclKind::Var(None),
-                name: AstSymbol {
+                name: Symbol {
                     name,
                     sema: Default::default(),
                 },
@@ -191,7 +243,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     span,
                     storage,
                     kind: DeclKind::Var(Some(init)),
-                    name: AstSymbol {
+                    name: Symbol {
                         name,
                         sema: Default::default(),
                     },
@@ -219,7 +271,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     span,
                     storage,
                     kind: DeclKind::Func { params, body },
-                    name: AstSymbol {
+                    name: Symbol {
                         name,
                         sema: Default::default(),
                     },
@@ -243,7 +295,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             span,
             storage: None,
             kind: DeclKind::Var(None),
-            name: AstSymbol {
+            name: Symbol {
                 name,
                 sema: Default::default(),
             },
@@ -261,8 +313,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             }
             TokenKind::RParen => DeclList::default(),
             _ => {
-                self.collect_types();
-                let ty = self.parse_type();
+                let ty_span = self.collect_types();
+                let ty = self.parse_type(ty_span);
                 let base = self.decl_stack.len();
                 if let Some(decl) = self.parse_param(ty) {
                     self.decl_stack.push(decl);
@@ -273,8 +325,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }) = self.peek()
                 {
                     self.next();
-                    self.collect_types();
-                    let ty = self.parse_type();
+                    let ty_span = self.collect_types();
+                    let ty = self.parse_type(ty_span);
                     if let Some(decl) = self.parse_param(ty) {
                         self.decl_stack.push(decl);
                     }
@@ -289,7 +341,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         while let Some(Token { kind, .. }) = self.peek() {
             match kind {
                 TokenKind::RBrace => break,
-                t if is_decl_start(t) => match self.parse_decl() {
+                kind if kind.is_decl_start() => match self.parse_decl() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
                     Some(decl) => self.items_stack.push(BlockItem::Decl(decl)),
                 },
@@ -442,10 +494,13 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.eat(TokenKind::LParen)?;
                 let init = match self.peek() {
                     None => None,
-                    Some(Token { kind, .. }) => match kind {
-                        t if is_decl_start(t) => Some(ForInit::VarDecl(self.parse_var_decl()?)),
-                        _ => self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr),
-                    },
+                    Some(Token { kind, .. }) => {
+                        if kind.is_decl_start() {
+                            Some(ForInit::VarDecl(self.parse_var_decl()?))
+                        } else {
+                            self.parse_optional_expr(TokenKind::Semi).map(ForInit::Expr)
+                        }
+                    }
                 };
                 let cond = self.parse_optional_expr(TokenKind::Semi);
                 let step = self.parse_optional_expr(TokenKind::RParen);
@@ -562,8 +617,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         let Token { kind, span } = self.eat_some()?;
         if let Some(op) = match kind {
             TokenKind::Minus => Some(UnaryOp::Neg),
+            TokenKind::Bang => Some(UnaryOp::LogNot),
             TokenKind::Tilde => Some(UnaryOp::BitNot),
-            TokenKind::Bang => Some(UnaryOp::LogicalNot),
             TokenKind::PlusPlus => Some(UnaryOp::PreInc),
             TokenKind::MinusMinus => Some(UnaryOp::PreDec),
             _ => None,
@@ -576,30 +631,59 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             }));
         }
         match kind {
-            TokenKind::LongIntNumber => {
+            TokenKind::NumLong => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 let n = &n[0..n.len() - 1]; // remove 'L' suffix
                 let n = n.parse::<i64>().expect("expected number to be valid");
                 Some(self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(ConstValue::Int64(n)),
+                    kind: ExprKind::Const(Const::Long(n)),
                 }))
             }
-            TokenKind::IntNumber => {
+            TokenKind::NumULong => {
+                let n = self.file.slice(span).expect("expected span to be valid");
+                let n = &n[0..n.len() - 2]; // remove 'UL' suffix
+                let n = n.parse::<u64>().expect("expected number to be valid");
+                Some(self.result.ast.expr.push(ExprData {
+                    span,
+                    ty: self.tys.void_ty.into(),
+                    kind: ExprKind::Const(Const::ULong(n)),
+                }))
+            }
+            TokenKind::NumInt => {
                 let n = self.file.slice(span).expect("expected span to be valid");
                 match n.parse::<i32>() {
                     Ok(n) => Some(self.result.ast.expr.push(ExprData {
                         span,
                         ty: self.tys.void_ty.into(),
-                        kind: ExprKind::Const(ConstValue::Int32(n)),
+                        kind: ExprKind::Const(Const::Int(n)),
                     })),
                     Err(_) => {
                         let n = n.parse::<i64>().expect("expected number to be valid");
                         Some(self.result.ast.expr.push(ExprData {
                             span,
                             ty: self.tys.void_ty.into(),
-                            kind: ExprKind::Const(ConstValue::Int64(n)),
+                            kind: ExprKind::Const(Const::Long(n)),
+                        }))
+                    }
+                }
+            }
+            TokenKind::NumUInt => {
+                let n = self.file.slice(span).expect("expected span to be valid");
+                let n = &n[0..n.len() - 1]; // remove 'U' suffix
+                match n.parse::<u32>() {
+                    Ok(n) => Some(self.result.ast.expr.push(ExprData {
+                        span,
+                        ty: self.tys.void_ty.into(),
+                        kind: ExprKind::Const(Const::UInt(n)),
+                    })),
+                    Err(_) => {
+                        let n = n.parse::<u64>().expect("expected number to be valid");
+                        Some(self.result.ast.expr.push(ExprData {
+                            span,
+                            ty: self.tys.void_ty.into(),
+                            kind: ExprKind::Const(Const::ULong(n)),
                         }))
                     }
                 }
@@ -609,7 +693,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 let expr = self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Var(AstSymbol {
+                    kind: ExprKind::Var(Symbol {
                         name,
                         sema: Default::default(),
                     }),
@@ -627,7 +711,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                             ty: self.tys.void_ty.into(),
                             kind: ExprKind::Call {
                                 args,
-                                name: AstSymbol {
+                                name: Symbol {
                                     name,
                                     sema: Default::default(),
                                 },
@@ -638,8 +722,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }
             }
             TokenKind::LParen => {
-                self.collect_types();
-                if self.types.is_empty() {
+                let ty_span = self.collect_types();
+                if ty_span.is_empty() {
                     let expr = self.parse_expr(0)?;
                     self.eat(TokenKind::RParen)?;
                     let expr = self.result.ast.expr.push(ExprData {
@@ -649,7 +733,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     });
                     Some(self.parse_expr_postfix(expr))
                 } else {
-                    let ty = self.parse_type();
+                    let ty = self.parse_type(ty_span);
                     self.eat(TokenKind::RParen)?;
                     let expr = self.parse_expr_prefix()?;
                     let expr = self.result.ast.expr.push(ExprData {
@@ -731,24 +815,6 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             params.push(self.result.ast.decl[*d].ty);
         });
         self.tys.func(ret, params)
-    }
-
-    fn collect_types(&mut self) {
-        while let Some(token) = self.peek() {
-            match token.kind {
-                TokenKind::KwInt => {
-                    self.types.push(self.tys.int_ty);
-                }
-                TokenKind::KwLong => {
-                    self.types.push(self.tys.long_ty);
-                }
-                TokenKind::KwVoid => {
-                    self.types.push(self.tys.void_ty);
-                }
-                _ => break,
-            }
-            self.next();
-        }
     }
 
     // ---------------------------------------------------------------------------
@@ -940,10 +1006,10 @@ impl From<TokenKind> for Option<Precedence> {
             TokenKind::Question => Some(Precedence::ternary(1)),
 
             // Group: Left-to-right Associativity
-            TokenKind::PipePipe => Some(Precedence::binary_left(2, BinaryOp::LogicalOr)),
+            TokenKind::PipePipe => Some(Precedence::binary_left(2, BinaryOp::LogOr)),
 
             // Group: Left-to-right Associativity
-            TokenKind::AmpAmp => Some(Precedence::binary_left(3, BinaryOp::LogicalAnd)),
+            TokenKind::AmpAmp => Some(Precedence::binary_left(3, BinaryOp::LogAnd)),
 
             // Group: Left-to-right Associativity
             TokenKind::Pipe => Some(Precedence::binary_left(4, BinaryOp::BitOr)),
@@ -955,14 +1021,14 @@ impl From<TokenKind> for Option<Precedence> {
             TokenKind::Amp => Some(Precedence::binary_left(6, BinaryOp::BitAnd)),
 
             // Group: Left-to-right Associativity
-            TokenKind::EqEq => Some(Precedence::binary_left(7, BinaryOp::Equal)),
-            TokenKind::BangEq => Some(Precedence::binary_left(7, BinaryOp::NotEqual)),
+            TokenKind::EqEq => Some(Precedence::binary_left(7, BinaryOp::Eq)),
+            TokenKind::BangEq => Some(Precedence::binary_left(7, BinaryOp::Ne)),
 
             // Group: Left-to-right Associativity
-            TokenKind::Lt => Some(Precedence::binary_left(8, BinaryOp::LessThan)),
-            TokenKind::Gt => Some(Precedence::binary_left(8, BinaryOp::GreaterThan)),
-            TokenKind::LtEq => Some(Precedence::binary_left(8, BinaryOp::LessEqual)),
-            TokenKind::GtEq => Some(Precedence::binary_left(8, BinaryOp::GreaterEqual)),
+            TokenKind::Lt => Some(Precedence::binary_left(8, BinaryOp::Lt)),
+            TokenKind::Gt => Some(Precedence::binary_left(8, BinaryOp::Gt)),
+            TokenKind::LtEq => Some(Precedence::binary_left(8, BinaryOp::Le)),
+            TokenKind::GtEq => Some(Precedence::binary_left(8, BinaryOp::Ge)),
 
             // Group: Left-to-right Associativity
             TokenKind::LtLt => Some(Precedence::binary_left(9, BinaryOp::BitShl)),
@@ -980,22 +1046,6 @@ impl From<TokenKind> for Option<Precedence> {
             _ => None,
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Auxiliary Functions
-// ---------------------------------------------------------------------------
-
-#[inline]
-fn is_decl_start(token: TokenKind) -> bool {
-    matches!(
-        token,
-        TokenKind::KwInt
-            | TokenKind::KwLong
-            | TokenKind::KwVoid
-            | TokenKind::KwStatic
-            | TokenKind::KwExtern
-    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,6 +1089,8 @@ pub enum ParserDiagnosticKind {
     UnexpectedToken,
     MissingTypeSpecifier,
     InvalidTypeSpecifier,
+    DuplicateTypeSpecifier,
+    ConflictingTypeSpecifiers,
     MultipleStorageClasses,
     ExpectedToken(TokenKind),
 }
@@ -1064,12 +1116,24 @@ impl From<ParserDiagnostic> for Diagnostic {
                         .with_message(format!("expected '{token}'")),
                 )
                 .with_note(format!("the parser expected to find '{token}' at this location")),
+            ParserDiagnosticKind::DuplicateTypeSpecifier => Diagnostic::error()
+                    .with_label(
+                        Label::primary(diagnostic.file, diagnostic.span)
+                            .with_message("duplicate type specifier"),
+                    )
+                    .with_note("a type specifier has been specified more than once in the same declaration"),
             ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)
                         .with_message("missing type specifier"),
                 )
                 .with_note("declarations must include a type specifier such as 'int', 'char', 'void', etc."),
+            ParserDiagnosticKind::ConflictingTypeSpecifiers => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("conflicting type specifiers"),
+                )
+                .with_note("signed and unsigned type specifiers cannot be used together in the same declaration"),
             ParserDiagnosticKind::InvalidTypeSpecifier => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)

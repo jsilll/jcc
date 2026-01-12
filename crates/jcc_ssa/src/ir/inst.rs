@@ -495,9 +495,9 @@ impl std::fmt::Display for Inst {
                     cond, ty, then_val, ty, else_val
                 )
             }
-            Inst::Trunc { to, value } => write!(f, "trunc {} to {}", value, to),
             Inst::Zext { to, value } => write!(f, "zext {} to {}", value, to),
             Inst::Sext { to, value } => write!(f, "sext {} to {}", value, to),
+            Inst::Trunc { to, value } => write!(f, "trunc {} to {}", value, to),
             Inst::Bitcast { to, value } => write!(f, "bitcast {} to {}", value, to),
             Inst::IntToPtr { to, value } => write!(f, "inttoptr {} to {}", value, to),
             Inst::PtrToInt { to, value } => write!(f, "ptrtoint {} to {}", value, to),

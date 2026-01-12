@@ -126,17 +126,19 @@ impl<'a> Builder<'a> {
             ir::inst::Inst::GlobalAddr(global) => {
                 self.operands.insert(inst_ref, Operand::Data(global));
             }
-            ir::inst::Inst::Sext { value, .. } => {
-                let dst = self.make_pseudo(Type::Quad);
+            ir::inst::Inst::Sext { value, to } => {
+                let ty = to.try_into().unwrap();
+                let dst = self.make_pseudo(ty);
                 let src = self.get_operand(value);
                 self.operands.insert(inst_ref, dst);
                 self.insert_inst(Inst::movsx(src, dst, inst.span));
             }
-            ir::inst::Inst::Zext { value, .. } => {
-                let dst = self.make_pseudo(Type::Long);
+            ir::inst::Inst::Zext { value, to } => {
+                let ty = to.try_into().unwrap();
+                let dst = self.make_pseudo(ty);
                 let src = self.get_operand(value);
                 self.operands.insert(inst_ref, dst);
-                self.insert_inst(Inst::mov(Type::Long, src, dst, inst.span));
+                self.insert_inst(Inst::movzx(src, dst, inst.span));
             }
             ir::inst::Inst::Trunc { value, .. } => {
                 let dst = self.make_pseudo(Type::Long);
@@ -194,7 +196,7 @@ impl<'a> Builder<'a> {
                 cases.iter().for_each(|(v, block)| {
                     let block = self.get_or_make_block(*block);
                     self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(*v), inst.span));
-                    self.insert_inst(Inst::jmpcc(CondCode::Eq, block, inst.span));
+                    self.insert_inst(Inst::jmpcc(CondCode::E, block, inst.span));
                 });
                 let default = self.get_or_make_block(default);
                 self.insert_inst(Inst::jmp(default, inst.span));
@@ -219,19 +221,7 @@ impl<'a> Builder<'a> {
                 let lhs = self.get_operand(lhs);
                 let rhs = self.get_operand(rhs);
                 self.operands.insert(inst_ref, dst);
-                let cond_code = match pred {
-                    ir::inst::ICmpOp::Eq => CondCode::Eq,
-                    ir::inst::ICmpOp::Ne => CondCode::Ne,
-                    ir::inst::ICmpOp::Lt => CondCode::Lt,
-                    ir::inst::ICmpOp::Le => CondCode::Le,
-                    ir::inst::ICmpOp::Gt => CondCode::Gt,
-                    ir::inst::ICmpOp::Ge => CondCode::Ge,
-                    ir::inst::ICmpOp::Ugt => todo!(),
-                    ir::inst::ICmpOp::Uge => todo!(),
-                    ir::inst::ICmpOp::Ult => todo!(),
-                    ir::inst::ICmpOp::Ule => todo!(),
-                };
-                self.build_cmp((lhs_ty, Type::Long), cond_code, lhs, rhs, dst, inst.span);
+                self.build_cmp((lhs_ty, Type::Long), pred.into(), lhs, rhs, dst, inst.span);
             }
             ir::inst::Inst::Binary { ty, op, lhs, rhs } => {
                 let dst_ty = ty.try_into().unwrap();
@@ -241,15 +231,6 @@ impl<'a> Builder<'a> {
                 let rhs = self.get_operand(rhs);
                 self.operands.insert(inst_ref, dst);
                 match op {
-                    ir::inst::BinaryOp::UDiv => todo!(),
-                    ir::inst::BinaryOp::URem => todo!(),
-                    ir::inst::BinaryOp::AShr => todo!(),
-                    ir::inst::BinaryOp::Div => {
-                        self.build_div_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
-                    }
-                    ir::inst::BinaryOp::Rem => {
-                        self.build_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
-                    }
                     ir::inst::BinaryOp::Or => {
                         self.build_binary(lhs_ty, BinaryOp::Or, lhs, rhs, dst, inst.span)
                     }
@@ -265,6 +246,9 @@ impl<'a> Builder<'a> {
                     ir::inst::BinaryOp::Shr => {
                         self.build_binary(lhs_ty, BinaryOp::Shr, lhs, rhs, dst, inst.span)
                     }
+                    ir::inst::BinaryOp::AShr => {
+                        self.build_binary(lhs_ty, BinaryOp::Sar, lhs, rhs, dst, inst.span)
+                    }
                     ir::inst::BinaryOp::Add => {
                         self.build_binary(lhs_ty, BinaryOp::Add, lhs, rhs, dst, inst.span)
                     }
@@ -273,6 +257,18 @@ impl<'a> Builder<'a> {
                     }
                     ir::inst::BinaryOp::Mul => {
                         self.build_binary(lhs_ty, BinaryOp::Mul, lhs, rhs, dst, inst.span)
+                    }
+                    ir::inst::BinaryOp::Div => {
+                        self.build_div_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
+                    }
+                    ir::inst::BinaryOp::Rem => {
+                        self.build_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
+                    }
+                    ir::inst::BinaryOp::UDiv => {
+                        self.build_unsigned_div_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
+                    }
+                    ir::inst::BinaryOp::URem => {
+                        self.build_unsigned_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
                 }
             }
@@ -378,6 +374,31 @@ impl<'a> Builder<'a> {
         self.insert_inst(Inst::mov(ty, lhs, Operand::Reg(Reg::Rax), span));
         self.insert_inst(Inst::cdq(ty, span));
         self.insert_inst(Inst::idiv(ty, rhs, span));
+        self.insert_inst(Inst::mov(
+            ty,
+            if div {
+                Operand::Reg(Reg::Rax)
+            } else {
+                Operand::Reg(Reg::Rdx)
+            },
+            dst,
+            span,
+        ));
+    }
+
+    #[inline]
+    fn build_unsigned_div_or_rem(
+        &mut self,
+        div: bool,
+        ty: Type,
+        lhs: Operand,
+        rhs: Operand,
+        dst: Operand,
+        span: Span,
+    ) {
+        self.insert_inst(Inst::mov(ty, lhs, Operand::Reg(Reg::Rax), span));
+        self.insert_inst(Inst::mov(ty, Operand::Imm(0), Operand::Reg(Reg::Rdx), span));
+        self.insert_inst(Inst::div(ty, rhs, span));
         self.insert_inst(Inst::mov(
             ty,
             if div {

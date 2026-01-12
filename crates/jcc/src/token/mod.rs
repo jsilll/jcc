@@ -130,28 +130,53 @@ pub enum TokenKind {
     KwLong,
     /// The `return` keyword.
     KwReturn,
+    /// The `signed` keyword.
+    KwSigned,
     /// The `static` keyword.
     KwStatic,
     /// The `switch` keyword.
     KwSwitch,
+    /// The `unsigned` keyword.
+    KwUnsigned,
     /// The `void` keyword.
     KwVoid,
     /// The `while` keyword.
     KwWhile,
     /// A regular integer literal.
-    IntNumber,
+    NumInt,
     /// A long integer literal (e.g., 123L).
-    LongIntNumber,
+    NumLong,
+    /// An unsigned integer literal (e.g. 123u).
+    NumUInt,
+    /// An unsigned long integer literal (e.g. 123ul).
+    NumULong,
     /// An identifier.
     Identifier,
+}
+
+impl TokenKind {
+    pub fn is_decl_start(self) -> bool {
+        matches!(
+            self,
+            Self::KwInt
+                | Self::KwLong
+                | Self::KwVoid
+                | Self::KwStatic
+                | Self::KwExtern
+                | Self::KwSigned
+                | Self::KwUnsigned
+        )
+    }
 }
 
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenKind::IntNumber | TokenKind::LongIntNumber | TokenKind::Identifier => {
-                f.write_str(self.as_str())
-            }
+            TokenKind::NumInt
+            | TokenKind::NumLong
+            | TokenKind::NumUInt
+            | TokenKind::NumULong
+            | TokenKind::Identifier => f.write_str(self.as_str()),
             _ => write!(f, "`{}`", self.as_str()),
         }
     }
@@ -216,12 +241,16 @@ impl TokenKind {
             TokenKind::KwInt => "int",
             TokenKind::KwLong => "long",
             TokenKind::KwReturn => "return",
+            TokenKind::KwSigned => "signed",
             TokenKind::KwStatic => "static",
             TokenKind::KwSwitch => "switch",
+            TokenKind::KwUnsigned => "unsigned",
             TokenKind::KwVoid => "void",
             TokenKind::KwWhile => "while",
-            TokenKind::IntNumber => "a number",
-            TokenKind::LongIntNumber => "a long number",
+            TokenKind::NumInt => "a number",
+            TokenKind::NumLong => "a long number",
+            TokenKind::NumUInt => "an unsigned number",
+            TokenKind::NumULong => "an unsigned long number",
             TokenKind::Identifier => "an identifier",
         }
     }

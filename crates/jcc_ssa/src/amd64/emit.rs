@@ -49,10 +49,9 @@ impl<'a> AMD64Emitter<'a> {
                     } else {
                         writeln!(s.e, ".data")?;
                     }
-                    if target == TargetOs::Macos {
-                        writeln!(s.e, ".balign {}", var.ty.size_bytes().unwrap_or(1))?;
-                    } else {
-                        writeln!(s.e, ".align {}", var.ty.size_bytes().unwrap_or(1))?;
+                    match target {
+                        TargetOs::Linux => writeln!(s.e, ".align {}", var.ty.size_bytes())?,
+                        TargetOs::Macos => writeln!(s.e, ".balign {}", var.ty.size_bytes())?,
                     }
                     Ok(())
                 })?;
@@ -152,6 +151,10 @@ impl<'a> AMD64Emitter<'a> {
                 let oper = self.emit_operand(&oper, inst.ty);
                 writeln!(self.e, "pushq {oper}")
             }
+            InstKind::Div(oper) => {
+                let oper = self.emit_operand(&oper, inst.ty);
+                writeln!(self.e, "div{} {oper}", inst.ty)
+            }
             InstKind::Idiv(oper) => {
                 let oper = self.emit_operand(&oper, inst.ty);
                 writeln!(self.e, "idiv{} {oper}", inst.ty)
@@ -190,6 +193,11 @@ impl<'a> AMD64Emitter<'a> {
                 let dst = self.emit_operand(&dst, Type::Quad);
                 writeln!(self.e, "movslq {src}, {dst}")
             }
+            InstKind::Movzx { src, dst } => {
+                let src = self.emit_operand(&src, Type::Long);
+                let dst = self.emit_operand(&dst, Type::Quad);
+                writeln!(self.e, "movzlq {src}, {dst}")
+            }
             InstKind::Mov { src, dst } => {
                 let src = self.emit_operand(&src, inst.ty);
                 let dst = self.emit_operand(&dst, inst.ty);
@@ -220,7 +228,8 @@ impl<'a> AMD64Emitter<'a> {
                     BinaryOp::And => writeln!(self.e, "and{} {src}, {dst}", inst.ty),
                     BinaryOp::Xor => writeln!(self.e, "xor{} {src}, {dst}", inst.ty),
                     BinaryOp::Shl => writeln!(self.e, "sal{} {src}, {dst}", inst.ty),
-                    BinaryOp::Shr => writeln!(self.e, "sar{} {src}, {dst}", inst.ty),
+                    BinaryOp::Shr => writeln!(self.e, "shr{} {src}, {dst}", inst.ty),
+                    BinaryOp::Sar => writeln!(self.e, "sar{} {src}, {dst}", inst.ty),
                     BinaryOp::Mul => writeln!(self.e, "imul{} {src}, {dst}", inst.ty),
                 }
             }

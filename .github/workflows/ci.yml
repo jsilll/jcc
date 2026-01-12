@@ -28,6 +28,12 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Install Python dependencies
+        run: pip install jinja2
+
+      - name: Generate test files
+        run: cd tests && python3 gen_from_templates.py
+
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
         with:

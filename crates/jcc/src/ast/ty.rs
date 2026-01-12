@@ -60,13 +60,13 @@ impl<'ctx> TyKind<'ctx> {
         if lhs == rhs {
             Some(lhs)
         } else {
-            let lhs_size = lhs.lower().0.size_bytes();
             let rhs_size = rhs.lower().0.size_bytes();
-            match lhs_size.cmp(&rhs_size) {
+            let (lhs_ssa, is_lhs_signed) = lhs.lower();
+            match lhs_ssa.size_bytes().cmp(&rhs_size) {
                 std::cmp::Ordering::Less => Some(rhs),
                 std::cmp::Ordering::Greater => Some(lhs),
                 std::cmp::Ordering::Equal => {
-                    if lhs.is_signed() {
+                    if is_lhs_signed {
                         Some(rhs)
                     } else {
                         Some(lhs)

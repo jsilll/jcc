@@ -265,10 +265,10 @@ impl<'a> Builder<'a> {
                         self.build_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
                     ir::inst::BinaryOp::UDiv => {
-                        self.build_unsigned_dir_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
+                        self.build_unsigned_div_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
                     }
                     ir::inst::BinaryOp::URem => {
-                        self.build_unsigned_dir_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
+                        self.build_unsigned_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
                 }
             }
@@ -387,7 +387,7 @@ impl<'a> Builder<'a> {
     }
 
     #[inline]
-    fn build_unsigned_dir_or_rem(
+    fn build_unsigned_div_or_rem(
         &mut self,
         div: bool,
         ty: Type,

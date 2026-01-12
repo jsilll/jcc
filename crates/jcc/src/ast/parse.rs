@@ -136,7 +136,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     }
                 }
             }
-
+            self.specifiers.clear();
             if has_signed && has_unsigned {
                 self.result.parser_diagnostics.push(ParserDiagnostic {
                     span,
@@ -144,16 +144,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     kind: ParserDiagnosticKind::ConflictingTypeSpecifiers,
                 });
             }
-
-            let ty = match (has_unsigned, has_long) {
+            match (has_unsigned, has_long) {
                 (true, true) => self.tys.ulong_ty,
                 (true, false) => self.tys.uint_ty,
                 (false, true) => self.tys.long_ty,
                 (false, false) => self.tys.int_ty,
-            };
-
-            self.specifiers.clear();
-            ty
+            }
         }
     }
 

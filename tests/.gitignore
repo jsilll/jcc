@@ -1,3 +1,5 @@
 **/__pycache__/*
 mycc
 *.s
+!**/*data_on_page_boundary_*.s
+!**/*return_space_address_overlap_*.s

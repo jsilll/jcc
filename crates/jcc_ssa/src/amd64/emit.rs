@@ -65,6 +65,7 @@ impl<'a> AMD64Emitter<'a> {
                     ir::ty::Ty::I1 => todo!(),
                     ir::ty::Ty::I8 => todo!(),
                     ir::ty::Ty::I16 => todo!(),
+                    ir::ty::Ty::F64 => todo!(),
                     ir::ty::Ty::Ptr => todo!(),
                     ir::ty::Ty::I32 => match var.init {
                         Some(0) => writeln!(s.e, ".zero 4"),

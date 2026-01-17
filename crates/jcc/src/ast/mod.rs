@@ -82,12 +82,15 @@ pub enum Const {
     UInt(u32),
     /// A constant unsigned long integer value.
     ULong(u64),
+    /// A constant double precision floating-point value.
+    Double(u64),
 }
 
 impl Const {
     /// Converts the constant to a signed variant.
     pub fn to_int(&self) -> Self {
         match self {
+            Self::Double(_) => todo!(),
             Self::Int(v) => Self::Int(*v),
             Self::Long(v) => Self::Int(*v as i32),
             Self::UInt(v) => Self::Int(*v as i32),
@@ -98,6 +101,7 @@ impl Const {
     /// Converts the constant to a long variant.
     pub fn to_long(&self) -> Self {
         match self {
+            Self::Double(_) => todo!(),
             Self::Long(v) => Self::Long(*v),
             Self::Int(v) => Self::Long(*v as i64),
             Self::UInt(v) => Self::Long(*v as i64),
@@ -108,6 +112,7 @@ impl Const {
     /// Converts the constant to an unsigned variant.
     pub fn to_uint(&self) -> Self {
         match self {
+            Self::Double(_) => todo!(),
             Self::UInt(v) => Self::UInt(*v),
             Self::Int(v) => Self::UInt(*v as u32),
             Self::Long(v) => Self::UInt(*v as u32),
@@ -118,6 +123,7 @@ impl Const {
     /// Converts the constant to an unsigned long variant.
     pub fn to_ulong(&self) -> Self {
         match self {
+            Self::Double(_) => todo!(),
             Self::ULong(v) => Self::ULong(*v),
             Self::Int(v) => Self::ULong(*v as u64),
             Self::UInt(v) => Self::ULong(*v as u64),
@@ -140,6 +146,7 @@ impl Const {
     pub fn lower(&self) -> (i64, ir::ty::Ty) {
         use ir::ty::*;
         match self {
+            Self::Double(_) => todo!(),
             Self::Long(v) => (*v, Ty::I64),
             Self::Int(v) => (*v as i64, Ty::I32),
             Self::UInt(v) => (*v as i64, Ty::I32),

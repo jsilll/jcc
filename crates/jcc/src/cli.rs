@@ -40,6 +40,10 @@ impl From<CliTargetOs> for TargetOs {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
+    /// Link with the given library.
+    #[clap(short = 'l')]
+    pub libs: Vec<String>,
+
     /// Run the compiler in verbose mode, printing detailed information
     /// about each compilation stage.
     #[clap(long)]

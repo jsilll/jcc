@@ -20,6 +20,8 @@ pub enum TyKind<'ctx> {
     Long,
     /// The `unsigned long` type.
     ULong,
+    /// The `double` type.
+    Double,
     /// A pointer type.
     Ptr(Ty<'ctx>),
     /// A function type.
@@ -51,6 +53,7 @@ impl<'ctx> TyKind<'ctx> {
             TyKind::Long => (SsaTy::I64, true),
             TyKind::UInt => (SsaTy::I32, false),
             TyKind::ULong => (SsaTy::I64, false),
+            TyKind::Double => (SsaTy::F64, false),
             TyKind::Ptr(_) | TyKind::Func { .. } => (SsaTy::Ptr, false),
         }
     }
@@ -92,6 +95,8 @@ pub struct TyCtx<'ctx> {
     pub long_ty: Ty<'ctx>,
     /// Canonical `unsigned long` type.
     pub ulong_ty: Ty<'ctx>,
+    /// Canonical `double` type.
+    pub double_ty: Ty<'ctx>,
     /// Interned types.
     types: InternArena<TyKind<'ctx>>,
 }
@@ -117,6 +122,8 @@ impl<'ctx> TyCtx<'ctx> {
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Long).unwrap()) };
         let ulong_ty =
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::ULong).unwrap()) };
+        let double_ty =
+            unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Double).unwrap()) };
         Self {
             types,
             void_ty,
@@ -124,6 +131,7 @@ impl<'ctx> TyCtx<'ctx> {
             uint_ty,
             long_ty,
             ulong_ty,
+            double_ty,
         }
     }
 

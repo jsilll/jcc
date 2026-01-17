@@ -354,6 +354,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             ExprKind::Const(Const::UInt(_)) => self.ctx.ty.uint_ty,
             ExprKind::Const(Const::Long(_)) => self.ctx.ty.long_ty,
             ExprKind::Const(Const::ULong(_)) => self.ctx.ty.ulong_ty,
+            ExprKind::Const(Const::Double(_)) => self.ctx.ty.double_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);

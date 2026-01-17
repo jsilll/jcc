@@ -135,6 +135,7 @@ impl StaticValue {
             StaticValue::Init(Const::Int(v)) => Some(*v as i64),
             StaticValue::Init(Const::UInt(v)) => Some(*v as i64),
             StaticValue::Init(Const::ULong(v)) => Some(*v as i64),
+            StaticValue::Init(Const::Double(v)) => Some(*v as i64),
         }
     }
 }

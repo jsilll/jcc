@@ -114,6 +114,8 @@ pub enum TokenKind {
     KwDefault,
     /// The `do` keyword.
     KwDo,
+    /// The `double` keyword.
+    KwDouble,
     /// The `else` keyword.
     KwElse,
     /// The `extern` keyword.
@@ -150,6 +152,8 @@ pub enum TokenKind {
     NumUInt,
     /// An unsigned long integer literal (e.g. 123ul).
     NumULong,
+    /// A floating-point literal.
+    NumFloat,
     /// An identifier.
     Identifier,
 }
@@ -161,6 +165,7 @@ impl TokenKind {
             Self::KwInt
                 | Self::KwLong
                 | Self::KwVoid
+                | Self::KwDouble
                 | Self::KwStatic
                 | Self::KwExtern
                 | Self::KwSigned
@@ -176,6 +181,7 @@ impl std::fmt::Display for TokenKind {
             | TokenKind::NumLong
             | TokenKind::NumUInt
             | TokenKind::NumULong
+            | TokenKind::NumFloat
             | TokenKind::Identifier => f.write_str(self.as_str()),
             _ => write!(f, "`{}`", self.as_str()),
         }
@@ -233,6 +239,7 @@ impl TokenKind {
             TokenKind::KwContinue => "continue",
             TokenKind::KwDefault => "default",
             TokenKind::KwDo => "do",
+            TokenKind::KwDouble => "double",
             TokenKind::KwElse => "else",
             TokenKind::KwExtern => "extern",
             TokenKind::KwFor => "for",
@@ -251,6 +258,7 @@ impl TokenKind {
             TokenKind::NumLong => "a long number",
             TokenKind::NumUInt => "an unsigned number",
             TokenKind::NumULong => "an unsigned long number",
+            TokenKind::NumFloat => "a floating-point number",
             TokenKind::Identifier => "an identifier",
         }
     }

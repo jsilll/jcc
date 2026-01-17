@@ -165,6 +165,7 @@ impl TokenKind {
             Self::KwInt
                 | Self::KwLong
                 | Self::KwVoid
+                | Self::KwDouble
                 | Self::KwStatic
                 | Self::KwExtern
                 | Self::KwSigned

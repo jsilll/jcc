@@ -84,6 +84,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 TokenKind::KwVoid
                 | TokenKind::KwInt
                 | TokenKind::KwLong
+                | TokenKind::KwDouble
                 | TokenKind::KwSigned
                 | TokenKind::KwUnsigned => {
                     self.specifiers.push(token.kind);
@@ -99,56 +100,76 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     fn parse_type(&mut self, span: Span) -> Ty<'ctx> {
-        if self.specifiers.is_empty() {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                span,
-                file: self.file.id(),
-                kind: ParserDiagnosticKind::MissingTypeSpecifier,
-            });
-            self.tys.void_ty
-        } else {
-            let mut has_int = false;
-            let mut has_long = false;
-            let mut has_signed = false;
-            let mut has_unsigned = false;
-            for token in &self.specifiers {
-                match token {
-                    TokenKind::KwInt if !has_int => has_int = true,
-                    TokenKind::KwLong if !has_long => has_long = true,
-                    TokenKind::KwSigned if !has_signed => has_signed = true,
-                    TokenKind::KwUnsigned if !has_unsigned => has_unsigned = true,
-                    TokenKind::KwInt
-                    | TokenKind::KwLong
-                    | TokenKind::KwSigned
-                    | TokenKind::KwUnsigned => {
-                        self.result.parser_diagnostics.push(ParserDiagnostic {
-                            span,
-                            file: self.file.id(),
-                            kind: ParserDiagnosticKind::DuplicateTypeSpecifier,
-                        });
-                    }
-                    _ => {
-                        self.result.parser_diagnostics.push(ParserDiagnostic {
-                            span,
-                            file: self.file.id(),
-                            kind: ParserDiagnosticKind::InvalidTypeSpecifier,
-                        });
-                    }
-                }
-            }
-            self.specifiers.clear();
-            if has_signed && has_unsigned {
+        match self.specifiers.as_slice() {
+            [] => {
                 self.result.parser_diagnostics.push(ParserDiagnostic {
                     span,
                     file: self.file.id(),
-                    kind: ParserDiagnosticKind::ConflictingTypeSpecifiers,
+                    kind: ParserDiagnosticKind::MissingTypeSpecifier,
                 });
+                self.tys.void_ty
             }
-            match (has_unsigned, has_long) {
-                (true, true) => self.tys.ulong_ty,
-                (true, false) => self.tys.uint_ty,
-                (false, true) => self.tys.long_ty,
-                (false, false) => self.tys.int_ty,
+            [TokenKind::KwVoid] => {
+                self.specifiers.clear();
+                self.tys.void_ty
+            }
+            [TokenKind::KwDouble] => {
+                self.specifiers.clear();
+                self.tys.double_ty
+            }
+            specs if specs.contains(&TokenKind::KwDouble) || specs.contains(&TokenKind::KwVoid) => {
+                self.result.parser_diagnostics.push(ParserDiagnostic {
+                    span,
+                    file: self.file.id(),
+                    kind: ParserDiagnosticKind::InvalidTypeSpecifier,
+                });
+                self.specifiers.clear();
+                self.tys.void_ty
+            }
+            _ => {
+                let mut has_int = false;
+                let mut has_long = false;
+                let mut has_signed = false;
+                let mut has_unsigned = false;
+                for token in &self.specifiers {
+                    match token {
+                        TokenKind::KwInt if !has_int => has_int = true,
+                        TokenKind::KwLong if !has_long => has_long = true,
+                        TokenKind::KwSigned if !has_signed => has_signed = true,
+                        TokenKind::KwUnsigned if !has_unsigned => has_unsigned = true,
+                        TokenKind::KwInt
+                        | TokenKind::KwLong
+                        | TokenKind::KwSigned
+                        | TokenKind::KwUnsigned => {
+                            self.result.parser_diagnostics.push(ParserDiagnostic {
+                                span,
+                                file: self.file.id(),
+                                kind: ParserDiagnosticKind::DuplicateTypeSpecifier,
+                            });
+                        }
+                        _ => {
+                            self.result.parser_diagnostics.push(ParserDiagnostic {
+                                span,
+                                file: self.file.id(),
+                                kind: ParserDiagnosticKind::InvalidTypeSpecifier,
+                            });
+                        }
+                    }
+                }
+                if has_signed && has_unsigned {
+                    self.result.parser_diagnostics.push(ParserDiagnostic {
+                        span,
+                        file: self.file.id(),
+                        kind: ParserDiagnosticKind::ConflictingTypeSpecifiers,
+                    });
+                }
+                self.specifiers.clear();
+                match (has_unsigned, has_long) {
+                    (true, true) => self.tys.ulong_ty,
+                    (true, false) => self.tys.uint_ty,
+                    (false, true) => self.tys.long_ty,
+                    (false, false) => self.tys.int_ty,
+                }
             }
         }
     }
@@ -172,6 +193,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 TokenKind::KwVoid
                 | TokenKind::KwInt
                 | TokenKind::KwLong
+                | TokenKind::KwDouble
                 | TokenKind::KwSigned
                 | TokenKind::KwUnsigned => {
                     self.specifiers.push(token.kind);
@@ -687,6 +709,17 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         }))
                     }
                 }
+            }
+            TokenKind::NumFloat => {
+                let n = self.file.slice(span).expect("expected span to be valid");
+                let n = n
+                    .parse::<f64>()
+                    .expect("expected floating-point number to be valid");
+                Some(self.result.ast.expr.push(ExprData {
+                    span,
+                    ty: self.tys.void_ty.into(),
+                    kind: ExprKind::Const(Const::Double(n.to_bits())),
+                }))
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);

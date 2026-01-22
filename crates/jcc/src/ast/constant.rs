@@ -14,71 +14,68 @@ pub enum Constant {
     Double(u64),
 }
 
+macro_rules! impl_cast {
+    ($method_name:ident, $variant:ident, $target_ty:ty, $min:expr, $max:expr) => {
+        pub fn $method_name(&self) -> Option<Self> {
+            match self {
+                Self::Int(v) => Some(Self::$variant(*v as $target_ty)),
+                Self::Long(v) => Some(Self::$variant(*v as $target_ty)),
+                Self::UInt(v) => Some(Self::$variant(*v as $target_ty)),
+                Self::ULong(v) => Some(Self::$variant(*v as $target_ty)),
+                Self::Double(v) => {
+                    let f = f64::from_bits(*v).trunc();
+                    // Strict check: Is the float within the range of the target integer?
+                    if f >= ($min as f64) && f <= ($max as f64) {
+                        Some(Self::$variant(f as $target_ty))
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+    };
+}
+
 impl Constant {
-    /// Converts the constant to a signed variant.
-    pub fn to_int(&self) -> Self {
-        match self {
-            Self::Double(_) => todo!(),
-            Self::Int(v) => Self::Int(*v),
-            Self::Long(v) => Self::Int(*v as i32),
-            Self::UInt(v) => Self::Int(*v as i32),
-            Self::ULong(v) => Self::Int(*v as i32),
-        }
-    }
+    impl_cast!(to_int, Int, i32, i32::MIN, i32::MAX);
+    impl_cast!(to_long, Long, i64, i64::MIN, i64::MAX);
+    impl_cast!(to_uint, UInt, u32, u32::MIN, u32::MAX);
+    impl_cast!(to_ulong, ULong, u64, u64::MIN, u64::MAX);
 
-    /// Converts the constant to a long variant.
-    pub fn to_long(&self) -> Self {
-        match self {
-            Self::Double(_) => todo!(),
-            Self::Long(v) => Self::Long(*v),
-            Self::Int(v) => Self::Long(*v as i64),
-            Self::UInt(v) => Self::Long(*v as i64),
-            Self::ULong(v) => Self::Long(*v as i64),
-        }
-    }
-
-    /// Converts the constant to an unsigned variant.
-    pub fn to_uint(&self) -> Self {
-        match self {
-            Self::Double(_) => todo!(),
-            Self::UInt(v) => Self::UInt(*v),
-            Self::Int(v) => Self::UInt(*v as u32),
-            Self::Long(v) => Self::UInt(*v as u32),
-            Self::ULong(v) => Self::UInt(*v as u32),
-        }
-    }
-
-    /// Converts the constant to an unsigned long variant.
-    pub fn to_ulong(&self) -> Self {
-        match self {
-            Self::Double(_) => todo!(),
-            Self::ULong(v) => Self::ULong(*v),
-            Self::Int(v) => Self::ULong(*v as u64),
-            Self::UInt(v) => Self::ULong(*v as u64),
-            Self::Long(v) => Self::ULong(*v as u64),
-        }
+    /// Converts the constant to a double precision floating-point value.
+    pub fn to_double(&self) -> Option<Self> {
+        let val = match self {
+            Self::Int(v) => *v as f64,
+            Self::UInt(v) => *v as f64,
+            Self::Long(v) => *v as f64,
+            Self::ULong(v) => *v as f64,
+            Self::Double(v) => f64::from_bits(*v),
+        };
+        Some(Self::Double(val.to_bits()))
     }
 
     /// Converts the constant to the specified type
-    pub fn cast(&self, ty: Ty<'_>) -> Self {
+    pub fn cast(&self, ty: Ty<'_>) -> Option<Self> {
         match *ty {
             TyKind::Int => self.to_int(),
             TyKind::Long => self.to_long(),
             TyKind::UInt => self.to_uint(),
             TyKind::ULong => self.to_ulong(),
-            _ => *self,
+            TyKind::Double => self.to_double(),
+            // Ensure we handle cases where casting isn't necessary
+            _ => Some(*self),
         }
     }
 
-    /// Lowers the constant to tuple with its value and type
+    /// Lowers the constant to tuple with its value and type.
     pub fn lower(&self) -> (i64, jcc_ssa::ir::ty::Ty) {
         use jcc_ssa::ir::ty::*;
         match self {
-            Self::Double(_) => todo!(),
             Self::Long(v) => (*v, Ty::I64),
             Self::Int(v) => (*v as i64, Ty::I32),
             Self::UInt(v) => (*v as i64, Ty::I32),
             Self::ULong(v) => (*v as i64, Ty::I64),
+            Self::Double(v) => (*v as i64, Ty::F64),
         }
     }
 }

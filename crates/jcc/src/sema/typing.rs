@@ -62,13 +62,18 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         _ => StaticValue::Tentative,
                     },
                     Some(init) => match eval_constant(self.ast, init) {
-                        Some(value) => StaticValue::Init(value.cast(data.ty)),
+                        Some(value) => match value.cast(data.ty) {
+                            Some(v) => StaticValue::Init(v),
+                            None => {
+                                self.emit(
+                                    self.ast.expr[init].span,
+                                    TyperDiagnosticKind::ConstantOutOfRange,
+                                );
+                                StaticValue::NoInit
+                            }
+                        },
                         None => {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                file: self.ast.file,
-                                span: self.ast.expr[init].span,
-                                kind: TyperDiagnosticKind::NotConstant,
-                            });
+                            self.emit(self.ast.expr[init].span, TyperDiagnosticKind::NotConstant);
                             StaticValue::NoInit
                         }
                     },
@@ -111,11 +116,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                         StaticValue::Init(_) => {
                             if occupied && matches!(decl_init, StaticValue::Init(_)) {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    span: data.span,
-                                    file: self.ast.file,
-                                    kind: TyperDiagnosticKind::MultipleInitializers,
-                                });
+                                self.emit(data.span, TyperDiagnosticKind::MultipleInitializers);
                             }
                         }
                     }
@@ -141,22 +142,17 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
                 Some(StorageClass::Extern) => match init {
                     Some(init) => {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            file: self.ast.file,
-                            span: self.ast.expr[init].span,
-                            kind: TyperDiagnosticKind::ExternLocalInitialized,
-                        });
+                        self.emit(
+                            self.ast.expr[init].span,
+                            TyperDiagnosticKind::ExternLocalInitialized,
+                        );
                     }
                     None => {
                         let info = self.ctx.symbols
                             [data.name.sema.get().expect("sema symbol not set")]
                         .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
                         if info.ty != data.ty {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                span: data.span,
-                                file: self.ast.file,
-                                kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                            });
+                            self.emit(data.span, TyperDiagnosticKind::DeclarationTypeMismatch);
                         }
                     }
                 },
@@ -169,13 +165,21 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                 self.result.actions.cast(data.ty, init);
                             }
                             match eval_constant(self.ast, init) {
-                                Some(value) => StaticValue::Init(value),
+                                Some(value) => match value.cast(data.ty) {
+                                    Some(v) => StaticValue::Init(v),
+                                    None => {
+                                        self.emit(
+                                            self.ast.expr[init].span,
+                                            TyperDiagnosticKind::ConstantOutOfRange,
+                                        );
+                                        StaticValue::Tentative
+                                    }
+                                },
                                 None => {
-                                    self.result.diagnostics.push(TyperDiagnostic {
-                                        file: self.ast.file,
-                                        span: self.ast.expr[init].span,
-                                        kind: TyperDiagnosticKind::NotConstant,
-                                    });
+                                    self.emit(
+                                        self.ast.expr[init].span,
+                                        TyperDiagnosticKind::NotConstant,
+                                    );
                                     StaticValue::Tentative
                                 }
                             }
@@ -329,15 +333,24 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
-                                Some(c) => {
-                                    if !self.switch_cases.insert(c.cast(cty)) {
+                                Some(c) => match c.cast(cty) {
+                                    Some(val) => {
+                                        if !self.switch_cases.insert(val) {
+                                            self.result.diagnostics.push(TyperDiagnostic {
+                                                file: self.ast.file,
+                                                span: self.ast.expr[*expr].span,
+                                                kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                            });
+                                        }
+                                    }
+                                    None => {
                                         self.result.diagnostics.push(TyperDiagnostic {
                                             file: self.ast.file,
                                             span: self.ast.expr[*expr].span,
-                                            kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                            kind: TyperDiagnosticKind::ConstantOutOfRange,
                                         });
                                     }
-                                }
+                                },
                             },
                             _ => panic!("unexpected statement in switch case"),
                         });
@@ -596,6 +609,7 @@ pub enum TyperDiagnosticKind {
     DeclarationVisibilityMismatch,
     DuplicateSwitchCase,
     ExternLocalInitialized,
+    ConstantOutOfRange,
     FunctionCalledWithWrongArgsNumber,
     FunctionUsedAsVariable,
     InvalidBitwiseOperand,
@@ -635,6 +649,12 @@ impl From<TyperDiagnostic> for Diagnostic {
                         .with_message("extern variable cannot have an initializer"),
                 )
                 .with_note("variables with 'extern' storage class are declarations only and cannot be initialized"),
+            TyperDiagnosticKind::ConstantOutOfRange => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("constant value is out of range for the target type"),
+                )
+                .with_note("the value cannot be represented in the target type without overflow"),
             TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)

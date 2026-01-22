@@ -1,8 +1,9 @@
 use crate::{
     ast::{
         ty::{Ty, TyCtx},
-        Ast, BinaryOp, Block, BlockItem, Const, Decl, DeclData, DeclKind, DeclList, Expr, ExprData,
-        ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol, UnaryOp,
+        Ast, BinaryOp, Block, BlockItem, Constant, Decl, DeclData, DeclKind, DeclList, Expr,
+        ExprData, ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol,
+        UnaryOp,
     },
     token::{
         lex::{Lexer, LexerDiagnostic},
@@ -660,7 +661,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some(self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(Const::Long(n)),
+                    kind: ExprKind::Const(Constant::Long(n)),
                 }))
             }
             TokenKind::NumULong => {
@@ -670,7 +671,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some(self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(Const::ULong(n)),
+                    kind: ExprKind::Const(Constant::ULong(n)),
                 }))
             }
             TokenKind::NumInt => {
@@ -679,14 +680,14 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     Ok(n) => Some(self.result.ast.expr.push(ExprData {
                         span,
                         ty: self.tys.void_ty.into(),
-                        kind: ExprKind::Const(Const::Int(n)),
+                        kind: ExprKind::Const(Constant::Int(n)),
                     })),
                     Err(_) => {
                         let n = n.parse::<i64>().expect("expected number to be valid");
                         Some(self.result.ast.expr.push(ExprData {
                             span,
                             ty: self.tys.void_ty.into(),
-                            kind: ExprKind::Const(Const::Long(n)),
+                            kind: ExprKind::Const(Constant::Long(n)),
                         }))
                     }
                 }
@@ -698,14 +699,14 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     Ok(n) => Some(self.result.ast.expr.push(ExprData {
                         span,
                         ty: self.tys.void_ty.into(),
-                        kind: ExprKind::Const(Const::UInt(n)),
+                        kind: ExprKind::Const(Constant::UInt(n)),
                     })),
                     Err(_) => {
                         let n = n.parse::<u64>().expect("expected number to be valid");
                         Some(self.result.ast.expr.push(ExprData {
                             span,
                             ty: self.tys.void_ty.into(),
-                            kind: ExprKind::Const(Const::ULong(n)),
+                            kind: ExprKind::Const(Constant::ULong(n)),
                         }))
                     }
                 }
@@ -718,7 +719,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some(self.result.ast.expr.push(ExprData {
                     span,
                     ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(Const::Double(n.to_bits())),
+                    kind: ExprKind::Const(Constant::Double(n.to_bits())),
                 }))
             }
             TokenKind::Identifier => {

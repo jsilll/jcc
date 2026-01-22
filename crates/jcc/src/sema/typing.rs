@@ -1,7 +1,8 @@
 use crate::{
     ast::{
+        constant::Constant,
         ty::{Ty, TyKind},
-        Ast, BinaryOp, BlockItem, Const, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
+        Ast, BinaryOp, BlockItem, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
         StmtKind, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
@@ -26,7 +27,7 @@ pub struct TypeChecker<'a, 'ctx> {
     /// The result of the type checking
     result: TyperResult<'ctx>,
     /// The set of switch case values encountered
-    switch_cases: HashSet<Const>,
+    switch_cases: HashSet<Constant>,
 }
 
 impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
@@ -350,11 +351,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
         let data = &self.ast.expr[expr];
         let ty = match &data.kind {
-            ExprKind::Const(Const::Int(_)) => self.ctx.ty.int_ty,
-            ExprKind::Const(Const::UInt(_)) => self.ctx.ty.uint_ty,
-            ExprKind::Const(Const::Long(_)) => self.ctx.ty.long_ty,
-            ExprKind::Const(Const::ULong(_)) => self.ctx.ty.ulong_ty,
-            ExprKind::Const(Const::Double(_)) => self.ctx.ty.double_ty,
+            ExprKind::Const(Constant::Int(_)) => self.ctx.ty.int_ty,
+            ExprKind::Const(Constant::UInt(_)) => self.ctx.ty.uint_ty,
+            ExprKind::Const(Constant::Long(_)) => self.ctx.ty.long_ty,
+            ExprKind::Const(Constant::ULong(_)) => self.ctx.ty.ulong_ty,
+            ExprKind::Const(Constant::Double(_)) => self.ctx.ty.double_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);
@@ -572,7 +573,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 // Auxiliary functions
 // ---------------------------------------------------------------------------
 
-fn eval_constant(ast: &Ast, expr: Expr) -> Option<Const> {
+fn eval_constant(ast: &Ast, expr: Expr) -> Option<Constant> {
     match ast.expr[expr].kind {
         ExprKind::Const(value) => Some(value),
         ExprKind::Cast { .. } => todo!("handle cast expressions"),

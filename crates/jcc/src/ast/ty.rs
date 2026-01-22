@@ -32,9 +32,17 @@ pub enum TyKind<'ctx> {
 }
 
 impl<'ctx> TyKind<'ctx> {
-    /// Returns true if the type is signed.
+    /// Returns true if it is a signed type.
     pub fn is_signed(&self) -> bool {
         matches!(self, TyKind::Int | TyKind::Long)
+    }
+
+    /// Returns true if it is an integer type.
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            TyKind::Int | TyKind::UInt | TyKind::Long | TyKind::ULong
+        )
     }
 
     /// Returns the return type if the type is a function type.
@@ -63,16 +71,22 @@ impl<'ctx> TyKind<'ctx> {
         if lhs == rhs {
             Some(lhs)
         } else {
-            let rhs_size = rhs.lower().0.size_bytes();
-            let (lhs_ssa, is_lhs_signed) = lhs.lower();
-            match lhs_ssa.size_bytes().cmp(&rhs_size) {
-                std::cmp::Ordering::Less => Some(rhs),
-                std::cmp::Ordering::Greater => Some(lhs),
-                std::cmp::Ordering::Equal => {
-                    if is_lhs_signed {
-                        Some(rhs)
-                    } else {
-                        Some(lhs)
+            match (&*lhs, &*rhs) {
+                (TyKind::Double, _) => Some(lhs),
+                (_, TyKind::Double) => Some(rhs),
+                _ => {
+                    let rhs_size = rhs.lower().0.size_bytes();
+                    let (lhs_ssa, is_lhs_signed) = lhs.lower();
+                    match lhs_ssa.size_bytes().cmp(&rhs_size) {
+                        std::cmp::Ordering::Less => Some(rhs),
+                        std::cmp::Ordering::Greater => Some(lhs),
+                        std::cmp::Ordering::Equal => {
+                            if is_lhs_signed {
+                                Some(rhs)
+                            } else {
+                                Some(lhs)
+                            }
+                        }
                     }
                 }
             }

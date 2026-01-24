@@ -87,7 +87,7 @@ pub enum Inst {
     Param { ty: Ty, index: u32 },
 
     /// Constant integer value.
-    ConstInt { ty: Ty, value: i64 },
+    ConstInt { ty: Ty, value: u64 },
 
     /// Stack allocation. Returns a pointer to the allocated type.
     Alloca { ty: Ty, align: u32 },
@@ -187,7 +187,7 @@ pub enum Inst {
     Switch {
         value: Value,
         default: Block,
-        cases: Vec<(i64, Block)>,
+        cases: Vec<(u64, Block)>,
     },
 }
 
@@ -223,7 +223,7 @@ impl Inst {
     }
 
     /// Creates a constant integer instruction.
-    pub fn const_int(ty: Ty, value: i64) -> Self {
+    pub fn const_int(ty: Ty, value: u64) -> Self {
         Self::ConstInt { ty, value }
     }
 
@@ -345,11 +345,11 @@ impl Inst {
     }
 
     /// Creates a switch instruction for multi-way branching.
-    pub fn switch(value: Value, default: Block, cases: Vec<(i64, Block)>) -> Self {
+    pub fn switch(value: Value, default: Block, cases: Vec<(u64, Block)>) -> Self {
         Self::Switch {
+            cases,
             value,
             default,
-            cases,
         }
     }
 

@@ -37,6 +37,29 @@ macro_rules! impl_cast {
 }
 
 impl Constant {
+    /// Returns the raw bits of the constant value.
+    pub fn to_bits(&self) -> u64 {
+        match self {
+            Self::ULong(v) => *v,
+            Self::Double(v) => *v,
+            Self::Int(v) => *v as u64,
+            Self::Long(v) => *v as u64,
+            Self::UInt(v) => *v as u64,
+        }
+    }
+
+    /// Lowers the constant to tuple with its value and type.
+    pub fn lower(&self) -> (u64, jcc_ssa::ir::ty::Ty) {
+        use jcc_ssa::ir::ty::*;
+        match self {
+            Self::ULong(v) => (*v, Ty::I64),
+            Self::Double(v) => (*v, Ty::F64),
+            Self::Int(v) => (*v as u64, Ty::I32),
+            Self::Long(v) => (*v as u64, Ty::I64),
+            Self::UInt(v) => (*v as u64, Ty::I32),
+        }
+    }
+
     impl_cast!(to_int, Int, i32, i32::MIN, i32::MAX);
     impl_cast!(to_long, Long, i64, i64::MIN, i64::MAX);
     impl_cast!(to_uint, UInt, u32, u32::MIN, u32::MAX);
@@ -64,18 +87,6 @@ impl Constant {
             TyKind::Double => self.to_double(),
             // Ensure we handle cases where casting isn't necessary
             _ => Some(*self),
-        }
-    }
-
-    /// Lowers the constant to tuple with its value and type.
-    pub fn lower(&self) -> (i64, jcc_ssa::ir::ty::Ty) {
-        use jcc_ssa::ir::ty::*;
-        match self {
-            Self::Long(v) => (*v, Ty::I64),
-            Self::Int(v) => (*v as i64, Ty::I32),
-            Self::UInt(v) => (*v as i64, Ty::I32),
-            Self::ULong(v) => (*v as i64, Ty::I64),
-            Self::Double(v) => (*v as i64, Ty::F64),
         }
     }
 }

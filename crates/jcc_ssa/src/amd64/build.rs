@@ -121,6 +121,7 @@ impl<'a> Builder<'a> {
                 self.insert_inst(Inst::jmp(block, inst.span));
             }
             ir::inst::Inst::ConstInt { value, .. } => {
+                let value = value as i64;
                 self.operands.insert(inst_ref, Operand::Imm(value));
             }
             ir::inst::Inst::GlobalAddr(global) => {
@@ -193,9 +194,10 @@ impl<'a> Builder<'a> {
             } => {
                 let oper = self.get_operand(value);
                 let ty = self.ssa.values[value].inst.ty().try_into().unwrap();
-                cases.iter().for_each(|(v, block)| {
+                cases.iter().for_each(|(value, block)| {
+                    let v = *value as i64;
                     let block = self.get_or_make_block(*block);
-                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(*v), inst.span));
+                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(v), inst.span));
                     self.insert_inst(Inst::jmpcc(CondCode::E, block, inst.span));
                 });
                 let default = self.get_or_make_block(default);

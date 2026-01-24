@@ -128,15 +128,11 @@ pub enum StaticValue {
 
 impl StaticValue {
     /// Returns the integer value if it exists
-    pub fn value(&self) -> Option<i64> {
+    pub fn value(&self) -> Option<u64> {
         match self {
             StaticValue::NoInit => None,
             StaticValue::Tentative => Some(0),
-            StaticValue::Init(Constant::Long(v)) => Some(*v),
-            StaticValue::Init(Constant::Int(v)) => Some(*v as i64),
-            StaticValue::Init(Constant::UInt(v)) => Some(*v as i64),
-            StaticValue::Init(Constant::ULong(v)) => Some(*v as i64),
-            StaticValue::Init(Constant::Double(v)) => Some(*v as i64),
+            StaticValue::Init(c) => Some(c.to_bits()),
         }
     }
 }

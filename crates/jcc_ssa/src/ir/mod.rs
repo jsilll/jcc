@@ -58,7 +58,7 @@ pub struct GlobalData {
     pub span: Span,
     pub name: Ident,
     pub is_global: bool,
-    pub init: Option<i64>,
+    pub init: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

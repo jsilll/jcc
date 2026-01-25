@@ -120,7 +120,7 @@ impl<'a> Builder<'a> {
                 let block = self.get_or_make_block(block);
                 self.insert_inst(Inst::jmp(block, inst.span));
             }
-            ir::inst::Inst::ConstInt { value, .. } => {
+            ir::inst::Inst::Const { value, .. } => {
                 let value = value as i64;
                 self.operands.insert(inst_ref, Operand::Imm(value));
             }
@@ -272,6 +272,11 @@ impl<'a> Builder<'a> {
                     ir::inst::BinaryOp::URem => {
                         self.build_unsigned_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
+                    ir::inst::BinaryOp::FAdd => todo!(),
+                    ir::inst::BinaryOp::FSub => todo!(),
+                    ir::inst::BinaryOp::FMul => todo!(),
+                    ir::inst::BinaryOp::FDiv => todo!(),
+                    ir::inst::BinaryOp::FRem => todo!(),
                 }
             }
             ir::inst::Inst::Call { ty, func, ref args } => {
@@ -321,6 +326,13 @@ impl<'a> Builder<'a> {
             ir::inst::Inst::PtrToInt { .. } => todo!(),
             ir::inst::Inst::IndirectCall { .. } => todo!(),
             ir::inst::Inst::Unreachable => todo!(),
+            ir::inst::Inst::Fcmp { .. } => todo!(),
+            ir::inst::Inst::FpToSi { .. } => todo!(),
+            ir::inst::Inst::FpToUi { .. } => todo!(),
+            ir::inst::Inst::SiToFp { .. } => todo!(),
+            ir::inst::Inst::UiToFp { .. } => todo!(),
+            ir::inst::Inst::Fext { .. } => todo!(),
+            ir::inst::Inst::Ftrunc { .. } => todo!(),
         }
     }
 

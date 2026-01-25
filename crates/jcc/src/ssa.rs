@@ -116,7 +116,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         if append_return {
                             let val = self
                                 .builder
-                                .build_val(Inst::const_int(Ty::I32, 0), data.span);
+                                .build_val(Inst::constant(Ty::I32, 0), data.span);
                             self.builder.build_val(Inst::ret(Some(val)), data.span);
                         }
                     }
@@ -417,7 +417,7 @@ impl<'ctx> SSABuilder<'ctx> {
             ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
             ast::ExprKind::Const(c) => {
                 let (c, ty) = c.lower();
-                self.builder.build_val(Inst::const_int(ty, c), expr.span)
+                self.builder.build_val(Inst::constant(ty, c), expr.span)
             }
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
@@ -486,7 +486,7 @@ impl<'ctx> SSABuilder<'ctx> {
                     let val = self.visit_expr_rvalue(*inner);
                     let zero = self
                         .builder
-                        .build_val(Inst::const_int(Ty::I32, 0), expr.span);
+                        .build_val(Inst::constant(Ty::I32, 0), expr.span);
                     let cmp = self
                         .builder
                         .build_val(Inst::icmp(ICmpOp::Eq, val, zero), expr.span);
@@ -682,7 +682,7 @@ impl<'ctx> SSABuilder<'ctx> {
         let ty = self.ast.expr[expr].ty.get().lower().0;
         let ptr = self.visit_expr_lvalue(expr);
         let old = self.builder.build_val(Inst::load(ty, ptr, 0), span);
-        let one = self.builder.build_val(Inst::const_int(ty, 1), span);
+        let one = self.builder.build_val(Inst::constant(ty, 1), span);
         let op = if is_inc { BinaryOp::Add } else { BinaryOp::Sub };
         let new = self.builder.build_val(Inst::binary(op, ty, old, one), span);
         self.builder.build_val(Inst::store(ptr, new, 0), span);
@@ -769,9 +769,9 @@ impl<'ctx> SSABuilder<'ctx> {
         let lhs_val = self.visit_expr_rvalue(lhs);
         let short_circuit_val = self.builder.build_val(
             if is_or {
-                Inst::const_int(Ty::I32, 1)
+                Inst::constant(Ty::I32, 1)
             } else {
-                Inst::const_int(Ty::I32, 0)
+                Inst::constant(Ty::I32, 0)
             },
             span,
         );
@@ -788,7 +788,7 @@ impl<'ctx> SSABuilder<'ctx> {
         // === RHS Block ===
         self.builder.block = Some(rhs_block);
         let rhs_val = self.visit_expr_rvalue(rhs);
-        let zero_val = self.builder.build_val(Inst::const_int(Ty::I32, 0), span);
+        let zero_val = self.builder.build_val(Inst::constant(Ty::I32, 0), span);
         let is_nonzero = self
             .builder
             .build_val(Inst::icmp(ICmpOp::Ne, rhs_val, zero_val), span);

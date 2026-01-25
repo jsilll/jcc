@@ -82,8 +82,12 @@ impl std::fmt::Display for Program {
             write!(f, "{} ", global_data.ty)?;
 
             match global_data.init {
-                Some(val) => writeln!(f, "{}", val)?,
                 None => writeln!(f, "zeroinitializer")?,
+                Some(val) => match global_data.ty {
+                    Ty::F64 => write!(f, "{}", f64::from_bits(val))?,
+                    Ty::F32 => write!(f, "{}", f32::from_bits(val as u32))?,
+                    _ => write!(f, "{}", val)?,
+                },
             }
         }
 

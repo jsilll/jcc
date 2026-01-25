@@ -12,6 +12,10 @@ pub enum Ty {
     I32,
     /// 64-bit integer
     I64,
+    /// 32-bit floating-point
+    F32,
+    /// 64-bit floating-point
+    F64,
     /// Pointer type
     Ptr,
 }
@@ -25,6 +29,8 @@ impl Ty {
             Ty::I16 => 2,
             Ty::I32 => 4,
             Ty::I64 => 8,
+            Ty::F32 => 4,
+            Ty::F64 => 8,
             Ty::Ptr => 8,
         }
     }
@@ -39,6 +45,8 @@ impl std::fmt::Display for Ty {
             Ty::I16 => write!(f, "i16"),
             Ty::I32 => write!(f, "i32"),
             Ty::I64 => write!(f, "i64"),
+            Ty::F32 => write!(f, "f32"),
+            Ty::F64 => write!(f, "f64"),
             Ty::Ptr => write!(f, "ptr"),
         }
     }

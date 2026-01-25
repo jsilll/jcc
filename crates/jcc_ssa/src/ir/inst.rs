@@ -6,6 +6,8 @@ pub enum UnaryOp {
     Not,
     /// Arithmetic negation
     Neg,
+    /// Floating-point negation
+    FNeg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,20 +35,66 @@ pub enum ICmpOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FCmpOp {
+    /// False
+    False,
+    /// True
+    True,
+    /// Ordered
+    Ord,
+    /// Ordered and Equal
+    Oeq,
+    /// Ordered and Not Equal
+    One,
+    /// Ordered and Greater Than
+    Ogt,
+    /// Ordered and Greater Than or Equal
+    Oge,
+    /// Ordered and Less Than
+    Olt,
+    /// Ordered and Less Than or Equal
+    Ole,
+    /// Unordered
+    Uno,
+    /// Unordered and Equal
+    Ueq,
+    /// Unordered and Not Equal
+    Une,
+    /// Unordered and Greater Than
+    Ugt,
+    /// Unordered and Greater Than or Equal
+    Uge,
+    /// Unordered and Less Than
+    Ult,
+    /// Unordered and Less Than or Equal
+    Ule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
-    // Addition
+    // Integer Addition
     Add,
-    // Subtraction
+    /// Floating Point Addition
+    FAdd,
+    // Integer Subtraction
     Sub,
-    // Multiplication
+    /// Floating Point Subtraction
+    FSub,
+    // Integer Multiplication
     Mul,
-    // Signed division
+    /// Floating Point Multiplication
+    FMul,
+    // Signed Integer Division
     Div,
-    // Signed remainder
+    /// Floating Point Division
+    FDiv,
+    // Signed Integer Remainder
     Rem,
-    // Unsigned division
+    /// Floating Point Remainder
+    FRem,
+    // Unsigned Integer Division
     UDiv,
-    // Unsigned remainder
+    // Unsigned Integer Remainder
     URem,
     // Bitwise AND
     And,
@@ -83,11 +131,11 @@ pub enum Inst {
     /// Address of a global variable.
     GlobalAddr(Global),
 
+    /// Constant integer value.
+    Const { ty: Ty, value: u64 },
+
     /// Function parameter definition.
     Param { ty: Ty, index: u32 },
-
-    /// Constant integer value.
-    ConstInt { ty: Ty, value: i64 },
 
     /// Stack allocation. Returns a pointer to the allocated type.
     Alloca { ty: Ty, align: u32 },
@@ -127,6 +175,13 @@ pub enum Inst {
         pred: ICmpOp,
     },
 
+    /// Floating-point comparison.
+    Fcmp {
+        lhs: Value,
+        rhs: Value,
+        pred: FCmpOp,
+    },
+
     /// Select between two values based on a boolean condition (like a ternary operator).
     Select {
         ty: Ty,
@@ -138,11 +193,17 @@ pub enum Inst {
     /// Conversion: truncate integer to smaller type.
     Trunc { to: Ty, value: Value },
 
+    /// Conversion: Float truncation
+    Ftrunc { to: Ty, value: Value },
+
     /// Conversion: zero-extend integer to larger type.
     Zext { to: Ty, value: Value },
 
     /// Conversion: sign-extend integer to larger type.
     Sext { to: Ty, value: Value },
+
+    /// Conversion: Float extension
+    Fext { to: Ty, value: Value },
 
     /// Conversion: bitcast between types of the same size.
     Bitcast { to: Ty, value: Value },
@@ -152,6 +213,18 @@ pub enum Inst {
 
     /// Conversion: Casts a pointer to an integer.
     PtrToInt { to: Ty, value: Value },
+
+    /// Conversion: Float to Signed Integer
+    FpToSi { to: Ty, value: Value },
+
+    /// Conversion: Float to Unsigned Integer
+    FpToUi { to: Ty, value: Value },
+
+    /// Conversion: Signed Integer to Float
+    SiToFp { to: Ty, value: Value },
+
+    /// Conversion: Unsigned Integer to Float
+    UiToFp { to: Ty, value: Value },
 
     // Function Call: Direct function call.
     Call {
@@ -187,7 +260,7 @@ pub enum Inst {
     Switch {
         value: Value,
         default: Block,
-        cases: Vec<(i64, Block)>,
+        cases: Vec<(u64, Block)>,
     },
 }
 
@@ -223,8 +296,8 @@ impl Inst {
     }
 
     /// Creates a constant integer instruction.
-    pub fn const_int(ty: Ty, value: i64) -> Self {
-        Self::ConstInt { ty, value }
+    pub fn constant(ty: Ty, value: u64) -> Self {
+        Self::Const { ty, value }
     }
 
     /// Creates a stack allocation instruction.
@@ -265,6 +338,11 @@ impl Inst {
         Self::Icmp { lhs, rhs, pred }
     }
 
+    /// Creates a floating-point comparison instruction.
+    pub fn fcmp(pred: FCmpOp, lhs: Value, rhs: Value) -> Self {
+        Self::Fcmp { lhs, rhs, pred }
+    }
+
     /// Creates a binary operation instruction.
     pub fn binary(op: BinaryOp, ty: Ty, lhs: Value, rhs: Value) -> Self {
         Self::Binary { ty, lhs, rhs, op }
@@ -285,6 +363,11 @@ impl Inst {
         Self::Trunc { to, value }
     }
 
+    /// Creates a float truncation instruction.
+    pub fn ftrunc(to: Ty, value: Value) -> Self {
+        Self::Ftrunc { to, value }
+    }
+
     /// Creates a zero-extend instruction to increase an integer's size.
     pub fn zext(to: Ty, value: Value) -> Self {
         Self::Zext { to, value }
@@ -293,6 +376,11 @@ impl Inst {
     /// Creates a sign-extend instruction to increase an integer's size.
     pub fn sext(to: Ty, value: Value) -> Self {
         Self::Sext { to, value }
+    }
+
+    /// Creates a float extension instruction.
+    pub fn fext(to: Ty, value: Value) -> Self {
+        Self::Fext { to, value }
     }
 
     /// Creates a bitcast instruction to convert between types of the same size.
@@ -308,6 +396,26 @@ impl Inst {
     /// Creates an instruction to cast a pointer to an integer.
     pub fn ptr_to_int(to: Ty, value: Value) -> Self {
         Self::PtrToInt { to, value }
+    }
+
+    /// Creates a float to signed integer conversion instruction.
+    pub fn fp_to_si(to: Ty, value: Value) -> Self {
+        Self::FpToSi { to, value }
+    }
+
+    /// Creates a float to unsigned integer conversion instruction.
+    pub fn fp_to_ui(to: Ty, value: Value) -> Self {
+        Self::FpToUi { to, value }
+    }
+
+    /// Creates a signed integer to float conversion instruction.
+    pub fn si_to_fp(to: Ty, value: Value) -> Self {
+        Self::SiToFp { to, value }
+    }
+
+    /// Creates an unsigned integer to float conversion instruction.
+    pub fn ui_to_fp(to: Ty, value: Value) -> Self {
+        Self::UiToFp { to, value }
     }
 
     /// Creates a direct function call instruction.
@@ -345,11 +453,11 @@ impl Inst {
     }
 
     /// Creates a switch instruction for multi-way branching.
-    pub fn switch(value: Value, default: Block, cases: Vec<(i64, Block)>) -> Self {
+    pub fn switch(value: Value, default: Block, cases: Vec<(u64, Block)>) -> Self {
         Self::Switch {
+            cases,
             value,
             default,
-            cases,
         }
     }
 
@@ -368,16 +476,20 @@ impl Inst {
             | Inst::Upsilon { .. } => Ty::Void,
 
             Inst::Icmp { .. } => Ty::I1,
+            Inst::Fcmp { .. } => Ty::I1,
             Inst::GlobalAddr(_) => Ty::Ptr,
             Inst::Alloca { .. } => Ty::Ptr,
             Inst::GetElementPtr { .. } => Ty::Ptr,
 
-            Inst::Phi(ty)
-            | Inst::Binary { ty, .. }
+            Inst::Binary { ty, .. }
             | Inst::Bitcast { to: ty, .. }
             | Inst::Call { ty, .. }
-            | Inst::ConstInt { ty, .. }
+            | Inst::Const { ty, .. }
             | Inst::ConstNull(ty)
+            | Inst::Fext { to: ty, .. }
+            | Inst::FpToSi { to: ty, .. }
+            | Inst::FpToUi { to: ty, .. }
+            | Inst::Ftrunc { to: ty, .. }
             | Inst::IndirectCall { ty, .. }
             | Inst::IntToPtr { to: ty, .. }
             | Inst::Load { ty, .. }
@@ -385,9 +497,12 @@ impl Inst {
             | Inst::PtrToInt { to: ty, .. }
             | Inst::Select { ty, .. }
             | Inst::Sext { to: ty, .. }
+            | Inst::SiToFp { to: ty, .. }
             | Inst::Trunc { to: ty, .. }
+            | Inst::UiToFp { to: ty, .. }
             | Inst::Unary { ty, .. }
-            | Inst::Zext { to: ty, .. } => *ty,
+            | Inst::Zext { to: ty, .. }
+            | Inst::Phi(ty) => *ty,
         }
     }
 }
@@ -397,6 +512,7 @@ impl std::fmt::Display for UnaryOp {
         match self {
             UnaryOp::Not => write!(f, "not"),
             UnaryOp::Neg => write!(f, "neg"),
+            UnaryOp::FNeg => write!(f, "fneg"),
         }
     }
 }
@@ -405,12 +521,17 @@ impl std::fmt::Display for BinaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BinaryOp::Add => write!(f, "add"),
+            BinaryOp::FAdd => write!(f, "fadd"),
             BinaryOp::Sub => write!(f, "sub"),
+            BinaryOp::FSub => write!(f, "fsub"),
             BinaryOp::Mul => write!(f, "mul"),
+            BinaryOp::FMul => write!(f, "fmul"),
             BinaryOp::Div => write!(f, "sdiv"),
-            BinaryOp::Rem => write!(f, "srem"),
             BinaryOp::UDiv => write!(f, "udiv"),
+            BinaryOp::FDiv => write!(f, "fdiv"),
+            BinaryOp::Rem => write!(f, "srem"),
             BinaryOp::URem => write!(f, "urem"),
+            BinaryOp::FRem => write!(f, "frem"),
             BinaryOp::And => write!(f, "and"),
             BinaryOp::Or => write!(f, "or"),
             BinaryOp::Xor => write!(f, "xor"),
@@ -434,6 +555,29 @@ impl std::fmt::Display for ICmpOp {
             ICmpOp::Ule => write!(f, "ule"),
             ICmpOp::Ugt => write!(f, "ugt"),
             ICmpOp::Uge => write!(f, "uge"),
+        }
+    }
+}
+
+impl std::fmt::Display for FCmpOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FCmpOp::False => write!(f, "false"),
+            FCmpOp::True => write!(f, "true"),
+            FCmpOp::Ord => write!(f, "ord"),
+            FCmpOp::Oeq => write!(f, "oeq"),
+            FCmpOp::One => write!(f, "one"),
+            FCmpOp::Ogt => write!(f, "ogt"),
+            FCmpOp::Oge => write!(f, "oge"),
+            FCmpOp::Olt => write!(f, "olt"),
+            FCmpOp::Ole => write!(f, "ole"),
+            FCmpOp::Uno => write!(f, "uno"),
+            FCmpOp::Ueq => write!(f, "ueq"),
+            FCmpOp::Une => write!(f, "une"),
+            FCmpOp::Ugt => write!(f, "ugt"),
+            FCmpOp::Uge => write!(f, "uge"),
+            FCmpOp::Ult => write!(f, "ult"),
+            FCmpOp::Ule => write!(f, "ule"),
         }
     }
 }
@@ -464,8 +608,8 @@ impl std::fmt::Display for Inst {
             Inst::Upsilon { phi, value } => write!(f, "upsilon {} -> {}", value, phi),
             Inst::ConstNull(ty) => write!(f, "null {}", ty),
             Inst::GlobalAddr(g) => write!(f, "global.addr {}", g),
+            Inst::Const { ty, value } => write!(f, "const {} {}", ty, value),
             Inst::Param { ty, index } => write!(f, "param {} #{}", ty, index),
-            Inst::ConstInt { ty, value } => write!(f, "const {} {}", ty, value),
             Inst::Alloca { ty, align } => write!(f, "alloca {}, align {}", ty, align),
             Inst::Load { ty, ptr, align } => {
                 write!(f, "load {}, {} {}, align {}", ty, Ty::Ptr, ptr, align)
@@ -483,6 +627,7 @@ impl std::fmt::Display for Inst {
             Inst::Unary { ty, op, operand } => write!(f, "{} {} {}", op, ty, operand),
             Inst::Binary { ty, lhs, rhs, op } => write!(f, "{} {} {}, {}", op, ty, lhs, rhs),
             Inst::Icmp { lhs, rhs, pred } => write!(f, "icmp {} {}, {}", pred, lhs, rhs),
+            Inst::Fcmp { lhs, rhs, pred } => write!(f, "fcmp {} {}, {}", pred, lhs, rhs),
             Inst::Select {
                 ty,
                 cond,
@@ -497,10 +642,16 @@ impl std::fmt::Display for Inst {
             }
             Inst::Zext { to, value } => write!(f, "zext {} to {}", value, to),
             Inst::Sext { to, value } => write!(f, "sext {} to {}", value, to),
+            Inst::Fext { to, value } => write!(f, "fext {} to {}", value, to),
             Inst::Trunc { to, value } => write!(f, "trunc {} to {}", value, to),
+            Inst::Ftrunc { to, value } => write!(f, "ftrunc {} to {}", value, to),
             Inst::Bitcast { to, value } => write!(f, "bitcast {} to {}", value, to),
             Inst::IntToPtr { to, value } => write!(f, "inttoptr {} to {}", value, to),
             Inst::PtrToInt { to, value } => write!(f, "ptrtoint {} to {}", value, to),
+            Inst::FpToSi { to, value } => write!(f, "fptosi {} to {}", value, to),
+            Inst::FpToUi { to, value } => write!(f, "fptoui {} to {}", value, to),
+            Inst::SiToFp { to, value } => write!(f, "sitofp {} to {}", value, to),
+            Inst::UiToFp { to, value } => write!(f, "uitofp {} to {}", value, to),
             Inst::Call { ty, func, args } => {
                 write!(f, "call {} {}({})", ty, func, CommaSep(args))
             }

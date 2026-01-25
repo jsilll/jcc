@@ -3,8 +3,9 @@ pub mod resolve;
 pub mod typing;
 
 use crate::ast::{
+    constant::Constant,
     ty::{Ty, TyCtx},
-    Const, Stmt,
+    Stmt,
 };
 
 use jcc_entity::{entity_impl, SecondaryMap};
@@ -122,19 +123,16 @@ pub enum StaticValue {
     /// Tentative initializer
     Tentative,
     /// Initialized with a value
-    Init(Const),
+    Init(Constant),
 }
 
 impl StaticValue {
     /// Returns the integer value if it exists
-    pub fn value(&self) -> Option<i64> {
+    pub fn value(&self) -> Option<u64> {
         match self {
             StaticValue::NoInit => None,
             StaticValue::Tentative => Some(0),
-            StaticValue::Init(Const::Long(v)) => Some(*v),
-            StaticValue::Init(Const::Int(v)) => Some(*v as i64),
-            StaticValue::Init(Const::UInt(v)) => Some(*v as i64),
-            StaticValue::Init(Const::ULong(v)) => Some(*v as i64),
+            StaticValue::Init(c) => Some(c.to_bits()),
         }
     }
 }

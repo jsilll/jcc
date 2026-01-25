@@ -20,6 +20,8 @@ pub enum TyKind<'ctx> {
     Long,
     /// The `unsigned long` type.
     ULong,
+    /// The `double` type.
+    Double,
     /// A pointer type.
     Ptr(Ty<'ctx>),
     /// A function type.
@@ -30,9 +32,17 @@ pub enum TyKind<'ctx> {
 }
 
 impl<'ctx> TyKind<'ctx> {
-    /// Returns true if the type is signed.
+    /// Returns true if it is a signed type.
     pub fn is_signed(&self) -> bool {
         matches!(self, TyKind::Int | TyKind::Long)
+    }
+
+    /// Returns true if it is an integer type.
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            TyKind::Int | TyKind::UInt | TyKind::Long | TyKind::ULong
+        )
     }
 
     /// Returns the return type if the type is a function type.
@@ -51,6 +61,7 @@ impl<'ctx> TyKind<'ctx> {
             TyKind::Long => (SsaTy::I64, true),
             TyKind::UInt => (SsaTy::I32, false),
             TyKind::ULong => (SsaTy::I64, false),
+            TyKind::Double => (SsaTy::F64, false),
             TyKind::Ptr(_) | TyKind::Func { .. } => (SsaTy::Ptr, false),
         }
     }
@@ -60,16 +71,22 @@ impl<'ctx> TyKind<'ctx> {
         if lhs == rhs {
             Some(lhs)
         } else {
-            let rhs_size = rhs.lower().0.size_bytes();
-            let (lhs_ssa, is_lhs_signed) = lhs.lower();
-            match lhs_ssa.size_bytes().cmp(&rhs_size) {
-                std::cmp::Ordering::Less => Some(rhs),
-                std::cmp::Ordering::Greater => Some(lhs),
-                std::cmp::Ordering::Equal => {
-                    if is_lhs_signed {
-                        Some(rhs)
-                    } else {
-                        Some(lhs)
+            match (&*lhs, &*rhs) {
+                (TyKind::Double, _) => Some(lhs),
+                (_, TyKind::Double) => Some(rhs),
+                _ => {
+                    let rhs_size = rhs.lower().0.size_bytes();
+                    let (lhs_ssa, is_lhs_signed) = lhs.lower();
+                    match lhs_ssa.size_bytes().cmp(&rhs_size) {
+                        std::cmp::Ordering::Less => Some(rhs),
+                        std::cmp::Ordering::Greater => Some(lhs),
+                        std::cmp::Ordering::Equal => {
+                            if is_lhs_signed {
+                                Some(rhs)
+                            } else {
+                                Some(lhs)
+                            }
+                        }
                     }
                 }
             }
@@ -92,6 +109,8 @@ pub struct TyCtx<'ctx> {
     pub long_ty: Ty<'ctx>,
     /// Canonical `unsigned long` type.
     pub ulong_ty: Ty<'ctx>,
+    /// Canonical `double` type.
+    pub double_ty: Ty<'ctx>,
     /// Interned types.
     types: InternArena<TyKind<'ctx>>,
 }
@@ -117,6 +136,8 @@ impl<'ctx> TyCtx<'ctx> {
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Long).unwrap()) };
         let ulong_ty =
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::ULong).unwrap()) };
+        let double_ty =
+            unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Double).unwrap()) };
         Self {
             types,
             void_ty,
@@ -124,6 +145,7 @@ impl<'ctx> TyCtx<'ctx> {
             uint_ty,
             long_ty,
             ulong_ty,
+            double_ty,
         }
     }
 

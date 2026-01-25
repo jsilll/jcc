@@ -159,6 +159,11 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         cmd.arg(&asm_path)
             .arg("-o")
             .arg(args.path.with_extension(extension));
+
+        for lib in &args.libs {
+            cmd.arg(format!("-l{}", lib));
+        }
+
         let output = cmd.output()?;
         if !output.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));

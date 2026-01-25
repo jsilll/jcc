@@ -6,6 +6,8 @@ pub enum UnaryOp {
     Not,
     /// Arithmetic negation
     Neg,
+    /// Floating-point negation
+    FNeg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -510,6 +512,7 @@ impl std::fmt::Display for UnaryOp {
         match self {
             UnaryOp::Not => write!(f, "not"),
             UnaryOp::Neg => write!(f, "neg"),
+            UnaryOp::FNeg => write!(f, "fneg"),
         }
     }
 }

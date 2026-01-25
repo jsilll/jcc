@@ -215,6 +215,7 @@ impl<'a> Builder<'a> {
                     ir::inst::UnaryOp::Neg => {
                         self.build_unary(val_ty, UnaryOp::Neg, src, dst, inst.span)
                     }
+                    ir::inst::UnaryOp::FNeg => todo!(),
                 }
             }
             ir::inst::Inst::Icmp { pred, lhs, rhs } => {

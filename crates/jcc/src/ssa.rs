@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self},
+    ast::{self, Expr},
     sema::{self, Attribute, SemaCtx},
 };
 
@@ -8,7 +8,7 @@ use jcc_ssa::{
     codemap::span::Span,
     ir::{
         builder::Builder,
-        inst::{BinaryOp, ICmpOp, Inst, UnaryOp},
+        inst::{BinaryOp, FCmpOp, ICmpOp, Inst, UnaryOp},
         ty::Ty,
         Block, Function, FunctionData, Global, GlobalData, Program, Value,
     },
@@ -235,9 +235,9 @@ impl<'ctx> SSABuilder<'ctx> {
                 let else_block = otherwise.map(|_| self.builder.build_block("if.else", data.span));
                 let false_target = else_block.unwrap_or(cont_block);
 
-                let cond_val = self.visit_expr_rvalue(*cond);
+                let cond = self.build_truthy(*cond, data.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond_val, then_block, false_target), data.span);
+                    .build_val(Inst::cond_br(cond, then_block, false_target), data.span);
 
                 // === Then Block ===
                 self.builder.block = Some(then_block);
@@ -266,9 +266,9 @@ impl<'ctx> SSABuilder<'ctx> {
 
                 // === Cond Block ===
                 self.builder.block = Some(cond_block);
-                let cond_val = self.visit_expr_rvalue(*cond);
+                let cond = self.build_truthy(*cond, data.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond_val, body_block, cont_block), data.span);
+                    .build_val(Inst::cond_br(cond, body_block, cont_block), data.span);
 
                 // === Body Block ===
                 self.builder.block = Some(body_block);
@@ -296,9 +296,9 @@ impl<'ctx> SSABuilder<'ctx> {
 
                 // === Cond Block ===
                 self.builder.block = Some(cond_block);
-                let cond_val = self.visit_expr_rvalue(*cond);
+                let cond = self.build_truthy(*cond, data.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond_val, body_block, cont_block), data.span);
+                    .build_val(Inst::cond_br(cond, body_block, cont_block), data.span);
 
                 // === Merge Block ===
                 self.builder.block = Some(cont_block);
@@ -335,9 +335,9 @@ impl<'ctx> SSABuilder<'ctx> {
                 // === Condition Block ===
                 if let (Some(cond), Some(cond_block)) = (cond, cond_block) {
                     self.builder.block = Some(cond_block);
-                    let cond_val = self.visit_expr_rvalue(*cond);
+                    let cond = self.build_truthy(*cond, data.span);
                     self.builder
-                        .build_val(Inst::cond_br(cond_val, body_block, exit_block), data.span);
+                        .build_val(Inst::cond_br(cond, body_block, exit_block), data.span);
                 }
 
                 // === Step Block ===
@@ -483,13 +483,11 @@ impl<'ctx> SSABuilder<'ctx> {
                 ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
                 ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
                 ast::UnaryOp::LogNot => {
-                    let val = self.visit_expr_rvalue(*inner);
-                    let zero = self
-                        .builder
-                        .build_val(Inst::constant(Ty::I32, 0), expr.span);
+                    let inner = self.build_truthy(*inner, expr.span);
+                    let zero = self.builder.build_val(Inst::constant(Ty::I1, 0), expr.span);
                     let cmp = self
                         .builder
-                        .build_val(Inst::icmp(ICmpOp::Eq, val, zero), expr.span);
+                        .build_val(Inst::icmp(ICmpOp::Eq, inner, zero), expr.span);
                     self.builder.build_val(Inst::zext(Ty::I32, cmp), expr.span)
                 }
             },
@@ -550,7 +548,6 @@ impl<'ctx> SSABuilder<'ctx> {
                         };
                         self.build_icmp(op, *lhs, *rhs, expr.span)
                     }
-
                     ast::BinaryOp::Gt => {
                         let op = if rhs_ty.is_signed() {
                             ICmpOp::Gt
@@ -634,16 +631,15 @@ impl<'ctx> SSABuilder<'ctx> {
                 }
             }
             ast::ExprKind::Ternary { cond, then, other } => {
-                let cond_val = self.visit_expr_rvalue(*cond);
-
                 let then_block = self.builder.build_block("tern.then", expr.span);
                 let else_block = self.builder.build_block("tern.else", expr.span);
                 let cont_block = self.builder.build_block("tern.cont", expr.span);
 
                 let phi = self.builder.build_phi(ty, expr.span);
 
+                let cond = self.build_truthy(*cond, expr.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond_val, then_block, else_block), expr.span);
+                    .build_val(Inst::cond_br(cond, then_block, else_block), expr.span);
 
                 // === Then Block ===
                 self.builder.block = Some(then_block);
@@ -676,6 +672,24 @@ impl<'ctx> SSABuilder<'ctx> {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
         self.builder.build_val(Inst::icmp(op, lhs, rhs), span)
+    }
+
+    fn build_truthy(&mut self, cond: Expr, span: Span) -> Value {
+        let val = self.visit_expr_rvalue(cond);
+        let ty = self.ast.expr[cond].ty.get().lower().0;
+        match ty {
+            Ty::I1 => val,
+            Ty::F32 | Ty::F64 => {
+                let zero = self.builder.build_val(Inst::constant(ty, 0), span);
+                self.builder
+                    .build_val(Inst::fcmp(FCmpOp::Une, val, zero), span)
+            }
+            _ => {
+                let zero = self.builder.build_val(Inst::constant(ty, 0), span);
+                self.builder
+                    .build_val(Inst::icmp(ICmpOp::Ne, val, zero), span)
+            }
+        }
     }
 
     fn build_incdec(&mut self, expr: ast::Expr, is_inc: bool, postfix: bool, span: Span) -> Value {
@@ -766,33 +780,25 @@ impl<'ctx> SSABuilder<'ctx> {
         let phi = self.builder.build_phi(Ty::I32, span);
 
         // === LHS Block ===
-        let lhs_val = self.visit_expr_rvalue(lhs);
-        let short_circuit_val = self.builder.build_val(
-            if is_or {
-                Inst::constant(Ty::I32, 1)
-            } else {
-                Inst::constant(Ty::I32, 0)
-            },
-            span,
-        );
+        let lhs = self.build_truthy(lhs, span);
+        let short_circuit_val = self
+            .builder
+            .build_val(Inst::constant(Ty::I32, if is_or { 1 } else { 0 }), span);
         self.builder
             .build_val(Inst::upsilon(phi, short_circuit_val), span);
-        let (true_target, false_target) = if is_or {
+        let (then_block, else_block) = if is_or {
             (cont_block, rhs_block)
         } else {
             (rhs_block, cont_block)
         };
         self.builder
-            .build_val(Inst::cond_br(lhs_val, true_target, false_target), span);
+            .build_val(Inst::cond_br(lhs, then_block, else_block), span);
 
         // === RHS Block ===
         self.builder.block = Some(rhs_block);
-        let rhs_val = self.visit_expr_rvalue(rhs);
-        let zero_val = self.builder.build_val(Inst::constant(Ty::I32, 0), span);
-        let is_nonzero = self
-            .builder
-            .build_val(Inst::icmp(ICmpOp::Ne, rhs_val, zero_val), span);
-        self.builder.build_val(Inst::upsilon(phi, is_nonzero), span);
+        let rhs = self.build_truthy(rhs, span);
+        let extended = self.builder.build_val(Inst::zext(Ty::I32, rhs), span);
+        self.builder.build_val(Inst::upsilon(phi, extended), span);
         self.builder.build_val(Inst::br(cont_block), span);
 
         // === Merge Block ===

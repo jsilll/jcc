@@ -477,29 +477,35 @@ impl<'ctx> SSABuilder<'ctx> {
             }
             ast::ExprKind::Unary { op, expr: inner } => {
                 let inner_ty = self.ast.expr[*inner].ty.get().lower().0;
-                let (add, sub, one) = match inner_ty {
-                    Ty::F32 => (BinaryOp::FAdd, BinaryOp::FSub, Inst::const_f32(1.0)),
-                    Ty::F64 => (BinaryOp::FAdd, BinaryOp::FSub, Inst::const_f64(1.0)),
-                    _ => (BinaryOp::Add, BinaryOp::Sub, Inst::constant(inner_ty, 1)),
+                let neg = match inner_ty {
+                    Ty::F32 | Ty::F64 => UnaryOp::FNeg,
+                    _ => UnaryOp::Neg,
+                };
+                let one = match inner_ty {
+                    Ty::F32 => Inst::const_f32(1.0),
+                    Ty::F64 => Inst::const_f64(1.0),
+                    _ => Inst::constant(inner_ty, 1),
+                };
+                let add_or_sub = match op {
+                    ast::UnaryOp::PreInc | ast::UnaryOp::PostInc => match inner_ty {
+                        Ty::F32 | Ty::F64 => BinaryOp::FAdd,
+                        _ => BinaryOp::Add,
+                    },
+                    _ => match inner_ty {
+                        Ty::F32 | Ty::F64 => BinaryOp::FSub,
+                        _ => BinaryOp::Sub,
+                    },
                 };
                 match op {
-                    ast::UnaryOp::PreInc => {
+                    ast::UnaryOp::PreInc | ast::UnaryOp::PreDec => {
                         let one = self.builder.build_val(one, expr.span);
-                        self.build_inc_dec(*inner, add, one, expr.span).1
+                        self.build_inc_dec(*inner, add_or_sub, one, expr.span).1
                     }
-                    ast::UnaryOp::PostInc => {
+                    ast::UnaryOp::PostInc | ast::UnaryOp::PostDec => {
                         let one = self.builder.build_val(one, expr.span);
-                        self.build_inc_dec(*inner, add, one, expr.span).0
+                        self.build_inc_dec(*inner, add_or_sub, one, expr.span).0
                     }
-                    ast::UnaryOp::PreDec => {
-                        let one = self.builder.build_val(one, expr.span);
-                        self.build_inc_dec(*inner, sub, one, expr.span).1
-                    }
-                    ast::UnaryOp::PostDec => {
-                        let one = self.builder.build_val(one, expr.span);
-                        self.build_inc_dec(*inner, sub, one, expr.span).0
-                    }
-                    ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
+                    ast::UnaryOp::Neg => self.build_unary(ty, neg, *inner, expr.span),
                     ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
                     ast::UnaryOp::LogNot => {
                         let inner = self.build_truthy(*inner, expr.span);

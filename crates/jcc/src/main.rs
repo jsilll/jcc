@@ -4,7 +4,7 @@ use jcc::{
     desugar::DesugarPass,
     profile::Profiler,
     sema::{control::ControlPass, resolve::ResolverPass, typing::TypeChecker, SemaCtx},
-    ssa::SSABuilder,
+    ssa::LoweringPass,
     token::lex::Lexer,
 };
 
@@ -107,8 +107,8 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     }
 
     // === Build SSA ===
-    let ssa = profiler.time("SSA Build", || {
-        SSABuilder::new(&ast, &ctx, &mut interner).build()
+    let ssa = profiler.time("Lower", || {
+        LoweringPass::new(&ast, &ctx, &mut interner).build()
     });
     if args.verbose {
         println!("{}", ssa);

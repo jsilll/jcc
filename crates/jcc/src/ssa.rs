@@ -17,7 +17,7 @@ use jcc_ssa::{
 
 use std::collections::HashMap;
 
-pub struct SSABuilder<'ctx> {
+pub struct LoweringPass<'ctx> {
     // The SSA builder
     builder: Builder<'ctx>,
     /// The AST being compiled
@@ -30,7 +30,7 @@ pub struct SSABuilder<'ctx> {
     symbols: SecondaryMap<sema::Symbol, Option<SymbolEntry>>,
 }
 
-impl<'ctx> SSABuilder<'ctx> {
+impl<'ctx> LoweringPass<'ctx> {
     pub fn new(
         ast: &'ctx ast::Ast<'ctx>,
         sema: &'ctx SemaCtx<'ctx>,

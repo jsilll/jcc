@@ -1,7 +1,7 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser, ty::TyCtx},
     cli::Args,
-    lower::DesugarPass,
+    desugar::DesugarPass,
     profile::Profiler,
     sema::{control::ControlPass, resolve::ResolverPass, typing::TypeChecker, SemaCtx},
     ssa::SSABuilder,

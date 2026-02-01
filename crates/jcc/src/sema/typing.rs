@@ -5,7 +5,7 @@ use crate::{
         Ast, BinaryOp, BlockItem, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
         StmtKind, StorageClass, UnaryOp,
     },
-    lower::DesugarActions,
+    desugar::DesugarActions,
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 

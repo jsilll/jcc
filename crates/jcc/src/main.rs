@@ -2,9 +2,9 @@ use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser, ty::TyCtx},
     cli::Args,
     desugar::DesugarPass,
+    lower::LoweringPass,
     profile::Profiler,
     sema::{control::ControlPass, resolve::ResolverPass, typing::TypeChecker, SemaCtx},
-    ssa::LoweringPass,
     token::lex::Lexer,
 };
 

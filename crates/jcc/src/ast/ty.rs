@@ -20,6 +20,8 @@ pub enum TyKind<'ctx> {
     Long,
     /// The `unsigned long` type.
     ULong,
+    /// The `float` type.
+    Float,
     /// The `double` type.
     Double,
     /// A pointer type.
@@ -33,8 +35,13 @@ pub enum TyKind<'ctx> {
 
 impl<'ctx> TyKind<'ctx> {
     /// Returns true if it is a signed type.
-    pub fn is_signed(&self) -> bool {
+    pub fn is_signed_integer(&self) -> bool {
         matches!(self, TyKind::Int | TyKind::Long)
+    }
+
+    /// Returns true if it is a floating point type.
+    pub fn is_floating_point(&self) -> bool {
+        matches!(self, TyKind::Float | TyKind::Double)
     }
 
     /// Returns true if it is an integer type.
@@ -61,6 +68,7 @@ impl<'ctx> TyKind<'ctx> {
             TyKind::Long => (SsaTy::I64, true),
             TyKind::UInt => (SsaTy::I32, false),
             TyKind::ULong => (SsaTy::I64, false),
+            TyKind::Float => (SsaTy::F32, false),
             TyKind::Double => (SsaTy::F64, false),
             TyKind::Ptr(_) | TyKind::Func { .. } => (SsaTy::Ptr, false),
         }

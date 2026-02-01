@@ -477,8 +477,8 @@ impl<'ctx> SSABuilder<'ctx> {
             }
             ast::ExprKind::Unary { op, expr: inner } => match op {
                 ast::UnaryOp::PreInc => self.build_incdec(*inner, true, false, expr.span),
-                ast::UnaryOp::PreDec => self.build_incdec(*inner, false, false, expr.span),
                 ast::UnaryOp::PostInc => self.build_incdec(*inner, true, true, expr.span),
+                ast::UnaryOp::PreDec => self.build_incdec(*inner, false, false, expr.span),
                 ast::UnaryOp::PostDec => self.build_incdec(*inner, false, true, expr.span),
                 ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
                 ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
@@ -496,8 +496,6 @@ impl<'ctx> SSABuilder<'ctx> {
                 match op {
                     ast::BinaryOp::LogOr => self.build_sc(true, *lhs, *rhs, expr.span),
                     ast::BinaryOp::LogAnd => self.build_sc(false, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Eq => self.build_icmp(ICmpOp::Eq, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Ne => self.build_icmp(ICmpOp::Ne, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Add => self.build_bin(ty, BinaryOp::Add, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Sub => self.build_bin(ty, BinaryOp::Sub, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Mul => self.build_bin(ty, BinaryOp::Mul, *lhs, *rhs, expr.span),
@@ -532,40 +530,70 @@ impl<'ctx> SSABuilder<'ctx> {
                     ast::BinaryOp::BitXorAssign => {
                         self.build_bin_asgn(mode, BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
-                    ast::BinaryOp::Lt => {
-                        let op = if rhs_ty.is_signed() {
-                            ICmpOp::Lt
+                    ast::BinaryOp::Eq => {
+                        if rhs_ty.is_floating_point() {
+                            self.build_fcmp(FCmpOp::Oeq, *lhs, *rhs, expr.span)
                         } else {
-                            ICmpOp::Ult
-                        };
-                        self.build_icmp(op, *lhs, *rhs, expr.span)
+                            self.build_icmp(ICmpOp::Eq, *lhs, *rhs, expr.span)
+                        }
+                    }
+                    ast::BinaryOp::Ne => {
+                        if rhs_ty.is_floating_point() {
+                            self.build_fcmp(FCmpOp::Une, *lhs, *rhs, expr.span)
+                        } else {
+                            self.build_icmp(ICmpOp::Ne, *lhs, *rhs, expr.span)
+                        }
+                    }
+                    ast::BinaryOp::Lt => {
+                        if rhs_ty.is_floating_point() {
+                            self.build_fcmp(FCmpOp::Olt, *lhs, *rhs, expr.span)
+                        } else {
+                            let op = if rhs_ty.is_signed_integer() {
+                                ICmpOp::Lt
+                            } else {
+                                ICmpOp::Ult
+                            };
+                            self.build_icmp(op, *lhs, *rhs, expr.span)
+                        }
                     }
                     ast::BinaryOp::Le => {
-                        let op = if rhs_ty.is_signed() {
-                            ICmpOp::Le
+                        if rhs_ty.is_floating_point() {
+                            self.build_fcmp(FCmpOp::Ole, *lhs, *rhs, expr.span)
                         } else {
-                            ICmpOp::Ule
-                        };
-                        self.build_icmp(op, *lhs, *rhs, expr.span)
+                            let op = if rhs_ty.is_signed_integer() {
+                                ICmpOp::Le
+                            } else {
+                                ICmpOp::Ule
+                            };
+                            self.build_icmp(op, *lhs, *rhs, expr.span)
+                        }
                     }
                     ast::BinaryOp::Gt => {
-                        let op = if rhs_ty.is_signed() {
-                            ICmpOp::Gt
+                        if rhs_ty.is_floating_point() {
+                            self.build_fcmp(FCmpOp::Ogt, *lhs, *rhs, expr.span)
                         } else {
-                            ICmpOp::Ugt
-                        };
-                        self.build_icmp(op, *lhs, *rhs, expr.span)
+                            let op = if rhs_ty.is_signed_integer() {
+                                ICmpOp::Gt
+                            } else {
+                                ICmpOp::Ugt
+                            };
+                            self.build_icmp(op, *lhs, *rhs, expr.span)
+                        }
                     }
                     ast::BinaryOp::Ge => {
-                        let op = if rhs_ty.is_signed() {
-                            ICmpOp::Ge
+                        if rhs_ty.is_floating_point() {
+                            self.build_fcmp(FCmpOp::Oge, *lhs, *rhs, expr.span)
                         } else {
-                            ICmpOp::Uge
-                        };
-                        self.build_icmp(op, *lhs, *rhs, expr.span)
+                            let op = if rhs_ty.is_signed_integer() {
+                                ICmpOp::Ge
+                            } else {
+                                ICmpOp::Uge
+                            };
+                            self.build_icmp(op, *lhs, *rhs, expr.span)
+                        }
                     }
                     ast::BinaryOp::Div => {
-                        let op = if rhs_ty.is_signed() {
+                        let op = if rhs_ty.is_signed_integer() {
                             BinaryOp::Div
                         } else {
                             BinaryOp::UDiv
@@ -573,7 +601,7 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.build_bin(ty, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Rem => {
-                        let op = if rhs_ty.is_signed() {
+                        let op = if rhs_ty.is_signed_integer() {
                             BinaryOp::Rem
                         } else {
                             BinaryOp::URem
@@ -597,7 +625,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
                         let op = if matches!(op, ast::BinaryOp::BitShl) {
                             BinaryOp::Shl
-                        } else if lhs_ty.is_signed() {
+                        } else if lhs_ty.is_signed_integer() {
                             BinaryOp::AShr
                         } else {
                             BinaryOp::Shr
@@ -614,7 +642,7 @@ impl<'ctx> SSABuilder<'ctx> {
 
                         let op = if matches!(op, ast::BinaryOp::BitShlAssign) {
                             BinaryOp::Shl
-                        } else if lhs_ty.is_signed() {
+                        } else if lhs_ty.is_signed_integer() {
                             BinaryOp::AShr
                         } else {
                             BinaryOp::Shr
@@ -672,6 +700,12 @@ impl<'ctx> SSABuilder<'ctx> {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
         self.builder.build_val(Inst::icmp(op, lhs, rhs), span)
+    }
+
+    fn build_fcmp(&mut self, op: FCmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
+        let lhs = self.visit_expr_rvalue(lhs);
+        let rhs = self.visit_expr_rvalue(rhs);
+        self.builder.build_val(Inst::fcmp(op, lhs, rhs), span)
     }
 
     fn build_truthy(&mut self, cond: Expr, span: Span) -> Value {

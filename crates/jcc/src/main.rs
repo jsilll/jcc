@@ -1,10 +1,10 @@
 use jcc::{
     ast::{graphviz::AstGraphviz, parse::Parser, ty::TyCtx},
     cli::Args,
+    desugar::DesugarPass,
     lower::LoweringPass,
     profile::Profiler,
     sema::{control::ControlPass, resolve::ResolverPass, typing::TypeChecker, SemaCtx},
-    ssa::SSABuilder,
     token::lex::Lexer,
 };
 
@@ -95,7 +95,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     check_diags("control", &mut files, &r.diagnostics)?;
     let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());
     check_diags("typer", &mut files, &r.diagnostics)?;
-    let ast = profiler.time("Lower", || LoweringPass::new(ast, r.actions).build());
+    let ast = profiler.time("Desugar", || DesugarPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
         let ast_graphviz = AstGraphviz::new(&ast, &interner);
@@ -107,8 +107,8 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     }
 
     // === Build SSA ===
-    let ssa = profiler.time("SSA Build", || {
-        SSABuilder::new(&ast, &ctx, &mut interner).build()
+    let ssa = profiler.time("Lower", || {
+        LoweringPass::new(&ast, &ctx, &mut interner).build()
     });
     if args.verbose {
         println!("{}", ssa);

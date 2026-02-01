@@ -5,7 +5,7 @@ use crate::{
         Ast, BinaryOp, BlockItem, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
         StmtKind, StorageClass, UnaryOp,
     },
-    lower::LoweringActions,
+    lower::DesugarActions,
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 
@@ -725,7 +725,7 @@ impl From<TyperDiagnostic> for Diagnostic {
 
 #[derive(Default, PartialEq, Eq)]
 pub struct TyperResult<'ctx> {
-    pub actions: LoweringActions<'ctx>,
+    pub actions: DesugarActions<'ctx>,
     pub diagnostics: Vec<TyperDiagnostic>,
 }
 

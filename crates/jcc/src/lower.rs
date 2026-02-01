@@ -1,16 +1,16 @@
 use crate::ast::{ty::Ty, Ast, Expr, ExprKind};
 
 // ---------------------------------------------------------------------------
-// LoweringPass
+// DesugarPass
 // ---------------------------------------------------------------------------
 
-pub struct LoweringPass<'ctx> {
+pub struct DesugarPass<'ctx> {
     ast: Ast<'ctx>,
-    actions: LoweringActions<'ctx>,
+    actions: DesugarActions<'ctx>,
 }
 
-impl<'ctx> LoweringPass<'ctx> {
-    pub fn new(ast: Ast<'ctx>, actions: LoweringActions<'ctx>) -> Self {
+impl<'ctx> DesugarPass<'ctx> {
+    pub fn new(ast: Ast<'ctx>, actions: DesugarActions<'ctx>) -> Self {
         Self { ast, actions }
     }
 
@@ -19,7 +19,7 @@ impl<'ctx> LoweringPass<'ctx> {
             .schedule
             .iter()
             .for_each(|action| match action {
-                LoweringAction::Cast { ty, expr } => {
+                DesugarAction::Cast { ty, expr } => {
                     let copy = self.ast.expr.push(self.ast.expr[*expr].clone());
                     let cast = &mut self.ast.expr[*expr];
                     cast.ty.set(*ty);
@@ -34,26 +34,26 @@ impl<'ctx> LoweringPass<'ctx> {
 }
 
 // ---------------------------------------------------------------------------
-// LoweringAction
+// DesugarAction
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LoweringAction<'ctx> {
+pub enum DesugarAction<'ctx> {
     Cast { ty: Ty<'ctx>, expr: Expr },
 }
 
 // ---------------------------------------------------------------------------
-// LoweringActions
+// DesugarActions
 // ---------------------------------------------------------------------------
 
 #[derive(Default, Clone, PartialEq, Eq)]
-pub struct LoweringActions<'ctx> {
-    schedule: Vec<LoweringAction<'ctx>>,
+pub struct DesugarActions<'ctx> {
+    schedule: Vec<DesugarAction<'ctx>>,
 }
 
-impl<'ctx> LoweringActions<'ctx> {
+impl<'ctx> DesugarActions<'ctx> {
     #[inline]
     pub fn cast(&mut self, ty: Ty<'ctx>, expr: Expr) {
-        self.schedule.push(LoweringAction::Cast { ty, expr })
+        self.schedule.push(DesugarAction::Cast { ty, expr })
     }
 }

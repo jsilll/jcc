@@ -1,14 +1,15 @@
+pub mod constant;
 pub mod graphviz;
 pub mod parse;
 pub mod ty;
 
-use crate::sema;
+use crate::{ast::constant::Constant, sema};
 pub use ty::{Ty, TyKind};
 
 use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 use jcc_ssa::{
     codemap::{file::FileId, span::Span},
-    ir, Ident,
+    Ident,
 };
 
 use std::cell::Cell;
@@ -72,82 +73,6 @@ pub struct Symbol {
     pub sema: Cell<Option<sema::Symbol>>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum Const {
-    /// A constant integer value.
-    Int(i32),
-    /// A constant long integer value.
-    Long(i64),
-    /// A constant unsigned integer value.
-    UInt(u32),
-    /// A constant unsigned long integer value.
-    ULong(u64),
-}
-
-impl Const {
-    /// Converts the constant to a signed variant.
-    pub fn to_int(&self) -> Self {
-        match self {
-            Self::Int(v) => Self::Int(*v),
-            Self::Long(v) => Self::Int(*v as i32),
-            Self::UInt(v) => Self::Int(*v as i32),
-            Self::ULong(v) => Self::Int(*v as i32),
-        }
-    }
-
-    /// Converts the constant to a long variant.
-    pub fn to_long(&self) -> Self {
-        match self {
-            Self::Long(v) => Self::Long(*v),
-            Self::Int(v) => Self::Long(*v as i64),
-            Self::UInt(v) => Self::Long(*v as i64),
-            Self::ULong(v) => Self::Long(*v as i64),
-        }
-    }
-
-    /// Converts the constant to an unsigned variant.
-    pub fn to_uint(&self) -> Self {
-        match self {
-            Self::UInt(v) => Self::UInt(*v),
-            Self::Int(v) => Self::UInt(*v as u32),
-            Self::Long(v) => Self::UInt(*v as u32),
-            Self::ULong(v) => Self::UInt(*v as u32),
-        }
-    }
-
-    /// Converts the constant to an unsigned long variant.
-    pub fn to_ulong(&self) -> Self {
-        match self {
-            Self::ULong(v) => Self::ULong(*v),
-            Self::Int(v) => Self::ULong(*v as u64),
-            Self::UInt(v) => Self::ULong(*v as u64),
-            Self::Long(v) => Self::ULong(*v as u64),
-        }
-    }
-
-    /// Converts the constant to the specified type
-    pub fn cast(&self, ty: Ty<'_>) -> Self {
-        match *ty {
-            TyKind::Int => self.to_int(),
-            TyKind::Long => self.to_long(),
-            TyKind::UInt => self.to_uint(),
-            TyKind::ULong => self.to_ulong(),
-            _ => *self,
-        }
-    }
-
-    /// Lowers the constant to tuple with its value and type
-    pub fn lower(&self) -> (i64, ir::ty::Ty) {
-        use ir::ty::*;
-        match self {
-            Self::Long(v) => (*v, Ty::I64),
-            Self::Int(v) => (*v as i64, Ty::I32),
-            Self::UInt(v) => (*v as i64, Ty::I32),
-            Self::ULong(v) => (*v as i64, Ty::I64),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum BlockItem {
     /// A declaration.
@@ -156,7 +81,7 @@ pub enum BlockItem {
     Stmt(Stmt),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ForInit {
     /// An expression.
     Expr(Expr),
@@ -164,7 +89,7 @@ pub enum ForInit {
     VarDecl(Decl),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum StorageClass {
     /// Extern storage class.
     Extern,
@@ -172,7 +97,7 @@ pub enum StorageClass {
     Static,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
@@ -190,7 +115,7 @@ pub enum UnaryOp {
     PostDec,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
     /// The `||` operator.
     LogOr,
@@ -347,7 +272,7 @@ pub enum ExprKind<'ctx> {
     /// A variable reference.
     Var(Symbol),
     /// A constant integer value.
-    Const(Const),
+    Const(Constant),
     /// A grouped expression.
     Grouped(Expr),
     /// A cast expression.

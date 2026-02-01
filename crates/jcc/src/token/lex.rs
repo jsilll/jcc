@@ -33,8 +33,16 @@ impl<'a> Iterator for Lexer<'a> {
         self.chars.next().map(|(idx, c)| {
             self.pos = BytePos::from(idx);
             match c {
-                c if c.is_ascii_digit() => self.number(),
+                c if c.is_ascii_digit() => self.number(false),
                 c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
+                '.' => match self.chars.peek() {
+                    Some((_, c)) if c.is_ascii_digit() => self.number(true),
+                    _ => Err(LexerDiagnostic {
+                        file: self.file.id(),
+                        span: Span::single(self.pos),
+                        kind: LexerDiagnosticKind::UnexpectedCharacter,
+                    }),
+                },
                 ';' => Ok(self.token(TokenKind::Semi, 1)),
                 ',' => Ok(self.token(TokenKind::Comma, 1)),
                 ':' => Ok(self.token(TokenKind::Colon, 1)),
@@ -164,45 +172,86 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn number(&mut self) -> Result<Token, LexerDiagnostic> {
+    fn number(&mut self, started_with_dot: bool) -> Result<Token, LexerDiagnostic> {
+        let mut is_float = started_with_dot;
         self.next_while(|c| c.is_ascii_digit());
-        let kind = match self.chars.peek() {
-            Some((_, 'u' | 'U')) => {
+
+        if let Some((_, '.')) = self.chars.peek() {
+            if !started_with_dot {
+                is_float = true;
                 self.chars.next();
-                match self.chars.peek() {
-                    Some((_, 'l' | 'L')) => {
-                        self.chars.next();
-                        TokenKind::NumULong
-                    }
-                    _ => TokenKind::NumUInt,
-                }
-            }
-            Some((_, 'l' | 'L')) => {
-                self.chars.next();
-                match self.chars.peek() {
-                    Some((_, 'u' | 'U')) => {
-                        self.chars.next();
-                        TokenKind::NumULong
-                    }
-                    _ => TokenKind::NumLong,
-                }
-            }
-            _ => TokenKind::NumInt,
-        };
-        let end = self
-            .chars
-            .peek()
-            .map(|(idx, _)| *idx as u32)
-            .unwrap_or(self.file.source().len() as u32);
-        if let Some((_, c)) = self.chars.peek() {
-            if c.is_ascii_alphabetic() {
-                return Err(LexerDiagnostic {
-                    file: self.file.id(),
-                    span: Span::new(self.pos, end).unwrap_or_default(),
-                    kind: LexerDiagnosticKind::IdentifierStartsWithDigit,
-                });
+                self.next_while(|c| c.is_ascii_digit());
             }
         }
+
+        if let Some((_, 'e' | 'E')) = self.chars.peek() {
+            is_float = true;
+            self.chars.next();
+            if let Some((_, '+' | '-')) = self.chars.peek() {
+                self.chars.next();
+            }
+            match self.chars.peek() {
+                Some((_, c)) if c.is_ascii_digit() => {
+                    self.next_while(|c| c.is_ascii_digit());
+                }
+                _ => {
+                    let end = self
+                        .chars
+                        .peek()
+                        .map(|(idx, _)| *idx as u32)
+                        .unwrap_or(self.file.source().len() as u32);
+                    return Err(LexerDiagnostic {
+                        file: self.file.id(),
+                        kind: LexerDiagnosticKind::EmptyExponent,
+                        span: Span::new(self.pos, end).unwrap_or_default(),
+                    });
+                }
+            }
+        }
+
+        let kind = if is_float {
+            TokenKind::NumFloat
+        } else {
+            match self.chars.peek() {
+                Some((_, 'u' | 'U')) => {
+                    self.chars.next();
+                    match self.chars.peek() {
+                        Some((_, 'l' | 'L')) => {
+                            self.chars.next();
+                            TokenKind::NumULong
+                        }
+                        _ => TokenKind::NumUInt,
+                    }
+                }
+                Some((_, 'l' | 'L')) => {
+                    self.chars.next();
+                    match self.chars.peek() {
+                        Some((_, 'u' | 'U')) => {
+                            self.chars.next();
+                            TokenKind::NumULong
+                        }
+                        _ => TokenKind::NumLong,
+                    }
+                }
+                _ => TokenKind::NumInt,
+            }
+        };
+
+        let end = match self.chars.peek() {
+            None => self.file.source().len() as u32,
+            Some((end, c)) => {
+                let end = *end as u32;
+                if c.is_ascii_alphanumeric() || *c == '_' || *c == '.' {
+                    return Err(LexerDiagnostic {
+                        file: self.file.id(),
+                        kind: LexerDiagnosticKind::InvalidNumberSuffix,
+                        span: Span::new(self.pos, end).unwrap_or_default(),
+                    });
+                }
+                end
+            }
+        };
+
         Ok(Token {
             kind,
             span: Span::new(self.pos, end).unwrap_or_default(),
@@ -216,6 +265,7 @@ impl<'a> Lexer<'a> {
             "continue" => TokenKind::KwContinue,
             "default" => TokenKind::KwDefault,
             "do" => TokenKind::KwDo,
+            "double" => TokenKind::KwDouble,
             "else" => TokenKind::KwElse,
             "extern" => TokenKind::KwExtern,
             "for" => TokenKind::KwFor,
@@ -282,21 +332,26 @@ pub struct LexerDiagnostic {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LexerDiagnosticKind {
+    EmptyExponent,
+    InvalidNumberSuffix,
     UnexpectedCharacter,
-    IdentifierStartsWithDigit,
 }
 
 impl From<LexerDiagnostic> for Diagnostic {
     fn from(diagnostic: LexerDiagnostic) -> Self {
         match diagnostic.kind {
+            LexerDiagnosticKind::EmptyExponent => Diagnostic::error()
+                .with_label(Label::primary(diagnostic.file, diagnostic.span))
+                .with_message("empty exponent")
+                .with_note("exponents must contain at least one digit"),
             LexerDiagnosticKind::UnexpectedCharacter => Diagnostic::error()
                 .with_label(Label::primary(diagnostic.file, diagnostic.span))
                 .with_message("unexpected character")
                 .with_note("the character is not recognized by the lexer"),
-            LexerDiagnosticKind::IdentifierStartsWithDigit => Diagnostic::error()
+            LexerDiagnosticKind::InvalidNumberSuffix => Diagnostic::error()
                 .with_label(Label::primary(diagnostic.file, diagnostic.span))
-                .with_message("identifier starts with digit")
-                .with_note("identifiers cannot start with a digit"),
+                .with_message("invalid number suffix")
+                .with_note("numbers cannot be followed by a letter, digit, underscore, or dot"),
         }
     }
 }

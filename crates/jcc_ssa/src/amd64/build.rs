@@ -120,7 +120,8 @@ impl<'a> Builder<'a> {
                 let block = self.get_or_make_block(block);
                 self.insert_inst(Inst::jmp(block, inst.span));
             }
-            ir::inst::Inst::ConstInt { value, .. } => {
+            ir::inst::Inst::Const { value, .. } => {
+                let value = value as i64;
                 self.operands.insert(inst_ref, Operand::Imm(value));
             }
             ir::inst::Inst::GlobalAddr(global) => {
@@ -193,9 +194,10 @@ impl<'a> Builder<'a> {
             } => {
                 let oper = self.get_operand(value);
                 let ty = self.ssa.values[value].inst.ty().try_into().unwrap();
-                cases.iter().for_each(|(v, block)| {
+                cases.iter().for_each(|(value, block)| {
+                    let v = *value as i64;
                     let block = self.get_or_make_block(*block);
-                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(*v), inst.span));
+                    self.insert_inst(Inst::cmp(ty, oper, Operand::Imm(v), inst.span));
                     self.insert_inst(Inst::jmpcc(CondCode::E, block, inst.span));
                 });
                 let default = self.get_or_make_block(default);
@@ -213,6 +215,7 @@ impl<'a> Builder<'a> {
                     ir::inst::UnaryOp::Neg => {
                         self.build_unary(val_ty, UnaryOp::Neg, src, dst, inst.span)
                     }
+                    ir::inst::UnaryOp::FNeg => todo!(),
                 }
             }
             ir::inst::Inst::Icmp { pred, lhs, rhs } => {
@@ -270,6 +273,11 @@ impl<'a> Builder<'a> {
                     ir::inst::BinaryOp::URem => {
                         self.build_unsigned_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
+                    ir::inst::BinaryOp::FAdd => todo!(),
+                    ir::inst::BinaryOp::FSub => todo!(),
+                    ir::inst::BinaryOp::FMul => todo!(),
+                    ir::inst::BinaryOp::FDiv => todo!(),
+                    ir::inst::BinaryOp::FRem => todo!(),
                 }
             }
             ir::inst::Inst::Call { ty, func, ref args } => {
@@ -319,6 +327,13 @@ impl<'a> Builder<'a> {
             ir::inst::Inst::PtrToInt { .. } => todo!(),
             ir::inst::Inst::IndirectCall { .. } => todo!(),
             ir::inst::Inst::Unreachable => todo!(),
+            ir::inst::Inst::Fcmp { .. } => todo!(),
+            ir::inst::Inst::FpToSi { .. } => todo!(),
+            ir::inst::Inst::FpToUi { .. } => todo!(),
+            ir::inst::Inst::SiToFp { .. } => todo!(),
+            ir::inst::Inst::UiToFp { .. } => todo!(),
+            ir::inst::Inst::Fext { .. } => todo!(),
+            ir::inst::Inst::Ftrunc { .. } => todo!(),
         }
     }
 

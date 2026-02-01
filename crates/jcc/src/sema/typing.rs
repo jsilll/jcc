@@ -1,7 +1,8 @@
 use crate::{
     ast::{
+        constant::Constant,
         ty::{Ty, TyKind},
-        Ast, BinaryOp, BlockItem, Const, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
+        Ast, BinaryOp, BlockItem, Decl, DeclData, DeclKind, Expr, ExprKind, ForInit, Stmt,
         StmtKind, StorageClass, UnaryOp,
     },
     lower::LoweringActions,
@@ -26,7 +27,7 @@ pub struct TypeChecker<'a, 'ctx> {
     /// The result of the type checking
     result: TyperResult<'ctx>,
     /// The set of switch case values encountered
-    switch_cases: HashSet<Const>,
+    switch_cases: HashSet<Constant>,
 }
 
 impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
@@ -61,13 +62,18 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         _ => StaticValue::Tentative,
                     },
                     Some(init) => match eval_constant(self.ast, init) {
-                        Some(value) => StaticValue::Init(value.cast(data.ty)),
+                        Some(value) => match value.cast(data.ty) {
+                            Some(v) => StaticValue::Init(v),
+                            None => {
+                                self.emit(
+                                    self.ast.expr[init].span,
+                                    TyperDiagnosticKind::ConstantOutOfRange,
+                                );
+                                StaticValue::NoInit
+                            }
+                        },
                         None => {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                file: self.ast.file,
-                                span: self.ast.expr[init].span,
-                                kind: TyperDiagnosticKind::NotConstant,
-                            });
+                            self.emit(self.ast.expr[init].span, TyperDiagnosticKind::NotConstant);
                             StaticValue::NoInit
                         }
                     },
@@ -110,11 +116,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                         StaticValue::Init(_) => {
                             if occupied && matches!(decl_init, StaticValue::Init(_)) {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    span: data.span,
-                                    file: self.ast.file,
-                                    kind: TyperDiagnosticKind::MultipleInitializers,
-                                });
+                                self.emit(data.span, TyperDiagnosticKind::MultipleInitializers);
                             }
                         }
                     }
@@ -140,22 +142,17 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
                 Some(StorageClass::Extern) => match init {
                     Some(init) => {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            file: self.ast.file,
-                            span: self.ast.expr[init].span,
-                            kind: TyperDiagnosticKind::ExternLocalInitialized,
-                        });
+                        self.emit(
+                            self.ast.expr[init].span,
+                            TyperDiagnosticKind::ExternLocalInitialized,
+                        );
                     }
                     None => {
                         let info = self.ctx.symbols
                             [data.name.sema.get().expect("sema symbol not set")]
                         .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
                         if info.ty != data.ty {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                span: data.span,
-                                file: self.ast.file,
-                                kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                            });
+                            self.emit(data.span, TyperDiagnosticKind::DeclarationTypeMismatch);
                         }
                     }
                 },
@@ -168,13 +165,21 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                 self.result.actions.cast(data.ty, init);
                             }
                             match eval_constant(self.ast, init) {
-                                Some(value) => StaticValue::Init(value),
+                                Some(value) => match value.cast(data.ty) {
+                                    Some(v) => StaticValue::Init(v),
+                                    None => {
+                                        self.emit(
+                                            self.ast.expr[init].span,
+                                            TyperDiagnosticKind::ConstantOutOfRange,
+                                        );
+                                        StaticValue::Tentative
+                                    }
+                                },
                                 None => {
-                                    self.result.diagnostics.push(TyperDiagnostic {
-                                        file: self.ast.file,
-                                        span: self.ast.expr[init].span,
-                                        kind: TyperDiagnosticKind::NotConstant,
-                                    });
+                                    self.emit(
+                                        self.ast.expr[init].span,
+                                        TyperDiagnosticKind::NotConstant,
+                                    );
                                     StaticValue::Tentative
                                 }
                             }
@@ -328,15 +333,24 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                         kind: TyperDiagnosticKind::NotConstant,
                                     });
                                 }
-                                Some(c) => {
-                                    if !self.switch_cases.insert(c.cast(cty)) {
+                                Some(c) => match c.cast(cty) {
+                                    Some(val) => {
+                                        if !self.switch_cases.insert(val) {
+                                            self.result.diagnostics.push(TyperDiagnostic {
+                                                file: self.ast.file,
+                                                span: self.ast.expr[*expr].span,
+                                                kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                            });
+                                        }
+                                    }
+                                    None => {
                                         self.result.diagnostics.push(TyperDiagnostic {
                                             file: self.ast.file,
                                             span: self.ast.expr[*expr].span,
-                                            kind: TyperDiagnosticKind::DuplicateSwitchCase,
+                                            kind: TyperDiagnosticKind::ConstantOutOfRange,
                                         });
                                     }
-                                }
+                                },
                             },
                             _ => panic!("unexpected statement in switch case"),
                         });
@@ -350,10 +364,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_expr(&mut self, expr: Expr) -> Ty<'ctx> {
         let data = &self.ast.expr[expr];
         let ty = match &data.kind {
-            ExprKind::Const(Const::Int(_)) => self.ctx.ty.int_ty,
-            ExprKind::Const(Const::UInt(_)) => self.ctx.ty.uint_ty,
-            ExprKind::Const(Const::Long(_)) => self.ctx.ty.long_ty,
-            ExprKind::Const(Const::ULong(_)) => self.ctx.ty.ulong_ty,
+            ExprKind::Const(Constant::Int(_)) => self.ctx.ty.int_ty,
+            ExprKind::Const(Constant::UInt(_)) => self.ctx.ty.uint_ty,
+            ExprKind::Const(Constant::Long(_)) => self.ctx.ty.long_ty,
+            ExprKind::Const(Constant::ULong(_)) => self.ctx.ty.ulong_ty,
+            ExprKind::Const(Constant::Double(_)) => self.ctx.ty.double_ty,
             ExprKind::Grouped(expr) => self.visit_expr(*expr),
             ExprKind::Cast { ty, expr } => {
                 self.visit_expr(*expr);
@@ -380,6 +395,12 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         self.assert_is_lvalue(*expr);
                         ty
                     }
+                    UnaryOp::BitNot => {
+                        if !ty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                        }
+                        ty
+                    }
                     _ => ty,
                 }
             }
@@ -388,9 +409,41 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 let rty = self.visit_expr(*rhs);
                 match op {
                     BinaryOp::LogAnd | BinaryOp::LogOr => self.ctx.ty.int_ty,
-                    BinaryOp::BitShl | BinaryOp::BitShr => lty,
+                    BinaryOp::BitShl | BinaryOp::BitShr => {
+                        if !lty.is_integer() || !rty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                        }
+                        lty
+                    }
                     BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
                         self.assert_is_lvalue(*lhs);
+                        if !lty.is_integer() || !rty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                        }
+                        lty
+                    }
+                    BinaryOp::Rem => {
+                        if !lty.is_integer() || !rty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidRemainderOperand);
+                        }
+                        let common = self.assert_common_type(lty, rty, data.span);
+                        if lty != common {
+                            self.result.actions.cast(common, *lhs);
+                        }
+                        if rty != common {
+                            self.result.actions.cast(common, *rhs);
+                        }
+                        common
+                    }
+                    BinaryOp::RemAssign => {
+                        self.assert_is_lvalue(*lhs);
+                        if !lty.is_integer() || !rty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidRemainderOperand);
+                        }
+                        let common = self.assert_common_type(lty, rty, data.span);
+                        if rty != common {
+                            self.result.actions.cast(common, *rhs);
+                        }
                         lty
                     }
                     BinaryOp::Eq
@@ -412,11 +465,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     | BinaryOp::AddAssign
                     | BinaryOp::SubAssign
                     | BinaryOp::MulAssign
-                    | BinaryOp::DivAssign
-                    | BinaryOp::RemAssign
-                    | BinaryOp::BitOrAssign
-                    | BinaryOp::BitAndAssign
-                    | BinaryOp::BitXorAssign => {
+                    | BinaryOp::DivAssign => {
                         self.assert_is_lvalue(*lhs);
                         let common = self.assert_common_type(lty, rty, data.span);
                         if rty != common {
@@ -424,14 +473,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                         lty
                     }
-                    BinaryOp::Add
-                    | BinaryOp::Sub
-                    | BinaryOp::Mul
-                    | BinaryOp::Div
-                    | BinaryOp::Rem
-                    | BinaryOp::BitOr
-                    | BinaryOp::BitAnd
-                    | BinaryOp::BitXor => {
+                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
                         let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
                             self.result.actions.cast(common, *lhs);
@@ -441,6 +483,30 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                         common
                     }
+                    BinaryOp::BitOr | BinaryOp::BitAnd | BinaryOp::BitXor => {
+                        if !lty.is_integer() || !rty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                        }
+                        let common = self.assert_common_type(lty, rty, data.span);
+                        if lty != common {
+                            self.result.actions.cast(common, *lhs);
+                        }
+                        if rty != common {
+                            self.result.actions.cast(common, *rhs);
+                        }
+                        common
+                    }
+                    BinaryOp::BitOrAssign | BinaryOp::BitAndAssign | BinaryOp::BitXorAssign => {
+                        self.assert_is_lvalue(*lhs);
+                        if !lty.is_integer() || !rty.is_integer() {
+                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                        }
+                        let common = self.assert_common_type(lty, rty, data.span);
+                        if rty != common {
+                            self.result.actions.cast(common, *rhs);
+                        }
+                        lty
+                    }
                 }
             }
             ExprKind::Var(name) => {
@@ -448,11 +514,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     .expect("symbol info not found")
                     .ty;
                 if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
-                    self.result.diagnostics.push(TyperDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: TyperDiagnosticKind::VariableUsedAsFunction,
-                    });
+                    self.emit(data.span, TyperDiagnosticKind::VariableUsedAsFunction);
                 }
                 ty
             }
@@ -466,11 +528,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 match *ty {
                     TyKind::Func { ret, ref params } => {
                         if args.len() != params.len() {
-                            self.result.diagnostics.push(TyperDiagnostic {
-                                span: data.span,
-                                file: self.ast.file,
-                                kind: TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
-                            });
+                            self.emit(
+                                data.span,
+                                TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
+                            );
                         }
                         self.ast.exprs[*args]
                             .iter()
@@ -483,11 +544,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         ret
                     }
                     _ => {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: data.span,
-                            file: self.ast.file,
-                            kind: TyperDiagnosticKind::VariableUsedAsFunction,
-                        });
+                        self.emit(data.span, TyperDiagnosticKind::VariableUsedAsFunction);
                         self.ctx.ty.void_ty
                     }
                 }
@@ -501,13 +558,17 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     // Auxiliary methods
     // ---------------------------------------------------------------------------
 
+    fn emit(&mut self, span: Span, kind: TyperDiagnosticKind) {
+        self.result.diagnostics.push(TyperDiagnostic {
+            span,
+            kind,
+            file: self.ast.file,
+        });
+    }
+
     fn assert_is_lvalue(&mut self, expr: Expr) -> bool {
         if !self.ast.expr[expr].kind.is_lvalue(self.ast) {
-            self.result.diagnostics.push(TyperDiagnostic {
-                file: self.ast.file,
-                span: self.ast.expr[expr].span,
-                kind: TyperDiagnosticKind::InvalidLValue,
-            });
+            self.emit(self.ast.expr[expr].span, TyperDiagnosticKind::InvalidLValue);
             return false;
         }
         true
@@ -515,11 +576,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 
     fn assert_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
         TyKind::common(lhs, rhs).unwrap_or_else(|| {
-            self.result.diagnostics.push(TyperDiagnostic {
-                span,
-                file: self.ast.file,
-                kind: TyperDiagnosticKind::TypeMismatch,
-            });
+            self.emit(span, TyperDiagnosticKind::TypeMismatch);
             self.ctx.ty.void_ty
         })
     }
@@ -529,7 +586,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 // Auxiliary functions
 // ---------------------------------------------------------------------------
 
-fn eval_constant(ast: &Ast, expr: Expr) -> Option<Const> {
+fn eval_constant(ast: &Ast, expr: Expr) -> Option<Constant> {
     match ast.expr[expr].kind {
         ExprKind::Const(value) => Some(value),
         ExprKind::Cast { .. } => todo!("handle cast expressions"),
@@ -552,9 +609,12 @@ pub enum TyperDiagnosticKind {
     DeclarationVisibilityMismatch,
     DuplicateSwitchCase,
     ExternLocalInitialized,
+    ConstantOutOfRange,
     FunctionCalledWithWrongArgsNumber,
     FunctionUsedAsVariable,
+    InvalidBitwiseOperand,
     InvalidLValue,
+    InvalidRemainderOperand,
     MultipleInitializers,
     NotConstant,
     StorageClassesDisallowed,
@@ -589,6 +649,12 @@ impl From<TyperDiagnostic> for Diagnostic {
                         .with_message("extern variable cannot have an initializer"),
                 )
                 .with_note("variables with 'extern' storage class are declarations only and cannot be initialized"),
+            TyperDiagnosticKind::ConstantOutOfRange => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("constant value is out of range for the target type"),
+                )
+                .with_note("the value cannot be represented in the target type without overflow"),
             TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)
@@ -601,12 +667,24 @@ impl From<TyperDiagnostic> for Diagnostic {
                         .with_message("cannot use function as a value"),
                 )
                 .with_note("functions cannot be used in value contexts; did you forget the function call parentheses?"),
+            TyperDiagnosticKind::InvalidBitwiseOperand => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("invalid operand type for bitwise operator"),
+                )
+                .with_note("bitwise operators (<<, >>, &, |, ^, ~) only accept integer operands"),
             TyperDiagnosticKind::InvalidLValue => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)
                         .with_message("cannot assign to this expression"),
                 )
                 .with_note("only variables and dereferenced pointers can appear on the left side of an assignment"),
+            TyperDiagnosticKind::InvalidRemainderOperand => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("invalid operand type for remainder operator"),
+                )
+                .with_note("the remainder operator (%) only accepts integer operands"),
             TyperDiagnosticKind::MultipleInitializers => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)

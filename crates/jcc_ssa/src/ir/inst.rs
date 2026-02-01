@@ -295,6 +295,22 @@ impl Inst {
         Self::Param { ty, index }
     }
 
+    /// Creates a constant f32 instruction.
+    pub fn const_f32(value: f32) -> Self {
+        Self::Const {
+            ty: Ty::F32,
+            value: value.to_bits() as u64,
+        }
+    }
+
+    /// Creates a constant f64 instruction.
+    pub fn const_f64(value: f64) -> Self {
+        Self::Const {
+            ty: Ty::F64,
+            value: value.to_bits(),
+        }
+    }
+
     /// Creates a constant integer instruction.
     pub fn constant(ty: Ty, value: u64) -> Self {
         Self::Const { ty, value }

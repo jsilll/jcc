@@ -475,27 +475,47 @@ impl<'ctx> SSABuilder<'ctx> {
                 self.builder
                     .build_val(Inst::call(ty, func, args), expr.span)
             }
-            ast::ExprKind::Unary { op, expr: inner } => match op {
-                ast::UnaryOp::PreInc => self.build_incdec(*inner, true, false, expr.span),
-                ast::UnaryOp::PostInc => self.build_incdec(*inner, true, true, expr.span),
-                ast::UnaryOp::PreDec => self.build_incdec(*inner, false, false, expr.span),
-                ast::UnaryOp::PostDec => self.build_incdec(*inner, false, true, expr.span),
-                ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
-                ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
-                ast::UnaryOp::LogNot => {
-                    let inner = self.build_truthy(*inner, expr.span);
-                    let zero = self.builder.build_val(Inst::constant(Ty::I1, 0), expr.span);
-                    let cmp = self
-                        .builder
-                        .build_val(Inst::icmp(ICmpOp::Eq, inner, zero), expr.span);
-                    self.builder.build_val(Inst::zext(Ty::I32, cmp), expr.span)
+            ast::ExprKind::Unary { op, expr: inner } => {
+                let inner_ty = self.ast.expr[*inner].ty.get().lower().0;
+                let (add, sub, one) = match inner_ty {
+                    Ty::F32 => (BinaryOp::FAdd, BinaryOp::FSub, Inst::const_f32(1.0)),
+                    Ty::F64 => (BinaryOp::FAdd, BinaryOp::FSub, Inst::const_f64(1.0)),
+                    _ => (BinaryOp::Add, BinaryOp::Sub, Inst::constant(inner_ty, 1)),
+                };
+                match op {
+                    ast::UnaryOp::PreInc => {
+                        let one = self.builder.build_val(one, expr.span);
+                        self.build_inc_dec(*inner, add, one, expr.span).1
+                    }
+                    ast::UnaryOp::PostInc => {
+                        let one = self.builder.build_val(one, expr.span);
+                        self.build_inc_dec(*inner, add, one, expr.span).0
+                    }
+                    ast::UnaryOp::PreDec => {
+                        let one = self.builder.build_val(one, expr.span);
+                        self.build_inc_dec(*inner, sub, one, expr.span).1
+                    }
+                    ast::UnaryOp::PostDec => {
+                        let one = self.builder.build_val(one, expr.span);
+                        self.build_inc_dec(*inner, sub, one, expr.span).0
+                    }
+                    ast::UnaryOp::Neg => self.build_unary(ty, UnaryOp::Neg, *inner, expr.span),
+                    ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
+                    ast::UnaryOp::LogNot => {
+                        let inner = self.build_truthy(*inner, expr.span);
+                        let zero = self.builder.build_val(Inst::constant(Ty::I1, 0), expr.span);
+                        let cmp = self
+                            .builder
+                            .build_val(Inst::icmp(ICmpOp::Eq, inner, zero), expr.span);
+                        self.builder.build_val(Inst::zext(Ty::I32, cmp), expr.span)
+                    }
                 }
-            },
+            }
             ast::ExprKind::Binary { op, lhs, rhs } => {
                 let rhs_ty = self.ast.expr[*rhs].ty.get();
                 match op {
-                    ast::BinaryOp::LogOr => self.build_sc(true, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::LogAnd => self.build_sc(false, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::LogOr => self.build_short_circuit(true, *lhs, *rhs, expr.span),
+                    ast::BinaryOp::LogAnd => self.build_short_circuit(false, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Add => self.build_bin(ty, BinaryOp::Add, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Sub => self.build_bin(ty, BinaryOp::Sub, *lhs, *rhs, expr.span),
                     ast::BinaryOp::Mul => self.build_bin(ty, BinaryOp::Mul, *lhs, *rhs, expr.span),
@@ -726,21 +746,7 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn build_incdec(&mut self, expr: ast::Expr, is_inc: bool, postfix: bool, span: Span) -> Value {
-        let ty = self.ast.expr[expr].ty.get().lower().0;
-        let ptr = self.visit_expr_lvalue(expr);
-        let old = self.builder.build_val(Inst::load(ty, ptr, 0), span);
-        let one = self.builder.build_val(Inst::constant(ty, 1), span);
-        let op = if is_inc { BinaryOp::Add } else { BinaryOp::Sub };
-        let new = self.builder.build_val(Inst::binary(op, ty, old, one), span);
-        self.builder.build_val(Inst::store(ptr, new, 0), span);
-        if postfix {
-            old
-        } else {
-            new
-        }
-    }
-
+    // TODO
     fn build_bin(
         &mut self,
         ty: Ty,
@@ -754,6 +760,22 @@ impl<'ctx> SSABuilder<'ctx> {
         self.builder.build_val(Inst::binary(op, ty, lhs, rhs), span)
     }
 
+    fn build_inc_dec(
+        &mut self,
+        expr: ast::Expr,
+        op: BinaryOp,
+        one: Value,
+        span: Span,
+    ) -> (Value, Value) {
+        let ty = self.ast.expr[expr].ty.get().lower().0;
+        let ptr = self.visit_expr_lvalue(expr);
+        let old = self.builder.build_val(Inst::load(ty, ptr, 0), span);
+        let new = self.builder.build_val(Inst::binary(op, ty, old, one), span);
+        self.builder.build_val(Inst::store(ptr, new, 0), span);
+        (old, new)
+    }
+
+    // TODO
     fn build_bin_asgn(
         &mut self,
         mode: ExprMode,
@@ -803,7 +825,13 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    fn build_sc(&mut self, is_or: bool, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
+    fn build_short_circuit(
+        &mut self,
+        is_or: bool,
+        lhs: ast::Expr,
+        rhs: ast::Expr,
+        span: Span,
+    ) -> Value {
         let rhs_block = self
             .builder
             .build_block(if is_or { "or" } else { "and" }, span);

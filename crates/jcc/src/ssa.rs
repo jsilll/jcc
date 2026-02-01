@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, Expr},
+    ast::{self, Expr, TyKind},
     sema::{self, Attribute, SemaCtx},
 };
 
@@ -419,6 +419,11 @@ impl<'ctx> SSABuilder<'ctx> {
                 let (c, ty) = c.lower();
                 self.builder.build_val(Inst::constant(ty, c), expr.span)
             }
+            ast::ExprKind::Cast { expr: inner, .. } => {
+                let from_ty = self.ast.expr[*inner].ty.get();
+                let inner = self.visit_expr_rvalue(*inner);
+                self.build_cast(inner, from_ty, expr.ty.get(), expr.span)
+            }
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
                 let info = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
@@ -442,23 +447,6 @@ impl<'ctx> SSABuilder<'ctx> {
                             ExprMode::RValue => {
                                 self.builder.build_val(Inst::load(ty, ptr, 0), span)
                             }
-                        }
-                    }
-                }
-            }
-            ast::ExprKind::Cast { expr: inner, .. } => {
-                let value = self.visit_expr_rvalue(*inner);
-                let (inner_ty, is_inner_signed) = self.ast.expr[*inner].ty.get().lower();
-                match ty.size_bytes().cmp(&inner_ty.size_bytes()) {
-                    std::cmp::Ordering::Equal => value,
-                    std::cmp::Ordering::Less => {
-                        self.builder.build_val(Inst::trunc(ty, value), expr.span)
-                    }
-                    std::cmp::Ordering::Greater => {
-                        if is_inner_signed {
-                            self.builder.build_val(Inst::sext(ty, value), expr.span)
-                        } else {
-                            self.builder.build_val(Inst::zext(ty, value), expr.span)
                         }
                     }
                 }
@@ -531,15 +519,6 @@ impl<'ctx> SSABuilder<'ctx> {
                     }
                     ast::BinaryOp::BitXor => {
                         self.build_bin(ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitOrAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Or, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitAndAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::And, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::BitXorAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Eq => {
                         if rhs_ty.is_floating_point() {
@@ -628,7 +607,9 @@ impl<'ctx> SSABuilder<'ctx> {
                         self.build_bin(ty, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::Div => {
-                        let op = if rhs_ty.is_signed_integer() {
+                        let op = if rhs_ty.is_floating_point() {
+                            BinaryOp::FDiv
+                        } else if rhs_ty.is_signed_integer() {
                             BinaryOp::Div
                         } else {
                             BinaryOp::UDiv
@@ -653,19 +634,69 @@ impl<'ctx> SSABuilder<'ctx> {
                         }
                     }
                     ast::BinaryOp::AddAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Add, *lhs, *rhs, expr.span)
+                        let lhs_ty = self.ast.expr[*lhs].ty.get();
+                        let common = TyKind::common(lhs_ty, rhs_ty)
+                            .expect("no common type for binary assignment");
+                        let op = if common.is_floating_point() {
+                            BinaryOp::FAdd
+                        } else {
+                            BinaryOp::Add
+                        };
+                        self.build_bin_asgn(mode, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::SubAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Sub, *lhs, *rhs, expr.span)
+                        let lhs_ty = self.ast.expr[*lhs].ty.get();
+                        let common = TyKind::common(lhs_ty, rhs_ty)
+                            .expect("no common type for binary assignment");
+                        let op = if common.is_floating_point() {
+                            BinaryOp::FSub
+                        } else {
+                            BinaryOp::Sub
+                        };
+                        self.build_bin_asgn(mode, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::MulAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Mul, *lhs, *rhs, expr.span)
+                        let op = if rhs_ty.is_floating_point() {
+                            BinaryOp::FMul
+                        } else {
+                            BinaryOp::Mul
+                        };
+                        self.build_bin_asgn(mode, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::DivAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Div, *lhs, *rhs, expr.span)
+                        let lhs_ty = self.ast.expr[*lhs].ty.get();
+                        let common = TyKind::common(lhs_ty, rhs_ty)
+                            .expect("no common type for binary assignment");
+                        let op = if common.is_floating_point() {
+                            BinaryOp::FDiv
+                        } else if common.is_signed_integer() {
+                            BinaryOp::Div
+                        } else {
+                            BinaryOp::UDiv
+                        };
+                        self.build_bin_asgn(mode, op, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::RemAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Rem, *lhs, *rhs, expr.span)
+                        let lhs_ty = self.ast.expr[*lhs].ty.get();
+                        let common = TyKind::common(lhs_ty, rhs_ty)
+                            .expect("no common type for binary assignment");
+                        let op = if common.is_floating_point() {
+                            BinaryOp::FRem
+                        } else if common.is_signed_integer() {
+                            BinaryOp::Rem
+                        } else {
+                            BinaryOp::URem
+                        };
+                        self.build_bin_asgn(mode, op, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitOrAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Or, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitAndAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::And, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::BitXorAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Xor, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitShl | ast::BinaryOp::BitShr => {
                         let lhs_ty = self.ast.expr[*lhs].ty.get();
@@ -776,7 +807,6 @@ impl<'ctx> SSABuilder<'ctx> {
         }
     }
 
-    // TODO
     fn build_bin(
         &mut self,
         ty: Ty,
@@ -805,7 +835,6 @@ impl<'ctx> SSABuilder<'ctx> {
         (old, new)
     }
 
-    // TODO
     fn build_bin_asgn(
         &mut self,
         mode: ExprMode,
@@ -814,44 +843,62 @@ impl<'ctx> SSABuilder<'ctx> {
         rhs: ast::Expr,
         span: Span,
     ) -> Value {
-        let (lhs_ty, is_lhs_signed) = self.ast.expr[lhs].ty.get().lower();
-        let (rhs_ty, is_rhs_signed) = self.ast.expr[rhs].ty.get().lower();
-        let lhs_rhs_cmp = lhs_ty.size_bytes().cmp(&rhs_ty.size_bytes());
+        let lhs_ty = self.ast.expr[lhs].ty.get();
+        let rhs_ty = self.ast.expr[rhs].ty.get();
+        let common =
+            ast::TyKind::common(lhs_ty, rhs_ty).expect("no common type for binary assignment");
+
+        let lhs_rval = self.visit_expr_rvalue(lhs);
+        let lhs_casted = self.build_cast(lhs_rval, lhs_ty, common, span);
+
+        let rhs_rval = self.visit_expr_rvalue(rhs);
+        let rhs_casted = self.build_cast(rhs_rval, rhs_ty, common, span);
+
+        let value = self.builder.build_val(
+            Inst::binary(op, common.lower().0, lhs_casted, rhs_casted),
+            span,
+        );
+        let value = self.build_cast(value, common, lhs_ty, span);
 
         let ptr = self.visit_expr_lvalue(lhs);
-        let lhs = self.visit_expr_rvalue(lhs);
-        let lhs = match lhs_rhs_cmp {
-            std::cmp::Ordering::Equal => lhs,
-            std::cmp::Ordering::Greater => self.builder.build_val(Inst::trunc(rhs_ty, lhs), span),
-            std::cmp::Ordering::Less => {
-                if is_lhs_signed {
-                    self.builder.build_val(Inst::sext(rhs_ty, lhs), span)
-                } else {
-                    self.builder.build_val(Inst::zext(rhs_ty, lhs), span)
-                }
-            }
-        };
-
-        let rhs = self.visit_expr_rvalue(rhs);
-        let value = self
-            .builder
-            .build_val(Inst::binary(op, rhs_ty, lhs, rhs), span);
-        let value = match lhs_rhs_cmp {
-            std::cmp::Ordering::Equal => value,
-            std::cmp::Ordering::Less => self.builder.build_val(Inst::trunc(lhs_ty, value), span),
-            std::cmp::Ordering::Greater => {
-                if is_rhs_signed {
-                    self.builder.build_val(Inst::sext(lhs_ty, value), span)
-                } else {
-                    self.builder.build_val(Inst::zext(lhs_ty, value), span)
-                }
-            }
-        };
         self.builder.build_val(Inst::store(ptr, value, 0), span);
-
         match mode {
             ExprMode::LValue => ptr,
             ExprMode::RValue => value,
+        }
+    }
+
+    fn build_cast(&mut self, expr: Value, from: ast::Ty, to: ast::Ty, span: Span) -> Value {
+        let (to, to_signed) = to.lower();
+        let (from, from_signed) = from.lower();
+        match (from, to) {
+            (Ty::F32, Ty::F64) => self.builder.build_val(Inst::fext(to, expr), span),
+            (Ty::F64, Ty::F32) => self.builder.build_val(Inst::ftrunc(to, expr), span),
+            (Ty::F32 | Ty::F64, _) => {
+                if to_signed {
+                    self.builder.build_val(Inst::fp_to_si(to, expr), span)
+                } else {
+                    self.builder.build_val(Inst::fp_to_ui(to, expr), span)
+                }
+            }
+            (_, Ty::F32 | Ty::F64) => {
+                if from_signed {
+                    self.builder.build_val(Inst::si_to_fp(to, expr), span)
+                } else {
+                    self.builder.build_val(Inst::ui_to_fp(to, expr), span)
+                }
+            }
+            _ => match from.size_bytes().cmp(&to.size_bytes()) {
+                std::cmp::Ordering::Equal => expr,
+                std::cmp::Ordering::Greater => self.builder.build_val(Inst::trunc(to, expr), span),
+                std::cmp::Ordering::Less => {
+                    if from_signed {
+                        self.builder.build_val(Inst::sext(to, expr), span)
+                    } else {
+                        self.builder.build_val(Inst::zext(to, expr), span)
+                    }
+                }
+            },
         }
     }
 

@@ -81,7 +81,7 @@ pub enum BlockItem {
     Stmt(Stmt),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ForInit {
     /// An expression.
     Expr(Expr),
@@ -89,7 +89,7 @@ pub enum ForInit {
     VarDecl(Decl),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum StorageClass {
     /// Extern storage class.
     Extern,
@@ -97,7 +97,7 @@ pub enum StorageClass {
     Static,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     /// The `-` operator.
     Neg,
@@ -115,7 +115,7 @@ pub enum UnaryOp {
     PostDec,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
     /// The `||` operator.
     LogOr,

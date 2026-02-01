@@ -117,6 +117,8 @@ pub struct TyCtx<'ctx> {
     pub long_ty: Ty<'ctx>,
     /// Canonical `unsigned long` type.
     pub ulong_ty: Ty<'ctx>,
+    /// Canonical `float` type.
+    pub float_ty: Ty<'ctx>,
     /// Canonical `double` type.
     pub double_ty: Ty<'ctx>,
     /// Interned types.
@@ -144,6 +146,8 @@ impl<'ctx> TyCtx<'ctx> {
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Long).unwrap()) };
         let ulong_ty =
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::ULong).unwrap()) };
+        let float_ty =
+            unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Float).unwrap()) };
         let double_ty =
             unsafe { std::mem::transmute::<Ty<'_>, Ty<'_>>(types.intern(TyKind::Double).unwrap()) };
         Self {
@@ -153,6 +157,7 @@ impl<'ctx> TyCtx<'ctx> {
             uint_ty,
             long_ty,
             ulong_ty,
+            float_ty,
             double_ty,
         }
     }

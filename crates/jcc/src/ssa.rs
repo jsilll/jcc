@@ -477,10 +477,6 @@ impl<'ctx> SSABuilder<'ctx> {
             }
             ast::ExprKind::Unary { op, expr: inner } => {
                 let inner_ty = self.ast.expr[*inner].ty.get().lower().0;
-                let neg = match inner_ty {
-                    Ty::F32 | Ty::F64 => UnaryOp::FNeg,
-                    _ => UnaryOp::Neg,
-                };
                 let one = match inner_ty {
                     Ty::F32 => Inst::const_f32(1.0),
                     Ty::F64 => Inst::const_f64(1.0),
@@ -505,7 +501,14 @@ impl<'ctx> SSABuilder<'ctx> {
                         let one = self.builder.build_val(one, expr.span);
                         self.build_inc_dec(*inner, add_or_sub, one, expr.span).0
                     }
-                    ast::UnaryOp::Neg => self.build_unary(ty, neg, *inner, expr.span),
+                    ast::UnaryOp::Neg => {
+                        let neg = if matches!(inner_ty, Ty::F32 | Ty::F64) {
+                            UnaryOp::FNeg
+                        } else {
+                            UnaryOp::Neg
+                        };
+                        self.build_unary(ty, neg, *inner, expr.span)
+                    }
                     ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
                     ast::UnaryOp::LogNot => {
                         let inner = self.build_truthy(*inner, expr.span);
@@ -522,30 +525,12 @@ impl<'ctx> SSABuilder<'ctx> {
                 match op {
                     ast::BinaryOp::LogOr => self.build_short_circuit(true, *lhs, *rhs, expr.span),
                     ast::BinaryOp::LogAnd => self.build_short_circuit(false, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Add => self.build_bin(ty, BinaryOp::Add, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Sub => self.build_bin(ty, BinaryOp::Sub, *lhs, *rhs, expr.span),
-                    ast::BinaryOp::Mul => self.build_bin(ty, BinaryOp::Mul, *lhs, *rhs, expr.span),
                     ast::BinaryOp::BitOr => self.build_bin(ty, BinaryOp::Or, *lhs, *rhs, expr.span),
                     ast::BinaryOp::BitAnd => {
                         self.build_bin(ty, BinaryOp::And, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitXor => {
                         self.build_bin(ty, BinaryOp::Xor, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::AddAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Add, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::SubAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Sub, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::MulAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Mul, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::DivAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Div, *lhs, *rhs, expr.span)
-                    }
-                    ast::BinaryOp::RemAssign => {
-                        self.build_bin_asgn(mode, BinaryOp::Rem, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitOrAssign => {
                         self.build_bin_asgn(mode, BinaryOp::Or, *lhs, *rhs, expr.span)
@@ -618,6 +603,30 @@ impl<'ctx> SSABuilder<'ctx> {
                             self.build_icmp(op, *lhs, *rhs, expr.span)
                         }
                     }
+                    ast::BinaryOp::Add => {
+                        let op = if rhs_ty.is_floating_point() {
+                            BinaryOp::FAdd
+                        } else {
+                            BinaryOp::Add
+                        };
+                        self.build_bin(ty, op, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Sub => {
+                        let op = if rhs_ty.is_floating_point() {
+                            BinaryOp::FSub
+                        } else {
+                            BinaryOp::Sub
+                        };
+                        self.build_bin(ty, op, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::Mul => {
+                        let op = if rhs_ty.is_floating_point() {
+                            BinaryOp::FMul
+                        } else {
+                            BinaryOp::Mul
+                        };
+                        self.build_bin(ty, op, *lhs, *rhs, expr.span)
+                    }
                     ast::BinaryOp::Div => {
                         let op = if rhs_ty.is_signed_integer() {
                             BinaryOp::Div
@@ -642,6 +651,21 @@ impl<'ctx> SSABuilder<'ctx> {
                             ExprMode::LValue => lhs,
                             ExprMode::RValue => rhs,
                         }
+                    }
+                    ast::BinaryOp::AddAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Add, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::SubAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Sub, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::MulAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Mul, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::DivAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Div, *lhs, *rhs, expr.span)
+                    }
+                    ast::BinaryOp::RemAssign => {
+                        self.build_bin_asgn(mode, BinaryOp::Rem, *lhs, *rhs, expr.span)
                     }
                     ast::BinaryOp::BitShl | ast::BinaryOp::BitShr => {
                         let lhs_ty = self.ast.expr[*lhs].ty.get();

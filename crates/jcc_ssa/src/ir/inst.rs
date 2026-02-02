@@ -84,29 +84,29 @@ pub enum BinaryOp {
     Mul,
     /// Floating Point Multiplication
     FMul,
-    // Signed Integer Division
-    Div,
+    /// Signed Integer Division
+    SDiv,
+    /// Unsigned Integer Division
+    UDiv,
     /// Floating Point Division
     FDiv,
-    // Signed Integer Remainder
-    Rem,
+    /// Signed Integer Remainder
+    SRem,
+    /// Unsigned Integer Remainder
+    URem,
     /// Floating Point Remainder
     FRem,
-    // Unsigned Integer Division
-    UDiv,
-    // Unsigned Integer Remainder
-    URem,
-    // Bitwise AND
+    /// Bitwise AND
     And,
-    // Bitwise OR
+    /// Bitwise OR
     Or,
-    // Bitwise XOR
+    /// Bitwise XOR
     Xor,
-    // Shift left
+    /// Shift left
     Shl,
-    // Logical shift right (zero fill)
+    /// Logical shift right (zero fill)
     Shr,
-    // Arithmetic shift right (sign extension)
+    /// Arithmetic shift right (sign extension)
     AShr,
 }
 
@@ -542,10 +542,10 @@ impl std::fmt::Display for BinaryOp {
             BinaryOp::FSub => write!(f, "fsub"),
             BinaryOp::Mul => write!(f, "mul"),
             BinaryOp::FMul => write!(f, "fmul"),
-            BinaryOp::Div => write!(f, "sdiv"),
+            BinaryOp::SDiv => write!(f, "sdiv"),
             BinaryOp::UDiv => write!(f, "udiv"),
             BinaryOp::FDiv => write!(f, "fdiv"),
-            BinaryOp::Rem => write!(f, "srem"),
+            BinaryOp::SRem => write!(f, "srem"),
             BinaryOp::URem => write!(f, "urem"),
             BinaryOp::FRem => write!(f, "frem"),
             BinaryOp::And => write!(f, "and"),

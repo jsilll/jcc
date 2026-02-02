@@ -261,10 +261,10 @@ impl<'a> Builder<'a> {
                     ir::inst::BinaryOp::Mul => {
                         self.build_binary(lhs_ty, BinaryOp::Mul, lhs, rhs, dst, inst.span)
                     }
-                    ir::inst::BinaryOp::Div => {
+                    ir::inst::BinaryOp::SDiv => {
                         self.build_div_or_rem(true, lhs_ty, lhs, rhs, dst, inst.span)
                     }
-                    ir::inst::BinaryOp::Rem => {
+                    ir::inst::BinaryOp::SRem => {
                         self.build_div_or_rem(false, lhs_ty, lhs, rhs, dst, inst.span)
                     }
                     ir::inst::BinaryOp::UDiv => {

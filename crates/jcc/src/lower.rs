@@ -723,19 +723,18 @@ impl<'ctx> LoweringPass<'ctx> {
                             }
                         };
 
-                        let lhs_rval = self.visit_expr_rvalue(*lhs);
-                        let lhs_casted = self.build_cast(lhs_rval, lhs_ty, common, expr.span);
+                        let ptr = self.visit_expr_lvalue(*lhs);
+                        let lhs = self.visit_expr_rvalue(*lhs);
+                        let lhs = self.build_cast(lhs, lhs_ty, common, expr.span);
 
-                        let rhs_rval = self.visit_expr_rvalue(*rhs);
-                        let rhs_casted = self.build_cast(rhs_rval, rhs_ty, common, expr.span);
+                        let rhs = self.visit_expr_rvalue(*rhs);
+                        let rhs = self.build_cast(rhs, rhs_ty, common, expr.span);
 
-                        let value = self.builder.build_val(
-                            Inst::binary(op, common.lower().0, lhs_casted, rhs_casted),
-                            expr.span,
-                        );
+                        let value = self
+                            .builder
+                            .build_val(Inst::binary(op, common.lower().0, lhs, rhs), expr.span);
                         let value = self.build_cast(value, common, lhs_ty, expr.span);
 
-                        let ptr = self.visit_expr_lvalue(*lhs);
                         self.builder
                             .build_val(Inst::store(ptr, value, 0), expr.span);
                         match mode {

@@ -9,8 +9,7 @@ use jcc::{
 };
 
 use jcc_ssa::{
-    self as ssa,
-    amd64::{emit::AMD64Emitter, fix::AMD64Fixer},
+    codegen::amd64::build::Builder,
     codemap::{color::ColorConfig, Diagnostic, Files, SimpleFiles},
     interner::Interner,
 };
@@ -118,59 +117,54 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     }
 
     // === Codegen ===
-    let mut r = profiler.time("AMD64 Build", || {
-        ssa::amd64::build::Builder::new(&ssa).build()
-    });
+    let r = profiler.time("AMD64 Build", || Builder::new(&ssa).build());
     if args.verbose {
-        println!(
-            "{}",
-            AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()?
-        );
+        println!("{r}");
     }
-    profiler.time("AMD64 Fixer", || {
-        AMD64Fixer::new(&r.table).fix(&mut r.program)
-    });
-    if args.verbose {
-        println!(
-            "{}",
-            AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()?
-        );
-    }
-    if args.codegen {
-        return Ok(());
-    }
+    // profiler.time("AMD64 Fixer", || {
+    //     AMD64Fixer::new(&r.table).fix(&mut r.program)
+    // });
+    // if args.verbose {
+    //     println!(
+    //         "{}",
+    //         AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()?
+    //     );
+    // }
+    // if args.codegen {
+    //     return Ok(());
+    // }
 
-    // === Emit & Link ===
-    let asm_path = args.path.with_extension("s");
-    let asm = profiler.time("Assembly Emission", || {
-        AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()
-    });
-    std::fs::write(&asm_path, asm.unwrap()).context("Failed to write assembly file")?;
-    if args.assembly {
-        return Ok(());
-    }
-    profiler.time("Assembler & Linker (gcc)", || -> Result<()> {
-        let mut extension = "";
-        let mut cmd = std::process::Command::new("gcc");
-        if args.no_link {
-            cmd.arg("-c");
-            extension = "o";
-        }
-        cmd.arg(&asm_path)
-            .arg("-o")
-            .arg(args.path.with_extension(extension));
+    // // === Emit & Link ===
+    // let asm_path = args.path.with_extension("s");
+    // let asm = profiler.time("Assembly Emission", || {
+    //     AMD64Emitter::new(&r.program, &interner, args.target.into()).emit()
+    // });
+    // std::fs::write(&asm_path, asm.unwrap()).context("Failed to write assembly file")?;
+    // if args.assembly {
+    //     return Ok(());
+    // }
+    // profiler.time("Assembler & Linker (gcc)", || -> Result<()> {
+    //     let mut extension = "";
+    //     let mut cmd = std::process::Command::new("gcc");
+    //     if args.no_link {
+    //         cmd.arg("-c");
+    //         extension = "o";
+    //     }
+    //     cmd.arg(&asm_path)
+    //         .arg("-o")
+    //         .arg(args.path.with_extension(extension));
 
-        for lib in &args.libs {
-            cmd.arg(format!("-l{}", lib));
-        }
+    //     for lib in &args.libs {
+    //         cmd.arg(format!("-l{}", lib));
+    //     }
 
-        let output = cmd.output()?;
-        if !output.status.success() {
-            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow::anyhow!("exiting due to assembler errors"));
-        }
-        Ok(())
-    })?;
+    //     let output = cmd.output()?;
+    //     if !output.status.success() {
+    //         eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    //         return Err(anyhow::anyhow!("exiting due to assembler errors"));
+    //     }
+    //     Ok(())
+    // })?;
 
     Ok(())
 }

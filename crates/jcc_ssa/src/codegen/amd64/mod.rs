@@ -73,6 +73,9 @@ impl std::fmt::Display for MFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "define @{:?} {{", self.name)?;
         for (id, block) in self.blocks.iter() {
+            if id.0 > 0 {
+                writeln!(f)?;
+            }
             writeln!(f, "{}:", id)?;
             for inst in &block.insts {
                 writeln!(f, "  {}", inst.kind)?;
@@ -96,15 +99,21 @@ impl std::fmt::Display for MProgram {
             match data.init {
                 None => writeln!(f, "zeroinitializer")?,
                 Some(val) => match data.ty {
-                    Ty::F64 => write!(f, "{}", f64::from_bits(val))?,
-                    Ty::F32 => write!(f, "{}", f32::from_bits(val as u32))?,
-                    _ => write!(f, "{}", val)?,
+                    Ty::F64 => writeln!(f, "{}", f64::from_bits(val))?,
+                    Ty::F32 => writeln!(f, "{}", f32::from_bits(val as u32))?,
+                    _ => writeln!(f, "{}", val)?,
                 },
             }
         }
+
+        if !self.globals.is_empty() {
+            writeln!(f)?;
+        }
+
         for function in &self.functions {
             write!(f, "{function}")?;
         }
+
         Ok(())
     }
 }

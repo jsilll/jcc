@@ -1,4 +1,4 @@
-pub mod amd64;
+pub mod codegen;
 pub mod infra;
 pub mod ir;
 

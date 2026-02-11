@@ -1147,9 +1147,9 @@ impl From<ParserDiagnostic> for Diagnostic {
             ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message(format!("expected '{token}'")),
+                        .with_message(format!("expected {token}")),
                 )
-                .with_note(format!("the parser expected to find '{token}' at this location")),
+                .with_note(format!("the parser expected to find {token} at this location")),
             ParserDiagnosticKind::DuplicateTypeSpecifier => Diagnostic::error()
                     .with_label(
                         Label::primary(diagnostic.file, diagnostic.span)

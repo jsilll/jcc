@@ -28,7 +28,7 @@ pub enum Size {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
+pub enum MUnaryOp {
     /// Increment
     Inc,
     /// Decrement
@@ -40,7 +40,7 @@ pub enum UnaryOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinOp {
+pub enum MBinOp {
     /// Bitwise OR
     Or,
     /// Bitwise AND
@@ -180,7 +180,7 @@ impl MInst {
     }
 
     /// Unary operation
-    pub fn unary(size: Size, op: UnaryOp, dst: Reg, span: Span) -> Self {
+    pub fn unary(size: Size, op: MUnaryOp, dst: Reg, span: Span) -> Self {
         MInst {
             span,
             kind: MInstKind::Unary { size, op, dst },
@@ -216,7 +216,7 @@ impl MInst {
     }
 
     /// Binary operation
-    pub fn binary(size: Size, op: BinOp, src: Operand, dst: Reg, span: Span) -> Self {
+    pub fn binary(size: Size, op: MBinOp, src: Operand, dst: Reg, span: Span) -> Self {
         MInst {
             span,
             kind: MInstKind::Binary { op, src, dst, size },
@@ -293,7 +293,7 @@ pub enum MInstKind {
     Lea { dst: Reg, size: Size, addr: AMode },
 
     /// Unary operation
-    Unary { dst: Reg, size: Size, op: UnaryOp },
+    Unary { dst: Reg, size: Size, op: MUnaryOp },
 
     /// Comparison operation
     Cmp {
@@ -319,7 +319,7 @@ pub enum MInstKind {
     /// Binary operation
     Binary {
         dst: Reg,
-        op: BinOp,
+        op: MBinOp,
         size: Size,
         src: Operand,
     },
@@ -370,29 +370,29 @@ impl std::fmt::Display for Operand {
     }
 }
 
-impl std::fmt::Display for UnaryOp {
+impl std::fmt::Display for MUnaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UnaryOp::Inc => write!(f, "inc"),
-            UnaryOp::Dec => write!(f, "dec"),
-            UnaryOp::Not => write!(f, "not"),
-            UnaryOp::Neg => write!(f, "neg"),
+            MUnaryOp::Inc => write!(f, "inc"),
+            MUnaryOp::Dec => write!(f, "dec"),
+            MUnaryOp::Not => write!(f, "not"),
+            MUnaryOp::Neg => write!(f, "neg"),
         }
     }
 }
 
-impl std::fmt::Display for BinOp {
+impl std::fmt::Display for MBinOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BinOp::Or => write!(f, "or"),
-            BinOp::And => write!(f, "and"),
-            BinOp::Xor => write!(f, "xor"),
-            BinOp::Shl => write!(f, "shl"),
-            BinOp::Shr => write!(f, "shr"),
-            BinOp::Sar => write!(f, "sar"),
-            BinOp::Add => write!(f, "add"),
-            BinOp::Sub => write!(f, "sub"),
-            BinOp::Mul => write!(f, "imul"),
+            MBinOp::Or => write!(f, "or"),
+            MBinOp::And => write!(f, "and"),
+            MBinOp::Xor => write!(f, "xor"),
+            MBinOp::Shl => write!(f, "shl"),
+            MBinOp::Shr => write!(f, "shr"),
+            MBinOp::Sar => write!(f, "sar"),
+            MBinOp::Add => write!(f, "add"),
+            MBinOp::Sub => write!(f, "sub"),
+            MBinOp::Mul => write!(f, "imul"),
         }
     }
 }

@@ -30,6 +30,18 @@ where
     K: EntityRef,
     V: Clone,
 {
+    /// Create a new empty map.
+    pub fn new() -> Self
+    where
+        V: Default,
+    {
+        Self {
+            data: Vec::new(),
+            phantom: PhantomData,
+            default: V::default(),
+        }
+    }
+
     /// Create a new, empty map with the specified capacity.
     ///
     /// The map will be able to hold exactly `capacity` elements without reallocating.
@@ -301,6 +313,13 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     struct TestEntity(u32);
     entity_impl!(TestEntity, "test_entity");
+
+    #[test]
+    fn test_secondary_map_new() {
+        let map: SecondaryMap<TestEntity, i32> = SecondaryMap::new();
+        assert_eq!(map[TestEntity::new(0)], 0);
+        assert_eq!(map[TestEntity::new(100)], 0);
+    }
 
     #[test]
     fn test_secondary_map_default() {

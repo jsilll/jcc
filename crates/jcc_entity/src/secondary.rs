@@ -30,6 +30,18 @@ where
     K: EntityRef,
     V: Clone,
 {
+    /// Create a new empty map.
+    pub fn new() -> Self
+    where
+        V: Default,
+    {
+        Self {
+            data: Vec::new(),
+            phantom: PhantomData,
+            default: V::default(),
+        }
+    }
+
     /// Create a new, empty map with the specified capacity.
     ///
     /// The map will be able to hold exactly `capacity` elements without reallocating.
@@ -70,14 +82,25 @@ where
         self.data.capacity()
     }
 
+    /// Get the element at `k` if it exists
+    pub fn get(&self, k: K) -> Option<&V> {
+        self.data.get(k.index())
+    }
+
     /// Remove all elements from the map.
     pub fn clear(&mut self) {
         self.data.clear();
     }
 
-    /// Resize the map to have `n` entries by adding default values as needed.
+    /// Resize the map to have `n` entries
+    /// by adding default values as needed.
     fn resize(&mut self, n: usize) {
         self.data.resize(n, self.default.clone());
+    }
+
+    /// Get the element at `k` mutably, if it exists
+    pub fn get_mut(&mut self, k: K) -> Option<&mut V> {
+        self.data.get_mut(k.index())
     }
 
     /// Iterate over all the keys in this map.
@@ -303,6 +326,13 @@ mod tests {
     entity_impl!(TestEntity, "test_entity");
 
     #[test]
+    fn test_secondary_map_new() {
+        let map: SecondaryMap<TestEntity, i32> = SecondaryMap::new();
+        assert_eq!(map[TestEntity::new(0)], 0);
+        assert_eq!(map[TestEntity::new(100)], 0);
+    }
+
+    #[test]
     fn test_secondary_map_default() {
         let map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         assert_eq!(map[TestEntity::new(0)], 0);
@@ -317,7 +347,33 @@ mod tests {
     }
 
     #[test]
-    fn test_secondary_map_index_mut() {
+    fn test_secondary_map_get() {
+        let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
+        map[TestEntity::new(0)] = 10;
+        map[TestEntity::new(2)] = 20;
+
+        assert_eq!(map.get(TestEntity::new(0)), Some(&10));
+        assert_eq!(map.get(TestEntity::new(1)), Some(&0));
+        assert_eq!(map.get(TestEntity::new(2)), Some(&20));
+        assert_eq!(map.get(TestEntity::new(3)), None);
+        assert_eq!(map.get(TestEntity::new(100)), None);
+    }
+
+    #[test]
+    fn test_secondary_map_get_mut() {
+        let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
+        map[TestEntity::new(0)] = 10;
+        map[TestEntity::new(2)] = 20;
+
+        assert_eq!(map.get(TestEntity::new(0)), Some(&10));
+        assert_eq!(map.get(TestEntity::new(1)), Some(&0));
+        assert_eq!(map.get(TestEntity::new(2)), Some(&20));
+        assert_eq!(map.get(TestEntity::new(3)), None);
+        assert_eq!(map.get(TestEntity::new(100)), None);
+    }
+
+    #[test]
+    fn test_secondary_map_index() {
         let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         map[TestEntity::new(0)] = 10;
         map[TestEntity::new(2)] = 20;

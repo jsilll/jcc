@@ -13,7 +13,7 @@ mod sparse;
 pub use list::{EntityList, ListPool};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
-pub use sparse::map::SparseMap;
+pub use sparse::{map::SparseMap, set::SparseSet};
 
 /// Trait for types that can be used as entity references.
 pub trait EntityRef: Copy + Eq {

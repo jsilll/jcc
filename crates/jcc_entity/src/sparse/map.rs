@@ -155,15 +155,15 @@ where
     /// If the map did not have this key present, `None` is returned.
     pub fn remove(&mut self, key: K) -> Option<V> {
         if let Some(idx) = self.sparse.get(key).copied() {
-            let idx = idx as usize;
-            if let Some((k, _)) = self.dense.get(idx) {
+            let idx_usize = idx as usize;
+            if let Some((k, _)) = self.dense.get(idx_usize) {
                 if *k == key {
                     let (k, v) = self.dense.pop()?;
-                    if idx == self.dense.len() {
+                    if idx_usize == self.dense.len() {
                         return Some(v);
                     }
-                    self.sparse[k] = u32::try_from(idx).ok()?;
-                    let (_, v) = std::mem::replace(&mut self.dense[idx], (k, v));
+                    let (_, v) = std::mem::replace(&mut self.dense[idx_usize], (k, v));
+                    self.sparse[k] = idx;
                     return Some(v);
                 }
             }

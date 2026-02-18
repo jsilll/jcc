@@ -3,7 +3,10 @@ pub mod inst;
 pub mod reg;
 
 use crate::{
-    codegen::amd64::{inst::MInst, reg::VirtReg},
+    codegen::amd64::{
+        inst::MInst,
+        reg::{Reg, RegClass},
+    },
     ir::{self, ty::Ty},
     Ident,
 };
@@ -62,10 +65,10 @@ impl MFunction {
     }
 
     /// Create a new virtual register
-    pub fn new_vreg(&mut self) -> VirtReg {
-        let v = VirtReg(self.vreg_count);
+    pub fn new_vreg(&mut self, class: RegClass) -> Reg {
+        let reg = Reg::Virt(class, self.vreg_count);
         self.vreg_count += 1;
-        v
+        reg
     }
 }
 

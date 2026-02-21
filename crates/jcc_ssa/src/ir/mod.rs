@@ -36,9 +36,9 @@ pub struct Program {
 
 #[derive(Debug, Clone)]
 pub struct ValueData {
+    pub idx: u32,
     pub span: Span,
     pub inst: Inst,
-    pub index: u32,
     pub block: Block,
 }
 

@@ -34,7 +34,7 @@ impl<'a> Builder<'a> {
             block_data.insts.push(value);
 
             let value = &mut self.program.values[value];
-            value.index = index;
+            value.idx = index;
             value.block = block;
         }
     }
@@ -47,7 +47,7 @@ impl<'a> Builder<'a> {
             inst,
             span,
             block,
-            index: Default::default(),
+            idx: Default::default(),
         };
         self.program.values.push(data)
     }
@@ -60,7 +60,7 @@ impl<'a> Builder<'a> {
             inst,
             span,
             block,
-            index,
+            idx: index,
         });
         self.program.blocks[block].insts.push(value);
         value

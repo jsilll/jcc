@@ -71,19 +71,18 @@ pub struct FunctionData {
 
 impl std::fmt::Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Print Globals
-        for (global_handle, global_data) in self.globals.iter() {
-            write!(f, "{} = ", global_handle)?;
-            if global_data.is_global {
+        for (handle, data) in self.globals.iter() {
+            write!(f, "{} = ", handle)?;
+            if data.is_global {
                 write!(f, "global ")?;
             } else {
                 write!(f, "constant ")?;
             }
-            write!(f, "{} ", global_data.ty)?;
+            write!(f, "{} ", data.ty)?;
 
-            match global_data.init {
+            match data.init {
                 None => writeln!(f, "zeroinitializer")?,
-                Some(val) => match global_data.ty {
+                Some(val) => match data.ty {
                     Ty::F64 => writeln!(f, "{}", f64::from_bits(val))?,
                     Ty::F32 => writeln!(f, "{}", f32::from_bits(val as u32))?,
                     _ => writeln!(f, "{}", val)?,
@@ -95,39 +94,24 @@ impl std::fmt::Display for Program {
             writeln!(f)?;
         }
 
-        // Print Functions
-        for (func_handle, func_data) in self.functions.iter() {
-            writeln!(f, "define {} {{", func_handle)?;
-
-            // Iterate over blocks in the function
-            for (i, block_handle) in func_data.blocks.iter().enumerate() {
-                let block_data = &self.blocks[*block_handle];
-
-                // Print Block Label
-                // If it's the first block, LLVM usually omits the label,
-                // but printing it explicitly is safer for debugging.
-                if i > 0 {
+        for (handle, data) in self.functions.iter() {
+            writeln!(f, "define {} {{", handle)?;
+            for (idx, block) in data.blocks.iter().enumerate() {
+                if idx > 0 {
                     writeln!(f)?;
                 }
-                writeln!(f, "{}:", block_handle)?;
+                writeln!(f, "{}:", block)?;
 
-                // Iterate over instructions (Values) in the block
-                for value_handle in &block_data.insts {
-                    let value_data = &self.values[*value_handle];
-
-                    // If the instruction produces a value (not void), print "%n = "
+                for value in &self.blocks[*block].insts {
+                    let data = &self.values[*value];
                     write!(f, "  ")?;
-                    if value_data.inst.ty() != Ty::Void {
-                        write!(f, "{} = ", value_handle)?;
+                    if data.inst.ty() != Ty::Void {
+                        write!(f, "{} = ", value)?;
                     }
-
-                    // Print the instruction itself
-                    writeln!(f, "{}", value_data.inst)?;
+                    writeln!(f, "{}", data.inst)?;
                 }
             }
-
             writeln!(f, "}}")?;
-            writeln!(f)?;
         }
 
         Ok(())

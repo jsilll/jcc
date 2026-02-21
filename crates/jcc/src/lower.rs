@@ -982,7 +982,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     span,
                     is_global,
                     name: name.name,
-                    blocks: Vec::new(),
+                    ..Default::default()
                 });
                 self.symbols[sym] = Some(SymbolEntry::Function(f));
                 f

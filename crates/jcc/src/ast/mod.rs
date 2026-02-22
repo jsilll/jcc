@@ -3,13 +3,16 @@ pub mod graphviz;
 pub mod parse;
 pub mod ty;
 
-use crate::{ast::constant::Constant, sema};
+use crate::{
+    ast::{constant::Constant, graphviz::AstGraphvizCtx},
+    sema,
+};
 pub use ty::{Ty, TyKind};
 
 use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 use jcc_ssa::{
     codemap::{file::FileId, span::Span},
-    Ident,
+    Ident, IdentInterner,
 };
 
 use std::cell::Cell;
@@ -60,6 +63,10 @@ impl<'ctx> Ast<'ctx> {
             stmt: PrimaryMap::with_capacity(capacity),
             expr: PrimaryMap::with_capacity(capacity),
         }
+    }
+
+    pub fn graphviz<'a>(&'a self, interner: &'a IdentInterner) -> AstGraphvizCtx<'a, 'ctx> {
+        AstGraphvizCtx::new(self, interner)
     }
 }
 

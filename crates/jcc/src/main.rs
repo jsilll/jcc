@@ -1,5 +1,5 @@
 use jcc::{
-    ast::{graphviz::AstGraphviz, parse::Parser, ty::TyCtx},
+    ast::{parse::Parser, ty::TyCtx},
     cli::Args,
     desugar::DesugarPass,
     lower::LoweringPass,
@@ -9,12 +9,13 @@ use jcc::{
 };
 
 use jcc_ssa::{
-    codegen::amd64::build::Builder,
     codemap::{color::ColorConfig, Diagnostic, Files, SimpleFiles},
-    interner::Interner,
+    IdentInterner,
 };
 
 use anyhow::{Context, Result};
+
+use std::io::Write as _;
 
 fn main() {
     let args = Args::from_cli();
@@ -57,7 +58,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Type Context & Interner ===
     let tys = TyCtx::new();
-    let mut interner = Interner::new();
+    let mut interner = IdentInterner::new();
 
     // === Lexing & Parsing ===
     let lexer = Lexer::new(file);
@@ -71,9 +72,10 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     check_diags("parser", &mut files, &r.parser_diagnostics)?;
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
-        let ast_graphviz = AstGraphviz::new(&r.ast, &interner);
-        let dot = ast_graphviz.emit().context("Failed to emit AST graphviz")?;
-        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
+        let mut dot_file =
+            std::fs::File::create(&dot_path).context("Failed to create AST graphviz file")?;
+        write!(dot_file, "{}", r.ast.graphviz(&interner))
+            .context("Failed to write AST graphviz file")?;
     }
     if args.parse {
         return Ok(());
@@ -97,9 +99,10 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     let ast = profiler.time("Desugar", || DesugarPass::new(ast, r.actions).build());
     if args.emit_ast_graphviz {
         let dot_path = args.path.with_extension("dot");
-        let ast_graphviz = AstGraphviz::new(&ast, &interner);
-        let dot = ast_graphviz.emit().context("Failed to emit AST graphviz")?;
-        std::fs::write(&dot_path, &dot).context("Failed to write AST graphviz file")?;
+        let mut dot_file =
+            std::fs::File::create(&dot_path).context("Failed to create AST graphviz file")?;
+        write!(dot_file, "{}", ast.graphviz(&interner))
+            .context("Failed to write AST graphviz file")?;
     }
     if args.validate {
         return Ok(());
@@ -117,10 +120,10 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     }
 
     // === Codegen ===
-    let r = profiler.time("AMD64 Build", || Builder::new(&ssa).build());
-    if args.verbose {
-        println!("{r}");
-    }
+    // let r = profiler.time("AMD64 Build", || Builder::new(&ssa).build());
+    // if args.verbose {
+    //     println!("{}", r.pretty(&interner));
+    // }
     // profiler.time("AMD64 Fixer", || {
     //     AMD64Fixer::new(&r.table).fix(&mut r.program)
     // });

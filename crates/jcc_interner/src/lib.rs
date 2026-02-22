@@ -50,17 +50,6 @@ impl<M> std::fmt::Debug for Symbol<M> {
     }
 }
 
-// TODO: Remove this after introducing new IR
-impl<M> Default for Symbol<M> {
-    /// Returns a default `Symbol` with the maximum value.
-    ///
-    /// This default value is used as a sentinel and should not be used
-    /// to look up strings in an interner.
-    fn default() -> Self {
-        Self(NonZeroU32::MAX, PhantomData)
-    }
-}
-
 /// A string interner that stores unique strings and provides `Symbol` handles for efficient access.
 ///
 /// The `Interner` maintains a mapping between strings and their associated symbols,

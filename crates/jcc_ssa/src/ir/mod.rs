@@ -42,7 +42,7 @@ pub struct ValueData {
     pub block: Block,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct BlockData {
     pub span: Span,
     pub name: Ident,
@@ -50,6 +50,19 @@ pub struct BlockData {
     pub preds: Vec<Block>,
     pub dom_children: Vec<Block>,
     pub dom_parent: Option<Block>,
+}
+
+impl BlockData {
+    pub fn new(name: Ident, span: Span) -> Self {
+        Self {
+            name,
+            span,
+            insts: Vec::new(),
+            preds: Vec::new(),
+            dom_parent: None,
+            dom_children: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +74,7 @@ pub struct GlobalData {
     pub init: Option<u64>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct FunctionData {
     pub span: Span,
     pub name: Ident,
@@ -70,6 +83,21 @@ pub struct FunctionData {
 }
 
 impl FunctionData {
+    /// Create a new function data
+    pub fn new(name: Ident, is_global: bool, span: Span) -> Self {
+        Self {
+            name,
+            span,
+            is_global,
+            entry: None,
+        }
+    }
+
+    /// Returns an iterator over reachable IR blocks starting at `entry`.
+    ///
+    /// Blocks are yielded once in depth-first discovery order. Branch targets
+    /// from terminator instructions (`Br`, `CondBr`, `Switch`) are all
+    /// considered. If the function has no entry block, the iterator is empty.
     pub fn blocks<'a>(&'a self, prog: &'a Program) -> BlockIter<'a> {
         let mut stack = Vec::new();
         if let Some(entry) = self.entry {

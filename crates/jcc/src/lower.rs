@@ -978,12 +978,11 @@ impl<'ctx> LoweringPass<'ctx> {
         match self.symbols[sym] {
             Some(SymbolEntry::Function(f)) => f,
             None => {
-                let f = self.builder.program.functions.push(FunctionData {
-                    span,
-                    is_global,
-                    name: name.name,
-                    ..Default::default()
-                });
+                let f = self
+                    .builder
+                    .program
+                    .functions
+                    .push(FunctionData::new(name.name, is_global, span));
                 self.symbols[sym] = Some(SymbolEntry::Function(f));
                 f
             }

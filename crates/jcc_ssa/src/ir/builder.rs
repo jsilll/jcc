@@ -47,7 +47,7 @@ impl<'a> Builder<'a> {
             inst,
             span,
             block,
-            idx: Default::default(),
+            idx: 0,
         };
         self.program.values.push(data)
     }
@@ -75,11 +75,7 @@ impl<'a> Builder<'a> {
     /// Builds a new block in the current function.
     pub fn build_block_sym(&mut self, name: Ident, span: Span) -> Block {
         let function = self.function.expect("no current function");
-        let block = self.program.blocks.push(BlockData {
-            name,
-            span,
-            ..Default::default()
-        });
+        let block = self.program.blocks.push(BlockData::new(name, span));
         self.program.functions[function].entry.get_or_insert(block);
         block
     }

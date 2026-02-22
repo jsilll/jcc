@@ -9,9 +9,8 @@ use jcc::{
 };
 
 use jcc_ssa::{
-    codegen::amd64::build::Builder,
     codemap::{color::ColorConfig, Diagnostic, Files, SimpleFiles},
-    interner::Interner,
+    IdentInterner,
 };
 
 use anyhow::{Context, Result};
@@ -57,7 +56,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
 
     // === Type Context & Interner ===
     let tys = TyCtx::new();
-    let mut interner = Interner::new();
+    let mut interner = IdentInterner::new();
 
     // === Lexing & Parsing ===
     let lexer = Lexer::new(file);
@@ -117,10 +116,10 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
     }
 
     // === Codegen ===
-    let r = profiler.time("AMD64 Build", || Builder::new(&ssa).build());
-    if args.verbose {
-        println!("{r}");
-    }
+    // let r = profiler.time("AMD64 Build", || Builder::new(&ssa).build());
+    // if args.verbose {
+    //     println!("{}", r.pretty(&interner));
+    // }
     // profiler.time("AMD64 Fixer", || {
     //     AMD64Fixer::new(&r.table).fix(&mut r.program)
     // });

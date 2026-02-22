@@ -3,13 +3,16 @@ pub mod inst;
 pub mod reg;
 
 use crate::{
-    codegen::amd64::{inst::MInst, reg::VirtReg},
+    codegen::amd64::{
+        inst::{MInst, MInstKind},
+        reg::{GpReg, XmmReg},
+    },
     ir::{self, ty::Ty},
     Ident,
 };
 
 use jcc_codemap::span::Span;
-use jcc_entity::{entity_impl, PrimaryMap};
+use jcc_entity::{entity_impl, PrimaryMap, SparseSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MBlock(u32);
@@ -18,6 +21,7 @@ entity_impl!(MBlock, "mbb");
 #[derive(Default)]
 pub struct MProgram {
     pub functions: Vec<MFunction>,
+    pub blocks: PrimaryMap<MBlock, MBlockData>,
     pub globals: PrimaryMap<ir::Global, ir::GlobalData>,
 }
 
@@ -26,8 +30,9 @@ pub struct MFunction {
     pub span: Span,
     pub name: Ident,
     pub is_global: bool,
-    pub vreg_count: u32,
-    pub blocks: PrimaryMap<MBlock, MBlockData>,
+    pub vreg_gp_count: u32,
+    pub vreg_xmm_count: u32,
+    pub entry: Option<MBlock>,
 }
 
 #[derive(Default)]
@@ -61,27 +66,64 @@ impl MFunction {
         }
     }
 
-    /// Create a new virtual register
-    pub fn new_vreg(&mut self) -> VirtReg {
-        let v = VirtReg(self.vreg_count);
-        self.vreg_count += 1;
-        v
+    /// Create a new virtual GP register
+    pub fn new_gp_vreg(&mut self) -> GpReg {
+        let reg = GpReg::Virt(self.vreg_gp_count);
+        self.vreg_gp_count += 1;
+        reg
+    }
+
+    /// Create a new virtual XMM register
+    pub fn new_xmm_vreg(&mut self) -> XmmReg {
+        let reg = XmmReg::Virt(self.vreg_xmm_count);
+        self.vreg_xmm_count += 1;
+        reg
+    }
+
+    /// Returns an iterator over reachable machine blocks starting at `entry`.
+    ///
+    /// Blocks are yielded once in depth-first discovery order. Successors from
+    /// `MBlockData::succs` and jump targets from terminator-like instructions
+    /// (`Jmp`, `Jcc`) are both considered. If the function has no entry block,
+    /// the iterator is empty.
+    fn blocks<'a>(&self, blocks: &'a PrimaryMap<MBlock, MBlockData>) -> MBlockIter<'a> {
+        let mut stack = Vec::new();
+        if let Some(entry) = self.entry {
+            stack.push(entry);
+        }
+        MBlockIter {
+            stack,
+            blocks,
+            seen: SparseSet::new(),
+        }
     }
 }
 
-impl std::fmt::Display for MFunction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "define @{:?} {{", self.name)?;
-        for (id, block) in self.blocks.iter() {
-            if id.0 > 0 {
-                writeln!(f)?;
+struct MBlockIter<'a> {
+    stack: Vec<MBlock>,
+    seen: SparseSet<MBlock>,
+    blocks: &'a PrimaryMap<MBlock, MBlockData>,
+}
+
+impl Iterator for MBlockIter<'_> {
+    type Item = MBlock;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(block) = self.stack.pop() {
+            if !self.seen.insert(block) {
+                continue;
             }
-            writeln!(f, "{}:", id)?;
-            for inst in &block.insts {
-                writeln!(f, "  {}", inst.kind)?;
+            for inst in self.blocks[block].insts.iter().rev() {
+                match &inst.kind {
+                    MInstKind::Jmp(target) | MInstKind::Jcc { target, .. } => {
+                        self.stack.push(*target)
+                    }
+                    _ => {}
+                }
             }
+            return Some(block);
         }
-        writeln!(f, "}}")
+        None
     }
 }
 
@@ -111,7 +153,18 @@ impl std::fmt::Display for MProgram {
         }
 
         for function in &self.functions {
-            write!(f, "{function}")?;
+            writeln!(f, "define @{:?} {{", function.name)?;
+            for (idx, block) in function.blocks(&self.blocks).enumerate() {
+                if idx > 0 {
+                    writeln!(f)?;
+                }
+                let data = &self.blocks[block];
+                writeln!(f, "{}:", block)?;
+                for inst in &data.insts {
+                    writeln!(f, "  {}", inst.kind)?;
+                }
+            }
+            writeln!(f, "}}")?
         }
 
         Ok(())

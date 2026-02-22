@@ -169,41 +169,33 @@ pub enum Inst {
     },
 
     /// Integer comparison.
-    Icmp {
+    ICmp {
         lhs: Value,
         rhs: Value,
         pred: ICmpOp,
     },
 
     /// Floating-point comparison.
-    Fcmp {
+    FCmp {
         lhs: Value,
         rhs: Value,
         pred: FCmpOp,
-    },
-
-    /// Select between two values based on a boolean condition (like a ternary operator).
-    Select {
-        ty: Ty,
-        cond: Value,
-        then_val: Value,
-        else_val: Value,
     },
 
     /// Conversion: truncate integer to smaller type.
     Trunc { to: Ty, value: Value },
 
     /// Conversion: Float truncation
-    Ftrunc { to: Ty, value: Value },
+    FTrunc { to: Ty, value: Value },
 
     /// Conversion: zero-extend integer to larger type.
-    Zext { to: Ty, value: Value },
+    ZExt { to: Ty, value: Value },
 
     /// Conversion: sign-extend integer to larger type.
-    Sext { to: Ty, value: Value },
+    SExt { to: Ty, value: Value },
 
     /// Conversion: Float extension
-    Fext { to: Ty, value: Value },
+    FExt { to: Ty, value: Value },
 
     /// Conversion: bitcast between types of the same size.
     Bitcast { to: Ty, value: Value },
@@ -238,6 +230,14 @@ pub enum Inst {
         ty: Ty,
         ptr: Value,
         args: Vec<Value>,
+    },
+
+    /// Select between two values based on a boolean condition (like a ternary operator).
+    Select {
+        ty: Ty,
+        cond: Value,
+        then_val: Value,
+        else_val: Value,
     },
 
     /// Terminator: Hints to the optimizer that code execution cannot reach this point.
@@ -331,19 +331,6 @@ impl Inst {
         Self::Store { ptr, value, align }
     }
 
-    /// Creates a GetElementPtr instruction to compute the address of a sub-element.
-    ///
-    /// # Note
-    ///
-    /// `indices` is passed as a generic iterable to make usage cleaner (e.g., passing a slice or a Vec).
-    pub fn gep<I>(ty: Ty, ptr: Value, indices: impl IntoIterator<Item = Value>) -> Self {
-        Self::GetElementPtr {
-            ty,
-            ptr,
-            indices: indices.into_iter().collect(),
-        }
-    }
-
     /// Creates a unary operation instruction.
     pub fn unary(op: UnaryOp, ty: Ty, operand: Value) -> Self {
         Self::Unary { ty, op, operand }
@@ -351,27 +338,12 @@ impl Inst {
 
     /// Creates an integer comparison instruction.
     pub fn icmp(pred: ICmpOp, lhs: Value, rhs: Value) -> Self {
-        Self::Icmp { lhs, rhs, pred }
+        Self::ICmp { lhs, rhs, pred }
     }
 
     /// Creates a floating-point comparison instruction.
     pub fn fcmp(pred: FCmpOp, lhs: Value, rhs: Value) -> Self {
-        Self::Fcmp { lhs, rhs, pred }
-    }
-
-    /// Creates a binary operation instruction.
-    pub fn binary(op: BinaryOp, ty: Ty, lhs: Value, rhs: Value) -> Self {
-        Self::Binary { ty, lhs, rhs, op }
-    }
-
-    /// Creates a select instruction to choose between two values based on a condition.
-    pub fn select(ty: Ty, cond: Value, then_val: Value, else_val: Value) -> Self {
-        Self::Select {
-            ty,
-            cond,
-            then_val,
-            else_val,
-        }
+        Self::FCmp { lhs, rhs, pred }
     }
 
     /// Creates a truncate instruction to reduce an integer's size.
@@ -381,37 +353,27 @@ impl Inst {
 
     /// Creates a float truncation instruction.
     pub fn ftrunc(to: Ty, value: Value) -> Self {
-        Self::Ftrunc { to, value }
+        Self::FTrunc { to, value }
     }
 
     /// Creates a zero-extend instruction to increase an integer's size.
     pub fn zext(to: Ty, value: Value) -> Self {
-        Self::Zext { to, value }
+        Self::ZExt { to, value }
     }
 
     /// Creates a sign-extend instruction to increase an integer's size.
     pub fn sext(to: Ty, value: Value) -> Self {
-        Self::Sext { to, value }
+        Self::SExt { to, value }
     }
 
     /// Creates a float extension instruction.
     pub fn fext(to: Ty, value: Value) -> Self {
-        Self::Fext { to, value }
+        Self::FExt { to, value }
     }
 
     /// Creates a bitcast instruction to convert between types of the same size.
     pub fn bitcast(to: Ty, value: Value) -> Self {
         Self::Bitcast { to, value }
-    }
-
-    /// Creates an instruction to cast an integer to a pointer.
-    pub fn int_to_ptr(to: Ty, value: Value) -> Self {
-        Self::IntToPtr { to, value }
-    }
-
-    /// Creates an instruction to cast a pointer to an integer.
-    pub fn ptr_to_int(to: Ty, value: Value) -> Self {
-        Self::PtrToInt { to, value }
     }
 
     /// Creates a float to signed integer conversion instruction.
@@ -434,6 +396,16 @@ impl Inst {
         Self::UiToFp { to, value }
     }
 
+    /// Creates an instruction to cast an integer to a pointer.
+    pub fn int_to_ptr(to: Ty, value: Value) -> Self {
+        Self::IntToPtr { to, value }
+    }
+
+    /// Creates an instruction to cast a pointer to an integer.
+    pub fn ptr_to_int(to: Ty, value: Value) -> Self {
+        Self::PtrToInt { to, value }
+    }
+
     /// Creates a direct function call instruction.
     pub fn call(ty: Ty, func: Function, args: Vec<Value>) -> Self {
         Self::Call { ty, func, args }
@@ -442,6 +414,34 @@ impl Inst {
     /// Creates an indirect function call instruction.
     pub fn indirect_call(ty: Ty, ptr: Value, args: Vec<Value>) -> Self {
         Self::IndirectCall { ty, ptr, args }
+    }
+
+    /// Creates a binary operation instruction.
+    pub fn binary(op: BinaryOp, ty: Ty, lhs: Value, rhs: Value) -> Self {
+        Self::Binary { ty, lhs, rhs, op }
+    }
+
+    /// Creates a select instruction to choose between two values based on a condition.
+    pub fn select(ty: Ty, cond: Value, then_val: Value, else_val: Value) -> Self {
+        Self::Select {
+            ty,
+            cond,
+            then_val,
+            else_val,
+        }
+    }
+
+    /// Creates a GetElementPtr instruction to compute the address of a sub-element.
+    ///
+    /// # Note
+    ///
+    /// `indices` is passed as a generic iterable to make usage cleaner (e.g., passing a slice or a Vec).
+    pub fn gep<I>(ty: Ty, ptr: Value, indices: impl IntoIterator<Item = Value>) -> Self {
+        Self::GetElementPtr {
+            ty,
+            ptr,
+            indices: indices.into_iter().collect(),
+        }
     }
 
     /// Creates an unreachable instruction to indicate code cannot be reached.
@@ -491,8 +491,8 @@ impl Inst {
             | Inst::Switch { .. }
             | Inst::Upsilon { .. } => Ty::Void,
 
-            Inst::Icmp { .. } => Ty::I1,
-            Inst::Fcmp { .. } => Ty::I1,
+            Inst::ICmp { .. } => Ty::I1,
+            Inst::FCmp { .. } => Ty::I1,
             Inst::GlobalAddr(_) => Ty::Ptr,
             Inst::Alloca { .. } => Ty::Ptr,
             Inst::GetElementPtr { .. } => Ty::Ptr,
@@ -502,22 +502,22 @@ impl Inst {
             | Inst::Call { ty, .. }
             | Inst::Const { ty, .. }
             | Inst::ConstNull(ty)
-            | Inst::Fext { to: ty, .. }
+            | Inst::FExt { to: ty, .. }
             | Inst::FpToSi { to: ty, .. }
             | Inst::FpToUi { to: ty, .. }
-            | Inst::Ftrunc { to: ty, .. }
+            | Inst::FTrunc { to: ty, .. }
             | Inst::IndirectCall { ty, .. }
             | Inst::IntToPtr { to: ty, .. }
             | Inst::Load { ty, .. }
             | Inst::Param { ty, .. }
             | Inst::PtrToInt { to: ty, .. }
             | Inst::Select { ty, .. }
-            | Inst::Sext { to: ty, .. }
+            | Inst::SExt { to: ty, .. }
             | Inst::SiToFp { to: ty, .. }
             | Inst::Trunc { to: ty, .. }
             | Inst::UiToFp { to: ty, .. }
             | Inst::Unary { ty, .. }
-            | Inst::Zext { to: ty, .. }
+            | Inst::ZExt { to: ty, .. }
             | Inst::Phi(ty) => *ty,
         }
     }
@@ -621,11 +621,11 @@ impl std::fmt::Display for Inst {
         match self {
             Inst::Noop => write!(f, "noop"),
             Inst::Phi(ty) => write!(f, "phi {}", ty),
-            Inst::Upsilon { phi, value } => write!(f, "upsilon {} -> {}", value, phi),
             Inst::ConstNull(ty) => write!(f, "null {}", ty),
             Inst::GlobalAddr(g) => write!(f, "global.addr {}", g),
             Inst::Const { ty, value } => write!(f, "const {} {}", ty, value),
             Inst::Param { ty, index } => write!(f, "param {} #{}", ty, index),
+            Inst::Upsilon { phi, value } => write!(f, "upsilon {} -> {}", value, phi),
             Inst::Alloca { ty, align } => write!(f, "alloca {}, align {}", ty, align),
             Inst::Load { ty, ptr, align } => {
                 write!(f, "load {}, {} {}, align {}", ty, Ty::Ptr, ptr, align)
@@ -641,9 +641,9 @@ impl std::fmt::Display for Inst {
                 Ok(())
             }
             Inst::Unary { ty, op, operand } => write!(f, "{} {} {}", op, ty, operand),
+            Inst::ICmp { lhs, rhs, pred } => write!(f, "icmp {} {}, {}", pred, lhs, rhs),
+            Inst::FCmp { lhs, rhs, pred } => write!(f, "fcmp {} {}, {}", pred, lhs, rhs),
             Inst::Binary { ty, lhs, rhs, op } => write!(f, "{} {} {}, {}", op, ty, lhs, rhs),
-            Inst::Icmp { lhs, rhs, pred } => write!(f, "icmp {} {}, {}", pred, lhs, rhs),
-            Inst::Fcmp { lhs, rhs, pred } => write!(f, "fcmp {} {}, {}", pred, lhs, rhs),
             Inst::Select {
                 ty,
                 cond,
@@ -656,18 +656,18 @@ impl std::fmt::Display for Inst {
                     cond, ty, then_val, ty, else_val
                 )
             }
-            Inst::Zext { to, value } => write!(f, "zext {} to {}", value, to),
-            Inst::Sext { to, value } => write!(f, "sext {} to {}", value, to),
-            Inst::Fext { to, value } => write!(f, "fext {} to {}", value, to),
+            Inst::ZExt { to, value } => write!(f, "zext {} to {}", value, to),
+            Inst::SExt { to, value } => write!(f, "sext {} to {}", value, to),
+            Inst::FExt { to, value } => write!(f, "fext {} to {}", value, to),
             Inst::Trunc { to, value } => write!(f, "trunc {} to {}", value, to),
-            Inst::Ftrunc { to, value } => write!(f, "ftrunc {} to {}", value, to),
-            Inst::Bitcast { to, value } => write!(f, "bitcast {} to {}", value, to),
-            Inst::IntToPtr { to, value } => write!(f, "inttoptr {} to {}", value, to),
-            Inst::PtrToInt { to, value } => write!(f, "ptrtoint {} to {}", value, to),
+            Inst::FTrunc { to, value } => write!(f, "ftrunc {} to {}", value, to),
             Inst::FpToSi { to, value } => write!(f, "fptosi {} to {}", value, to),
             Inst::FpToUi { to, value } => write!(f, "fptoui {} to {}", value, to),
             Inst::SiToFp { to, value } => write!(f, "sitofp {} to {}", value, to),
             Inst::UiToFp { to, value } => write!(f, "uitofp {} to {}", value, to),
+            Inst::Bitcast { to, value } => write!(f, "bitcast {} to {}", value, to),
+            Inst::IntToPtr { to, value } => write!(f, "inttoptr {} to {}", value, to),
+            Inst::PtrToInt { to, value } => write!(f, "ptrtoint {} to {}", value, to),
             Inst::Call { ty, func, args } => {
                 write!(f, "call {} {}({})", ty, func, CommaSep(args))
             }

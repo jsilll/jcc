@@ -3,7 +3,7 @@ pub mod inst;
 pub mod ty;
 
 use jcc_codemap::span::Span;
-use jcc_entity::{entity_impl, PrimaryMap};
+use jcc_entity::{entity_impl, PrimaryMap, SparseSet};
 
 use crate::{
     ir::{inst::Inst, ty::Ty},
@@ -36,9 +36,9 @@ pub struct Program {
 
 #[derive(Debug, Clone)]
 pub struct ValueData {
+    pub idx: u32,
     pub span: Span,
     pub inst: Inst,
-    pub index: u32,
     pub block: Block,
 }
 
@@ -50,6 +50,19 @@ pub struct BlockData {
     pub preds: Vec<Block>,
     pub dom_children: Vec<Block>,
     pub dom_parent: Option<Block>,
+}
+
+impl BlockData {
+    pub fn new(name: Ident, span: Span) -> Self {
+        Self {
+            name,
+            span,
+            insts: Vec::new(),
+            preds: Vec::new(),
+            dom_parent: None,
+            dom_children: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -66,24 +79,92 @@ pub struct FunctionData {
     pub span: Span,
     pub name: Ident,
     pub is_global: bool,
-    pub blocks: Vec<Block>,
+    pub entry: Option<Block>,
+}
+
+impl FunctionData {
+    /// Create a new function data
+    pub fn new(name: Ident, is_global: bool, span: Span) -> Self {
+        Self {
+            name,
+            span,
+            is_global,
+            entry: None,
+        }
+    }
+
+    /// Returns an iterator over reachable IR blocks starting at `entry`.
+    ///
+    /// Blocks are yielded once in depth-first discovery order. Branch targets
+    /// from terminator instructions (`Br`, `CondBr`, `Switch`) are all
+    /// considered. If the function has no entry block, the iterator is empty.
+    pub fn blocks<'a>(&'a self, prog: &'a Program) -> BlockIter<'a> {
+        let mut stack = Vec::new();
+        if let Some(entry) = self.entry {
+            stack.push(entry);
+        }
+        BlockIter {
+            prog,
+            stack,
+            seen: SparseSet::new(),
+        }
+    }
+}
+
+pub struct BlockIter<'a> {
+    prog: &'a Program,
+    stack: Vec<Block>,
+    seen: SparseSet<Block>,
+}
+
+impl Iterator for BlockIter<'_> {
+    type Item = Block;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(block) = self.stack.pop() {
+            if !self.seen.insert(block) {
+                continue;
+            }
+            for value in self.prog.blocks[block].insts.iter().rev() {
+                match &self.prog.values[*value].inst {
+                    Inst::Br(target) => self.stack.push(*target),
+                    Inst::CondBr {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        self.stack.push(*else_block);
+                        self.stack.push(*then_block);
+                    }
+                    Inst::Switch { default, cases, .. } => {
+                        self.stack.push(*default);
+                        for (_, target) in cases.iter().rev() {
+                            self.stack.push(*target);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Some(block);
+        }
+        None
+    }
 }
 
 impl std::fmt::Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Print Globals
-        for (global_handle, global_data) in self.globals.iter() {
-            write!(f, "{} = ", global_handle)?;
-            if global_data.is_global {
+        for (handle, data) in self.globals.iter() {
+            write!(f, "{} = ", handle)?;
+            if data.is_global {
                 write!(f, "global ")?;
             } else {
                 write!(f, "constant ")?;
             }
-            write!(f, "{} ", global_data.ty)?;
+            write!(f, "{} ", data.ty)?;
 
-            match global_data.init {
+            match data.init {
                 None => writeln!(f, "zeroinitializer")?,
-                Some(val) => match global_data.ty {
+                Some(val) => match data.ty {
                     Ty::F64 => writeln!(f, "{}", f64::from_bits(val))?,
                     Ty::F32 => writeln!(f, "{}", f32::from_bits(val as u32))?,
                     _ => writeln!(f, "{}", val)?,
@@ -95,39 +176,23 @@ impl std::fmt::Display for Program {
             writeln!(f)?;
         }
 
-        // Print Functions
-        for (func_handle, func_data) in self.functions.iter() {
-            writeln!(f, "define {} {{", func_handle)?;
-
-            // Iterate over blocks in the function
-            for (i, block_handle) in func_data.blocks.iter().enumerate() {
-                let block_data = &self.blocks[*block_handle];
-
-                // Print Block Label
-                // If it's the first block, LLVM usually omits the label,
-                // but printing it explicitly is safer for debugging.
-                if i > 0 {
+        for (handle, data) in self.functions.iter() {
+            writeln!(f, "define {} {{", handle)?;
+            for (idx, block) in data.blocks(self).enumerate() {
+                if idx > 0 {
                     writeln!(f)?;
                 }
-                writeln!(f, "{}:", block_handle)?;
-
-                // Iterate over instructions (Values) in the block
-                for value_handle in &block_data.insts {
-                    let value_data = &self.values[*value_handle];
-
-                    // If the instruction produces a value (not void), print "%n = "
+                writeln!(f, "{}:", block)?;
+                for value in &self.blocks[block].insts {
+                    let data = &self.values[*value];
                     write!(f, "  ")?;
-                    if value_data.inst.ty() != Ty::Void {
-                        write!(f, "{} = ", value_handle)?;
+                    if data.inst.ty() != Ty::Void {
+                        write!(f, "{} = ", value)?;
                     }
-
-                    // Print the instruction itself
-                    writeln!(f, "{}", value_data.inst)?;
+                    writeln!(f, "{}", data.inst)?;
                 }
             }
-
             writeln!(f, "}}")?;
-            writeln!(f)?;
         }
 
         Ok(())

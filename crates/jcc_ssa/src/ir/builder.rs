@@ -30,11 +30,11 @@ impl<'a> Builder<'a> {
     pub fn push(&mut self, value: Value) {
         if let Some(block) = self.block {
             let block_data = &mut self.program.blocks[block];
-            let index = block_data.insts.len() as u32;
+            let idx = block_data.insts.len() as u32;
             block_data.insts.push(value);
 
             let value = &mut self.program.values[value];
-            value.index = index;
+            value.idx = idx;
             value.block = block;
         }
     }
@@ -47,7 +47,7 @@ impl<'a> Builder<'a> {
             inst,
             span,
             block,
-            index: Default::default(),
+            idx: 0,
         };
         self.program.values.push(data)
     }
@@ -55,12 +55,12 @@ impl<'a> Builder<'a> {
     /// Creates a new value in the current block.
     pub fn build_val(&mut self, inst: Inst, span: Span) -> Value {
         let block = self.block.expect("no current block");
-        let index = self.program.blocks[block].insts.len() as u32;
+        let idx = self.program.blocks[block].insts.len() as u32;
         let value = self.program.values.push(ValueData {
+            idx,
             inst,
             span,
             block,
-            index,
         });
         self.program.blocks[block].insts.push(value);
         value
@@ -75,15 +75,8 @@ impl<'a> Builder<'a> {
     /// Builds a new block in the current function.
     pub fn build_block_sym(&mut self, name: Ident, span: Span) -> Block {
         let function = self.function.expect("no current function");
-        let block = self.program.blocks.push(BlockData {
-            span,
-            insts: Vec::new(),
-            preds: Vec::new(),
-            dom_parent: None,
-            dom_children: Vec::new(),
-            name,
-        });
-        self.program.functions[function].blocks.push(block);
+        let block = self.program.blocks.push(BlockData::new(name, span));
+        self.program.functions[function].entry.get_or_insert(block);
         block
     }
 }

@@ -1,112 +1,146 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Reg {
-    /// A virtual register
-    Virt(VirtReg),
-    /// A physical register
-    Phys(PhysReg),
+    /// A GP register
+    Gp(GpReg),
+    /// A XMM register
+    Xmm(XmmReg),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VirtReg(pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RegClass {
-    /// General purpose register
-    Gp,
-    /// Vector register for SIMD operations
-    Xmm,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PhysReg {
-    pub idx: u8,
-    pub class: RegClass,
-}
-
-impl PhysReg {
-    pub const fn new(class: RegClass, idx: u8) -> Self {
-        Self { class, idx }
+impl Reg {
+    pub fn is_gp(&self) -> bool {
+        matches!(self, Reg::Gp(_))
     }
+
+    pub fn is_xmm(&self) -> bool {
+        matches!(self, Reg::Xmm(_))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GpReg {
+    /// A virtual GP register
+    Virt(u32),
+    /// A physical GP register
+    Phys(PhysGpReg),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum XmmReg {
+    /// A virtual XMM register
+    Virt(u32),
+    /// A physical XMM register
+    Phys(PhysXmmReg),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhysGpReg {
+    Rax,
+    Rcx,
+    Rdx,
+    Rbx,
+    Rsp,
+    Rbp,
+    Rsi,
+    Rdi,
+    R8,
+    R9,
+    R10,
+    R11,
+    R12,
+    R13,
+    R14,
+    R15,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhysXmmReg {
+    Xmm0,
+    Xmm1,
+    Xmm2,
+    Xmm3,
+    Xmm4,
+    Xmm5,
+    Xmm6,
+    Xmm7,
+    Xmm8,
+    Xmm9,
+    Xmm10,
+    Xmm11,
+    Xmm12,
+    Xmm13,
+    Xmm14,
+    Xmm15,
 }
 
 impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Reg::Virt(v) => write!(f, "%virt{}", v.0),
-            Reg::Phys(p) => match p.class {
-                RegClass::Gp => match p.idx {
-                    0 => write!(f, "%rax"),
-                    1 => write!(f, "%rcx"),
-                    2 => write!(f, "%rdx"),
-                    3 => write!(f, "%rbx"),
-                    4 => write!(f, "%rsp"),
-                    5 => write!(f, "%rbp"),
-                    6 => write!(f, "%rsi"),
-                    7 => write!(f, "%rdi"),
-                    8 => write!(f, "%r8"),
-                    9 => write!(f, "%r9"),
-                    10 => write!(f, "%r10"),
-                    11 => write!(f, "%r11"),
-                    12 => write!(f, "%r12"),
-                    13 => write!(f, "%r13"),
-                    14 => write!(f, "%r14"),
-                    15 => write!(f, "%r15"),
-                    idx => write!(f, "%r{idx}"),
-                },
-                RegClass::Xmm => match p.idx {
-                    0 => write!(f, "%xmm0"),
-                    1 => write!(f, "%xmm1"),
-                    2 => write!(f, "%xmm2"),
-                    3 => write!(f, "%xmm3"),
-                    4 => write!(f, "%xmm4"),
-                    5 => write!(f, "%xmm5"),
-                    6 => write!(f, "%xmm6"),
-                    7 => write!(f, "%xmm7"),
-                    8 => write!(f, "%xmm8"),
-                    9 => write!(f, "%xmm9"),
-                    10 => write!(f, "%xmm10"),
-                    11 => write!(f, "%xmm11"),
-                    12 => write!(f, "%xmm12"),
-                    13 => write!(f, "%xmm13"),
-                    14 => write!(f, "%xmm14"),
-                    15 => write!(f, "%xmm15"),
-                    idx => write!(f, "%xmm{idx}"),
-                },
-            },
+            Reg::Gp(reg) => write!(f, "{}", reg),
+            Reg::Xmm(reg) => write!(f, "{}", reg),
         }
     }
 }
 
-pub const RAX: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 0));
-pub const RCX: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 1));
-pub const RDX: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 2));
-pub const RBX: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 3));
-pub const RSP: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 4));
-pub const RBP: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 5));
-pub const RSI: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 6));
-pub const RDI: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 7));
-pub const R8: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 8));
-pub const R9: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 9));
-pub const R10: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 10));
-pub const R11: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 11));
-pub const R12: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 12));
-pub const R13: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 13));
-pub const R14: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 14));
-pub const R15: Reg = Reg::Phys(PhysReg::new(RegClass::Gp, 15));
+impl std::fmt::Display for GpReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GpReg::Phys(reg) => write!(f, "{}", reg),
+            GpReg::Virt(id) => write!(f, "vgp{}", id),
+        }
+    }
+}
 
-pub const XMM0: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 0));
-pub const XMM1: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 1));
-pub const XMM2: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 2));
-pub const XMM3: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 3));
-pub const XMM4: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 4));
-pub const XMM5: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 5));
-pub const XMM6: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 6));
-pub const XMM7: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 7));
-pub const XMM8: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 8));
-pub const XMM9: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 9));
-pub const XMM10: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 10));
-pub const XMM11: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 11));
-pub const XMM12: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 12));
-pub const XMM13: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 13));
-pub const XMM14: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 14));
-pub const XMM15: Reg = Reg::Phys(PhysReg::new(RegClass::Xmm, 15));
+impl std::fmt::Display for XmmReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            XmmReg::Phys(reg) => write!(f, "{}", reg),
+            XmmReg::Virt(id) => write!(f, "vxmm{}", id),
+        }
+    }
+}
+
+impl std::fmt::Display for PhysGpReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PhysGpReg::Rax => write!(f, "%rax"),
+            PhysGpReg::Rcx => write!(f, "%rcx"),
+            PhysGpReg::Rdx => write!(f, "%rdx"),
+            PhysGpReg::Rbx => write!(f, "%rbx"),
+            PhysGpReg::Rsp => write!(f, "%rsp"),
+            PhysGpReg::Rbp => write!(f, "%rbp"),
+            PhysGpReg::Rsi => write!(f, "%rsi"),
+            PhysGpReg::Rdi => write!(f, "%rdi"),
+            PhysGpReg::R8 => write!(f, "%r8"),
+            PhysGpReg::R9 => write!(f, "%r9"),
+            PhysGpReg::R10 => write!(f, "%r10"),
+            PhysGpReg::R11 => write!(f, "%r11"),
+            PhysGpReg::R12 => write!(f, "%r12"),
+            PhysGpReg::R13 => write!(f, "%r13"),
+            PhysGpReg::R14 => write!(f, "%r14"),
+            PhysGpReg::R15 => write!(f, "%r15"),
+        }
+    }
+}
+
+impl std::fmt::Display for PhysXmmReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PhysXmmReg::Xmm0 => write!(f, "%xmm0"),
+            PhysXmmReg::Xmm1 => write!(f, "%xmm1"),
+            PhysXmmReg::Xmm2 => write!(f, "%xmm2"),
+            PhysXmmReg::Xmm3 => write!(f, "%xmm3"),
+            PhysXmmReg::Xmm4 => write!(f, "%xmm4"),
+            PhysXmmReg::Xmm5 => write!(f, "%xmm5"),
+            PhysXmmReg::Xmm6 => write!(f, "%xmm6"),
+            PhysXmmReg::Xmm7 => write!(f, "%xmm7"),
+            PhysXmmReg::Xmm8 => write!(f, "%xmm8"),
+            PhysXmmReg::Xmm9 => write!(f, "%xmm9"),
+            PhysXmmReg::Xmm10 => write!(f, "%xmm10"),
+            PhysXmmReg::Xmm11 => write!(f, "%xmm11"),
+            PhysXmmReg::Xmm12 => write!(f, "%xmm12"),
+            PhysXmmReg::Xmm13 => write!(f, "%xmm13"),
+            PhysXmmReg::Xmm14 => write!(f, "%xmm14"),
+            PhysXmmReg::Xmm15 => write!(f, "%xmm15"),
+        }
+    }
+}

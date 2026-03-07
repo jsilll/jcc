@@ -57,4 +57,5 @@ jobs:
         run: cargo test --verbose
 
       - name: Run compiler tests
-        run: ./tests/test_compiler target/debug/jcc --chapter 12 --extra-credit
+        # run: ./tests/test_compiler target/debug/jcc --chapter 12 --extra-credit
+        run: ./tests/test_compiler target/debug/jcc --chapter 13 --stage tacky

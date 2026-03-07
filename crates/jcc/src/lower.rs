@@ -9,6 +9,7 @@ use jcc_ssa::{
     ir::{
         builder::Builder,
         inst::{BinaryOp, FCmpOp, ICmpOp, Inst, UnaryOp},
+        term::Terminator,
         ty::Ty,
         Block, Function, FunctionData, Global, GlobalData, Program, Value,
     },
@@ -117,7 +118,7 @@ impl<'ctx> LoweringPass<'ctx> {
                             let val = self
                                 .builder
                                 .build_val(Inst::constant(Ty::I32, 0), data.span);
-                            self.builder.build_val(Inst::ret(Some(val)), data.span);
+                            self.builder.terminate_block(Terminator::ret(Some(val)));
                         }
                     }
                     self.builder.function = None;
@@ -180,15 +181,15 @@ impl<'ctx> LoweringPass<'ctx> {
             }
             ast::StmtKind::Return(expr) => {
                 let val = self.visit_expr_rvalue(*expr);
-                self.builder.build_val(Inst::ret(Some(val)), data.span);
+                self.builder.terminate_block(Terminator::ret(Some(val)));
             }
             ast::StmtKind::Break(target) => {
                 let block = self.get_break_block(target.get().expect("break block not set"));
-                self.builder.build_val(Inst::br(block), data.span);
+                self.builder.terminate_block(Terminator::br(block));
             }
             ast::StmtKind::Continue(target) => {
                 let block = self.get_continue_block(target.get().expect("continue block not set"));
-                self.builder.build_val(Inst::br(block), data.span);
+                self.builder.terminate_block(Terminator::br(block));
             }
             ast::StmtKind::Compound(items) => {
                 self.ast.items[*items].iter().for_each(|item| match item {
@@ -205,11 +206,11 @@ impl<'ctx> LoweringPass<'ctx> {
                     *label,
                     data.span,
                 );
-                self.builder.build_val(Inst::br(block), data.span);
+                self.builder.terminate_block(Terminator::br(block));
             }
             ast::StmtKind::Label { label, stmt: inner } => {
                 let block = self.get_or_make_labeled(stmt, *label, data.span);
-                self.builder.build_val(Inst::br(block), data.span);
+                self.builder.terminate_block(Terminator::br(block));
 
                 // === Labeled Block ===
                 self.builder.block = Some(block);
@@ -219,7 +220,7 @@ impl<'ctx> LoweringPass<'ctx> {
                 let block = self.remove_case_block(stmt);
 
                 // === Previous Block ===
-                self.builder.build_val(Inst::br(block), data.span);
+                self.builder.terminate_block(Terminator::br(block));
 
                 // === Case Block ===
                 self.builder.block = Some(block);
@@ -237,18 +238,18 @@ impl<'ctx> LoweringPass<'ctx> {
 
                 let cond = self.build_truthy(*cond, data.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond, then_block, false_target), data.span);
+                    .terminate_block(Terminator::cond_br(cond, then_block, false_target));
 
                 // === Then Block ===
                 self.builder.block = Some(then_block);
                 self.visit_stmt(*then);
-                self.builder.build_val(Inst::br(cont_block), data.span);
+                self.builder.terminate_block(Terminator::br(cont_block));
 
                 if let (Some(otherwise), Some(else_block)) = (otherwise, else_block) {
                     // === Else Block ===
                     self.builder.block = Some(else_block);
                     self.visit_stmt(*otherwise);
-                    self.builder.build_val(Inst::br(cont_block), data.span);
+                    self.builder.terminate_block(Terminator::br(cont_block));
                 }
 
                 // === Merge Block ===
@@ -262,18 +263,18 @@ impl<'ctx> LoweringPass<'ctx> {
                 self.tracked
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cond_block));
 
-                self.builder.build_val(Inst::br(cond_block), data.span);
+                self.builder.terminate_block(Terminator::br(cond_block));
 
                 // === Cond Block ===
                 self.builder.block = Some(cond_block);
                 let cond = self.build_truthy(*cond, data.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond, body_block, cont_block), data.span);
+                    .terminate_block(Terminator::cond_br(cond, body_block, cont_block));
 
                 // === Body Block ===
                 self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder.build_val(Inst::br(cond_block), data.span);
+                self.builder.terminate_block(Terminator::br(cond_block));
 
                 // === Merge Block ===
                 self.builder.block = Some(cont_block);
@@ -287,18 +288,18 @@ impl<'ctx> LoweringPass<'ctx> {
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cond_block));
 
                 // === Jump to Body Block ===
-                self.builder.build_val(Inst::br(body_block), data.span);
+                self.builder.terminate_block(Terminator::br(body_block));
 
                 // === Body Block ===
                 self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder.build_val(Inst::br(cond_block), data.span);
+                self.builder.terminate_block(Terminator::br(cond_block));
 
                 // === Cond Block ===
                 self.builder.block = Some(cond_block);
                 let cond = self.build_truthy(*cond, data.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond, body_block, cont_block), data.span);
+                    .terminate_block(Terminator::cond_br(cond, body_block, cont_block));
 
                 // === Merge Block ===
                 self.builder.block = Some(cont_block);
@@ -330,14 +331,14 @@ impl<'ctx> LoweringPass<'ctx> {
                     }
                 }
                 self.builder
-                    .build_val(Inst::br(cond_block.unwrap_or(body_block)), data.span);
+                    .terminate_block(Terminator::br(cond_block.unwrap_or(body_block)));
 
                 // === Condition Block ===
                 if let (Some(cond), Some(cond_block)) = (cond, cond_block) {
                     self.builder.block = Some(cond_block);
                     let cond = self.build_truthy(*cond, data.span);
                     self.builder
-                        .build_val(Inst::cond_br(cond, body_block, exit_block), data.span);
+                        .terminate_block(Terminator::cond_br(cond, body_block, exit_block));
                 }
 
                 // === Step Block ===
@@ -345,14 +346,14 @@ impl<'ctx> LoweringPass<'ctx> {
                     self.builder.block = Some(step_block);
                     self.visit_expr_rvalue(*step);
                     self.builder
-                        .build_val(Inst::br(cond_block.unwrap_or(body_block)), data.span);
+                        .terminate_block(Terminator::br(cond_block.unwrap_or(body_block)));
                 }
 
                 // === Body Block ===
                 self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
                 self.builder
-                    .build_val(Inst::br(after_body_target), data.span);
+                    .terminate_block(Terminator::br(after_body_target));
 
                 // === Merge Block ===
                 self.builder.block = Some(exit_block);
@@ -388,13 +389,14 @@ impl<'ctx> LoweringPass<'ctx> {
                     .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cont_block));
 
                 let cond_val = self.visit_expr_rvalue(*cond);
-                self.builder.build_val(
-                    Inst::switch(cond_val, default_block.unwrap_or(cont_block), cases),
-                    data.span,
-                );
+                self.builder.terminate_block(Terminator::switch(
+                    cond_val,
+                    cases,
+                    default_block.unwrap_or(cont_block),
+                ));
 
                 self.visit_stmt(*body);
-                self.builder.build_val(Inst::br(cont_block), data.span);
+                self.builder.terminate_block(Terminator::br(cont_block));
 
                 // === Merge Block ===
                 self.builder.block = Some(cont_block);
@@ -753,21 +755,21 @@ impl<'ctx> LoweringPass<'ctx> {
 
                 let cond = self.build_truthy(*cond, expr.span);
                 self.builder
-                    .build_val(Inst::cond_br(cond, then_block, else_block), expr.span);
+                    .terminate_block(Terminator::cond_br(cond, then_block, else_block));
 
                 // === Then Block ===
                 self.builder.block = Some(then_block);
                 let then_val = self.visit_expr_rvalue(*then);
                 self.builder
                     .build_val(Inst::upsilon(phi, then_val), expr.span);
-                self.builder.build_val(Inst::br(cont_block), expr.span);
+                self.builder.terminate_block(Terminator::br(cont_block));
 
                 // === Else Block ===
                 self.builder.block = Some(else_block);
                 let else_val = self.visit_expr_rvalue(*other);
                 self.builder
                     .build_val(Inst::upsilon(phi, else_val), expr.span);
-                self.builder.build_val(Inst::br(cont_block), expr.span);
+                self.builder.terminate_block(Terminator::br(cont_block));
 
                 // === Merge Block ===
                 self.builder.block = Some(cont_block);
@@ -903,14 +905,14 @@ impl<'ctx> LoweringPass<'ctx> {
             (rhs_block, cont_block)
         };
         self.builder
-            .build_val(Inst::cond_br(lhs, then_block, else_block), span);
+            .terminate_block(Terminator::cond_br(lhs, then_block, else_block));
 
         // === RHS Block ===
         self.builder.block = Some(rhs_block);
         let rhs = self.build_truthy(rhs, span);
         let extended = self.builder.build_val(Inst::zext(Ty::I32, rhs), span);
         self.builder.build_val(Inst::upsilon(phi, extended), span);
-        self.builder.build_val(Inst::br(cont_block), span);
+        self.builder.terminate_block(Terminator::br(cont_block));
 
         // === Merge Block ===
         self.builder.block = Some(cont_block);

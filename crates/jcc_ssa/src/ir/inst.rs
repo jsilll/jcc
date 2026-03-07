@@ -1,4 +1,4 @@
-use crate::ir::{ty::Ty, Block, Function, Global, Value};
+use crate::ir::{ty::Ty, Function, Global, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
@@ -239,29 +239,6 @@ pub enum Inst {
         then_val: Value,
         else_val: Value,
     },
-
-    /// Terminator: Hints to the optimizer that code execution cannot reach this point.
-    Unreachable,
-
-    /// Terminator: Unconditional branch to a block.
-    Br(Block),
-
-    /// Terminator: Return a value from the function (or void).
-    Ret(Option<Value>),
-
-    /// Terminator: Conditional branch based on a boolean value.
-    CondBr {
-        cond: Value,
-        then_block: Block,
-        else_block: Block,
-    },
-
-    /// Terminator: Switch statement for multi-way branching.
-    Switch {
-        value: Value,
-        default: Block,
-        cases: Vec<(u64, Block)>,
-    },
 }
 
 impl Inst {
@@ -444,52 +421,12 @@ impl Inst {
         }
     }
 
-    /// Creates an unreachable instruction to indicate code cannot be reached.
-    pub fn unreachable() -> Self {
-        Self::Unreachable
-    }
-
-    /// Creates an unconditional branch instruction to a target block.
-    pub fn br(dest: Block) -> Self {
-        Self::Br(dest)
-    }
-
-    /// Creates a return instruction to exit a function.
-    pub fn ret(val: Option<Value>) -> Self {
-        Self::Ret(val)
-    }
-
-    /// Creates a conditional branch instruction based on a condition.
-    pub fn cond_br(cond: Value, then_block: Block, else_block: Block) -> Self {
-        Self::CondBr {
-            cond,
-            then_block,
-            else_block,
-        }
-    }
-
-    /// Creates a switch instruction for multi-way branching.
-    pub fn switch(value: Value, default: Block, cases: Vec<(u64, Block)>) -> Self {
-        Self::Switch {
-            cases,
-            value,
-            default,
-        }
-    }
-
     /// Returns the type produced by this instruction.
     ///
-    /// Instructions that do not yield a value (e.g. stores, branches, terminators) return `Ty::Void`
+    /// Instructions that do not yield a value (e.g. stores and upsilons) return `Ty::Void`.
     pub fn ty(&self) -> Ty {
         match self {
-            Inst::Noop
-            | Inst::Unreachable
-            | Inst::Br(_)
-            | Inst::Ret(_)
-            | Inst::Store { .. }
-            | Inst::CondBr { .. }
-            | Inst::Switch { .. }
-            | Inst::Upsilon { .. } => Ty::Void,
+            Inst::Noop | Inst::Store { .. } | Inst::Upsilon { .. } => Ty::Void,
 
             Inst::ICmp { .. } => Ty::I1,
             Inst::FCmp { .. } => Ty::I1,
@@ -673,30 +610,6 @@ impl std::fmt::Display for Inst {
             }
             Inst::IndirectCall { ty, ptr, args } => {
                 write!(f, "call_indirect {} {}({})", ty, ptr, CommaSep(args))
-            }
-            Inst::Unreachable => write!(f, "unreachable"),
-            Inst::Br(dest) => write!(f, "br {}", dest),
-            Inst::Ret(val) => match val {
-                Some(v) => write!(f, "ret {}", v),
-                None => write!(f, "ret void"),
-            },
-            Inst::CondBr {
-                cond,
-                then_block,
-                else_block,
-            } => {
-                write!(f, "br i1 {}, {}, {}", cond, then_block, else_block)
-            }
-            Inst::Switch {
-                value,
-                default,
-                cases,
-            } => {
-                write!(f, "switch {} [ default: {}", value, default)?;
-                for (val, blk) in cases {
-                    write!(f, ", {}: {}", val, blk)?;
-                }
-                write!(f, " ]")
             }
         }
     }

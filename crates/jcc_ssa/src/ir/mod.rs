@@ -1,12 +1,13 @@
 pub mod builder;
 pub mod inst;
+pub mod term;
 pub mod ty;
 
 use jcc_codemap::span::Span;
 use jcc_entity::{entity_impl, PrimaryMap, SparseSet};
 
 use crate::{
-    ir::{inst::Inst, ty::Ty},
+    ir::{inst::Inst, term::Terminator, ty::Ty},
     Ident,
 };
 
@@ -46,6 +47,7 @@ pub struct ValueData {
 pub struct BlockData {
     pub span: Span,
     pub name: Ident,
+    pub term: Terminator,
     pub insts: Vec<Value>,
     pub preds: Vec<Block>,
     pub dom_children: Vec<Block>,
@@ -61,6 +63,7 @@ impl BlockData {
             preds: Vec::new(),
             dom_parent: None,
             dom_children: Vec::new(),
+            term: Terminator::Unreachable,
         }
     }
 }
@@ -96,8 +99,8 @@ impl FunctionData {
     /// Returns an iterator over reachable IR blocks starting at `entry`.
     ///
     /// Blocks are yielded once in depth-first discovery order. Branch targets
-    /// from terminator instructions (`Br`, `CondBr`, `Switch`) are all
-    /// considered. If the function has no entry block, the iterator is empty.
+    /// from each block terminator are all considered. If the function has no
+    /// entry block, the iterator is empty.
     pub fn blocks<'a>(&'a self, prog: &'a Program) -> BlockIter<'a> {
         let mut stack = Vec::new();
         if let Some(entry) = self.entry {
@@ -125,24 +128,22 @@ impl Iterator for BlockIter<'_> {
             if !self.seen.insert(block) {
                 continue;
             }
-            for value in self.prog.blocks[block].insts.iter().rev() {
-                match &self.prog.values[*value].inst {
-                    Inst::Br(target) => self.stack.push(*target),
-                    Inst::CondBr {
-                        then_block,
-                        else_block,
-                        ..
-                    } => {
-                        self.stack.push(*else_block);
-                        self.stack.push(*then_block);
+            match &self.prog.blocks[block].term {
+                Terminator::Ret(_) | Terminator::Unreachable => {}
+                Terminator::Br(target) => self.stack.push(*target),
+                Terminator::CondBr {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    self.stack.push(*else_block);
+                    self.stack.push(*then_block);
+                }
+                Terminator::Switch { default, cases, .. } => {
+                    self.stack.push(*default);
+                    for (_, target) in cases.iter().rev() {
+                        self.stack.push(*target);
                     }
-                    Inst::Switch { default, cases, .. } => {
-                        self.stack.push(*default);
-                        for (_, target) in cases.iter().rev() {
-                            self.stack.push(*target);
-                        }
-                    }
-                    _ => {}
                 }
             }
             return Some(block);
@@ -191,6 +192,7 @@ impl std::fmt::Display for Program {
                     }
                     writeln!(f, "{}", data.inst)?;
                 }
+                writeln!(f, "  {}", self.blocks[block].term)?;
             }
             writeln!(f, "}}")?;
         }

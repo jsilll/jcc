@@ -1,7 +1,9 @@
 use jcc_codemap::span::Span;
 
 use crate::{
-    ir::{inst::Inst, ty::Ty, Block, BlockData, Function, Program, Value, ValueData},
+    ir::{
+        inst::Inst, term::Terminator, ty::Ty, Block, BlockData, Function, Program, Value, ValueData,
+    },
     Ident, IdentInterner,
 };
 
@@ -64,6 +66,14 @@ impl<'a> Builder<'a> {
         });
         self.program.blocks[block].insts.push(value);
         value
+    }
+
+    /// Sets the terminator for the current block.
+    pub fn terminate_block(&mut self, term: Terminator) {
+        let block = self.block.expect("no current block");
+        if self.program.blocks[block].term == Terminator::Unreachable {
+            self.program.blocks[block].term = term;
+        }
     }
 
     /// Builds a new block in the current function.

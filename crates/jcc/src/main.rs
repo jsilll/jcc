@@ -113,7 +113,7 @@ fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {
         LoweringPass::new(&ast, &ctx, &mut interner).build()
     });
     if args.verbose {
-        println!("{}", ssa);
+        println!("{}", ssa.pretty(&interner));
     }
     if args.tacky {
         return Ok(());

@@ -60,32 +60,3 @@ impl Terminator {
         }
     }
 }
-
-impl std::fmt::Display for Terminator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Terminator::Unreachable => write!(f, "unreachable"),
-            Terminator::Br(dest) => write!(f, "br {}", dest),
-            Terminator::Ret(val) => match val {
-                Some(v) => write!(f, "ret {}", v),
-                None => write!(f, "ret void"),
-            },
-            Terminator::CondBr {
-                cond,
-                then_block,
-                else_block,
-            } => write!(f, "br i1 {}, {}, {}", cond, then_block, else_block),
-            Terminator::Switch {
-                value,
-                default,
-                cases,
-            } => {
-                write!(f, "switch {} [ default: {}", value, default)?;
-                for (val, blk) in cases {
-                    write!(f, ", {}: {}", val, blk)?;
-                }
-                write!(f, " ]")
-            }
-        }
-    }
-}

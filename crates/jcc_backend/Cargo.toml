@@ -1,8 +1,8 @@
 [package]
-name = "jcc_ssa"
+name = "jcc_backend"
 version = "0.1.0"
 edition = "2021"
-description = "SSA intermediate representation with optimization passes and assembly lowering"
+description = "A backend for the JCC compiler, responsible for generating machine code from the intermediate representation."
 keywords = ["ssa", "ir", "optimization", "codegen", "compiler"]
 categories = ["compilers", "development-tools"]
 license = "MIT"

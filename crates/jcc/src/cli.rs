@@ -1,4 +1,4 @@
-use jcc_ssa::TargetOs;
+use jcc_backend::TargetOs;
 
 use clap::{Parser, ValueEnum};
 
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 ///
 /// This enum is used with `clap`'s `ValueEnum` to allow users to specify
 /// the target OS via the `--target` command-line argument (e.g., `--target linux`).
-/// It is intentionally kept separate from the internal `jcc_ssa::TargetOs` to decouple
+/// It is intentionally kept separate from the internal `jcc_backend::TargetOs` to decouple
 /// the CLI representation from the compiler's core logic.
 #[derive(ValueEnum, Clone, Copy, Debug)]
 pub enum CliTargetOs {

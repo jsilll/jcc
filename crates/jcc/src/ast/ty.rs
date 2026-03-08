@@ -1,5 +1,5 @@
 use jcc_arena::intern::{InternArena, Interned};
-use jcc_ssa::ir::ty::Ty as SsaTy;
+use jcc_backend::ir::ty::Ty as SsaTy;
 
 // ---------------------------------------------------------------------------
 // Ty

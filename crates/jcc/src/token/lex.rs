@@ -1,6 +1,6 @@
 use super::{Token, TokenKind};
 
-use jcc_ssa::codemap::{
+use jcc_backend::codemap::{
     byte::BytePos,
     file::{FileId, SourceFile},
     span::Span,

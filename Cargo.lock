@@ -123,14 +123,23 @@ dependencies = [
  "anyhow",
  "clap",
  "jcc_arena",
+ "jcc_backend",
  "jcc_entity",
- "jcc_ssa",
  "phf",
 ]
 
 [[package]]
 name = "jcc_arena"
 version = "0.1.0"
+
+[[package]]
+name = "jcc_backend"
+version = "0.1.0"
+dependencies = [
+ "jcc_codemap",
+ "jcc_entity",
+ "jcc_interner",
+]
 
 [[package]]
 name = "jcc_codemap"
@@ -146,15 +155,6 @@ version = "0.1.0"
 [[package]]
 name = "jcc_interner"
 version = "0.1.0"
-
-[[package]]
-name = "jcc_ssa"
-version = "0.1.0"
-dependencies = [
- "jcc_codemap",
- "jcc_entity",
- "jcc_interner",
-]
 
 [[package]]
 name = "once_cell_polyfill"

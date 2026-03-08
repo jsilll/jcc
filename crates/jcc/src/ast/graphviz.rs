@@ -1,6 +1,6 @@
 use crate::ast::{Ast, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind};
 
-use jcc_ssa::{infra::emitter::IndentedEmitter, IdentInterner};
+use jcc_backend::{infra::emitter::IndentedEmitter, IdentInterner};
 
 use std::fmt::Write;
 

@@ -3,8 +3,7 @@ use crate::{
     sema::{self, Attribute, SemaCtx},
 };
 
-use jcc_entity::SecondaryMap;
-use jcc_ssa::{
+use jcc_backend::{
     codemap::span::Span,
     ir::{
         builder::Builder,
@@ -15,6 +14,7 @@ use jcc_ssa::{
     },
     Ident, IdentInterner,
 };
+use jcc_entity::SecondaryMap;
 
 use std::collections::HashMap;
 

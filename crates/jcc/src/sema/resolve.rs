@@ -6,12 +6,12 @@ use crate::{
     sema,
 };
 
-use jcc_entity::EntityRef;
-use jcc_ssa::{
+use jcc_backend::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
     interner::symtab::SymbolTable,
     Ident,
 };
+use jcc_entity::EntityRef;
 
 use std::collections::HashMap;
 

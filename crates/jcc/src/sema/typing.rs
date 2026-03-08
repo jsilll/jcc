@@ -9,7 +9,7 @@ use crate::{
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 
-use jcc_ssa::codemap::{file::FileId, span::Span, Diagnostic, Label};
+use jcc_backend::codemap::{file::FileId, span::Span, Diagnostic, Label};
 
 use std::collections::HashSet;
 

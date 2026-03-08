@@ -49,8 +49,8 @@ impl Constant {
     }
 
     /// Lowers the constant to tuple with its value and type.
-    pub fn lower(&self) -> (u64, jcc_ssa::ir::ty::Ty) {
-        use jcc_ssa::ir::ty::*;
+    pub fn lower(&self) -> (u64, jcc_backend::ir::ty::Ty) {
+        use jcc_backend::ir::ty::*;
         match self {
             Self::ULong(v) => (*v, Ty::I64),
             Self::Double(v) => (*v, Ty::F64),

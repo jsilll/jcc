@@ -1,6 +1,6 @@
 pub mod lex;
 
-use jcc_ssa::codemap::span::Span;
+use jcc_backend::codemap::span::Span;
 
 // ---------------------------------------------------------------------------
 // Token

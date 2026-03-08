@@ -3,7 +3,7 @@ use crate::{
     sema::SemaCtx,
 };
 
-use jcc_ssa::{
+use jcc_backend::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
     Ident,
 };

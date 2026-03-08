@@ -9,11 +9,11 @@ use crate::{
 };
 pub use ty::{Ty, TyKind};
 
-use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
-use jcc_ssa::{
+use jcc_backend::{
     codemap::{file::FileId, span::Span},
     Ident, IdentInterner,
 };
+use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
 
 use std::cell::Cell;
 

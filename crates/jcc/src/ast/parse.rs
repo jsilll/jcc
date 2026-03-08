@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-use jcc_ssa::{
+use jcc_backend::{
     codemap::{
         file::{FileId, SourceFile},
         span::Span,

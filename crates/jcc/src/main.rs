@@ -8,7 +8,7 @@ use jcc::{
     token::lex::Lexer,
 };
 
-use jcc_ssa::{
+use jcc_backend::{
     codemap::{color::ColorConfig, Diagnostic, Files, SimpleFiles},
     IdentInterner,
 };

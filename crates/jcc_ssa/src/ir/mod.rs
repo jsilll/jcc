@@ -1,5 +1,6 @@
 pub mod builder;
 pub mod inst;
+pub mod pretty;
 pub mod term;
 pub mod ty;
 
@@ -7,8 +8,13 @@ use jcc_codemap::span::Span;
 use jcc_entity::{entity_impl, PrimaryMap, SparseSet};
 
 use crate::{
-    ir::{inst::Inst, term::Terminator, ty::Ty},
-    Ident,
+    ir::{
+        inst::Inst,
+        pretty::{ProgramPretty, ProgramPrettyEmitter},
+        term::Terminator,
+        ty::Ty,
+    },
+    Ident, IdentInterner,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,6 +39,18 @@ pub struct Program {
     pub blocks: PrimaryMap<Block, BlockData>,
     pub globals: PrimaryMap<Global, GlobalData>,
     pub functions: PrimaryMap<Function, FunctionData>,
+}
+
+impl std::fmt::Display for Program {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        ProgramPrettyEmitter::with_handles(self, f).emit()
+    }
+}
+
+impl Program {
+    pub fn pretty<'a>(&'a self, interner: &'a IdentInterner) -> ProgramPretty<'a> {
+        ProgramPretty::new(self, interner)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -149,54 +167,5 @@ impl Iterator for BlockIter<'_> {
             return Some(block);
         }
         None
-    }
-}
-
-impl std::fmt::Display for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (handle, data) in self.globals.iter() {
-            write!(f, "{} = ", handle)?;
-            if data.is_global {
-                write!(f, "global ")?;
-            } else {
-                write!(f, "constant ")?;
-            }
-            write!(f, "{} ", data.ty)?;
-
-            match data.init {
-                None => writeln!(f, "zeroinitializer")?,
-                Some(val) => match data.ty {
-                    Ty::F64 => writeln!(f, "{}", f64::from_bits(val))?,
-                    Ty::F32 => writeln!(f, "{}", f32::from_bits(val as u32))?,
-                    _ => writeln!(f, "{}", val)?,
-                },
-            }
-        }
-
-        if !self.globals.is_empty() {
-            writeln!(f)?;
-        }
-
-        for (handle, data) in self.functions.iter() {
-            writeln!(f, "define {} {{", handle)?;
-            for (idx, block) in data.blocks(self).enumerate() {
-                if idx > 0 {
-                    writeln!(f)?;
-                }
-                writeln!(f, "{}:", block)?;
-                for value in &self.blocks[block].insts {
-                    let data = &self.values[*value];
-                    write!(f, "  ")?;
-                    if data.inst.ty() != Ty::Void {
-                        write!(f, "{} = ", value)?;
-                    }
-                    writeln!(f, "{}", data.inst)?;
-                }
-                writeln!(f, "  {}", self.blocks[block].term)?;
-            }
-            writeln!(f, "}}")?;
-        }
-
-        Ok(())
     }
 }

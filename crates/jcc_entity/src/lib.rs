@@ -8,11 +8,13 @@
 mod list;
 mod primary;
 mod secondary;
+mod slot;
 mod sparse;
 
 pub use list::{EntityList, ListPool};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
+pub use slot::{SlotMap, SlotValue};
 pub use sparse::{map::SparseMap, set::SparseSet};
 
 /// Trait for types that can be used as entity references.

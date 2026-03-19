@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod builder;
 pub mod inst;
 pub mod pretty;

@@ -2,8 +2,11 @@ use jcc_codemap::span::Span;
 
 use crate::{
     ir::{
-        analysis::order::Order, inst::Inst, term::Terminator, ty::Ty, Block, BlockData, Function,
-        Program, Value, ValueData,
+        analysis::{cfg::ControlFlowGraph, order::Order},
+        inst::Inst,
+        term::Terminator,
+        ty::Ty,
+        Block, BlockData, Function, Program, Value, ValueData,
     },
     Ident, IdentInterner,
 };
@@ -26,8 +29,12 @@ impl<'a> Builder<'a> {
     }
 
     pub fn finish(self) -> Program {
-        let mut _order = Order::new();
-        _order.compute(&self.program);
+        let mut order = Order::new();
+        let mut cfg = ControlFlowGraph::new();
+
+        order.compute(&self.program);
+        cfg.compute(&self.program, &order);
+
         self.program
     }
 

@@ -1,14 +1,12 @@
-use jcc_entity::{EntityList, ListPool, SecondaryMap};
+use jcc_entity::{ListPool, SecondaryMap};
 
-use crate::ir::{Block, Program};
-
-type RpoList = EntityList<Block>;
+use crate::ir::{analysis::BlockList, Block, Program};
 
 #[derive(Default)]
 pub struct Order {
     scratch: Vec<Block>,
     rpo_lists: ListPool<Block>,
-    rpo: SecondaryMap<Block, RpoList>,
+    rpo: SecondaryMap<Block, BlockList>,
 }
 
 impl Order {
@@ -20,13 +18,8 @@ impl Order {
         &self.rpo_lists[self.rpo[block]]
     }
 
-    pub fn clear(&mut self) {
-        self.rpo.clear();
-        self.rpo_lists.clear();
-    }
-
     pub fn compute(&mut self, prog: &Program) {
-        self.clear();
+        self.rpo_lists.clear();
         for data in prog.functions.values() {
             self.scratch.extend(data.blocks_post(prog));
             let rpo = self.rpo_lists.extend(self.scratch.iter().rev().copied());

@@ -59,4 +59,59 @@ impl Terminator {
             default,
         }
     }
+
+    /// Returns the successor blocks of this terminator.
+    pub fn successors(&self) -> Successors<'_> {
+        match self {
+            Terminator::Ret(_) | Terminator::Unreachable => Successors::Empty,
+            Terminator::Br(dest) => Successors::One(Some(*dest)),
+            Terminator::CondBr {
+                then_block,
+                else_block,
+                ..
+            } => Successors::Two {
+                first: Some(*then_block),
+                second: Some(*else_block),
+            },
+            Terminator::Switch { cases, default, .. } => Successors::Switch {
+                cases: cases.iter(),
+                default: Some(*default),
+            },
+        }
+    }
+}
+
+pub enum Successors<'a> {
+    /// No successors.
+    Empty,
+
+    /// One successor block.
+    One(Option<Block>),
+
+    /// Two successor blocks.
+    Two {
+        first: Option<Block>,
+        second: Option<Block>,
+    },
+
+    /// Multiple successor blocks from a switch.
+    Switch {
+        default: Option<Block>,
+        cases: std::slice::Iter<'a, (u64, Block)>,
+    },
+}
+
+impl<'a> Iterator for Successors<'a> {
+    type Item = Block;
+
+    fn next(&mut self) -> Option<Block> {
+        match self {
+            Successors::Empty => None,
+            Successors::One(block) => block.take(),
+            Successors::Two { first, second } => first.take().or_else(|| second.take()),
+            Successors::Switch { default, cases } => {
+                default.take().or_else(|| cases.next().map(|(_, b)| *b))
+            }
+        }
+    }
 }

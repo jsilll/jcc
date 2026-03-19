@@ -64,7 +64,7 @@ macro_rules! entity_impl {
             /// Create a new instance from a `u32`.
             #[inline]
             #[allow(dead_code, unreachable_pub, reason = "macro-generated code")]
-            pub fn from_u32(x: u32) -> Self {
+            pub const fn from_u32(x: u32) -> Self {
                 debug_assert!(x < ::core::u32::MAX);
                 $entity(x)
             }
@@ -72,7 +72,7 @@ macro_rules! entity_impl {
             /// Return the underlying index value as a `u32`.
             #[inline]
             #[allow(dead_code, unreachable_pub, reason = "macro-generated code")]
-            pub fn as_u32(self) -> u32 {
+            pub const fn as_u32(self) -> u32 {
                 self.0
             }
         }

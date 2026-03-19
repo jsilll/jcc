@@ -92,7 +92,7 @@ impl<'a, W: std::fmt::Write> ProgramPrettyEmitter<'a, W> {
     }
 
     fn emit_function_body(&mut self, function: &FunctionData) -> std::fmt::Result {
-        for (idx, block) in function.blocks(self.program).enumerate() {
+        for (idx, block) in function.blocks_pre(self.program).enumerate() {
             if idx > 0 {
                 writeln!(&mut self.out)?;
             }

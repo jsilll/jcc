@@ -1,5 +1,7 @@
 use crate::ir::{Block, Value};
 
+use std::iter::FusedIterator;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Terminator {
     /// Unconditional branch to a block.
@@ -57,6 +59,89 @@ impl Terminator {
             value,
             cases,
             default,
+        }
+    }
+
+    /// Returns the successor blocks of this terminator.
+    pub fn successors(&self) -> Successors<'_> {
+        match self {
+            Terminator::Ret(_) | Terminator::Unreachable => Successors::Empty,
+            Terminator::Br(dest) => Successors::One(Some(*dest)),
+            Terminator::CondBr {
+                then_block,
+                else_block,
+                ..
+            } => Successors::Two {
+                first: Some(*then_block),
+                second: Some(*else_block),
+            },
+            Terminator::Switch { cases, default, .. } => Successors::Switch {
+                cases: cases.iter(),
+                default: Some(*default),
+            },
+        }
+    }
+}
+
+pub enum Successors<'a> {
+    /// No successors.
+    Empty,
+
+    /// One successor block.
+    One(Option<Block>),
+
+    /// Two successor blocks.
+    Two {
+        first: Option<Block>,
+        second: Option<Block>,
+    },
+
+    /// Multiple successor blocks from a switch.
+    Switch {
+        default: Option<Block>,
+        cases: std::slice::Iter<'a, (u64, Block)>,
+    },
+}
+
+impl<'a> FusedIterator for Successors<'a> {}
+
+impl<'a> ExactSizeIterator for Successors<'a> {
+    fn len(&self) -> usize {
+        match self {
+            Successors::Empty => 0,
+            Successors::One(_) => 1,
+            Successors::Two { .. } => 2,
+            Successors::Switch { cases, .. } => 1 + cases.len(),
+        }
+    }
+}
+
+impl<'a> Iterator for Successors<'a> {
+    type Item = Block;
+
+    #[inline]
+    fn next(&mut self) -> Option<Block> {
+        match self {
+            Successors::Empty => None,
+            Successors::One(block) => block.take(),
+            Successors::Two { first, second } => first.take().or_else(|| second.take()),
+            Successors::Switch { cases, default } => {
+                cases.next().map(|(_, b)| *b).or_else(|| default.take())
+            }
+        }
+    }
+}
+
+impl<'a> DoubleEndedIterator for Successors<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Block> {
+        match self {
+            Successors::Empty => None,
+            Successors::One(block) => block.take(),
+            Successors::Two { first, second } => second.take().or_else(|| first.take()),
+            Successors::Switch { cases, default } => default
+                .take()
+                .or_else(|| cases.next_back().map(|(_, b)| *b)),
         }
     }
 }

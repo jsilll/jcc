@@ -67,9 +67,6 @@ pub struct BlockData {
     pub name: Ident,
     pub term: Terminator,
     pub insts: Vec<Value>,
-    pub preds: Vec<Block>,
-    pub dom_children: Vec<Block>,
-    pub dom_parent: Option<Block>,
 }
 
 impl BlockData {
@@ -78,9 +75,6 @@ impl BlockData {
             name,
             span,
             insts: Vec::new(),
-            preds: Vec::new(),
-            dom_parent: None,
-            dom_children: Vec::new(),
             term: Terminator::Unreachable,
         }
     }
@@ -114,17 +108,30 @@ impl FunctionData {
         }
     }
 
-    /// Returns an iterator over reachable IR blocks starting at `entry`.
+    /// Returns an iterator over reachable IR blocks in preorder.
     ///
-    /// Blocks are yielded once in depth-first discovery order. Branch targets
-    /// from each block terminator are all considered. If the function has no
-    /// entry block, the iterator is empty.
-    pub fn blocks<'a>(&'a self, prog: &'a Program) -> BlockIter<'a> {
+    /// If the function has no entry block, the iterator is empty.
+    pub fn blocks_pre<'a>(&'a self, prog: &'a Program) -> BlocksPreIter<'a> {
         let mut stack = Vec::new();
         if let Some(entry) = self.entry {
             stack.push(entry);
         }
-        BlockIter {
+        BlocksPreIter {
+            prog,
+            stack,
+            seen: SparseSet::new(),
+        }
+    }
+
+    /// Returns an iterator over reachable IR blocks in postorder.
+    ///
+    /// If the function has no entry block, the iterator is empty.
+    pub fn blocks_post<'a>(&'a self, prog: &'a Program) -> BlocksPostIter<'a> {
+        let mut stack = Vec::new();
+        if let Some(entry) = self.entry {
+            stack.push((entry, false));
+        }
+        BlocksPostIter {
             prog,
             stack,
             seen: SparseSet::new(),
@@ -132,13 +139,13 @@ impl FunctionData {
     }
 }
 
-pub struct BlockIter<'a> {
+pub struct BlocksPreIter<'a> {
     prog: &'a Program,
     stack: Vec<Block>,
     seen: SparseSet<Block>,
 }
 
-impl Iterator for BlockIter<'_> {
+impl Iterator for BlocksPreIter<'_> {
     type Item = Block;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -146,25 +153,35 @@ impl Iterator for BlockIter<'_> {
             if !self.seen.insert(block) {
                 continue;
             }
-            match &self.prog.blocks[block].term {
-                Terminator::Ret(_) | Terminator::Unreachable => {}
-                Terminator::Br(target) => self.stack.push(*target),
-                Terminator::CondBr {
-                    then_block,
-                    else_block,
-                    ..
-                } => {
-                    self.stack.push(*else_block);
-                    self.stack.push(*then_block);
-                }
-                Terminator::Switch { default, cases, .. } => {
-                    self.stack.push(*default);
-                    for (_, target) in cases.iter().rev() {
-                        self.stack.push(*target);
-                    }
-                }
-            }
+            self.stack
+                .extend(self.prog.blocks[block].term.successors().rev());
             return Some(block);
+        }
+        None
+    }
+}
+
+pub struct BlocksPostIter<'a> {
+    prog: &'a Program,
+    seen: SparseSet<Block>,
+    stack: Vec<(Block, bool)>,
+}
+
+impl Iterator for BlocksPostIter<'_> {
+    type Item = Block;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((block, expanded)) = self.stack.pop() {
+            if expanded {
+                return Some(block);
+            }
+            if !self.seen.insert(block) {
+                continue;
+            }
+            self.stack.push((block, true));
+            for succ in self.prog.blocks[block].term.successors().rev() {
+                self.stack.push((succ, false));
+            }
         }
         None
     }

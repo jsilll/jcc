@@ -1,4 +1,5 @@
 pub mod cfg;
+pub mod dom;
 pub mod order;
 
 use crate::ir::Block;

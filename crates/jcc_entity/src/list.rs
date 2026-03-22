@@ -4,40 +4,20 @@ use std::marker::PhantomData;
 ///
 /// This is a compact representation (just offset and length) that references
 /// a slice of entities in a pool.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct EntityList<T> {
     offset: u32,
     length: u32,
-    phantom: PhantomData<T>,
-}
-
-impl<T> Copy for EntityList<T> {}
-impl<T> Clone for EntityList<T> {
-    #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T> Eq for EntityList<T> {}
-impl<T> PartialEq for EntityList<T> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.offset == other.offset && self.length == other.length
-    }
-}
-
-impl<T> std::hash::Hash for EntityList<T> {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.offset.hash(state);
-        self.length.hash(state);
-    }
+    marker: PhantomData<T>,
 }
 
 impl<T> Default for EntityList<T> {
     fn default() -> Self {
-        Self::empty()
+        Self {
+            offset: 0,
+            length: 0,
+            marker: PhantomData,
+        }
     }
 }
 
@@ -46,12 +26,8 @@ impl<T> EntityList<T> {
     ///
     /// This is a zero-cost constant that doesn't allocate.
     #[inline]
-    pub const fn empty() -> Self {
-        Self {
-            offset: 0,
-            length: 0,
-            phantom: PhantomData,
-        }
+    pub fn empty() -> Self {
+        Self::default()
     }
 
     /// Returns the length of the list.
@@ -198,7 +174,7 @@ impl<T: Copy> ListPool<T> {
             EntityList {
                 offset,
                 length,
-                phantom: PhantomData,
+                marker: PhantomData,
             }
         }
     }

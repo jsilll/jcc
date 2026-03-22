@@ -25,7 +25,7 @@ impl ControlFlowGraph {
         self.preds_lists.clear();
         for data in prog.functions.values() {
             if let Some(entry) = data.entry {
-                for &block in order.rpo(entry) {
+                for block in order.rpo(entry) {
                     for succ in prog.blocks[block].term.successors() {
                         self.degree[succ] += 1;
                     }
@@ -38,7 +38,7 @@ impl ControlFlowGraph {
         }
         for data in prog.functions.values() {
             if let Some(entry) = data.entry {
-                for &block in order.rpo(entry) {
+                for block in order.rpo(entry) {
                     for succ in prog.blocks[block].term.successors() {
                         let idx = (self.degree[succ] - 1) as usize;
                         self.preds_lists[self.preds[succ]][idx] = block;

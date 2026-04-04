@@ -1,16 +1,16 @@
 use crate::ir::{
-    analysis::{cfg::ControlFlowGraph, order::Order, BlockList},
+    analysis::{cfg::ControlFlowGraph, order::Order},
     Block, Program,
 };
 
-use jcc_entity::{ListPool, SecondaryMap};
+use jcc_entity::{EntitySlice, SecondaryMap, SlicePool};
 
 #[derive(Default)]
 pub struct Dominance {
-    children_pool: ListPool<Block>,
+    pool: SlicePool<Block>,
     degree: SecondaryMap<Block, u32>,
     idom: SecondaryMap<Block, Option<Block>>,
-    children: SecondaryMap<Block, BlockList>,
+    children: SecondaryMap<Block, EntitySlice<Block>>,
 }
 
 impl Dominance {
@@ -37,7 +37,7 @@ impl Dominance {
     }
 
     pub fn children(&self, block: Block) -> impl IntoIterator<Item = Block> + '_ {
-        self.children_pool[self.children[block]].iter().copied()
+        self.pool[self.children[block]].iter().copied()
     }
 
     pub fn intersect(&self, mut a: Block, mut b: Block, order: &Order) -> Block {
@@ -100,9 +100,7 @@ impl Dominance {
                 // Allocate space for children of each block.
                 for block in order.rpo(entry) {
                     let degree = self.degree[block] as usize;
-                    self.children[block] = self
-                        .children_pool
-                        .extend(std::iter::repeat_n(block, degree));
+                    self.children[block] = self.pool.extend(std::iter::repeat_n(block, degree));
                 }
 
                 // Fill children of each block.
@@ -110,7 +108,7 @@ impl Dominance {
                     if let Some(idom) = self.idom(block) {
                         if block != idom {
                             let idx = (self.degree[idom] - 1) as usize;
-                            self.children_pool[self.children[idom]][idx] = block;
+                            self.pool[self.children[idom]][idx] = block;
                             self.degree[idom] = idx as u32;
                         }
                     }

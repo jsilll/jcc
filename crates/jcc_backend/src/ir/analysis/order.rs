@@ -1,13 +1,13 @@
-use jcc_entity::{ListPool, SecondaryMap};
+use jcc_entity::{EntitySlice, SecondaryMap, SlicePool};
 
-use crate::ir::{analysis::BlockList, Block, Program};
+use crate::ir::{Block, Program};
 
 #[derive(Default)]
 pub struct Order {
     scratch: Vec<Block>,
-    rpo_pool: ListPool<Block>,
+    pool: SlicePool<Block>,
     rpo_idx: SecondaryMap<Block, u32>,
-    rpo: SecondaryMap<Block, BlockList>,
+    rpo: SecondaryMap<Block, EntitySlice<Block>>,
 }
 
 impl Order {
@@ -20,14 +20,14 @@ impl Order {
     }
 
     pub fn rpo(&self, block: Block) -> impl IntoIterator<Item = Block> + '_ {
-        self.rpo_pool[self.rpo[block]].iter().copied()
+        self.pool[self.rpo[block]].iter().copied()
     }
 
     pub fn compute(&mut self, prog: &Program) {
-        self.rpo_pool.clear();
+        self.pool.clear();
         for data in prog.functions.values() {
             self.scratch.extend(data.blocks_post(prog));
-            let rpo = self.rpo_pool.extend(self.scratch.iter().rev().copied());
+            let rpo = self.pool.extend(self.scratch.iter().rev().copied());
             for (idx, block) in self.scratch.drain(..).rev().enumerate() {
                 self.rpo_idx[block] = idx as u32;
                 self.rpo[block] = rpo;

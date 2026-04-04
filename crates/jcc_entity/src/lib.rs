@@ -5,14 +5,14 @@
 //! IR where you have multiple interrelated entity types (instructions, blocks,
 //! functions, etc.) that should not be confused.
 
-mod list;
 mod primary;
 mod secondary;
+mod slice;
 mod sparse;
 
-pub use list::{EntityList, ListPool};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
+pub use slice::{EntitySlice, SlicePool};
 pub use sparse::{map::SparseMap, set::SparseSet};
 
 /// Trait for types that can be used as entity references.

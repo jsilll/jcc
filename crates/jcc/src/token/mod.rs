@@ -172,6 +172,32 @@ impl TokenKind {
                 | Self::KwUnsigned
         )
     }
+
+    pub fn from_keyword(s: &str) -> Option<Self> {
+        match s {
+            "break" => Some(Self::KwBreak),
+            "case" => Some(Self::KwCase),
+            "continue" => Some(Self::KwContinue),
+            "default" => Some(Self::KwDefault),
+            "do" => Some(Self::KwDo),
+            "double" => Some(Self::KwDouble),
+            "else" => Some(Self::KwElse),
+            "extern" => Some(Self::KwExtern),
+            "for" => Some(Self::KwFor),
+            "goto" => Some(Self::KwGoto),
+            "if" => Some(Self::KwIf),
+            "int" => Some(Self::KwInt),
+            "long" => Some(Self::KwLong),
+            "return" => Some(Self::KwReturn),
+            "signed" => Some(Self::KwSigned),
+            "static" => Some(Self::KwStatic),
+            "switch" => Some(Self::KwSwitch),
+            "unsigned" => Some(Self::KwUnsigned),
+            "void" => Some(Self::KwVoid),
+            "while" => Some(Self::KwWhile),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for TokenKind {

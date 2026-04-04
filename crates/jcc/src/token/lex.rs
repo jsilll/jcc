@@ -259,41 +259,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn word(&mut self) -> Token {
-        static KEYWORDS: phf::Map<&'static str, TokenKind> = phf::phf_map! {
-            "break" => TokenKind::KwBreak,
-            "case" => TokenKind::KwCase,
-            "continue" => TokenKind::KwContinue,
-            "default" => TokenKind::KwDefault,
-            "do" => TokenKind::KwDo,
-            "double" => TokenKind::KwDouble,
-            "else" => TokenKind::KwElse,
-            "extern" => TokenKind::KwExtern,
-            "for" => TokenKind::KwFor,
-            "goto" => TokenKind::KwGoto,
-            "if" => TokenKind::KwIf,
-            "int" => TokenKind::KwInt,
-            "long" => TokenKind::KwLong,
-            "return" => TokenKind::KwReturn,
-            "signed" => TokenKind::KwSigned,
-            "static" => TokenKind::KwStatic,
-            "switch" => TokenKind::KwSwitch,
-            "unsigned" => TokenKind::KwUnsigned,
-            "void" => TokenKind::KwVoid,
-            "while" => TokenKind::KwWhile,
-        };
         let end = self.next_while(|c| c.is_ascii_alphanumeric() || c == '_');
         let ident = self
             .file
             .source()
             .get(self.pos.to_usize()..end.to_usize())
             .unwrap_or_default();
-        let kind = KEYWORDS
-            .get(ident)
-            .copied()
-            .unwrap_or(TokenKind::Identifier);
         Token {
-            kind,
             span: Span::new(self.pos, end).unwrap_or_default(),
+            kind: TokenKind::from_keyword(ident).unwrap_or(TokenKind::Identifier),
         }
     }
 

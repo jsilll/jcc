@@ -1,8 +1,8 @@
 use crate::{
     ast::{
         ty::{Ty, TyCtx},
-        Ast, BinaryOp, Block, BlockItem, Constant, Decl, DeclData, DeclKind, DeclList, Expr,
-        ExprData, ExprKind, ExprList, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol,
+        Ast, BinaryOp, Block, BlockItem, Constant, Decl, DeclData, DeclKind, DeclSlice, Expr,
+        ExprData, ExprKind, ExprSlice, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol,
         UnaryOp,
     },
     token::{
@@ -325,16 +325,16 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         }))
     }
 
-    fn parse_params(&mut self) -> DeclList {
+    fn parse_params(&mut self) -> DeclSlice {
         let Some(token) = self.peek_some() else {
-            return DeclList::empty();
+            return DeclSlice::empty();
         };
         match token.kind {
             TokenKind::KwVoid => {
                 self.next();
-                DeclList::empty()
+                DeclSlice::empty()
             }
-            TokenKind::RParen => DeclList::default(),
+            TokenKind::RParen => DeclSlice::default(),
             _ => {
                 let ty_span = self.collect_types();
                 let ty = self.parse_type(ty_span);
@@ -806,12 +806,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         expr
     }
 
-    fn parse_args(&mut self) -> ExprList {
+    fn parse_args(&mut self) -> ExprSlice {
         let Some(token) = self.peek_some() else {
-            return ExprList::default();
+            return ExprSlice::default();
         };
         match token.kind {
-            TokenKind::RParen => ExprList::default(),
+            TokenKind::RParen => ExprSlice::default(),
             _ => {
                 let base = self.expr_stack.len();
                 if let Some(expr) = self.parse_expr(0) {
@@ -843,8 +843,8 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     #[inline]
-    fn build_func_type(&mut self, params_slice: DeclList, ret: Ty<'ctx>) -> Ty<'ctx> {
-        let mut params = Vec::with_capacity(params_slice.len());
+    fn build_func_type(&mut self, params_slice: DeclSlice, ret: Ty<'ctx>) -> Ty<'ctx> {
+        let mut params = Vec::with_capacity(self.result.ast.decls.len_of(params_slice));
         self.result.ast.decls[params_slice].iter().for_each(|d| {
             params.push(self.result.ast.decl[*d].ty);
         });

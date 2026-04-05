@@ -13,7 +13,7 @@ use jcc_backend::{
     codemap::{file::FileId, span::Span},
     Ident, IdentInterner,
 };
-use jcc_entity::{entity_impl, EntityList, ListPool, PrimaryMap};
+use jcc_entity::{entity_impl, EntityRef, EntitySlice, PrimaryMap, SlicePool};
 
 use std::cell::Cell;
 
@@ -24,24 +24,24 @@ use std::cell::Cell;
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Decl(u32);
 entity_impl!(Decl, "decl");
-pub type DeclList = EntityList<Decl>;
+pub type DeclSlice = EntitySlice<Decl>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Expr(u32);
 entity_impl!(Expr, "expr");
-pub type ExprList = EntityList<Expr>;
+pub type ExprSlice = EntitySlice<Expr>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Stmt(u32);
 entity_impl!(Stmt, "stmt");
-pub type Block = EntityList<BlockItem>;
+pub type Block = EntitySlice<BlockItem>;
 
 pub struct Ast<'ctx> {
     pub file: FileId,
     pub root: Vec<Decl>,
-    pub decls: ListPool<Decl>,
-    pub exprs: ListPool<Expr>,
-    pub items: ListPool<BlockItem>,
+    pub decls: SlicePool<Decl>,
+    pub exprs: SlicePool<Expr>,
+    pub items: SlicePool<BlockItem>,
     pub stmt: PrimaryMap<Stmt, StmtData>,
     pub decl: PrimaryMap<Decl, DeclData<'ctx>>,
     pub expr: PrimaryMap<Expr, ExprData<'ctx>>,
@@ -56,9 +56,9 @@ impl<'ctx> Ast<'ctx> {
         Ast {
             file,
             root: Vec::with_capacity(capacity),
-            decls: ListPool::with_capacity(capacity),
-            exprs: ListPool::with_capacity(capacity),
-            items: ListPool::with_capacity(capacity),
+            decls: SlicePool::with_capacity(capacity),
+            exprs: SlicePool::with_capacity(capacity),
+            items: SlicePool::with_capacity(capacity),
             decl: PrimaryMap::with_capacity(capacity),
             stmt: PrimaryMap::with_capacity(capacity),
             expr: PrimaryMap::with_capacity(capacity),
@@ -80,12 +80,26 @@ pub struct Symbol {
     pub sema: Cell<Option<sema::Symbol>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockItem {
     /// A declaration.
     Decl(Decl),
     /// A statement.
     Stmt(Stmt),
+}
+
+impl EntityRef for BlockItem {
+    fn new(index: usize) -> Self {
+        BlockItem::Decl(Decl::new(index))
+    }
+
+    #[inline]
+    fn index(self) -> usize {
+        match self {
+            Self::Decl(decl) => decl.index(),
+            Self::Stmt(stmt) => stmt.index(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -199,7 +213,7 @@ pub enum DeclKind {
     Var(Option<Expr>),
     /// A function declaration.
     Func {
-        params: DeclList,
+        params: DeclSlice,
         body: Option<Block>,
     },
 }
@@ -291,7 +305,7 @@ pub enum ExprKind<'ctx> {
     /// A ternary expression.
     Ternary { cond: Expr, then: Expr, other: Expr },
     /// A function call expression.
-    Call { name: Symbol, args: ExprList },
+    Call { name: Symbol, args: ExprSlice },
 }
 
 impl ExprKind<'_> {

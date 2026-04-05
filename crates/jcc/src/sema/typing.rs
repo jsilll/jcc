@@ -527,7 +527,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     .ty;
                 match *ty {
                     TyKind::Func { ret, ref params } => {
-                        if args.len() != params.len() {
+                        if self.ast.exprs.len_of(*args) != params.len() {
                             self.emit(
                                 data.span,
                                 TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,

@@ -13,7 +13,7 @@ use jcc_backend::{
     codemap::{file::FileId, span::Span},
     Ident, IdentInterner,
 };
-use jcc_entity::{entity_impl, EntitySlice, PrimaryMap, SlicePool};
+use jcc_entity::{entity_impl, EntityRef, EntitySlice, PrimaryMap, SlicePool};
 
 use std::cell::Cell;
 
@@ -80,12 +80,26 @@ pub struct Symbol {
     pub sema: Cell<Option<sema::Symbol>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockItem {
     /// A declaration.
     Decl(Decl),
     /// A statement.
     Stmt(Stmt),
+}
+
+impl EntityRef for BlockItem {
+    fn new(index: usize) -> Self {
+        BlockItem::Decl(Decl::new(index))
+    }
+
+    #[inline]
+    fn index(self) -> usize {
+        match self {
+            Self::Decl(decl) => decl.index(),
+            Self::Stmt(stmt) => stmt.index(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

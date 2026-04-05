@@ -844,7 +844,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
     #[inline]
     fn build_func_type(&mut self, params_slice: DeclSlice, ret: Ty<'ctx>) -> Ty<'ctx> {
-        let mut params = Vec::with_capacity(params_slice.len());
+        let mut params = Vec::with_capacity(self.result.ast.decls.len_of(params_slice));
         self.result.ast.decls[params_slice].iter().for_each(|d| {
             params.push(self.result.ast.decl[*d].ty);
         });

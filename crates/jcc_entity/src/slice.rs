@@ -1,67 +1,46 @@
+use crate::EntityRef;
+
 use std::marker::PhantomData;
 
-/// A handle to a variable-length slice of entities stored in a `SlicePool`.
-///
-/// This is a compact representation that references a slice of entities in a pool.
+/// A handle to a slice of entities stored in a `SlicePool`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct EntitySlice<T> {
-    offset: u32,
-    length: u32,
-    marker: PhantomData<T>,
-}
+pub struct EntitySlice<T>(u32, PhantomData<T>);
 
 impl<T> Default for EntitySlice<T> {
     fn default() -> Self {
-        Self {
-            offset: 0,
-            length: 0,
-            marker: PhantomData,
-        }
+        Self(0, PhantomData)
     }
 }
 
 impl<T> EntitySlice<T> {
     /// Creates an empty entity slice.
-    ///
-    /// This is a zero-cost constant that doesn't allocate.
     #[inline]
     pub fn empty() -> Self {
         Self::default()
     }
+}
 
-    /// Returns the length of the slice.
+impl<T: EntityRef> EntityRef for EntitySlice<T> {
     #[inline]
-    pub fn len(self) -> usize {
-        self.length as usize
+    fn new(index: usize) -> Self {
+        debug_assert!(index < (u32::MAX as usize));
+        Self(u32::try_from(index).unwrap_or(0), PhantomData)
     }
 
-    /// Returns `true` if the slice is empty.
     #[inline]
-    pub fn is_empty(self) -> bool {
-        self.length == 0
-    }
-
-    /// Returns the offset into the pool's data array.
-    ///
-    /// This is for internal use only.
-    #[inline]
-    pub(crate) fn offset(self) -> usize {
-        self.offset as usize
+    fn index(self) -> usize {
+        self.0 as usize
     }
 }
 
-/// A storage pool for variable-length slices of entities, referenced by `EntitySlice<T>`.
+/// A pool of packed, immutable slices.
 ///
-/// This is useful for storing slices of entities in a compact way
-/// without needing to allocate a separate `Vec` for each slice.
+/// Each slice is laid out in `data` as:
 ///
-/// The pool stores all slices contiguously in a single vector, and hands out
-/// `EntitySlice<T>` handles that reference slices within the pool.
-///
-/// # Memory Efficiency
-///
-/// Instead of each AST node having its own `Vec<EntityRef<T>>`, they can store
-/// a single `EntitySlice<T>` (8 bytes) that references data in a shared pool.
+/// ```text
+/// [ length_as_T | elem0 | elem1 | ... | elemN-1 ]
+///   ^block_start  ^index (what EntitySlice stores)
+/// ```
 pub struct SlicePool<T> {
     data: Vec<T>,
 }
@@ -72,7 +51,7 @@ impl<T> Default for SlicePool<T> {
     }
 }
 
-impl<T: Copy> SlicePool<T> {
+impl<T: EntityRef> SlicePool<T> {
     /// Creates a new, empty slice pool.
     #[inline]
     pub fn new() -> Self {
@@ -81,19 +60,13 @@ impl<T: Copy> SlicePool<T> {
 
     /// Creates a new, empty slice pool with the specified capacity.
     ///
-    /// The pool will be able to hold at least `capacity` elements total
-    /// across all slices without reallocating.
+    /// The pool will be able to hold at least `capacity` elements
+    /// total across all slices without reallocating.
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
         }
-    }
-
-    /// Returns the total number of elements stored across all slices.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.data.len()
     }
 
     /// Returns `true` if the pool contains no elements.
@@ -106,6 +79,20 @@ impl<T: Copy> SlicePool<T> {
     #[inline]
     pub fn capacity(&self) -> usize {
         self.data.capacity()
+    }
+
+    /// Returns the length of the slice, or 0 for the empty handle.
+    #[inline]
+    pub fn len_of(&self, slice: EntitySlice<T>) -> usize {
+        self.try_len_of(slice).unwrap_or(0)
+    }
+
+    /// Read the length stored just before the slice elements, or `None` for the empty handle.
+    #[inline]
+    fn try_len_of(&self, slice: EntitySlice<T>) -> Option<usize> {
+        self.data
+            .get(slice.index().wrapping_sub(1))
+            .map(|v| v.index())
     }
 
     /// Reserves capacity for at least `additional` more elements.
@@ -123,79 +110,62 @@ impl<T: Copy> SlicePool<T> {
     }
 
     /// Returns a reference to the slice's elements.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slice handle is invalid (references out-of-bounds data).
     #[inline]
     pub fn get(&self, slice: EntitySlice<T>) -> &[T] {
-        if slice.is_empty() {
-            &[]
-        } else {
-            let start = slice.offset();
-            let end = start + slice.len();
-            &self.data[start..end]
+        match self.try_len_of(slice) {
+            None => &[],
+            Some(len) => {
+                let start = slice.index();
+                &self.data[start..start + len]
+            }
         }
     }
 
     /// Returns a mutable reference to the slice's elements.
-    ///
-    /// This allows in-place modification of slice elements without reallocating.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slice handle is invalid (references out-of-bounds data).
     #[inline]
     pub fn get_mut(&mut self, slice: EntitySlice<T>) -> &mut [T] {
-        if slice.is_empty() {
-            &mut []
-        } else {
-            let start = slice.offset();
-            let end = start + slice.len();
-            &mut self.data[start..end]
+        match self.try_len_of(slice) {
+            None => &mut [],
+            Some(len) => {
+                let start = slice.index();
+                &mut self.data[start..start + len]
+            }
         }
     }
 
-    /// Allocates a new slice from an iterator of elements.
+    /// Allocate a new slice from an iterator, returning a handle to it.
     ///
-    /// This is useful when you're building a slice dynamically.
+    /// Layout written: `[T::from_u32(n), elem0, ..., elemN-1]`
     pub fn extend(&mut self, elements: impl IntoIterator<Item = T>) -> EntitySlice<T> {
-        let start = self.data.len();
-        let offset = start.try_into().unwrap_or(u32::MAX);
+        let block_start = self.data.len();
+        self.data.push(T::new(0));
+        let elems_start = self.data.len();
         self.data.extend(elements);
-        let length = (self.data.len() - start).try_into().unwrap_or_default();
-        if length == 0 {
-            EntitySlice::empty()
-        } else {
-            EntitySlice {
-                offset,
-                length,
-                marker: PhantomData,
+        match self.data.len() - elems_start {
+            0 => {
+                self.data.pop();
+                EntitySlice::empty()
+            }
+            len => {
+                self.data[block_start] = T::new(len);
+                EntitySlice::new(elems_start)
             }
         }
     }
 }
 
-impl<T: Copy> std::ops::Index<EntitySlice<T>> for SlicePool<T> {
+impl<T: EntityRef> std::ops::Index<EntitySlice<T>> for SlicePool<T> {
     type Output = [T];
 
     /// Returns a reference to the slice's elements.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slice handle is invalid.
     #[inline]
     fn index(&self, slice: EntitySlice<T>) -> &Self::Output {
         self.get(slice)
     }
 }
 
-impl<T: Copy> std::ops::IndexMut<EntitySlice<T>> for SlicePool<T> {
+impl<T: EntityRef> std::ops::IndexMut<EntitySlice<T>> for SlicePool<T> {
     /// Returns a mutable reference to the slice's elements.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slice handle is invalid.
     #[inline]
     fn index_mut(&mut self, slice: EntitySlice<T>) -> &mut Self::Output {
         self.get_mut(slice)
@@ -205,81 +175,60 @@ impl<T: Copy> std::ops::IndexMut<EntitySlice<T>> for SlicePool<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{entity_impl, EntityRef};
+    use crate::entity_impl;
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     struct TestEntity(u32);
     entity_impl!(TestEntity, "test_entity");
 
     #[test]
-    fn entity_slice_size() {
-        use std::mem::size_of;
-        assert_eq!(size_of::<EntitySlice<TestEntity>>(), 8);
-    }
-
-    #[test]
-    fn entity_slice_empty() {
-        let slice = EntitySlice::<TestEntity>::empty();
-        assert!(slice.is_empty());
-        assert_eq!(slice.len(), 0);
-    }
-
-    #[test]
-    fn slice_pool_empty_slice() {
+    fn slice_pool_empty_iterator() {
         let mut pool = SlicePool::<TestEntity>::new();
         let empty = pool.extend([]);
-
-        assert!(empty.is_empty());
         assert_eq!(pool.get(empty), &[]);
+        assert_eq!(pool.len_of(empty), 0);
     }
 
     #[test]
-    fn slice_pool_basic_operations() {
+    fn slice_pool_basic() {
         let mut pool = SlicePool::<TestEntity>::new();
+        let e1 = TestEntity(1);
+        let e2 = TestEntity(2);
+        let e3 = TestEntity(3);
 
-        let e1 = TestEntity::new(1);
-        let e2 = TestEntity::new(2);
-        let e3 = TestEntity::new(3);
+        let s1 = pool.extend([e1, e2]);
+        let s2 = pool.extend([e3]);
 
-        let slice1 = pool.extend([e1, e2]);
-        let slice2 = pool.extend([e3]);
-
-        assert_eq!(pool.get(slice1), &[e1, e2]);
-        assert_eq!(pool.get(slice2), &[e3]);
-        assert_eq!(slice1.len(), 2);
-        assert_eq!(slice2.len(), 1);
+        assert_eq!(pool.len_of(s1), 2);
+        assert_eq!(pool.len_of(s2), 1);
+        assert_eq!(pool.get(s1), &[e1, e2]);
+        assert_eq!(pool.get(s2), &[e3]);
     }
 
     #[test]
-    fn slice_pool_indexing() {
+    fn slice_pool_mutation() {
         let mut pool = SlicePool::<TestEntity>::new();
+        let e1 = TestEntity(1);
+        let e2 = TestEntity(2);
+        let e3 = TestEntity(3);
 
-        let e1 = TestEntity::new(1);
-        let e2 = TestEntity::new(2);
+        let s = pool.extend([e1, e2]);
+        pool[s][0] = e3;
 
-        let slice = pool.extend([e1, e2]);
-
-        assert_eq!(pool[slice][0], e1);
-        assert_eq!(pool[slice][1], e2);
-
-        pool[slice][0] = e2;
-        assert_eq!(pool[slice][0], e2);
+        assert_eq!(pool.get(s), &[e3, e2]);
     }
 
     #[test]
-    fn slice_pool_multiple_slices() {
+    fn slice_pool_multiple() {
         let mut pool = SlicePool::<TestEntity>::new();
+        let entities: Vec<_> = (1..=5).map(TestEntity).collect();
 
-        let e1 = TestEntity::new(1);
-        let e2 = TestEntity::new(2);
-        let e3 = TestEntity::new(3);
+        let s1 = pool.extend(entities[0..1].iter().copied());
+        let s2 = pool.extend(entities[1..3].iter().copied());
+        let s3 = pool.extend(entities[3..5].iter().copied());
 
-        let slice1 = pool.extend([e1]);
-        let slice2 = pool.extend([e2, e3]);
-        let slice3 = pool.extend([e1, e2, e3]);
-
-        assert_eq!(pool.get(slice1), &[e1]);
-        assert_eq!(pool.get(slice2), &[e2, e3]);
-        assert_eq!(pool.get(slice3), &[e1, e2, e3]);
+        assert_eq!(pool.get(s1), &entities[0..1]);
+        assert_eq!(pool.get(s2), &entities[1..3]);
+        assert_eq!(pool.get(s3), &entities[3..5]);
     }
 }

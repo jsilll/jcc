@@ -1,121 +1,69 @@
 use jcc_backend::TargetOs;
 
-use clap::{Parser, ValueEnum};
+use std::{path::PathBuf, str::FromStr};
 
-use std::path::PathBuf;
-
-/// Represents the target operating systems supported directly by the CLI.
-///
-/// This enum is used with `clap`'s `ValueEnum` to allow users to specify
-/// the target OS via the `--target` command-line argument (e.g., `--target linux`).
-/// It is intentionally kept separate from the internal `jcc_backend::TargetOs` to decouple
-/// the CLI representation from the compiler's core logic.
-#[derive(ValueEnum, Clone, Copy, Debug)]
-pub enum CliTargetOs {
-    /// The Linux operating system.
-    Linux,
-    /// The macOS operating system.
-    Macos,
-}
-
-/// Converts the CLI-specific `CliTargetOs` into the compiler's internal `TargetOs`.
-///
-/// This implementation allows for a clean separation of concerns, where `CliTargetOs`
-/// is used only for parsing arguments, and `TargetOs` is used throughout the
-/// rest of the compiler backend.
-impl From<CliTargetOs> for TargetOs {
-    fn from(cli_os: CliTargetOs) -> Self {
-        match cli_os {
-            CliTargetOs::Linux => TargetOs::Linux,
-            CliTargetOs::Macos => TargetOs::Macos,
-        }
-    }
-}
-
-/// Defines and parses the command-line arguments accepted by the compiler.
-///
-/// This struct uses `clap::Parser` to automatically generate a parser from its
-/// definition. Each field corresponds to a specific command-line option, flag,
-/// or positional argument that controls the compiler's execution.
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[derive(Debug)]
 pub struct Args {
-    /// Link with the given library.
-    #[clap(short = 'l')]
-    pub libs: Vec<String>,
-
-    /// Run the compiler in verbose mode, printing detailed information
-    /// about each compilation stage.
-    #[clap(long)]
-    pub verbose: bool,
-
-    /// Run the compiler in profile mode to measure and report the time
-    /// taken for each compilation stage.
-    #[clap(long)]
-    pub profile: bool,
-
-    /// Stop compilation after the lexical analysis (lexing) phase.
-    /// When this flag is set, the compiler only tokenizes the source file and then exits.
-    #[clap(long)]
-    pub lex: bool,
-
-    /// Stop compilation after the parsing phase.
-    /// When this flag is set, the compiler builds the Abstract Syntax Tree (AST) and then exits.
-    #[clap(long)]
-    pub parse: bool,
-
-    /// Stop compilation after the semantic analysis (validation) phase.
-    /// This phase includes critical checks like type checking.
-    #[clap(long)]
-    pub validate: bool,
-
-    /// Stop compilation after generating the Tacky Intermediate Representation (IR).
-    /// Tacky is a three-address code representation used internally by the compiler.
-    #[clap(long)]
-    pub tacky: bool,
-
-    /// Stop compilation after the final code generation phase.
-    /// This generates assembly or object code but skips the final linking step.
-    #[clap(long)]
-    pub codegen: bool,
-
-    /// Compile and generate an object file, but do not run the linker to create an executable.
-    /// This is equivalent to the `-c` flag in compilers like GCC and Clang.
-    #[clap(long, short = 'c')]
-    pub no_link: bool,
-
-    /// Emit a human-readable assembly file (`.s`) instead of an object file or executable.
-    /// This is equivalent to the `-S` flag in compilers like GCC and Clang.
-    #[clap(long, short = 'S')]
-    pub assembly: bool,
-
-    /// The path to the source file to be compiled. This is a required argument.
     pub path: PathBuf,
-
-    /// The target operating system for which to compile the code.
-    /// The compiled output will be formatted for the specified OS.
-    #[clap(long, value_enum, default_value_t = CliTargetOs::Linux)]
-    pub target: CliTargetOs,
-
-    /// Emit the Abstract Syntax Tree (AST) as a Graphviz DOT file and then stop.
-    /// This is a debugging feature to visualize the structure of the parsed code.
-    /// The output can be rendered into an image using tools like `dot`.
-    #[clap(long)]
+    pub target: TargetOs,
+    pub libs: Vec<String>,
+    pub lex: bool,
+    pub parse: bool,
+    pub tacky: bool,
+    pub codegen: bool,
+    pub no_link: bool,
+    pub verbose: bool,
+    pub profile: bool,
+    pub validate: bool,
+    pub assembly: bool,
     pub emit_ast_graphviz: bool,
 }
 
 impl Args {
-    /// Parses command-line arguments from the execution environment.
-    ///
-    /// This is a convenience function that wraps `clap::Parser::parse` to provide a
-    /// clear, conventional entry point for argument parsing at the start of the program.
-    ///
-    /// # Panics
-    ///
-    /// This function will cause the program to exit if `clap` fails to parse the
-    /// arguments (e.g., due to invalid input). In such cases, `clap` will
-    /// automatically print a helpful error message or the help screen to the user.
-    pub fn from_cli() -> Self {
-        Self::parse()
+    #[rustfmt::skip]
+    pub fn help(mut out: impl std::io::Write) -> std::io::Result<()> {
+        writeln!(out, "Usage: jcc [OPTIONS] <PATH>")?;
+        writeln!(out)?;
+        writeln!(out, "Options:")?;
+        writeln!(out, "  -h, --help              Show this help message")?;
+        writeln!(out, "  -l <lib>                Link with the given library")?;
+        writeln!(out, "  --target <target>       Target OS (linux, macos) [default: linux]")?;
+        writeln!(out, "  --lex                   Stop after lexing")?;
+        writeln!(out, "  --parse                 Stop after parsing")?;
+        writeln!(out, "  --verbose               Run in verbose mode")?;
+        writeln!(out, "  --profile               Run in profile mode")?;
+        writeln!(out, "  --validate              Stop after validation")?;
+        writeln!(out, "  --codegen               Stop after code generation")?;
+        writeln!(out, "  --tacky                 Stop after Tacky IR generation")?;
+        writeln!(out, "  -S, --assembly          Emit assembly file (.s)")?;
+        writeln!(out, "  -c, --no-link           Compile and assemble, but do not link")?;
+        writeln!(out, "  --emit-ast-graphviz     Emit AST Graphviz DOT file")?;
+        Ok(())
+    }
+
+    pub fn from_env() -> Result<Option<Self>, jcc_args::error::Error> {
+        let mut args = jcc_args::Args::from_env();
+        if args.contains(["-h", "--help"]) {
+            return Ok(None);
+        }
+        let res = Args {
+            libs: args.values_from_str("-l")?,
+            target: args
+                .opt_value_from_str("--target")?
+                .unwrap_or(TargetOs::Linux),
+            lex: args.contains("--lex"),
+            parse: args.contains("--parse"),
+            tacky: args.contains("--tacky"),
+            codegen: args.contains("--codegen"),
+            verbose: args.contains("--verbose"),
+            profile: args.contains("--profile"),
+            validate: args.contains("--validate"),
+            no_link: args.contains(["-c", "--no-link"]),
+            assembly: args.contains(["-S", "--assembly"]),
+            emit_ast_graphviz: args.contains("--emit-ast-graphviz"),
+            path: args.free_from_fn(PathBuf::from_str)?,
+        };
+        args.finish()?;
+        Ok(Some(res))
     }
 }

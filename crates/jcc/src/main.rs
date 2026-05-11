@@ -18,16 +18,24 @@ use anyhow::{Context, Result};
 use std::io::Write as _;
 
 fn main() {
-    let args = Args::from_cli();
-    let mut profiler = Profiler::new(args.profile);
-    let r = try_main(&args, &mut profiler);
-    profiler
-        .report(&mut std::io::stdout())
-        .expect("Failed to write profile report");
-    if let Err(e) = r {
-        println!("{:?}", e);
-        std::process::exit(1)
-    }
+    const ERROR_EXIT_CODE: i32 = 1;
+    match Args::from_env() {
+        Ok(None) => Args::help(std::io::stdout()).expect("Failed to write help"),
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(ERROR_EXIT_CODE);
+        }
+        Ok(Some(args)) => {
+            let mut prof = Profiler::new(args.profile);
+            let res = try_main(&args, &mut prof);
+            prof.report(&mut std::io::stdout())
+                .expect("Failed to write profile report");
+            if let Err(e) = res {
+                eprintln!("{e:?}");
+                std::process::exit(ERROR_EXIT_CODE);
+            }
+        }
+    };
 }
 
 fn try_main(args: &Args, profiler: &mut Profiler) -> Result<()> {

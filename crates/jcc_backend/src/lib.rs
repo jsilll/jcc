@@ -13,6 +13,27 @@ pub enum TargetOs {
     Macos,
 }
 
+impl std::str::FromStr for TargetOs {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "linux" => Ok(TargetOs::Linux),
+            "macos" => Ok(TargetOs::Macos),
+            _ => Err(format!("invalid target OS '{s}'")),
+        }
+    }
+}
+
+impl std::fmt::Display for TargetOs {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            TargetOs::Linux => write!(f, "linux"),
+            TargetOs::Macos => write!(f, "macos"),
+        }
+    }
+}
+
 /// A zero-sized marker type used to distinguish Identifier symbols from other symbols.
 ///
 /// This type is never instantiated at runtime. It is used strictly as a generic

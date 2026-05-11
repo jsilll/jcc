@@ -31,6 +31,7 @@ impl Hasher for EntityHasher {
         self.0 = i;
     }
 
+    #[allow(clippy::panic)]
     fn write(&mut self, _: &[u8]) {
         panic!("EntityHasher only supports integer writes");
     }

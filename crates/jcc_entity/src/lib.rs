@@ -5,18 +5,20 @@
 //! IR where you have multiple interrelated entity types (instructions, blocks,
 //! functions, etc.) that should not be confused.
 
+mod hash;
 mod primary;
 mod secondary;
 mod slice;
 mod sparse;
 
+pub use hash::{EntityHasher, EntityMap, EntitySet};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
 pub use slice::{EntitySlice, SlicePool};
 pub use sparse::{map::SparseMap, set::SparseSet};
 
 /// Trait for types that can be used as entity references.
-pub trait EntityRef: Copy + Eq {
+pub trait EntityRef: Copy + Eq + std::hash::Hash {
     /// Create a new entity reference
     fn new(index: usize) -> Self;
     /// Get the index of the entity to index the array

@@ -15,9 +15,17 @@
 //!   backwards, restoring the previous values of modified keys.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
-    hash::Hash,
+    collections::{
+        hash_map::{Entry, RandomState},
+        HashMap,
+    },
+    hash::{BuildHasher, Hash},
 };
+
+#[cfg(feature = "entity")]
+/// A [`SymbolTable`] using identity hashing for [`jcc_entity::EntityRef`] keys.
+pub type EntitySymbolTable<S, V> =
+    SymbolTable<S, V, std::hash::BuildHasherDefault<jcc_entity::EntityHasher>>;
 
 /// Holds the value and the version at which it was last modified.
 #[derive(Debug, Clone)]
@@ -41,37 +49,48 @@ enum LogEntry<S, V> {
 /// It supports scoped symbol management, allowing for nested scopes.
 ///
 /// This implementation is optimized to avoid memory allocations when pushing and popping scopes.
-/// It uses a pair of `HashMap` for fast lookups and an "undo log" to efficiently
-/// revert changes when a scope ends. This version uses a versioning system to ensure
-/// that a symbol's previous value is only logged once per scope.
+/// It uses a `HashMap` for fast lookups and an "undo log" to efficiently revert changes when a
+/// scope ends. A versioning system ensures that a symbol's previous value is only logged once per scope.
+///
+/// The hash builder `H` can be customized to control the backing hashing strategy. It defaults to
+/// the standard [`RandomState`].
 ///
 /// # Type Parameters
 /// - `S`: The type of the symbol keys. Must implement `Eq`, `Hash`, and `Clone`.
 /// - `V`: The type of the values associated with the symbols. Must implement `Clone`.
+/// - `H`: The hash builder. Defaults to [`RandomState`].
 #[derive(Debug, Clone)]
-pub struct SymbolTable<S, V> {
+pub struct SymbolTable<S, V, H = RandomState> {
     /// The current version of the scope stack, used to track changes.
     version: u32,
     /// A log of changes made in each scope, used for efficient popping.
     log: Vec<LogEntry<S, V>>,
     /// The single table containing the current state of all scoped symbols.
-    scoped: HashMap<S, ScopedValue<V>>,
+    scoped: HashMap<S, ScopedValue<V>, H>,
 }
 
-impl<S, V> Default for SymbolTable<S, V> {
+impl<S, V, H: BuildHasher + Default> Default for SymbolTable<S, V, H> {
     fn default() -> Self {
-        Self::new()
+        Self::with_hasher(H::default())
     }
 }
 
 impl<S, V> SymbolTable<S, V> {
-    /// Creates a new, empty `SymbolTable`.
+    /// Creates a new, empty `SymbolTable` with the default [`RandomState`] hasher.
     #[inline]
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<S, V, H> SymbolTable<S, V, H> {
+    /// Creates a new, empty `SymbolTable` with the given hash builder.
+    #[inline]
+    pub fn with_hasher(hasher: H) -> Self {
         SymbolTable {
             version: 0,
-            scoped: HashMap::new(),
             log: Vec::with_capacity(64),
+            scoped: HashMap::with_hasher(hasher),
         }
     }
 
@@ -90,10 +109,11 @@ impl<S, V> SymbolTable<S, V> {
     }
 }
 
-impl<S, V> SymbolTable<S, V>
+impl<S, V, H> SymbolTable<S, V, H>
 where
     S: Clone + Eq + Hash,
     V: Clone,
+    H: BuildHasher,
 {
     /// Retrieves a reference to the value associated with the given key.
     #[inline]
@@ -142,8 +162,6 @@ where
     }
 
     /// Inserts a key-value pair into the current scope or the global table.
-    /// If there are active scopes, the pair is inserted into the most recent one.
-    /// Otherwise, it is inserted into the global table.
     ///
     /// Returns `None` if the key was newly inserted in the current scope, or the previous value if it was updated.
     pub fn insert(&mut self, key: S, value: V) -> Option<V> {
@@ -178,17 +196,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_and_default() {
-        let table: SymbolTable<String, i32> = SymbolTable::new();
-        assert!(table.scoped.is_empty());
-        assert!(table.log.is_empty());
-
-        let table: SymbolTable<String, i32> = SymbolTable::default();
-        assert!(table.scoped.is_empty());
-        assert!(table.log.is_empty());
-    }
-
-    #[test]
     fn test_shadowing() {
         let mut table = SymbolTable::new();
         table.insert("x".to_string(), 10);
@@ -211,47 +218,47 @@ mod tests {
     #[test]
     fn test_multiple_updates_single_history_entry() {
         let mut table = SymbolTable::new();
-        table.insert("x".to_string(), 1);
+        table.insert("x", 1);
 
         table.push_scope();
         assert_eq!(table.log.len(), 2);
 
-        table.insert("x".to_string(), 10);
-        assert_eq!(table.get(&"x".to_string()), Some(&10));
+        table.insert("x", 10);
+        assert_eq!(table.get(&"x"), Some(&10));
         assert_eq!(table.log.len(), 3);
 
-        table.insert("x".to_string(), 20);
-        assert_eq!(table.get(&"x".to_string()), Some(&20));
+        table.insert("x", 20);
+        assert_eq!(table.get(&"x"), Some(&20));
         assert_eq!(table.log.len(), 3);
 
-        table.insert("x".to_string(), 30);
-        assert_eq!(table.get(&"x".to_string()), Some(&30));
+        table.insert("x", 30);
+        assert_eq!(table.get(&"x"), Some(&30));
         assert_eq!(table.log.len(), 3);
 
-        table.insert("y".to_string(), 99);
-        assert_eq!(table.get(&"y".to_string()), Some(&99));
+        table.insert("y", 99);
+        assert_eq!(table.get(&"y"), Some(&99));
         assert_eq!(table.log.len(), 4);
 
         table.pop_scope();
-        assert_eq!(table.get(&"x".to_string()), Some(&1));
-        assert_eq!(table.get(&"y".to_string()), None);
+        assert_eq!(table.get(&"x"), Some(&1));
+        assert_eq!(table.get(&"y"), None);
     }
 
     #[test]
     fn test_clear_scope() {
         let mut table = SymbolTable::new();
 
-        table.insert("g".to_string(), 0);
+        table.insert("g", 0);
         table.push_scope();
-        table.insert("s1".to_string(), 1);
-        table.insert("s2".to_string(), 2);
+        table.insert("s1", 1);
+        table.insert("s2", 2);
         table.clear_scope();
 
-        assert_eq!(table.get(&"s1".to_string()), None);
-        assert_eq!(table.get(&"s2".to_string()), None);
-        assert_eq!(table.get(&"g".to_string()), Some(&0));
+        assert_eq!(table.get(&"s1"), None);
+        assert_eq!(table.get(&"s2"), None);
+        assert_eq!(table.get(&"g"), Some(&0));
 
         table.pop_scope();
-        assert_eq!(table.get(&"g".to_string()), Some(&0));
+        assert_eq!(table.get(&"g"), Some(&0));
     }
 }

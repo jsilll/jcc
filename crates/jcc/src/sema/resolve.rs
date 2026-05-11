@@ -8,12 +8,10 @@ use crate::{
 
 use jcc_backend::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
-    interner::symtab::SymbolTable,
+    interner::symtab::EntitySymbolTable,
     Ident,
 };
-use jcc_entity::EntityRef;
-
-use std::collections::HashMap;
+use jcc_entity::{EntityMap, EntityRef};
 
 // ---------------------------------------------------------------------------
 // ResolverPass
@@ -26,10 +24,10 @@ pub struct ResolverPass<'a, 'ctx> {
     result: ResolverResult,
     /// The current symbol count
     symbol_count: usize,
-    /// The current scope symbol table
-    scope: SymbolTable<Ident, SymbolInfo>,
     /// The global symbols map
-    globals: HashMap<Ident, sema::Symbol>,
+    globals: EntityMap<Ident, sema::Symbol>,
+    /// The current scope symbol table
+    scope: EntitySymbolTable<Ident, SymbolInfo>,
 }
 
 impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
@@ -37,9 +35,9 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         Self {
             ast,
             symbol_count: 1,
-            globals: HashMap::new(),
-            scope: SymbolTable::new(),
+            globals: EntityMap::default(),
             result: ResolverResult::default(),
+            scope: EntitySymbolTable::default(),
         }
     }
 
@@ -248,7 +246,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
 
     #[inline]
     fn get_or_create_global_symbol(&mut self, name: &Symbol) -> sema::Symbol {
-        let symbol = self.globals.entry(name.name).or_insert_with(|| {
+        let symbol = self.globals.get_or_insert_with(name.name, || {
             let symbol = sema::Symbol::new(self.symbol_count);
             self.symbol_count += 1;
             symbol

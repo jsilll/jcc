@@ -16,13 +16,13 @@
 
 pub mod symtab;
 
-use std::{collections::HashMap, marker::PhantomData, num::NonZeroU32};
+use std::{collections::HashMap, marker::PhantomData};
 
 /// A lightweight handle representing an interned string.
 ///
 /// `Symbol` is a small, copyable type that acts as a unique identifier.
 /// It is parameterized by `M` to ensure strict type safety between different interners.
-pub struct Symbol<M>(NonZeroU32, PhantomData<M>);
+pub struct Symbol<M>(u32, PhantomData<M>);
 
 impl<M> Copy for Symbol<M> {}
 impl<M> Clone for Symbol<M> {
@@ -47,6 +47,33 @@ impl<M> std::hash::Hash for Symbol<M> {
 impl<M> std::fmt::Debug for Symbol<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("Symbol").field(&self.0).finish()
+    }
+}
+
+impl<M> Symbol<M> {
+    #[inline]
+    fn new_impl(index: usize) -> Self {
+        debug_assert!(index < u32::MAX as usize);
+        #[allow(clippy::cast_possible_truncation)]
+        Symbol(index as u32, PhantomData)
+    }
+
+    #[inline]
+    fn index_impl(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[cfg(feature = "entity")]
+impl<M> jcc_entity::EntityRef for Symbol<M> {
+    #[inline]
+    fn new(index: usize) -> Self {
+        Self::new_impl(index)
+    }
+
+    #[inline]
+    fn index(self) -> usize {
+        self.index_impl()
     }
 }
 
@@ -135,7 +162,7 @@ impl<M> Interner<M> {
     /// Panics if the `Symbol` is invalid or out of bounds.
     #[inline]
     pub fn lookup(&self, id: Symbol<M>) -> &str {
-        self.vec[id.0.get() as usize - 1]
+        self.vec[id.0 as usize]
     }
 
     /// Retrieves the string associated with the given `Symbol`, if it exists.
@@ -149,7 +176,7 @@ impl<M> Interner<M> {
     /// `Some(&str)` if the `Symbol` is valid, or `None` if it is invalid or out of bounds.
     #[inline]
     pub fn get(&self, id: Symbol<M>) -> Option<&str> {
-        self.vec.get(id.0.get() as usize - 1).copied()
+        self.vec.get(id.0 as usize).copied()
     }
 
     /// Interns the given string and returns its associated `Symbol`.
@@ -169,14 +196,7 @@ impl<M> Interner<M> {
         if let Some(&id) = self.map.get(name) {
             return id;
         }
-        // Safety: We explicitly ensure that the NonZeroU32 is never zero by
-        // starting the count from 1 and incrementing for each new string.
-        let symbol = unsafe {
-            Symbol(
-                NonZeroU32::new_unchecked(u32::try_from(self.vec.len() + 1).unwrap_or(u32::MAX)),
-                PhantomData,
-            )
-        };
+        let symbol = Symbol::new_impl(self.vec.len());
         // Safety: The allocated string reference is valid as long as the interner is alive.
         let name = unsafe { self.alloc(name) };
         self.map.insert(name, symbol);

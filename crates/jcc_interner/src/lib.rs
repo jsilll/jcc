@@ -162,7 +162,7 @@ impl<M> Interner<M> {
     /// Panics if the `Symbol` is invalid or out of bounds.
     #[inline]
     pub fn lookup(&self, id: Symbol<M>) -> &str {
-        self.vec[id.0 as usize]
+        self.vec[id.index_impl()]
     }
 
     /// Retrieves the string associated with the given `Symbol`, if it exists.
@@ -176,7 +176,7 @@ impl<M> Interner<M> {
     /// `Some(&str)` if the `Symbol` is valid, or `None` if it is invalid or out of bounds.
     #[inline]
     pub fn get(&self, id: Symbol<M>) -> Option<&str> {
-        self.vec.get(id.0 as usize).copied()
+        self.vec.get(id.index_impl()).copied()
     }
 
     /// Interns the given string and returns its associated `Symbol`.

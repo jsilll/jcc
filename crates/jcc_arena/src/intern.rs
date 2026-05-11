@@ -220,6 +220,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 
@@ -261,9 +262,9 @@ mod tests {
         let v2 = arena.intern(SimpleValue(42)).unwrap();
         let v3 = arena.intern(SimpleValue(100)).unwrap();
         assert_eq!(v1, v2);
-        assert!(std::ptr::eq(&*v1, &*v2));
+        assert!(std::ptr::eq(&raw const *v1, &raw const *v2));
         assert_ne!(v1, v3);
-        assert!(!std::ptr::eq(&*v1, &*v3));
+        assert!(!std::ptr::eq(&raw const *v1, &raw const *v3));
         assert_eq!(arena.len(), 2);
     }
 
@@ -273,7 +274,7 @@ mod tests {
         let arr1 = ctx.arrow(vec![]);
         let arr2 = ctx.arrow(vec![]);
         assert_eq!(arr1, arr2);
-        assert!(std::ptr::eq(&*arr1, &*arr2));
+        assert!(std::ptr::eq(&raw const *arr1, &raw const *arr2));
         assert_eq!(ctx.arena.len(), 1);
     }
 
@@ -285,7 +286,7 @@ mod tests {
         let func1 = ctx.arrow(vec![int, int]);
         let func2 = ctx.arrow(vec![int, int]);
         assert_eq!(func1, func2);
-        assert!(std::ptr::eq(&*func1, &*func2));
+        assert!(std::ptr::eq(&raw const *func1, &raw const *func2));
 
         let nested = ctx.arrow(vec![func1, int]);
         match *nested {
@@ -294,7 +295,7 @@ mod tests {
                 assert_eq!(args[0], func1);
                 assert_eq!(args[1], int);
             }
-            _ => panic!("Wrong type"),
+            TyKind::Int => panic!("Wrong type"),
         }
     }
 
@@ -309,6 +310,6 @@ mod tests {
 
         let v0 = arena.intern(SimpleValue(0)).unwrap();
         assert_eq!(refs[0], v0);
-        assert!(std::ptr::eq(&*refs[0], &*v0));
+        assert!(std::ptr::eq(&raw const *refs[0], &raw const *v0));
     }
 }

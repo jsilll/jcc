@@ -207,7 +207,7 @@ mod tests {
                         .map(|&i| &self.instructions[i as usize])
                         .collect()
                 })
-                .unwrap_or_else(Vec::new)
+                .unwrap_or_default()
         }
 
         fn create_block(&mut self, block_id: u32, insts: Vec<TestInst>) -> u32 {

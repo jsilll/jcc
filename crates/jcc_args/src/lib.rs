@@ -56,6 +56,10 @@ impl Args {
     /// Parses a free-standing argument using `FromStr` trait.
     ///
     /// This is a shorthand for `free_from_fn(FromStr::from_str)`
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::free_from_fn`].
     pub fn free_from_str<T>(&mut self) -> Result<T, Error>
     where
         T: std::str::FromStr,
@@ -91,6 +95,10 @@ impl Args {
     /// Parses an optional key-value pair using `FromStr` trait.
     ///
     /// This is a shorthand for `opt_value_from_fn("--key", FromStr::from_str)`
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::opt_value_from_fn`].
     pub fn opt_value_from_str<A, T>(&mut self, keys: A) -> Result<Option<T>, Error>
     where
         A: Into<Keys>,
@@ -103,6 +111,10 @@ impl Args {
     /// Parses multiple key-value pairs into the `Vec` using `FromStr` trait.
     ///
     /// This is a shorthand for `values_from_fn("--key", FromStr::from_str)`
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::values_from_fn`].
     pub fn values_from_str<A, T>(&mut self, keys: A) -> Result<Vec<T>, Error>
     where
         A: Into<Keys>,
@@ -115,6 +127,11 @@ impl Args {
     /// Parses an optional free-standing argument using a specified function.
     ///
     /// The same as [`Self::free_from_fn`], but returns `Ok(None)` when argument is not present.
+    ///
+    /// # Errors
+    ///
+    /// - When argument parsing failed.
+    /// - When argument is not a UTF-8 string.
     pub fn opt_free_from_fn<T, E: std::fmt::Display>(
         &mut self,
         f: fn(&str) -> Result<T, E>,
@@ -124,7 +141,7 @@ impl Args {
         } else {
             let value = self.0.remove(0);
             let value = value.to_str().ok_or(Error::NonUtf8Arg)?;
-            match f(&value) {
+            match f(value) {
                 Ok(value) => Ok(Some(value)),
                 Err(e) => Err(Error::Utf8ArgParsingFailed {
                     cause: e.to_string(),
@@ -137,6 +154,10 @@ impl Args {
     /// Parses an optional key-value pair using a specified function.
     ///
     /// Returns `Ok(None)` when the option is not present.
+    ///
+    /// # Errors
+    ///
+    /// - When value parsing failed.
     pub fn opt_value_from_fn<A: Into<Keys>, T, E: std::fmt::Display>(
         &mut self,
         keys: A,
@@ -169,6 +190,10 @@ impl Args {
     /// This method simply executes [`Self::opt_value_from_fn`] multiple times.
     ///
     /// An empty `Vec` is not an error.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::opt_value_from_fn`].
     pub fn values_from_fn<A: Into<Keys>, T, E: std::fmt::Display>(
         &mut self,
         keys: A,
@@ -207,6 +232,7 @@ impl Args {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::ffi::OsString;

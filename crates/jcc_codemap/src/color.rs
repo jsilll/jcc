@@ -299,13 +299,14 @@ fn emit_label_colored<W: WriteColor>(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{file::FileId, span::Span, SimpleFiles};
 
     use termcolor::{Color, ColorSpec, WriteColor};
 
-    use std::io;
+    use std::{fmt::Write as _, io};
 
     #[derive(Default)]
     struct MockWriter {
@@ -354,7 +355,7 @@ mod tests {
             } else {
                 ""
             };
-            self.output.push_str(&format!("[{}{}]", color_name, style));
+            write!(self.output, "[{color_name}{style}]").unwrap();
             Ok(())
         }
     }

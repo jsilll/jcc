@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "attempt to subtract with overflow")]
     fn test_arithmetic_sub_underflow() {
         let p1 = BytePos(10);
         let p2 = BytePos(20);
@@ -148,6 +148,6 @@ mod tests {
     #[test]
     fn test_debug_formatting() {
         let p = BytePos(123);
-        assert_eq!(format!("{:?}", p), "BytePos(123)");
+        assert_eq!(format!("{p:?}"), "BytePos(123)");
     }
 }

@@ -50,7 +50,8 @@ macro_rules! entity_impl {
         impl $crate::EntityRef for $entity {
             #[inline]
             fn new(index: usize) -> Self {
-                debug_assert!(index < (::core::u32::MAX as usize));
+                debug_assert!(index < (u32::MAX as usize));
+                #[allow(clippy::cast_possible_truncation)]
                 $entity(index as u32)
             }
 
@@ -65,7 +66,7 @@ macro_rules! entity_impl {
             #[inline]
             #[allow(dead_code, unreachable_pub, reason = "macro-generated code")]
             pub const fn from_u32(x: u32) -> Self {
-                debug_assert!(x < ::core::u32::MAX);
+                debug_assert!(x < u32::MAX);
                 $entity(x)
             }
 

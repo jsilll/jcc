@@ -1179,7 +1179,7 @@ impl From<ParserDiagnostic> for Diagnostic {
                     Label::primary(diagnostic.file, diagnostic.span)
                         .with_message("multiple storage classes specified"),
                 )
-                .with_note("only one storage class specifier (static, extern, auto, register, typedef) is allowed per declaration"),
+                .with_note("only one storage class specifier (static, extern, register, typedef) is allowed per declaration"),
         }
     }
 }

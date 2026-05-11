@@ -140,22 +140,19 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                     }
                 }
-                Some(StorageClass::Extern) => match init {
-                    Some(init) => {
+                Some(StorageClass::Extern) => {
+                    if let Some(init) = init {
                         self.emit(
                             self.ast.expr[init].span,
                             TyperDiagnosticKind::ExternLocalInitialized,
                         );
                     }
-                    None => {
-                        let info = self.ctx.symbols
-                            [data.name.sema.get().expect("sema symbol not set")]
+                    let info = self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")]
                         .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
-                        if info.ty != data.ty {
-                            self.emit(data.span, TyperDiagnosticKind::DeclarationTypeMismatch);
-                        }
+                    if info.ty != data.ty {
+                        self.emit(data.span, TyperDiagnosticKind::DeclarationTypeMismatch);
                     }
-                },
+                }
                 Some(StorageClass::Static) => {
                     let decl_init = match init {
                         None => StaticValue::Tentative,
@@ -219,7 +216,10 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     });
                 }
                 if body.is_some() {
-                    assert!(!*is_defined, "function already defined");
+                    if *is_defined {
+                        self.emit(decl.span, TyperDiagnosticKind::FunctionAlreadyDefined);
+                        return;
+                    }
                     *is_defined = true;
                 }
                 self.ast.decls[params].iter().for_each(|param| {
@@ -609,6 +609,7 @@ pub enum TyperDiagnosticKind {
     DeclarationVisibilityMismatch,
     DuplicateSwitchCase,
     ExternLocalInitialized,
+    FunctionAlreadyDefined,
     ConstantOutOfRange,
     FunctionCalledWithWrongArgsNumber,
     FunctionUsedAsVariable,
@@ -649,6 +650,12 @@ impl From<TyperDiagnostic> for Diagnostic {
                         .with_message("extern variable cannot have an initializer"),
                 )
                 .with_note("variables with 'extern' storage class are declarations only and cannot be initialized"),
+            TyperDiagnosticKind::FunctionAlreadyDefined => Diagnostic::error()
+                .with_label(
+                    Label::primary(diagnostic.file, diagnostic.span)
+                        .with_message("function already has a definition"),
+                )
+                .with_note("a function can only be defined once; a previous definition already exists"),
             TyperDiagnosticKind::ConstantOutOfRange => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)
@@ -702,7 +709,7 @@ impl From<TyperDiagnostic> for Diagnostic {
                     Label::primary(diagnostic.file, diagnostic.span)
                         .with_message("storage class not allowed here"),
                 )
-                .with_note("storage class specifiers (static, extern, auto, register) cannot be used in this context"),
+                .with_note("storage class specifiers (static, extern, register) cannot be used in this context"),
             TyperDiagnosticKind::TypeMismatch => Diagnostic::error()
                 .with_label(
                     Label::primary(diagnostic.file, diagnostic.span)

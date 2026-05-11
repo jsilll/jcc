@@ -160,8 +160,8 @@ mod tests {
         assert_eq!(set.len(), 0);
         assert!(!set.contains(e1));
 
-        assert_eq!(set.insert(e1), true);
-        assert_eq!(set.insert(e2), true);
+        assert!(set.insert(e1));
+        assert!(set.insert(e2));
         assert_eq!(set.len(), 2);
         assert!(!set.is_empty());
         assert!(set.contains(e1));
@@ -173,8 +173,8 @@ mod tests {
         let mut set = SparseSet::new();
         let e = TestEntity::new(7);
 
-        assert_eq!(set.insert(e), true);
-        assert_eq!(set.insert(e), false);
+        assert!(set.insert(e));
+        assert!(!set.insert(e));
         assert_eq!(set.len(), 1);
         assert!(set.contains(e));
     }
@@ -190,12 +190,12 @@ mod tests {
         set.insert(e2);
         set.insert(e3);
 
-        assert_eq!(set.remove(e2), true);
+        assert!(set.remove(e2));
         assert_eq!(set.len(), 2);
         assert!(!set.contains(e2));
 
-        assert_eq!(set.remove(e2), false);
-        assert_eq!(set.remove(TestEntity::new(99)), false);
+        assert!(!set.remove(e2));
+        assert!(!set.remove(TestEntity::new(99)));
 
         assert!(set.contains(e1));
         assert!(set.contains(e3));

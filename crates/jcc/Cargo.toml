@@ -10,9 +10,10 @@ repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
 
 [dependencies]
+anyhow = "1.0.93"
+
+jcc_args = { path = "../jcc_args" }
 jcc_arena = { path = "../jcc_arena" }
 jcc_entity = { path = "../jcc_entity" }
 jcc_backend = { path = "../jcc_backend" }
 
-anyhow = "1.0.93"
-clap = { version = "4.5.20", features = ["derive"] }

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/jcc",
+    "crates/jcc_args",
     "crates/jcc_arena",
     "crates/jcc_backend",
     "crates/jcc_codemap",

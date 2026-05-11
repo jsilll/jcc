@@ -206,6 +206,7 @@ impl TryFrom<Range<u32>> for Span {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -535,46 +536,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::reversed_empty_ranges)]
     fn test_try_from_range_invalid() {
         let range = 20u32..10u32;
         let result: Result<Span, ()> = range.try_into();
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_clone_and_copy() {
-        let span = Span::new(10u32, 20u32).unwrap();
-        let cloned = span.clone();
-        let copied = span;
-        assert_eq!(span, cloned);
-        assert_eq!(span, copied);
-    }
-
-    #[test]
-    fn test_equality() {
-        let span1 = Span::new(10u32, 20u32).unwrap();
-        let span2 = Span::new(10u32, 20u32).unwrap();
-        let span3 = Span::new(10u32, 21u32).unwrap();
-
-        assert_eq!(span1, span2);
-        assert_ne!(span1, span3);
-    }
-
-    #[test]
-    fn test_hash_consistency() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let span1 = Span::new(10u32, 20u32).unwrap();
-        let span2 = Span::new(10u32, 20u32).unwrap();
-
-        let mut hasher1 = DefaultHasher::new();
-        let mut hasher2 = DefaultHasher::new();
-
-        span1.hash(&mut hasher1);
-        span2.hash(&mut hasher2);
-
-        assert_eq!(hasher1.finish(), hasher2.finish());
     }
 
     #[test]

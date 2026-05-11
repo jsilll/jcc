@@ -1,11 +1,11 @@
 [package]
-name = "jcc_arena"
+name = "jcc_args"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "The arena, a fast but limited type of allocator."
-keywords = ["arena", "allocator", "memory", "compiler", "performance"]
-categories = ["memory-management", "data-structures"]
+description = "Minimal command-line argument parsing library."
+keywords = ["command-line", "arguments", "parsing", "cli"]
+categories = ["command-line-utilities", "parsing"]
 repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
 

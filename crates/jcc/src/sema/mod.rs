@@ -8,9 +8,7 @@ use crate::ast::{
     Stmt,
 };
 
-use jcc_entity::{entity_impl, SecondaryMap};
-
-use std::collections::HashMap;
+use jcc_entity::{entity_impl, EntityMap, SecondaryMap};
 
 // ---------------------------------------------------------------------------
 // SemaCtx
@@ -22,7 +20,7 @@ entity_impl!(Symbol, "symbol");
 
 pub struct SemaCtx<'ctx> {
     pub ty: &'ctx TyCtx<'ctx>,
-    pub switches: HashMap<Stmt, SwitchCases>,
+    pub switches: EntityMap<Stmt, SwitchCases>,
     pub symbols: SecondaryMap<Symbol, Option<SymbolInfo<'ctx>>>,
 }
 
@@ -30,7 +28,7 @@ impl<'ctx> SemaCtx<'ctx> {
     pub fn new(ty: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
         Self {
             ty,
-            switches: HashMap::new(),
+            switches: EntityMap::default(),
             symbols: SecondaryMap::with_capacity(capacity),
         }
     }

@@ -6,7 +6,7 @@ pub mod term;
 pub mod ty;
 
 use jcc_codemap::span::Span;
-use jcc_entity::{entity_impl, PrimaryMap, SparseSet};
+use jcc_entity::{entity_impl, EntitySet, PrimaryMap};
 
 use crate::{
     ir::{
@@ -120,7 +120,7 @@ impl FunctionData {
         BlocksPreIter {
             prog,
             stack,
-            seen: SparseSet::new(),
+            seen: EntitySet::new(),
         }
     }
 
@@ -135,7 +135,7 @@ impl FunctionData {
         BlocksPostIter {
             prog,
             stack,
-            seen: SparseSet::new(),
+            seen: EntitySet::new(),
         }
     }
 }
@@ -143,7 +143,7 @@ impl FunctionData {
 pub struct BlocksPreIter<'a> {
     prog: &'a Program,
     stack: Vec<Block>,
-    seen: SparseSet<Block>,
+    seen: EntitySet<Block>,
 }
 
 impl Iterator for BlocksPreIter<'_> {
@@ -164,7 +164,7 @@ impl Iterator for BlocksPreIter<'_> {
 
 pub struct BlocksPostIter<'a> {
     prog: &'a Program,
-    seen: SparseSet<Block>,
+    seen: EntitySet<Block>,
     stack: Vec<(Block, bool)>,
 }
 

@@ -14,9 +14,7 @@ use jcc_backend::{
     },
     Ident, IdentInterner,
 };
-use jcc_entity::SecondaryMap;
-
-use std::collections::HashMap;
+use jcc_entity::{EntityMap, SecondaryMap};
 
 pub struct LoweringPass<'ctx> {
     // The SSA builder
@@ -26,7 +24,7 @@ pub struct LoweringPass<'ctx> {
     /// The semantic analysis context
     sema: &'ctx SemaCtx<'ctx>,
     /// Blocks tracked for statements
-    tracked: HashMap<ast::Stmt, TrackedBlock>,
+    tracked: EntityMap<ast::Stmt, TrackedBlock>,
     /// Mapping from semantic symbols to SSA symbols
     symbols: SecondaryMap<sema::Symbol, Option<SymbolEntry>>,
 }
@@ -40,7 +38,7 @@ impl<'ctx> LoweringPass<'ctx> {
         Self {
             ast,
             sema,
-            tracked: HashMap::new(),
+            tracked: EntityMap::default(),
             builder: Builder::new(interner),
             symbols: SecondaryMap::with_capacity(sema.symbols.len()),
         }
@@ -960,14 +958,12 @@ impl<'ctx> LoweringPass<'ctx> {
     }
 
     fn get_or_make_labeled(&mut self, stmt: ast::Stmt, name: Ident, span: Span) -> Block {
-        let entry = self
-            .tracked
-            .entry(stmt)
-            .or_insert_with(|| TrackedBlock::Label(self.builder.build_block_sym(name, span)));
-        match entry {
-            TrackedBlock::Label(l) => *l,
-            _ => panic!("expected a labeled block"),
+        if let Some(TrackedBlock::Label(l)) = self.tracked.get(&stmt) {
+            return *l;
         }
+        let block = self.builder.build_block_sym(name, span);
+        self.tracked.insert(stmt, TrackedBlock::Label(block));
+        block
     }
 
     fn get_or_make_function(

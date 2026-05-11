@@ -7,8 +7,9 @@ use jcc_backend::{
     codemap::{file::FileId, span::Span, Diagnostic, Label},
     Ident,
 };
+use jcc_entity::EntityMap;
 
-use std::{cell::Cell, collections::HashMap};
+use std::{cell::Cell, collections::hash_map::Entry};
 
 // ---------------------------------------------------------------------------
 // ControlPass
@@ -24,7 +25,7 @@ pub struct ControlPass<'a, 'ctx> {
     /// The stack of currently tracked statements
     tracked_stmts: Vec<TrackedStmt>,
     /// The currently tracked labels
-    tracked_labels: HashMap<Ident, TrackedLabel<'a>>,
+    tracked_labels: EntityMap<Ident, TrackedLabel<'a>>,
 }
 
 impl<'a, 'ctx> ControlPass<'a, 'ctx> {
@@ -34,7 +35,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
             ctx,
             tracked_stmts: Vec::new(),
             result: ControlResult::default(),
-            tracked_labels: HashMap::default(),
+            tracked_labels: EntityMap::default(),
         }
     }
 
@@ -117,7 +118,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 let entry = self
                     .tracked_labels
                     .entry(*label)
-                    .or_insert(TrackedLabel::Unresolved(vec![(target, data.span)]));
+                    .or_insert_with(|| TrackedLabel::Unresolved(vec![(target, data.span)]));
                 if let TrackedLabel::Resolved(stmt) = entry {
                     target.set(Some(*stmt));
                 }
@@ -155,8 +156,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     Some(switch_stmt) => self
                         .ctx
                         .switches
-                        .entry(*switch_stmt)
-                        .or_default()
+                        .get_or_insert_default(*switch_stmt)
                         .cases
                         .push(stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
@@ -173,7 +173,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     _ => None,
                 }) {
                     Some(switch_stmt) => {
-                        let switch = self.ctx.switches.entry(*switch_stmt).or_default();
+                        let switch = self.ctx.switches.get_or_insert_default(*switch_stmt);
                         match switch.default {
                             None => switch.default = Some(stmt),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {
@@ -192,24 +192,26 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 self.visit_stmt(*inner);
             }
             StmtKind::Label { label, stmt: inner } => {
-                let entry = self
-                    .tracked_labels
-                    .entry(*label)
-                    .or_insert(TrackedLabel::Resolved(stmt));
-                match entry {
-                    TrackedLabel::Unresolved(v) => {
-                        v.iter().for_each(|(target, _)| {
-                            target.set(Some(stmt));
-                        });
-                        *entry = TrackedLabel::Resolved(stmt);
+                match self.tracked_labels.entry(*label) {
+                    Entry::Vacant(e) => {
+                        e.insert(TrackedLabel::Resolved(stmt));
                     }
-                    TrackedLabel::Resolved(s) => {
-                        if stmt != *s {
-                            self.result.diagnostics.push(ControlDiagnostic {
-                                span: data.span,
-                                file: self.ast.file,
-                                kind: ControlDiagnosticKind::RedeclaredLabel,
-                            });
+                    Entry::Occupied(mut e) => {
+                        let e = e.get_mut();
+                        match e {
+                            TrackedLabel::Unresolved(v) => {
+                                v.iter().for_each(|(target, _)| target.set(Some(stmt)));
+                                *e = TrackedLabel::Resolved(stmt);
+                            }
+                            TrackedLabel::Resolved(s) => {
+                                if stmt != *s {
+                                    self.result.diagnostics.push(ControlDiagnostic {
+                                        span: data.span,
+                                        file: self.ast.file,
+                                        kind: ControlDiagnosticKind::RedeclaredLabel,
+                                    });
+                                }
+                            }
                         }
                     }
                 }

@@ -49,7 +49,6 @@ pub struct Parser<'a, 'ctx> {
 
 impl<'a, 'ctx> Parser<'a, 'ctx> {
     pub fn new(
-        lexer: Lexer<'a>,
         file: &'a SourceFile,
         tys: &'ctx TyCtx<'ctx>,
         interner: &'a mut IdentInterner,
@@ -58,7 +57,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             tys,
             file,
             interner,
-            lexer: lexer.peekable(),
+            lexer: Lexer::new(file).peekable(),
             specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),

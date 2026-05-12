@@ -92,6 +92,71 @@ impl Args {
         self.opt_free_from_fn(f)?.ok_or(Error::MissingArg)
     }
 
+    /// Parses an optional free-standing argument using a specified function.
+    ///
+    /// The same as [`Self::free_from_fn`], but returns `Ok(None)` when argument is not present.
+    ///
+    /// # Errors
+    ///
+    /// - When argument parsing failed.
+    /// - When argument is not a UTF-8 string.
+    pub fn opt_free_from_fn<T, E: std::fmt::Display>(
+        &mut self,
+        f: fn(&str) -> Result<T, E>,
+    ) -> Result<Option<T>, Error> {
+        if self.0.is_empty() {
+            Ok(None)
+        } else {
+            let value = self.0.remove(0);
+            let value = value.to_str().ok_or(Error::NonUtf8Arg)?;
+            match f(value) {
+                Ok(value) => Ok(Some(value)),
+                Err(e) => Err(Error::Utf8ArgParsingFailed {
+                    cause: e.to_string(),
+                    value: value.to_string(),
+                }),
+            }
+        }
+    }
+
+    /// Parses all remaining free-standing arguments using `FromStr`.
+    ///
+    /// This is a shorthand for `free_values_from_fn(FromStr::from_str)`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::free_values_from_fn`].
+    pub fn free_values_from_str<T>(&mut self) -> Result<Vec<T>, Error>
+    where
+        T: std::str::FromStr,
+        <T as std::str::FromStr>::Err: std::fmt::Display,
+    {
+        self.free_values_from_fn(std::str::FromStr::from_str)
+    }
+
+    /// Parses all remaining free-standing arguments using a specified function.
+    ///
+    /// Repeatedly calls [`Self::opt_free_from_fn`] until no arguments remain.
+    /// An empty `Vec` is not an error.
+    ///
+    /// # Errors
+    ///
+    /// - When any argument parsing failed.
+    /// - When any argument is not a UTF-8 string.
+    pub fn free_values_from_fn<T, E: std::fmt::Display>(
+        &mut self,
+        f: fn(&str) -> Result<T, E>,
+    ) -> Result<Vec<T>, Error> {
+        let mut values = Vec::new();
+        loop {
+            match self.opt_free_from_fn(f)? {
+                None => break,
+                Some(v) => values.push(v),
+            }
+        }
+        Ok(values)
+    }
+
     /// Parses an optional key-value pair using `FromStr` trait.
     ///
     /// This is a shorthand for `opt_value_from_fn("--key", FromStr::from_str)`
@@ -122,33 +187,6 @@ impl Args {
         <T as std::str::FromStr>::Err: std::fmt::Display,
     {
         self.values_from_fn(keys, std::str::FromStr::from_str)
-    }
-
-    /// Parses an optional free-standing argument using a specified function.
-    ///
-    /// The same as [`Self::free_from_fn`], but returns `Ok(None)` when argument is not present.
-    ///
-    /// # Errors
-    ///
-    /// - When argument parsing failed.
-    /// - When argument is not a UTF-8 string.
-    pub fn opt_free_from_fn<T, E: std::fmt::Display>(
-        &mut self,
-        f: fn(&str) -> Result<T, E>,
-    ) -> Result<Option<T>, Error> {
-        if self.0.is_empty() {
-            Ok(None)
-        } else {
-            let value = self.0.remove(0);
-            let value = value.to_str().ok_or(Error::NonUtf8Arg)?;
-            match f(value) {
-                Ok(value) => Ok(Some(value)),
-                Err(e) => Err(Error::Utf8ArgParsingFailed {
-                    cause: e.to_string(),
-                    value: value.to_string(),
-                }),
-            }
-        }
     }
 
     /// Parses an optional key-value pair using a specified function.
@@ -341,6 +379,27 @@ mod tests {
     fn opt_value_from_str_parse_failure() {
         let mut a = args(&["--count", "abc"]);
         let err = a.opt_value_from_str::<_, u32>("--count").unwrap_err();
+        assert!(matches!(err, Error::Utf8ArgParsingFailed { .. }));
+    }
+
+    #[test]
+    fn free_values_from_str_empty() {
+        let mut a = args(&[]);
+        let v: Vec<String> = a.free_values_from_str().unwrap();
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn free_values_from_str_multiple() {
+        let mut a = args(&["a", "b", "c"]);
+        let v: Vec<String> = a.free_values_from_str().unwrap();
+        assert_eq!(v, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn free_values_from_str_parse_failure() {
+        let mut a = args(&["1", "nope", "3"]);
+        let err = a.free_values_from_str::<u32>().unwrap_err();
         assert!(matches!(err, Error::Utf8ArgParsingFailed { .. }));
     }
 

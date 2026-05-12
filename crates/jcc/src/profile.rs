@@ -4,8 +4,10 @@ use std::time::{Duration, Instant};
 // Profiler
 // ---------------------------------------------------------------------------
 
+type PassLog = Vec<(&'static str, Duration)>;
+
 pub struct Profiler {
-    log: Option<Vec<(&'static str, Duration)>>,
+    log: Option<PassLog>,
 }
 
 impl Profiler {
@@ -36,42 +38,44 @@ impl Profiler {
         }
     }
 
-    pub fn report<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match &self.log {
-            None => Ok(()),
-            Some(passes) => {
-                let max_name_len = passes.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
-                let line_separator = "-".repeat(max_name_len + 28);
-                writeln!(writer, "{}", line_separator)?;
-                writeln!(writer, "Profiler Report")?;
-                writeln!(writer, "{}", line_separator)?;
-                let total_duration: Duration = passes.iter().map(|(_, d)| *d).sum();
-                for (pass, duration) in passes {
-                    let percentage = if total_duration.as_nanos() > 0 {
-                        (duration.as_secs_f64() / total_duration.as_secs_f64()) * 100.0
-                    } else {
-                        0.0
-                    };
-                    writeln!(
-                        writer,
-                        "{:<width$} : {:>10.4}ms ({:>5.1}%)",
-                        pass.to_string(),
-                        duration.as_micros() as f64 / 1000.0,
-                        percentage,
-                        width = max_name_len
-                    )?;
-                }
-                writeln!(writer, "{}", line_separator)?;
-                writeln!(
-                    writer,
-                    "{:<width$} : {:>10.4}ms (100.0%)",
-                    "Total",
-                    total_duration.as_micros() as f64 / 1000.0,
-                    width = max_name_len
-                )?;
-                writeln!(writer, "{}", line_separator)?;
-                Ok(())
-            }
+    pub fn log(&self) -> &[(&'static str, Duration)] {
+        self.log.as_deref().unwrap_or(&[])
+    }
+
+    pub fn report(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
+        let passes = self.log();
+        if passes.is_empty() {
+            return Ok(());
         }
+        let max_name_len = passes.iter().map(|(p, _)| p.len()).max().unwrap_or(0);
+        let total: Duration = passes.iter().map(|(_, d)| *d).sum();
+        let line_separator = "-".repeat(max_name_len + 28);
+        writeln!(writer, "{}", line_separator)?;
+        writeln!(writer, "Profiler Report")?;
+        writeln!(writer, "{}", line_separator)?;
+        for (pass, duration) in passes {
+            let percentage = if total.as_nanos() > 0 {
+                (duration.as_secs_f64() / total.as_secs_f64()) * 100.0
+            } else {
+                0.0
+            };
+            writeln!(
+                writer,
+                "{:<width$} : {:>10.4}ms ({:>5.1}%)",
+                pass,
+                duration.as_micros() as f64 / 1000.0,
+                percentage,
+                width = max_name_len
+            )?;
+        }
+        writeln!(writer, "{}", line_separator)?;
+        writeln!(
+            writer,
+            "{:<width$} : {:>10.4}ms (100.0%)",
+            "Total",
+            total.as_micros() as f64 / 1000.0,
+            width = max_name_len
+        )?;
+        writeln!(writer, "{}", line_separator)
     }
 }

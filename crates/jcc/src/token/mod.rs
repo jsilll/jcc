@@ -156,6 +156,14 @@ pub enum TokenKind {
     NumFloat,
     /// An identifier.
     Identifier,
+    /// A block comment.
+    CommentBlock,
+    /// An inline comment.
+    CommentInline,
+    /// The `#` token
+    ///
+    /// Note: only emitted when at the start of a line.
+    DirectiveHash,
 }
 
 impl TokenKind {
@@ -286,6 +294,9 @@ impl TokenKind {
             TokenKind::NumULong => "an unsigned long number",
             TokenKind::NumFloat => "a floating-point number",
             TokenKind::Identifier => "an identifier",
+            TokenKind::CommentBlock => "a block comment",
+            TokenKind::CommentInline => "an inline comment",
+            TokenKind::DirectiveHash => "#",
         }
     }
 }

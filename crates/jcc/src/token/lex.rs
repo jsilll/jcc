@@ -16,6 +16,7 @@ use std::{iter::Peekable, str::CharIndices};
 #[derive(Clone)]
 pub struct Lexer<'a> {
     pos: BytePos,
+    line_start: bool,
     file: &'a SourceFile,
     chars: Peekable<CharIndices<'a>>,
 }
@@ -28,76 +29,83 @@ impl<'a> Iterator for Lexer<'a> {
             if !c.is_whitespace() {
                 break;
             }
+            self.line_start = *c == '\n';
             self.chars.next();
         }
-        self.chars.next().map(|(idx, c)| {
-            self.pos = BytePos::from(idx);
-            match c {
-                c if c.is_ascii_digit() => self.number(false),
-                c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
-                '.' => match self.chars.peek() {
-                    Some((_, c)) if c.is_ascii_digit() => self.number(true),
-                    _ => Err(LexerDiagnostic {
-                        file: self.file.id(),
-                        span: Span::single(self.pos),
-                        kind: LexerDiagnosticKind::UnexpectedCharacter,
-                    }),
-                },
-                ';' => Ok(self.token(TokenKind::Semi, 1)),
-                ',' => Ok(self.token(TokenKind::Comma, 1)),
-                ':' => Ok(self.token(TokenKind::Colon, 1)),
-                '~' => Ok(self.token(TokenKind::Tilde, 1)),
-                '(' => Ok(self.token(TokenKind::LParen, 1)),
-                '{' => Ok(self.token(TokenKind::LBrace, 1)),
-                '[' => Ok(self.token(TokenKind::LBrack, 1)),
-                ')' => Ok(self.token(TokenKind::RParen, 1)),
-                '}' => Ok(self.token(TokenKind::RBrace, 1)),
-                ']' => Ok(self.token(TokenKind::RBrack, 1)),
-                '?' => Ok(self.token(TokenKind::Question, 1)),
-                '=' => Ok(self.match1('=', TokenKind::EqEq, TokenKind::Eq)),
-                '!' => Ok(self.match1('=', TokenKind::BangEq, TokenKind::Bang)),
-                '*' => Ok(self.match1('=', TokenKind::StarEq, TokenKind::Star)),
-                '/' => Ok(self.match1('=', TokenKind::SlashEq, TokenKind::Slash)),
-                '^' => Ok(self.match1('=', TokenKind::CaretEq, TokenKind::Caret)),
-                '%' => Ok(self.match1('=', TokenKind::PercentEq, TokenKind::Percent)),
-                '+' => Ok(self.match2(
-                    ('=', TokenKind::PlusEq),
-                    ('+', TokenKind::PlusPlus),
-                    TokenKind::Plus,
-                )),
-                '-' => Ok(self.match2(
-                    ('=', TokenKind::MinusEq),
-                    ('-', TokenKind::MinusMinus),
-                    TokenKind::Minus,
-                )),
-                '&' => Ok(self.match2(
-                    ('=', TokenKind::AmpEq),
-                    ('&', TokenKind::AmpAmp),
-                    TokenKind::Amp,
-                )),
-                '|' => Ok(self.match2(
-                    ('=', TokenKind::PipeEq),
-                    ('|', TokenKind::PipePipe),
-                    TokenKind::Pipe,
-                )),
-                '<' => Ok(self.match3(
-                    ('=', TokenKind::LtEq),
-                    ('<', TokenKind::LtLt),
-                    ('=', TokenKind::LtLtEq),
-                    TokenKind::Lt,
-                )),
-                '>' => Ok(self.match3(
-                    ('=', TokenKind::GtEq),
-                    ('>', TokenKind::GtGt),
-                    ('=', TokenKind::GtGtEq),
-                    TokenKind::Gt,
-                )),
+        let was_line_start = self.line_start;
+        let (idx, c) = self.chars.next()?;
+        self.pos = BytePos::from(idx);
+        self.line_start = false;
+        Some(match c {
+            c if c.is_ascii_digit() => self.number(false),
+            c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
+            '#' if was_line_start => Ok(self.token(TokenKind::DirectiveHash, 1)),
+            '.' => match self.chars.peek() {
+                Some((_, c)) if c.is_ascii_digit() => self.number(true),
                 _ => Err(LexerDiagnostic {
                     file: self.file.id(),
                     span: Span::single(self.pos),
                     kind: LexerDiagnosticKind::UnexpectedCharacter,
                 }),
-            }
+            },
+            ';' => Ok(self.token(TokenKind::Semi, 1)),
+            ',' => Ok(self.token(TokenKind::Comma, 1)),
+            ':' => Ok(self.token(TokenKind::Colon, 1)),
+            '~' => Ok(self.token(TokenKind::Tilde, 1)),
+            '(' => Ok(self.token(TokenKind::LParen, 1)),
+            '{' => Ok(self.token(TokenKind::LBrace, 1)),
+            '[' => Ok(self.token(TokenKind::LBrack, 1)),
+            ')' => Ok(self.token(TokenKind::RParen, 1)),
+            '}' => Ok(self.token(TokenKind::RBrace, 1)),
+            ']' => Ok(self.token(TokenKind::RBrack, 1)),
+            '?' => Ok(self.token(TokenKind::Question, 1)),
+            '=' => Ok(self.match1('=', TokenKind::EqEq, TokenKind::Eq)),
+            '!' => Ok(self.match1('=', TokenKind::BangEq, TokenKind::Bang)),
+            '*' => Ok(self.match1('=', TokenKind::StarEq, TokenKind::Star)),
+            '^' => Ok(self.match1('=', TokenKind::CaretEq, TokenKind::Caret)),
+            '%' => Ok(self.match1('=', TokenKind::PercentEq, TokenKind::Percent)),
+            '+' => Ok(self.match2(
+                ('=', TokenKind::PlusEq),
+                ('+', TokenKind::PlusPlus),
+                TokenKind::Plus,
+            )),
+            '-' => Ok(self.match2(
+                ('=', TokenKind::MinusEq),
+                ('-', TokenKind::MinusMinus),
+                TokenKind::Minus,
+            )),
+            '&' => Ok(self.match2(
+                ('=', TokenKind::AmpEq),
+                ('&', TokenKind::AmpAmp),
+                TokenKind::Amp,
+            )),
+            '|' => Ok(self.match2(
+                ('=', TokenKind::PipeEq),
+                ('|', TokenKind::PipePipe),
+                TokenKind::Pipe,
+            )),
+            '<' => Ok(self.match3(
+                ('=', TokenKind::LtEq),
+                ('<', TokenKind::LtLt),
+                ('=', TokenKind::LtLtEq),
+                TokenKind::Lt,
+            )),
+            '>' => Ok(self.match3(
+                ('=', TokenKind::GtEq),
+                ('>', TokenKind::GtGt),
+                ('=', TokenKind::GtGtEq),
+                TokenKind::Gt,
+            )),
+            '/' => match self.chars.peek() {
+                Some((_, '*')) => self.comment_block(),
+                Some((_, '/')) => Ok(self.comment_inline()),
+                _ => Ok(self.match1('=', TokenKind::SlashEq, TokenKind::Slash)),
+            },
+            _ => Err(LexerDiagnostic {
+                file: self.file.id(),
+                span: Span::single(self.pos),
+                kind: LexerDiagnosticKind::UnexpectedCharacter,
+            }),
         })
     }
 }
@@ -106,6 +114,7 @@ impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile) -> Self {
         Self {
             file,
+            line_start: true,
             pos: BytePos::ZERO,
             chars: file.source().char_indices().peekable(),
         }
@@ -169,6 +178,54 @@ impl<'a> Lexer<'a> {
                 self.match1(kind3.0, kind3.1, kind2.1)
             }
             _ => self.token(fallback, 1),
+        }
+    }
+
+    fn comment_inline(&mut self) -> Token {
+        while let Some((_, c)) = self.chars.peek() {
+            if *c == '\n' {
+                break;
+            }
+            self.chars.next();
+        }
+        let end = self
+            .chars
+            .peek()
+            .map(|(idx, _)| *idx as u32)
+            .unwrap_or(self.file.source().len() as u32);
+        Token {
+            kind: TokenKind::CommentInline,
+            span: Span::new(self.pos, end).unwrap_or_default(),
+        }
+    }
+
+    fn comment_block(&mut self) -> Result<Token, LexerDiagnostic> {
+        self.chars.next(); // Skip '*'
+        let mut closed = false;
+        while let Some((_, c)) = self.chars.next() {
+            if c == '*' && matches!(self.chars.peek(), Some((_, '/'))) {
+                self.chars.next();
+                closed = true;
+                break;
+            }
+        }
+        let end = self
+            .chars
+            .peek()
+            .map(|(idx, _)| *idx as u32)
+            .unwrap_or(self.file.source().len() as u32);
+        let span = Span::new(self.pos, end).unwrap_or_default();
+        if closed {
+            Ok(Token {
+                span,
+                kind: TokenKind::CommentBlock,
+            })
+        } else {
+            Err(LexerDiagnostic {
+                span,
+                file: self.file.id(),
+                kind: LexerDiagnosticKind::UnterminatedBlockComment,
+            })
         }
     }
 
@@ -309,6 +366,7 @@ pub enum LexerDiagnosticKind {
     EmptyExponent,
     InvalidNumberSuffix,
     UnexpectedCharacter,
+    UnterminatedBlockComment,
 }
 
 impl From<LexerDiagnostic> for Diagnostic {
@@ -326,6 +384,10 @@ impl From<LexerDiagnostic> for Diagnostic {
                 .with_label(Label::primary(diagnostic.file, diagnostic.span))
                 .with_message("invalid number suffix")
                 .with_note("numbers cannot be followed by a letter, digit, underscore, or dot"),
+            LexerDiagnosticKind::UnterminatedBlockComment => Diagnostic::error()
+                .with_label(Label::primary(diagnostic.file, diagnostic.span))
+                .with_message("unterminated block comment")
+                .with_note("block comments must be closed with '*/'"),
         }
     }
 }

@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod builder;
 pub mod inst;
+pub mod passes;
 pub mod pretty;
 pub mod term;
 pub mod ty;

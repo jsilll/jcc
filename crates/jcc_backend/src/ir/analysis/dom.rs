@@ -22,34 +22,8 @@ impl Dominance {
         self.idom[block]
     }
 
-    pub fn dominates(&self, a: Block, b: Block) -> bool {
-        if a == b {
-            return true;
-        }
-        let mut b = b;
-        while let Some(idom) = self.idom[b] {
-            if idom == a {
-                return true;
-            }
-            b = idom;
-        }
-        false
-    }
-
     pub fn children(&self, block: Block) -> impl IntoIterator<Item = Block> + '_ {
         self.pool[self.children[block]].iter().copied()
-    }
-
-    pub fn intersect(&self, mut a: Block, mut b: Block, order: &Order) -> Block {
-        while a != b {
-            while order.rpo_idx(a) > order.rpo_idx(b) {
-                a = self.idom[a].expect("block has no idom");
-            }
-            while order.rpo_idx(b) > order.rpo_idx(a) {
-                b = self.idom[b].expect("block has no idom");
-            }
-        }
-        a
     }
 
     pub fn compute(&mut self, prog: &Program, order: &Order, cfg: &ControlFlowGraph) {

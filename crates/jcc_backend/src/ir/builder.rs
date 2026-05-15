@@ -4,6 +4,7 @@ use crate::{
     ir::{
         analysis::{cfg::ControlFlowGraph, dom::Dominance, order::Order},
         inst::Inst,
+        passes::mem2reg::Mem2Reg,
         term::Terminator,
         ty::Ty,
         Block, BlockData, Function, Program, Value, ValueData,
@@ -28,7 +29,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub fn finish(self) -> Program {
+    pub fn finish(mut self) -> Program {
         let mut order = Order::new();
         let mut dom = Dominance::new();
         let mut cfg = ControlFlowGraph::new();
@@ -36,6 +37,7 @@ impl<'a> Builder<'a> {
         order.compute(&self.program);
         cfg.compute(&self.program, &order);
         dom.compute(&self.program, &order, &cfg);
+        Mem2Reg::new().run(&mut self.program, &order, &cfg, &dom);
 
         self.program
     }

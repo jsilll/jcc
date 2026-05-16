@@ -88,6 +88,8 @@ pub enum BlockItem {
     Stmt(Stmt),
 }
 
+impl jcc_entity::IdentityHashable for BlockItem {}
+
 impl EntityRef for BlockItem {
     fn new(index: usize) -> Self {
         BlockItem::Decl(Decl::new(index))

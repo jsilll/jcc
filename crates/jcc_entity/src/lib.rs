@@ -2,23 +2,29 @@
 //!
 //! This module provides a generic entity reference system that prevents mixing
 //! different entity types at compile time. This is particularly useful for a compiler
-//! IR where you have multiple interrelated entity types (instructions, blocks,
-//! functions, etc.) that should not be confused.
+//! IR where you have multiple interrelated entity types (instructions, blocks, etc.) that should not be confused.
 
-mod hash;
 mod primary;
 mod secondary;
 mod slice;
 mod sparse;
 
-pub use hash::{EntityHasher, EntityMap, EntitySet};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
 pub use slice::{EntitySlice, SlicePool};
 pub use sparse::{map::SparseMap, set::SparseSet};
 
+pub use jcc_identity::BuildIdentityHasher as BuildEntityHasher;
+pub use jcc_identity::IdentityHashable;
+
+/// A [`HashMap`](std::collections::HashMap) using identity hashing for [`IdentityHashable`] keys.
+pub type EntityMap<K, V> = jcc_identity::IntMap<K, V>;
+
+/// A [`HashSet`](std::collections::HashSet) using identity hashing for [`IdentityHashable`] keys.
+pub type EntitySet<K> = jcc_identity::IntSet<K>;
+
 /// Trait for types that can be used as entity references.
-pub trait EntityRef: Copy + Eq + std::hash::Hash {
+pub trait EntityRef: Copy + Eq + IdentityHashable {
     /// Create a new entity reference
     fn new(index: usize) -> Self;
     /// Get the index of the entity to index the array
@@ -49,6 +55,8 @@ macro_rules! entity_impl {
     };
 
     ($entity:ident) => {
+        impl $crate::IdentityHashable for $entity {}
+
         impl $crate::EntityRef for $entity {
             #[inline]
             fn new(index: usize) -> Self {

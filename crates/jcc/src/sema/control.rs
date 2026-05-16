@@ -156,7 +156,8 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     Some(switch_stmt) => self
                         .ctx
                         .switches
-                        .get_or_insert_default(*switch_stmt)
+                        .entry(*switch_stmt)
+                        .or_default()
                         .cases
                         .push(stmt),
                     _ => self.result.diagnostics.push(ControlDiagnostic {
@@ -173,7 +174,7 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     _ => None,
                 }) {
                     Some(switch_stmt) => {
-                        let switch = self.ctx.switches.get_or_insert_default(*switch_stmt);
+                        let switch = self.ctx.switches.entry(*switch_stmt).or_default();
                         match switch.default {
                             None => switch.default = Some(stmt),
                             Some(_) => self.result.diagnostics.push(ControlDiagnostic {

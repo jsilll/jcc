@@ -7,5 +7,6 @@ members = [
     "crates/jcc_backend",
     "crates/jcc_codemap",
     "crates/jcc_entity",
+    "crates/jcc_identity",
     "crates/jcc_interner",
 ]

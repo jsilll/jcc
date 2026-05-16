@@ -246,7 +246,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
 
     #[inline]
     fn get_or_create_global_symbol(&mut self, name: &Symbol) -> sema::Symbol {
-        let symbol = self.globals.get_or_insert_with(name.name, || {
+        let symbol = self.globals.entry(name.name).or_insert_with(|| {
             let symbol = sema::Symbol::new(self.symbol_count);
             self.symbol_count += 1;
             symbol

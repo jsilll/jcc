@@ -1,16 +1,13 @@
 [package]
-name = "jcc_entity"
+name = "jcc_identity"
 version = "0.1.0"
 edition = "2021"
-description = "Entity-based indexing data structures for compiler intermediate representations"
-keywords = ["entity", "index", "compiler", "data-structures", "arena"]
-categories = ["data-structures", "compilers"]
+description = "A pass-through identity hasher for integer-like keys"
+keywords = ["hasher", "identity", "data-structures"]
+categories = ["data-structures"]
 license = "MIT"
 repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
-
-[dependencies]
-jcc_identity = { path = "../jcc_identity" }
 
 [lints.rust]
 unsafe_code = "warn"

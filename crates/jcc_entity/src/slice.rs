@@ -20,6 +20,8 @@ impl<T> EntitySlice<T> {
     }
 }
 
+impl<T: EntityRef> jcc_identity::IdentityHashable for EntitySlice<T> {}
+
 impl<T: EntityRef> EntityRef for EntitySlice<T> {
     #[inline]
     fn new(index: usize) -> Self {

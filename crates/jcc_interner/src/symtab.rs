@@ -22,10 +22,9 @@ use std::{
     hash::{BuildHasher, Hash},
 };
 
+/// A [`SymbolTable`] using identity hashing for [`jcc_entity::IdentityHashable`] keys.
 #[cfg(feature = "entity")]
-/// A [`SymbolTable`] using identity hashing for [`jcc_entity::EntityRef`] keys.
-pub type EntitySymbolTable<S, V> =
-    SymbolTable<S, V, std::hash::BuildHasherDefault<jcc_entity::EntityHasher>>;
+pub type EntitySymbolTable<S, V> = SymbolTable<S, V, jcc_entity::BuildEntityHasher<S>>;
 
 /// Holds the value and the version at which it was last modified.
 #[derive(Debug, Clone)]

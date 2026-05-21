@@ -30,16 +30,20 @@ impl<'a> Iterator for Lexer<'a> {
                 break;
             }
             self.line_start = *c == '\n';
-            self.chars.next();
+            let idx = self.chars.next()?.0;
+            if self.line_start {
+                self.pos = BytePos::from(idx);
+                return Some(Ok(self.token(TokenKind::NewLine, 1)));
+            }
         }
-        let was_line_start = self.line_start;
+        let can_emit_hash = self.line_start;
         let (idx, c) = self.chars.next()?;
         self.pos = BytePos::from(idx);
         self.line_start = false;
         Some(match c {
             c if c.is_ascii_digit() => self.number(false),
             c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
-            '#' if was_line_start => Ok(self.token(TokenKind::DirectiveHash, 1)),
+            '#' if can_emit_hash => Ok(self.token(TokenKind::DirectiveHash, 1)),
             '.' => match self.chars.peek() {
                 Some((_, c)) if c.is_ascii_digit() => self.number(true),
                 _ => Err(Issue::new(

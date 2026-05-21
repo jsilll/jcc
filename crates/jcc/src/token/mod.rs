@@ -160,6 +160,10 @@ pub enum TokenKind {
     CommentBlock,
     /// An inline comment.
     CommentInline,
+    /// The `\\n` token.
+    /// 
+    /// Note: emitted for line tracking
+    NewLine,
     /// The `#` token
     ///
     /// Note: only emitted when at the start of a line.
@@ -296,6 +300,7 @@ impl TokenKind {
             TokenKind::Identifier => "an identifier",
             TokenKind::CommentBlock => "a block comment",
             TokenKind::CommentInline => "an inline comment",
+            TokenKind::NewLine => "\\n",
             TokenKind::DirectiveHash => "#",
         }
     }

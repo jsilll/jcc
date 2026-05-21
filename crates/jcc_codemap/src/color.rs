@@ -191,7 +191,7 @@ fn emit_label_colored<W: WriteColor>(
 
     let LineCol { line, column } = location.line_col;
     let num_lines = location.line_text.lines().count();
-    let last_line = line + u32::try_from(num_lines - 1).unwrap_or(0);
+    let last_line = line + u32::try_from(num_lines.saturating_sub(1)).unwrap_or(0);
     let line_num_width = last_line.checked_ilog10().unwrap_or(0) as usize + 1;
     let empty = "";
 

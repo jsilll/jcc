@@ -6,7 +6,7 @@ use crate::{
         UnaryOp,
     },
     token::{
-        lex::{Lexer, LexerIssue},
+        lex::{CleanLexer, Lexer, LexerIssue},
         Token, TokenKind,
     },
 };
@@ -32,7 +32,7 @@ pub struct Parser<'a, 'ctx> {
     /// The type context used for creating and interning types.
     tys: &'ctx TyCtx<'ctx>,
     /// The lexer that provides a stream of tokens.
-    lexer: Peekable<Lexer<'a>>,
+    lexer: Peekable<CleanLexer<'a>>,
     /// The interner for identifier interning.
     interner: &'a mut IdentInterner,
     /// A temporary buffer for collecting type specifiers.
@@ -57,12 +57,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             tys,
             file,
             interner,
-            lexer: Lexer::new(file).peekable(),
             specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
             items_stack: Vec::with_capacity(16),
             result: ParserResult::new(file.id()),
+            lexer: <Lexer as Into<CleanLexer>>::into(Lexer::new(file)).peekable(),
         }
     }
 

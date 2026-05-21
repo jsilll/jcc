@@ -161,7 +161,7 @@ pub enum TokenKind {
     /// An inline comment.
     CommentInline,
     /// The `\\n` token.
-    /// 
+    ///
     /// Note: emitted for line tracking
     NewLine,
     /// The `#` token

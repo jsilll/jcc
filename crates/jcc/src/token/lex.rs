@@ -30,16 +30,20 @@ impl<'a> Iterator for Lexer<'a> {
                 break;
             }
             self.line_start = *c == '\n';
-            self.chars.next();
+            let idx = self.chars.next()?.0;
+            if self.line_start {
+                self.pos = BytePos::from(idx);
+                return Some(Ok(self.token(TokenKind::NewLine, 1)));
+            }
         }
-        let was_line_start = self.line_start;
+        let can_emit_hash = self.line_start;
         let (idx, c) = self.chars.next()?;
         self.pos = BytePos::from(idx);
         self.line_start = false;
         Some(match c {
             c if c.is_ascii_digit() => self.number(false),
             c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
-            '#' if was_line_start => Ok(self.token(TokenKind::DirectiveHash, 1)),
+            '#' if can_emit_hash => Ok(self.token(TokenKind::DirectiveHash, 1)),
             '.' => match self.chars.peek() {
                 Some((_, c)) if c.is_ascii_digit() => self.number(true),
                 _ => Err(Issue::new(
@@ -381,5 +385,33 @@ impl IntoDiagnostic for LexerIssue {
         Diagnostic::error()
             .with_label(Label::primary(file, span).with_message(msg))
             .with_note(note)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CleanLexer
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct CleanLexer<'a> {
+    inner: Lexer<'a>,
+}
+
+impl<'a> From<Lexer<'a>> for CleanLexer<'a> {
+    fn from(inner: Lexer<'a>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a> Iterator for CleanLexer<'a> {
+    type Item = <Lexer<'a> as Iterator>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.inner.next()? {
+                Ok(token) if token.kind == TokenKind::NewLine => continue,
+                item => return Some(item),
+            }
+        }
     }
 }

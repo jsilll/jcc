@@ -9,7 +9,7 @@ use crate::{
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 
-use jcc_backend::codemap::{file::FileId, span::Span, Diagnostic, Label};
+use jcc_backend::codemap::{file::FileId, span::Span, Diagnostic, IntoDiagnostic, Issue, Label};
 
 use std::collections::HashSet;
 
@@ -65,15 +65,12 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         Some(value) => match value.cast(data.ty) {
                             Some(v) => StaticValue::Init(v),
                             None => {
-                                self.emit(
-                                    self.ast.expr[init].span,
-                                    TyperDiagnosticKind::ConstantOutOfRange,
-                                );
+                                self.emit(self.ast.expr[init].span, TypeIssue::ConstantOutOfRange);
                                 StaticValue::NoInit
                             }
                         },
                         None => {
-                            self.emit(self.ast.expr[init].span, TyperDiagnosticKind::NotConstant);
+                            self.emit(self.ast.expr[init].span, TypeIssue::NotConstant);
                             StaticValue::NoInit
                         }
                     },
@@ -86,11 +83,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     info.get_or_insert(SymbolInfo::statik(data.ty, decl_is_global, decl_init));
 
                 if info.ty != data.ty {
-                    self.result.diagnostics.push(TyperDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                    });
+                    self.result.issues.push(Issue::new(
+                        TypeIssue::DeclarationTypeMismatch,
+                        self.ast.file,
+                        data.span,
+                    ));
                 }
 
                 if let Attribute::Static {
@@ -101,11 +98,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     if (is_global != decl_is_global)
                         && !matches!(data.storage, Some(StorageClass::Extern))
                     {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            span: data.span,
-                            file: self.ast.file,
-                            kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
-                        });
+                        self.result.issues.push(Issue::new(
+                            TypeIssue::DeclarationVisibilityMismatch,
+                            self.ast.file,
+                            data.span,
+                        ));
                     }
                     match init {
                         StaticValue::NoInit => *init = decl_init,
@@ -116,7 +113,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                         StaticValue::Init(_) => {
                             if occupied && matches!(decl_init, StaticValue::Init(_)) {
-                                self.emit(data.span, TyperDiagnosticKind::MultipleInitializers);
+                                self.emit(data.span, TypeIssue::MultipleInitializers);
                             }
                         }
                     }
@@ -142,15 +139,12 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
                 Some(StorageClass::Extern) => {
                     if let Some(init) = init {
-                        self.emit(
-                            self.ast.expr[init].span,
-                            TyperDiagnosticKind::ExternLocalInitialized,
-                        );
+                        self.emit(self.ast.expr[init].span, TypeIssue::ExternLocalInitialized);
                     }
                     let info = self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")]
                         .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
                     if info.ty != data.ty {
-                        self.emit(data.span, TyperDiagnosticKind::DeclarationTypeMismatch);
+                        self.emit(data.span, TypeIssue::DeclarationTypeMismatch);
                     }
                 }
                 Some(StorageClass::Static) => {
@@ -167,16 +161,13 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     None => {
                                         self.emit(
                                             self.ast.expr[init].span,
-                                            TyperDiagnosticKind::ConstantOutOfRange,
+                                            TypeIssue::ConstantOutOfRange,
                                         );
                                         StaticValue::Tentative
                                     }
                                 },
                                 None => {
-                                    self.emit(
-                                        self.ast.expr[init].span,
-                                        TyperDiagnosticKind::NotConstant,
-                                    );
+                                    self.emit(self.ast.expr[init].span, TypeIssue::NotConstant);
                                     StaticValue::Tentative
                                 }
                             }
@@ -196,11 +187,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 .get_or_insert(SymbolInfo::function(decl.ty, decl_is_global, false));
 
             if entry.ty != decl.ty {
-                self.result.diagnostics.push(TyperDiagnostic {
-                    span: decl.span,
-                    file: self.ast.file,
-                    kind: TyperDiagnosticKind::DeclarationTypeMismatch,
-                });
+                self.result.issues.push(Issue::new(
+                    TypeIssue::DeclarationTypeMismatch,
+                    self.ast.file,
+                    decl.span,
+                ));
             }
 
             if let Attribute::Function {
@@ -209,26 +200,26 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             } = entry.attr
             {
                 if is_global && !decl_is_global {
-                    self.result.diagnostics.push(TyperDiagnostic {
-                        span: decl.span,
-                        file: self.ast.file,
-                        kind: TyperDiagnosticKind::DeclarationVisibilityMismatch,
-                    });
+                    self.result.issues.push(Issue::new(
+                        TypeIssue::DeclarationVisibilityMismatch,
+                        self.ast.file,
+                        decl.span,
+                    ));
                 }
                 if body.is_some() {
                     if *is_defined {
-                        self.emit(decl.span, TyperDiagnosticKind::FunctionAlreadyDefined);
+                        self.emit(decl.span, TypeIssue::FunctionAlreadyDefined);
                         return;
                     }
                     *is_defined = true;
                 }
                 self.ast.decls[params].iter().for_each(|param| {
                     if self.ast.decl[*param].storage.is_some() {
-                        self.result.diagnostics.push(TyperDiagnostic {
-                            file: self.ast.file,
-                            span: self.ast.decl[*param].span,
-                            kind: TyperDiagnosticKind::StorageClassesDisallowed,
-                        });
+                        self.result.issues.push(Issue::new(
+                            TypeIssue::StorageClassesDisallowed,
+                            self.ast.file,
+                            self.ast.decl[*param].span,
+                        ));
                     }
                     self.visit_block_scope_decl(*param)
                 });
@@ -300,11 +291,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         }
                         ForInit::VarDecl(decl) => {
                             if self.ast.decl[*decl].storage.is_some() {
-                                self.result.diagnostics.push(TyperDiagnostic {
-                                    file: self.ast.file,
-                                    span: self.ast.decl[*decl].span,
-                                    kind: TyperDiagnosticKind::StorageClassesDisallowed,
-                                });
+                                self.result.issues.push(Issue::new(
+                                    TypeIssue::StorageClassesDisallowed,
+                                    self.ast.file,
+                                    self.ast.decl[*decl].span,
+                                ));
                             }
                             self.visit_block_scope_decl(*decl);
                         }
@@ -327,28 +318,28 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         .for_each(|stmt| match &self.ast.stmt[*stmt].kind {
                             StmtKind::Case { expr, .. } => match eval_constant(self.ast, *expr) {
                                 None => {
-                                    self.result.diagnostics.push(TyperDiagnostic {
-                                        file: self.ast.file,
-                                        span: self.ast.expr[*expr].span,
-                                        kind: TyperDiagnosticKind::NotConstant,
-                                    });
+                                    self.result.issues.push(Issue::new(
+                                        TypeIssue::NotConstant,
+                                        self.ast.file,
+                                        self.ast.expr[*expr].span,
+                                    ));
                                 }
                                 Some(c) => match c.cast(cty) {
                                     Some(val) => {
                                         if !self.switch_cases.insert(val) {
-                                            self.result.diagnostics.push(TyperDiagnostic {
-                                                file: self.ast.file,
-                                                span: self.ast.expr[*expr].span,
-                                                kind: TyperDiagnosticKind::DuplicateSwitchCase,
-                                            });
+                                            self.result.issues.push(Issue::new(
+                                                TypeIssue::DuplicateSwitchCase,
+                                                self.ast.file,
+                                                self.ast.expr[*expr].span,
+                                            ));
                                         }
                                     }
                                     None => {
-                                        self.result.diagnostics.push(TyperDiagnostic {
-                                            file: self.ast.file,
-                                            span: self.ast.expr[*expr].span,
-                                            kind: TyperDiagnosticKind::ConstantOutOfRange,
-                                        });
+                                        self.result.issues.push(Issue::new(
+                                            TypeIssue::ConstantOutOfRange,
+                                            self.ast.file,
+                                            self.ast.expr[*expr].span,
+                                        ));
                                     }
                                 },
                             },
@@ -397,7 +388,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     }
                     UnaryOp::BitNot => {
                         if !ty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                            self.emit(data.span, TypeIssue::InvalidBitwiseOperand);
                         }
                         ty
                     }
@@ -411,20 +402,20 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     BinaryOp::LogAnd | BinaryOp::LogOr => self.ctx.ty.int_ty,
                     BinaryOp::BitShl | BinaryOp::BitShr => {
                         if !lty.is_integer() || !rty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                            self.emit(data.span, TypeIssue::InvalidBitwiseOperand);
                         }
                         lty
                     }
                     BinaryOp::BitShlAssign | BinaryOp::BitShrAssign => {
                         self.assert_is_lvalue(*lhs);
                         if !lty.is_integer() || !rty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                            self.emit(data.span, TypeIssue::InvalidBitwiseOperand);
                         }
                         lty
                     }
                     BinaryOp::Rem => {
                         if !lty.is_integer() || !rty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidRemainderOperand);
+                            self.emit(data.span, TypeIssue::InvalidRemainderOperand);
                         }
                         let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
@@ -438,7 +429,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     BinaryOp::RemAssign => {
                         self.assert_is_lvalue(*lhs);
                         if !lty.is_integer() || !rty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidRemainderOperand);
+                            self.emit(data.span, TypeIssue::InvalidRemainderOperand);
                         }
                         let common = self.assert_common_type(lty, rty, data.span);
                         if rty != common {
@@ -485,7 +476,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     }
                     BinaryOp::BitOr | BinaryOp::BitAnd | BinaryOp::BitXor => {
                         if !lty.is_integer() || !rty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                            self.emit(data.span, TypeIssue::InvalidBitwiseOperand);
                         }
                         let common = self.assert_common_type(lty, rty, data.span);
                         if lty != common {
@@ -499,7 +490,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     BinaryOp::BitOrAssign | BinaryOp::BitAndAssign | BinaryOp::BitXorAssign => {
                         self.assert_is_lvalue(*lhs);
                         if !lty.is_integer() || !rty.is_integer() {
-                            self.emit(data.span, TyperDiagnosticKind::InvalidBitwiseOperand);
+                            self.emit(data.span, TypeIssue::InvalidBitwiseOperand);
                         }
                         let common = self.assert_common_type(lty, rty, data.span);
                         if rty != common {
@@ -514,7 +505,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     .expect("symbol info not found")
                     .ty;
                 if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
-                    self.emit(data.span, TyperDiagnosticKind::VariableUsedAsFunction);
+                    self.emit(data.span, TypeIssue::VariableUsedAsFunction);
                 }
                 ty
             }
@@ -528,10 +519,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 match *ty {
                     TyKind::Func { ret, ref params } => {
                         if self.ast.exprs.len_of(*args) != params.len() {
-                            self.emit(
-                                data.span,
-                                TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber,
-                            );
+                            self.emit(data.span, TypeIssue::FunctionCalledWithWrongArgsNumber);
                         }
                         self.ast.exprs[*args]
                             .iter()
@@ -544,7 +532,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                         ret
                     }
                     _ => {
-                        self.emit(data.span, TyperDiagnosticKind::VariableUsedAsFunction);
+                        self.emit(data.span, TypeIssue::VariableUsedAsFunction);
                         self.ctx.ty.void_ty
                     }
                 }
@@ -558,17 +546,15 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     // Auxiliary methods
     // ---------------------------------------------------------------------------
 
-    fn emit(&mut self, span: Span, kind: TyperDiagnosticKind) {
-        self.result.diagnostics.push(TyperDiagnostic {
-            span,
-            kind,
-            file: self.ast.file,
-        });
+    fn emit(&mut self, span: Span, kind: TypeIssue) {
+        self.result
+            .issues
+            .push(Issue::new(kind, self.ast.file, span));
     }
 
     fn assert_is_lvalue(&mut self, expr: Expr) -> bool {
         if !self.ast.expr[expr].kind.is_lvalue(self.ast) {
-            self.emit(self.ast.expr[expr].span, TyperDiagnosticKind::InvalidLValue);
+            self.emit(self.ast.expr[expr].span, TypeIssue::InvalidLValue);
             return false;
         }
         true
@@ -576,7 +562,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 
     fn assert_common_type(&mut self, lhs: Ty<'ctx>, rhs: Ty<'ctx>, span: Span) -> Ty<'ctx> {
         TyKind::common(lhs, rhs).unwrap_or_else(|| {
-            self.emit(span, TyperDiagnosticKind::TypeMismatch);
+            self.emit(span, TypeIssue::TypeMismatch);
             self.ctx.ty.void_ty
         })
     }
@@ -604,13 +590,13 @@ fn eval_constant(ast: &Ast, expr: Expr) -> Option<Constant> {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum TyperDiagnosticKind {
+pub enum TypeIssue {
+    ConstantOutOfRange,
     DeclarationTypeMismatch,
     DeclarationVisibilityMismatch,
     DuplicateSwitchCase,
     ExternLocalInitialized,
     FunctionAlreadyDefined,
-    ConstantOutOfRange,
     FunctionCalledWithWrongArgsNumber,
     FunctionUsedAsVariable,
     InvalidBitwiseOperand,
@@ -623,106 +609,77 @@ pub enum TyperDiagnosticKind {
     VariableUsedAsFunction,
 }
 
-impl From<TyperDiagnostic> for Diagnostic {
-    fn from(diagnostic: TyperDiagnostic) -> Self {
-        match diagnostic.kind {
-            TyperDiagnosticKind::DeclarationTypeMismatch => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("type doesn't match previous declaration"),
-                )
-                .with_note("redeclared with a different type than the original declaration"),
-            TyperDiagnosticKind::DeclarationVisibilityMismatch => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("visibility doesn't match previous declaration"),
-                )
-                .with_note("redeclared with a different visibility (static/extern) than the original declaration"),
-            TyperDiagnosticKind::DuplicateSwitchCase => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("duplicate case value"),
-                )
-                .with_note("this case value already appears earlier in the switch statement"),
-            TyperDiagnosticKind::ExternLocalInitialized => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("extern variable cannot have an initializer"),
-                )
-                .with_note("variables with 'extern' storage class are declarations only and cannot be initialized"),
-            TyperDiagnosticKind::FunctionAlreadyDefined => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("function already has a definition"),
-                )
-                .with_note("a function can only be defined once; a previous definition already exists"),
-            TyperDiagnosticKind::ConstantOutOfRange => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("constant value is out of range for the target type"),
-                )
-                .with_note("the value cannot be represented in the target type without overflow"),
-            TyperDiagnosticKind::FunctionCalledWithWrongArgsNumber => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("incorrect number of arguments"),
-                )
-                .with_note("the number of arguments doesn't match the function's parameter count"),
-            TyperDiagnosticKind::FunctionUsedAsVariable => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("cannot use function as a value"),
-                )
-                .with_note("functions cannot be used in value contexts; did you forget the function call parentheses?"),
-            TyperDiagnosticKind::InvalidBitwiseOperand => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("invalid operand type for bitwise operator"),
-                )
-                .with_note("bitwise operators (<<, >>, &, |, ^, ~) only accept integer operands"),
-            TyperDiagnosticKind::InvalidLValue => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("cannot assign to this expression"),
-                )
-                .with_note("only variables and dereferenced pointers can appear on the left side of an assignment"),
-            TyperDiagnosticKind::InvalidRemainderOperand => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("invalid operand type for remainder operator"),
-                )
-                .with_note("the remainder operator (%) only accepts integer operands"),
-            TyperDiagnosticKind::MultipleInitializers => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("variable already has an initializer"),
-                )
-                .with_note("variables can only be initialized once in their declaration"),
-            TyperDiagnosticKind::NotConstant => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("expected a constant expression"),
-                )
-                .with_note("this context requires a compile-time constant value"),
-            TyperDiagnosticKind::StorageClassesDisallowed => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("storage class not allowed here"),
-                )
-                .with_note("storage class specifiers (static, extern, register) cannot be used in this context"),
-            TyperDiagnosticKind::TypeMismatch => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("type mismatch"),
-                )
-                .with_note("the type of this expression doesn't match what was expected"),
-            TyperDiagnosticKind::VariableUsedAsFunction => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("cannot call a non-function"),
-                )
-                .with_note("only functions can be called; this is a variable"),
-        }
+impl IntoDiagnostic for TypeIssue {
+    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+        let (msg, note) = match self {
+            TypeIssue::ConstantOutOfRange => (
+                "constant value is out of range for the target type",
+                "the value cannot be represented in the target type without overflow",
+            ),
+            TypeIssue::DeclarationTypeMismatch => (
+                "type doesn't match previous declaration",
+                "redeclared with a different type than the original declaration",
+            ),
+            TypeIssue::DeclarationVisibilityMismatch => (
+                "visibility doesn't match previous declaration",
+                "redeclared with a different visibility (static/extern) than the original declaration",
+            ),
+            TypeIssue::DuplicateSwitchCase => (
+                "duplicate case value",
+                "this case value already appears earlier in the switch statement",
+            ),
+            TypeIssue::ExternLocalInitialized => (
+                "extern variable cannot have an initializer",
+                "variables with 'extern' storage class are declarations only and cannot be initialized",
+            ),
+            TypeIssue::FunctionAlreadyDefined => (
+                "function already has a definition",
+                "a function can only be defined once; a previous definition already exists",
+            ),
+            TypeIssue::FunctionCalledWithWrongArgsNumber => (
+                "incorrect number of arguments",
+                "the number of arguments doesn't match the function's parameter count",
+            ),
+            TypeIssue::FunctionUsedAsVariable => (
+                "cannot use function as a value",
+                "functions cannot be used in value contexts; did you forget the function call parentheses?",
+            ),
+            TypeIssue::InvalidBitwiseOperand => (
+                "invalid operand type for bitwise operator",
+                "bitwise operators (<<, >>, &, |, ^, ~) only accept integer operands",
+            ),
+            TypeIssue::InvalidLValue => (
+                "cannot assign to this expression",
+                "only variables and dereferenced pointers can appear on the left side of an assignment",
+            ),
+            TypeIssue::InvalidRemainderOperand => (
+                "invalid operand type for remainder operator",
+                "the remainder operator (%) only accepts integer operands",
+            ),
+            TypeIssue::MultipleInitializers => (
+                "variable already has an initializer",
+                "variables can only be initialized once in their declaration",
+            ),
+            TypeIssue::NotConstant => (
+                "expected a constant expression",
+                "this context requires a compile-time constant value",
+            ),
+            TypeIssue::StorageClassesDisallowed => (
+                "storage class not allowed here",
+                "storage class specifiers (static, extern, register) cannot be used in this context",
+            ),
+            TypeIssue::TypeMismatch => (
+                "type mismatch",
+                "the type of this expression doesn't match what was expected",
+            ),
+            TypeIssue::VariableUsedAsFunction => (
+                "cannot call a non-function",
+                "only functions can be called; this is a variable",
+            ),
+        };
+        Diagnostic::error()
+            .with_label(Label::primary(file, span).with_message(msg))
+            .with_note(note)
     }
 }
 
@@ -730,19 +687,8 @@ impl From<TyperDiagnostic> for Diagnostic {
 // TyperResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default)]
 pub struct TyperResult<'ctx> {
     pub actions: DesugarActions<'ctx>,
-    pub diagnostics: Vec<TyperDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// TyperDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct TyperDiagnostic {
-    pub span: Span,
-    pub file: FileId,
-    pub kind: TyperDiagnosticKind,
+    pub issues: Vec<Issue<TypeIssue>>,
 }

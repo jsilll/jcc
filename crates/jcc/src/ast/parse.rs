@@ -6,7 +6,7 @@ use crate::{
         UnaryOp,
     },
     token::{
-        lex::{Lexer, LexerDiagnostic},
+        lex::{Lexer, LexerIssue},
         Token, TokenKind,
     },
 };
@@ -15,12 +15,12 @@ use jcc_backend::{
     codemap::{
         file::{FileId, SourceFile},
         span::Span,
-        Diagnostic, Label,
+        Diagnostic, IntoDiagnostic, Issue, Label,
     },
     Ident, IdentInterner,
 };
 
-use std::iter::Peekable;
+use std::{borrow::Cow, iter::Peekable};
 
 // ---------------------------------------------------------------------------
 // Parser
@@ -102,11 +102,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     fn parse_type(&mut self, span: Span) -> Ty<'ctx> {
         match self.specifiers.as_slice() {
             [] => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
+                self.result.parser_diagnostics.push(Issue::new(
+                    ParserIssue::MissingTypeSpecifier,
+                    self.file.id(),
                     span,
-                    file: self.file.id(),
-                    kind: ParserDiagnosticKind::MissingTypeSpecifier,
-                });
+                ));
                 self.tys.void_ty
             }
             [TokenKind::KwVoid] => {
@@ -118,11 +118,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.tys.double_ty
             }
             specs if specs.contains(&TokenKind::KwDouble) || specs.contains(&TokenKind::KwVoid) => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
+                self.result.parser_diagnostics.push(Issue::new(
+                    ParserIssue::InvalidTypeSpecifier,
+                    self.file.id(),
                     span,
-                    file: self.file.id(),
-                    kind: ParserDiagnosticKind::InvalidTypeSpecifier,
-                });
+                ));
                 self.specifiers.clear();
                 self.tys.void_ty
             }
@@ -141,27 +141,27 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         | TokenKind::KwLong
                         | TokenKind::KwSigned
                         | TokenKind::KwUnsigned => {
-                            self.result.parser_diagnostics.push(ParserDiagnostic {
+                            self.result.parser_diagnostics.push(Issue::new(
+                                ParserIssue::DuplicateTypeSpecifier,
+                                self.file.id(),
                                 span,
-                                file: self.file.id(),
-                                kind: ParserDiagnosticKind::DuplicateTypeSpecifier,
-                            });
+                            ));
                         }
                         _ => {
-                            self.result.parser_diagnostics.push(ParserDiagnostic {
+                            self.result.parser_diagnostics.push(Issue::new(
+                                ParserIssue::InvalidTypeSpecifier,
+                                self.file.id(),
                                 span,
-                                file: self.file.id(),
-                                kind: ParserDiagnosticKind::InvalidTypeSpecifier,
-                            });
+                            ));
                         }
                     }
                 }
                 if has_signed && has_unsigned {
-                    self.result.parser_diagnostics.push(ParserDiagnostic {
+                    self.result.parser_diagnostics.push(Issue::new(
+                        ParserIssue::ConflictingTypeSpecifiers,
+                        self.file.id(),
                         span,
-                        file: self.file.id(),
-                        kind: ParserDiagnosticKind::ConflictingTypeSpecifiers,
-                    });
+                    ));
                 }
                 self.specifiers.clear();
                 match (has_unsigned, has_long) {
@@ -206,11 +206,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
         let span = start_span.merge(end_span);
         if count > 1 {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
+            self.result.parser_diagnostics.push(Issue::new(
+                ParserIssue::MultipleStorageClasses,
+                self.file.id(),
                 span,
-                file: self.file.id(),
-                kind: ParserDiagnosticKind::MultipleStorageClasses,
-            });
+            ));
         }
 
         (self.parse_type(span), storage)
@@ -300,11 +300,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }))
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
-                    span: token.span,
-                    file: self.file.id(),
-                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Semi),
-                });
+                self.result.parser_diagnostics.push(Issue::new(
+                    ParserIssue::ExpectedToken(TokenKind::Semi),
+                    self.file.id(),
+                    token.span,
+                ));
                 None
             }
         }
@@ -778,11 +778,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
+                self.result.parser_diagnostics.push(Issue::new(
+                    ParserIssue::UnexpectedToken,
+                    self.file.id(),
                     span,
-                    file: self.file.id(),
-                    kind: ParserDiagnosticKind::UnexpectedToken,
-                });
+                ));
                 None
             }
         }
@@ -905,11 +905,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if let Some(token) = self.peek() {
             Some(token)
         } else {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                file: self.file.id(),
-                span: Span::single(self.file.end_pos()),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
+            self.result.parser_diagnostics.push(Issue::new(
+                ParserIssue::UnexpectedEof,
+                self.file.id(),
+                Span::single(self.file.end_pos()),
+            ));
             None
         }
     }
@@ -919,11 +919,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if token.kind == kind {
             self.next()
         } else {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                span: token.span,
-                file: self.file.id(),
-                kind: ParserDiagnosticKind::ExpectedToken(kind),
-            });
+            self.result.parser_diagnostics.push(Issue::new(
+                ParserIssue::ExpectedToken(kind),
+                self.file.id(),
+                token.span,
+            ));
             None
         }
     }
@@ -931,11 +931,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     #[inline]
     fn eat_some(&mut self) -> Option<Token> {
         self.next().or_else(|| {
-            self.result.parser_diagnostics.push(ParserDiagnostic {
-                file: self.file.id(),
-                span: Span::single(self.file.end_pos()),
-                kind: ParserDiagnosticKind::UnexpectedEof,
-            });
+            self.result.parser_diagnostics.push(Issue::new(
+                ParserIssue::UnexpectedEof,
+                self.file.id(),
+                Span::single(self.file.end_pos()),
+            ));
             None
         })
     }
@@ -950,11 +950,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some((span, symbol))
             }
             _ => {
-                self.result.parser_diagnostics.push(ParserDiagnostic {
-                    span: token.span,
-                    file: self.file.id(),
-                    kind: ParserDiagnosticKind::ExpectedToken(TokenKind::Identifier),
-                });
+                self.result.parser_diagnostics.push(Issue::new(
+                    ParserIssue::ExpectedToken(TokenKind::Identifier),
+                    self.file.id(),
+                    token.span,
+                ));
                 None
             }
         }
@@ -1087,8 +1087,8 @@ impl From<TokenKind> for Option<Precedence> {
 
 pub struct ParserResult<'ctx> {
     pub ast: Ast<'ctx>,
-    pub lexer_diagnostics: Vec<LexerDiagnostic>,
-    pub parser_diagnostics: Vec<ParserDiagnostic>,
+    pub lexer_diagnostics: Vec<Issue<LexerIssue>>,
+    pub parser_diagnostics: Vec<Issue<ParserIssue>>,
 }
 
 impl ParserResult<'_> {
@@ -1102,83 +1102,59 @@ impl ParserResult<'_> {
 }
 
 // ---------------------------------------------------------------------------
-// ParserDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone)]
-pub struct ParserDiagnostic {
-    span: Span,
-    file: FileId,
-    kind: ParserDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
 // ParserDiagnosticKind
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub enum ParserDiagnosticKind {
+pub enum ParserIssue {
     UnexpectedEof,
     UnexpectedToken,
     MissingTypeSpecifier,
     InvalidTypeSpecifier,
     DuplicateTypeSpecifier,
-    ConflictingTypeSpecifiers,
     MultipleStorageClasses,
+    ConflictingTypeSpecifiers,
     ExpectedToken(TokenKind),
 }
 
-impl From<ParserDiagnostic> for Diagnostic {
-    fn from(diagnostic: ParserDiagnostic) -> Self {
-        match diagnostic.kind {
-            ParserDiagnosticKind::UnexpectedEof => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("unexpected end of file"),
-                )
-                .with_note("the file ended while parsing was still in progress; there may be missing closing braces, parentheses, or semicolons"),
-            ParserDiagnosticKind::UnexpectedToken => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("unexpected token"),
-                )
-                .with_note("this token doesn't fit the expected syntax at this location"),
-            ParserDiagnosticKind::ExpectedToken(token) => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message(format!("expected {token}")),
-                )
-                .with_note(format!("the parser expected to find {token} at this location")),
-            ParserDiagnosticKind::DuplicateTypeSpecifier => Diagnostic::error()
-                    .with_label(
-                        Label::primary(diagnostic.file, diagnostic.span)
-                            .with_message("duplicate type specifier"),
-                    )
-                    .with_note("a type specifier has been specified more than once in the same declaration"),
-            ParserDiagnosticKind::MissingTypeSpecifier => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("missing type specifier"),
-                )
-                .with_note("declarations must include a type specifier such as 'int', 'char', 'void', etc."),
-            ParserDiagnosticKind::ConflictingTypeSpecifiers => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("conflicting type specifiers"),
-                )
-                .with_note("signed and unsigned type specifiers cannot be used together in the same declaration"),
-            ParserDiagnosticKind::InvalidTypeSpecifier => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("invalid type specifier combination"),
-                )
-                .with_note("this combination of type specifiers is invalid or conflicting (e.g., 'int char' or 'long short')"),
-            ParserDiagnosticKind::MultipleStorageClasses => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("multiple storage classes specified"),
-                )
-                .with_note("only one storage class specifier (static, extern, register, typedef) is allowed per declaration"),
-        }
+impl IntoDiagnostic for ParserIssue {
+    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+        let (msg, note): (Cow<str>, Cow<str>) = match self {
+            ParserIssue::UnexpectedEof => (
+                "unexpected end of file".into(),
+                "the file ended while parsing was still in progress; there may be missing closing braces, parentheses, or semicolons".into(),
+            ),
+            ParserIssue::UnexpectedToken => (
+                "unexpected token".into(),
+                "this token doesn't fit the expected syntax at this location".into(),
+            ),
+            ParserIssue::MissingTypeSpecifier => (
+                "missing type specifier".into(),
+                "declarations must include a type specifier such as 'int', 'char', 'void', etc.".into(),
+            ),
+            ParserIssue::InvalidTypeSpecifier => (
+                "invalid type specifier combination".into(),
+                "this combination of type specifiers is invalid or conflicting (e.g., 'int char' or 'long short')".into(),
+            ),
+            ParserIssue::DuplicateTypeSpecifier => (
+                "duplicate type specifier".into(),
+                "a type specifier has been specified more than once in the same declaration".into(),
+            ),
+            ParserIssue::MultipleStorageClasses => (
+                "multiple storage classes specified".into(),
+                "only one storage class specifier (static, extern, register, typedef) is allowed per declaration".into(),
+            ),
+            ParserIssue::ConflictingTypeSpecifiers => (
+                "conflicting type specifiers".into(),
+                "signed and unsigned type specifiers cannot be used together in the same declaration".into(),
+            ),
+            ParserIssue::ExpectedToken(token) => (
+                format!("expected {token}").into(),
+                format!("the parser expected to find {token} at this location").into(),
+            ),
+        };
+        Diagnostic::error()
+            .with_label(Label::primary(file, span).with_message(msg))
+            .with_note(note)
     }
 }

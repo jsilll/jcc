@@ -362,6 +362,12 @@ impl Diagnostic {
         Self::new(Severity::Warning)
     }
 
+    /// Adds a single label.
+    pub fn with_label(mut self, label: Label) -> Self {
+        self.labels.push(label);
+        self
+    }
+
     /// Sets the error code.
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
@@ -380,15 +386,22 @@ impl Diagnostic {
         self
     }
 
-    /// Adds a single label.
-    pub fn with_label(mut self, label: Label) -> Self {
-        self.labels.push(label);
+    /// Adds labels from any iterator.
+    pub fn with_labels<I>(mut self, labels: I) -> Self
+    where
+        I: IntoIterator<Item = Label>,
+    {
+        self.labels.extend(labels);
         self
     }
 
-    /// Sets the labels.
-    pub fn with_labels(mut self, labels: Vec<Label>) -> Self {
-        self.labels = labels;
+    /// Adds notes from any iterator.
+    pub fn with_notes<I, S>(mut self, notes: I) -> Self
+    where
+        S: Into<String>,
+        I: IntoIterator<Item = S>,
+    {
+        self.notes.extend(notes.into_iter().map(Into::into));
         self
     }
 
@@ -776,8 +789,10 @@ error[E0425]: cannot find value `z` in this scope
                 files.test_file,
                 Span::new(0u32, 3u32).unwrap(),
             ))
-            .with_note("consider changing this to be mutable: `mut x`")
-            .with_note("see documentation on borrowing for more information");
+            .with_notes(vec![
+                "consider changing this to be mutable: `mut x`",
+                "see documentation on borrowing for more information",
+            ]);
         let output = diagnostic.emit_to_string(&files.files).unwrap();
         let expected = "\
 error: cannot borrow as mutable

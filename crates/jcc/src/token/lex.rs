@@ -4,7 +4,7 @@ use jcc_backend::codemap::{
     byte::BytePos,
     file::{FileId, SourceFile},
     span::Span,
-    Diagnostic, Label,
+    Diagnostic, IntoDiagnostic, Issue, Label,
 };
 
 use std::{iter::Peekable, str::CharIndices};
@@ -22,7 +22,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token, LexerDiagnostic>;
+    type Item = Result<Token, Issue<LexerIssue>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some((_, c)) = self.chars.peek() {
@@ -42,11 +42,11 @@ impl<'a> Iterator for Lexer<'a> {
             '#' if was_line_start => Ok(self.token(TokenKind::DirectiveHash, 1)),
             '.' => match self.chars.peek() {
                 Some((_, c)) if c.is_ascii_digit() => self.number(true),
-                _ => Err(LexerDiagnostic {
-                    file: self.file.id(),
-                    span: Span::single(self.pos),
-                    kind: LexerDiagnosticKind::UnexpectedCharacter,
-                }),
+                _ => Err(Issue::new(
+                    LexerIssue::UnexpectedCharacter,
+                    self.file.id(),
+                    Span::single(self.pos),
+                )),
             },
             ';' => Ok(self.token(TokenKind::Semi, 1)),
             ',' => Ok(self.token(TokenKind::Comma, 1)),
@@ -101,11 +101,11 @@ impl<'a> Iterator for Lexer<'a> {
                 Some((_, '/')) => Ok(self.comment_inline()),
                 _ => Ok(self.match1('=', TokenKind::SlashEq, TokenKind::Slash)),
             },
-            _ => Err(LexerDiagnostic {
-                file: self.file.id(),
-                span: Span::single(self.pos),
-                kind: LexerDiagnosticKind::UnexpectedCharacter,
-            }),
+            _ => Err(Issue::new(
+                LexerIssue::UnexpectedCharacter,
+                self.file.id(),
+                Span::single(self.pos),
+            )),
         })
     }
 }
@@ -199,7 +199,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn comment_block(&mut self) -> Result<Token, LexerDiagnostic> {
+    fn comment_block(&mut self) -> Result<Token, Issue<LexerIssue>> {
         self.chars.next(); // Skip '*'
         let mut closed = false;
         while let Some((_, c)) = self.chars.next() {
@@ -221,15 +221,15 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::CommentBlock,
             })
         } else {
-            Err(LexerDiagnostic {
+            Err(Issue::new(
+                LexerIssue::UnclosedBlockComment,
+                self.file.id(),
                 span,
-                file: self.file.id(),
-                kind: LexerDiagnosticKind::UnterminatedBlockComment,
-            })
+            ))
         }
     }
 
-    fn number(&mut self, started_with_dot: bool) -> Result<Token, LexerDiagnostic> {
+    fn number(&mut self, started_with_dot: bool) -> Result<Token, Issue<LexerIssue>> {
         let mut is_float = started_with_dot;
         self.next_while(|c| c.is_ascii_digit());
 
@@ -257,11 +257,11 @@ impl<'a> Lexer<'a> {
                         .peek()
                         .map(|(idx, _)| *idx as u32)
                         .unwrap_or(self.file.source().len() as u32);
-                    return Err(LexerDiagnostic {
-                        file: self.file.id(),
-                        kind: LexerDiagnosticKind::EmptyExponent,
-                        span: Span::new(self.pos, end).unwrap_or_default(),
-                    });
+                    return Err(Issue::new(
+                        LexerIssue::EmptyExponent,
+                        self.file.id(),
+                        Span::new(self.pos, end).unwrap_or_default(),
+                    ));
                 }
             }
         }
@@ -299,11 +299,11 @@ impl<'a> Lexer<'a> {
             Some((end, c)) => {
                 let end = *end as u32;
                 if c.is_ascii_alphanumeric() || *c == '_' || *c == '.' {
-                    return Err(LexerDiagnostic {
-                        file: self.file.id(),
-                        kind: LexerDiagnosticKind::InvalidNumberSuffix,
-                        span: Span::new(self.pos, end).unwrap_or_default(),
-                    });
+                    return Err(Issue::new(
+                        LexerIssue::InvalidNumberSuffix,
+                        self.file.id(),
+                        Span::new(self.pos, end).unwrap_or_default(),
+                    ));
                 }
                 end
             }
@@ -347,47 +347,39 @@ impl<'a> Lexer<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// LexerDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct LexerDiagnostic {
-    pub span: Span,
-    pub file: FileId,
-    pub kind: LexerDiagnosticKind,
-}
-
-// ---------------------------------------------------------------------------
-// LexerDiagnosticKind
+// LexerIssue
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum LexerDiagnosticKind {
+pub enum LexerIssue {
     EmptyExponent,
     InvalidNumberSuffix,
     UnexpectedCharacter,
-    UnterminatedBlockComment,
+    UnclosedBlockComment,
 }
 
-impl From<LexerDiagnostic> for Diagnostic {
-    fn from(diagnostic: LexerDiagnostic) -> Self {
-        match diagnostic.kind {
-            LexerDiagnosticKind::EmptyExponent => Diagnostic::error()
-                .with_label(Label::primary(diagnostic.file, diagnostic.span))
-                .with_message("empty exponent")
-                .with_note("exponents must contain at least one digit"),
-            LexerDiagnosticKind::UnexpectedCharacter => Diagnostic::error()
-                .with_label(Label::primary(diagnostic.file, diagnostic.span))
-                .with_message("unexpected character")
-                .with_note("the character is not recognized by the lexer"),
-            LexerDiagnosticKind::InvalidNumberSuffix => Diagnostic::error()
-                .with_label(Label::primary(diagnostic.file, diagnostic.span))
-                .with_message("invalid number suffix")
-                .with_note("numbers cannot be followed by a letter, digit, underscore, or dot"),
-            LexerDiagnosticKind::UnterminatedBlockComment => Diagnostic::error()
-                .with_label(Label::primary(diagnostic.file, diagnostic.span))
-                .with_message("unterminated block comment")
-                .with_note("block comments must be closed with '*/'"),
-        }
+impl IntoDiagnostic for LexerIssue {
+    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+        let (msg, note) = match self {
+            LexerIssue::EmptyExponent => (
+                "empty exponent",
+                "exponents must contain at least one digit",
+            ),
+            LexerIssue::UnexpectedCharacter => (
+                "unexpected character",
+                "the character is not recognized by the lexer",
+            ),
+            LexerIssue::UnclosedBlockComment => (
+                "unterminated block comment",
+                "block comments must be closed with '*/'",
+            ),
+            LexerIssue::InvalidNumberSuffix => (
+                "invalid number suffix",
+                "numbers cannot be followed by a letter, digit, underscore, or dot",
+            ),
+        };
+        Diagnostic::error()
+            .with_label(Label::primary(file, span).with_message(msg))
+            .with_note(note)
     }
 }

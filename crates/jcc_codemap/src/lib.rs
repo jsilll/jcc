@@ -267,6 +267,52 @@ impl Label {
     }
 }
 
+/// A compiler-reported issue that has not yet been rendered into a user-facing diagnostic.
+///
+/// `Issue` represents the semantic form of a problem discovered during compilation.
+/// It is independent of formatting concerns and is intended to be converted into a
+/// [`Diagnostic`] for display to the user.
+///
+/// The generic parameter `K` represents the kind of issue.
+#[derive(Clone)]
+pub struct Issue<K> {
+    /// The kind of the issue.
+    pub kind: K,
+    /// The span associated with this issue.
+    pub span: Span,
+    /// The source file in which this issue occurred.
+    pub file: FileId,
+}
+
+impl<K> Issue<K> {
+    /// Creates a new issue of the given kind.
+    #[inline]
+    pub fn new(kind: K, file: FileId, span: Span) -> Self {
+        Self { kind, span, file }
+    }
+}
+
+/// A type that can be converted into a user-facing [`Diagnostic`].
+///
+/// Implement this trait for issue kinds to define how they are rendered
+/// into structured diagnostic output.
+pub trait IntoDiagnostic {
+    /// Converts this issue kind into a fully rendered [`Diagnostic`],
+    /// using the provided source location context.
+    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic;
+}
+
+impl<K: IntoDiagnostic> From<Issue<K>> for Diagnostic {
+    /// Converts a semantic compiler [`Issue`] into a user-facing [`Diagnostic`].
+    ///
+    /// This bridges the gap between compiler analysis and diagnostic rendering.
+    /// The issue's kind is responsible for defining how it is displayed, while
+    /// this implementation supplies the associated source location context.
+    fn from(issue: Issue<K>) -> Self {
+        issue.kind.into_diagnostic(issue.file, issue.span)
+    }
+}
+
 /// A diagnostic message with labels and notes.
 ///
 /// Diagnostics use a builder pattern for easy construction

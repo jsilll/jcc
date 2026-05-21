@@ -4,7 +4,7 @@ use crate::{
 };
 
 use jcc_backend::{
-    codemap::{file::FileId, span::Span, Diagnostic, Label},
+    codemap::{file::FileId, span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
     Ident,
 };
 use jcc_entity::EntityMap;
@@ -55,11 +55,11 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         self.tracked_labels.values().for_each(|e| {
                             if let TrackedLabel::Unresolved(v) = e {
                                 v.iter().for_each(|(_, span)| {
-                                    self.result.diagnostics.push(ControlDiagnostic {
-                                        span: *span,
-                                        file: self.ast.file,
-                                        kind: ControlDiagnosticKind::UndefinedLabel,
-                                    });
+                                    self.result.issues.push(Issue::new(
+                                        ControlIssue::UndefinedLabel,
+                                        self.ast.file,
+                                        *span,
+                                    ));
                                 });
                             }
                         });
@@ -127,11 +127,11 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
                     target.set(Some(*stmt))
                 }
-                None => self.result.diagnostics.push(ControlDiagnostic {
-                    span: data.span,
-                    file: self.ast.file,
-                    kind: ControlDiagnosticKind::UndefinedLoopOrSwitch,
-                }),
+                None => self.result.issues.push(Issue::new(
+                    ControlIssue::UndefinedLoopOrSwitch,
+                    self.ast.file,
+                    data.span,
+                )),
             },
             StmtKind::Continue(target) => {
                 match self.tracked_stmts.iter().rev().find_map(|stmt| match stmt {
@@ -141,11 +141,11 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     Some(stmt) => {
                         target.set(Some(stmt));
                     }
-                    None => self.result.diagnostics.push(ControlDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: ControlDiagnosticKind::UndefinedLoop,
-                    }),
+                    None => self.result.issues.push(Issue::new(
+                        ControlIssue::UndefinedLoop,
+                        self.ast.file,
+                        data.span,
+                    )),
                 }
             }
             StmtKind::Case { stmt: inner, .. } => {
@@ -160,11 +160,11 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         .or_default()
                         .cases
                         .push(stmt),
-                    _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: ControlDiagnosticKind::CaseOutsideSwitch,
-                    }),
+                    _ => self.result.issues.push(Issue::new(
+                        ControlIssue::CaseOutsideSwitch,
+                        self.ast.file,
+                        data.span,
+                    )),
                 }
                 self.visit_stmt(*inner);
             }
@@ -177,18 +177,18 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         let switch = self.ctx.switches.entry(*switch_stmt).or_default();
                         match switch.default {
                             None => switch.default = Some(stmt),
-                            Some(_) => self.result.diagnostics.push(ControlDiagnostic {
-                                span: data.span,
-                                file: self.ast.file,
-                                kind: ControlDiagnosticKind::DuplicateDefault,
-                            }),
+                            Some(_) => self.result.issues.push(Issue::new(
+                                ControlIssue::DuplicateDefault,
+                                self.ast.file,
+                                data.span,
+                            )),
                         }
                     }
-                    _ => self.result.diagnostics.push(ControlDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: ControlDiagnosticKind::CaseOutsideSwitch,
-                    }),
+                    _ => self.result.issues.push(Issue::new(
+                        ControlIssue::CaseOutsideSwitch,
+                        self.ast.file,
+                        data.span,
+                    )),
                 }
                 self.visit_stmt(*inner);
             }
@@ -206,11 +206,11 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                             }
                             TrackedLabel::Resolved(s) => {
                                 if stmt != *s {
-                                    self.result.diagnostics.push(ControlDiagnostic {
-                                        span: data.span,
-                                        file: self.ast.file,
-                                        kind: ControlDiagnosticKind::RedeclaredLabel,
-                                    });
+                                    self.result.issues.push(Issue::new(
+                                        ControlIssue::RedeclaredLabel,
+                                        self.ast.file,
+                                        data.span,
+                                    ));
                                 }
                             }
                         }
@@ -247,7 +247,7 @@ pub enum TrackedLabel<'a> {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum ControlDiagnosticKind {
+pub enum ControlIssue {
     UndefinedLoop,
     UndefinedLabel,
     RedeclaredLabel,
@@ -256,46 +256,37 @@ pub enum ControlDiagnosticKind {
     UndefinedLoopOrSwitch,
 }
 
-impl From<ControlDiagnostic> for Diagnostic {
-    fn from(diagnostic: ControlDiagnostic) -> Self {
-        match diagnostic.kind {
-            ControlDiagnosticKind::UndefinedLoop => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("break/continue outside of loop"),
-                )
-                .with_note("break and continue statements can only be used inside for, while, or do-while loops"),
-            ControlDiagnosticKind::UndefinedLabel => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("label not found"),
-                )
-                .with_note("no label with this name exists in the current function"),
-            ControlDiagnosticKind::RedeclaredLabel => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("duplicate label"),
-                )
-                .with_note("a label with this name already exists in the current function; labels must be unique within a function"),
-            ControlDiagnosticKind::DuplicateDefault => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("duplicate default case"),
-                )
-                .with_note("switch statements can only have one default case"),
-            ControlDiagnosticKind::CaseOutsideSwitch => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("case label outside of switch"),
-                )
-                .with_note("case labels can only appear inside switch statements"),
-            ControlDiagnosticKind::UndefinedLoopOrSwitch => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("break outside of loop or switch"),
-                )
-                .with_note("break statements can only be used inside loops (for, while, do-while) or switch statements"),
-        }
+impl IntoDiagnostic for ControlIssue {
+    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+        let (msg, note) = match self {
+            ControlIssue::UndefinedLoop => (
+                "break/continue outside of loop",
+                "break and continue statements can only be used inside for, while, or do-while loops",
+            ),
+            ControlIssue::UndefinedLabel => (
+                "label not found",
+                "no label with this name exists in the current function",
+            ),
+            ControlIssue::RedeclaredLabel => (
+                "duplicate label",
+                "a label with this name already exists in the current function; labels must be unique within a function",
+            ),
+            ControlIssue::DuplicateDefault => (
+                "duplicate default case",
+                "switch statements can only have one default case",
+            ),
+            ControlIssue::CaseOutsideSwitch => (
+                "case label outside of switch",
+                "case labels can only appear inside switch statements",
+            ),
+            ControlIssue::UndefinedLoopOrSwitch => (
+                "break outside of loop or switch",
+                "break statements can only be used inside loops (for, while, do-while) or switch statements",
+            ),
+        };
+        Diagnostic::error()
+            .with_label(Label::primary(file, span).with_message(msg))
+            .with_note(note)
     }
 }
 
@@ -303,18 +294,7 @@ impl From<ControlDiagnostic> for Diagnostic {
 // ControlResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub struct ControlResult {
-    pub diagnostics: Vec<ControlDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// ControlDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct ControlDiagnostic {
-    pub span: Span,
-    pub file: FileId,
-    pub kind: ControlDiagnosticKind,
+    pub issues: Vec<Issue<ControlIssue>>,
 }

@@ -37,7 +37,6 @@ impl<'ctx> DesugarPass<'ctx> {
 // DesugarAction
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DesugarAction<'ctx> {
     Cast { ty: Ty<'ctx>, expr: Expr },
 }
@@ -46,7 +45,7 @@ pub enum DesugarAction<'ctx> {
 // DesugarActions
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub struct DesugarActions<'ctx> {
     schedule: Vec<DesugarAction<'ctx>>,
 }

@@ -7,7 +7,7 @@ use crate::{
 };
 
 use jcc_backend::{
-    codemap::{file::FileId, span::Span, Diagnostic, Label},
+    codemap::{file::FileId, span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
     interner::symtab::EntitySymbolTable,
     Ident,
 };
@@ -89,19 +89,19 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             DeclKind::Func { params, body, .. } => {
                 if let Some(StorageClass::Static) = data.storage {
-                    self.result.diagnostics.push(ResolverDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: ResolverDiagnosticKind::IllegalLocalStaticFunction,
-                    });
+                    self.result.issues.push(Issue::new(
+                        ResolverIssue::IllegalLocalStaticFunction,
+                        self.ast.file,
+                        data.span,
+                    ));
                 }
                 match body {
                     Some(_) => {
-                        self.result.diagnostics.push(ResolverDiagnostic {
-                            span: data.span,
-                            file: self.ast.file,
-                            kind: ResolverDiagnosticKind::IllegalLocalFunctionDefinition,
-                        });
+                        self.result.issues.push(Issue::new(
+                            ResolverIssue::IllegalLocalFunctionDefinition,
+                            self.ast.file,
+                            data.span,
+                        ));
                     }
                     None => {
                         let symbol = self.get_or_create_global_symbol(&data.name);
@@ -110,11 +110,11 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                             .insert(data.name.name, SymbolInfo::with_linkage(symbol))
                         {
                             if !prev.has_linkage {
-                                self.result.diagnostics.push(ResolverDiagnostic {
-                                    span: data.span,
-                                    file: self.ast.file,
-                                    kind: ResolverDiagnosticKind::ConflictingSymbol,
-                                });
+                                self.result.issues.push(Issue::new(
+                                    ResolverIssue::ConflictingSymbol,
+                                    self.ast.file,
+                                    data.span,
+                                ));
                             }
                         }
                     }
@@ -218,20 +218,20 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             ExprKind::Var(name) => match self.scope.get(&name.name) {
                 Some(entry) => name.sema.set(Some(entry.symbol)),
-                None => self.result.diagnostics.push(ResolverDiagnostic {
-                    span: data.span,
-                    file: self.ast.file,
-                    kind: ResolverDiagnosticKind::UndeclaredVariable,
-                }),
+                None => self.result.issues.push(Issue::new(
+                    ResolverIssue::UndeclaredVariable,
+                    self.ast.file,
+                    data.span,
+                )),
             },
             ExprKind::Call { name, args } => {
                 match self.scope.get(&name.name) {
                     Some(entry) => name.sema.set(Some(entry.symbol)),
-                    None => self.result.diagnostics.push(ResolverDiagnostic {
-                        span: data.span,
-                        file: self.ast.file,
-                        kind: ResolverDiagnosticKind::UndeclaredFunction,
-                    }),
+                    None => self.result.issues.push(Issue::new(
+                        ResolverIssue::UndeclaredFunction,
+                        self.ast.file,
+                        data.span,
+                    )),
                 }
                 self.ast.exprs[*args]
                     .iter()
@@ -266,11 +266,11 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         };
         if let Some(prev) = self.scope.insert(name.name, entry) {
             if !(entry.has_linkage && prev.has_linkage) {
-                self.result.diagnostics.push(ResolverDiagnostic {
-                    file: self.ast.file,
-                    span: self.ast.decl[decl].span,
-                    kind: ResolverDiagnosticKind::ConflictingSymbol,
-                });
+                self.result.issues.push(Issue::new(
+                    ResolverIssue::ConflictingSymbol,
+                    self.ast.file,
+                    self.ast.decl[decl].span,
+                ));
             }
         }
     }
@@ -309,7 +309,7 @@ impl SymbolInfo {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum ResolverDiagnosticKind {
+pub enum ResolverIssue {
     ConflictingSymbol,
     RedefinedFunction,
     RedeclaredVariable,
@@ -319,52 +319,41 @@ pub enum ResolverDiagnosticKind {
     IllegalLocalFunctionDefinition,
 }
 
-impl From<ResolverDiagnostic> for Diagnostic {
-    fn from(diagnostic: ResolverDiagnostic) -> Self {
-        match diagnostic.kind {
-            ResolverDiagnosticKind::ConflictingSymbol => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("symbol conflicts with previous declaration"),
-                )
-                .with_note("a symbol with this name already exists in the current scope"),
-            ResolverDiagnosticKind::RedefinedFunction => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("function redefined"),
-                )
-                .with_note("this function already has a body; a function can only be defined once"),
-            ResolverDiagnosticKind::RedeclaredVariable => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("variable redeclared in same scope"),
-                )
-                .with_note("a variable with this name already exists in the current scope"),
-            ResolverDiagnosticKind::UndeclaredVariable => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("variable not declared"),
-                )
-                .with_note("no variable with this name exists in the current scope or any parent scope"),
-            ResolverDiagnosticKind::UndeclaredFunction => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("function not declared"),
-                )
-                .with_note("no function with this name has been declared; functions must be declared before use"),
-            ResolverDiagnosticKind::IllegalLocalStaticFunction => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("static storage class not allowed on local function"),
-                )
-                .with_note("function declarations inside other functions cannot use the 'static' storage class"),
-            ResolverDiagnosticKind::IllegalLocalFunctionDefinition => Diagnostic::error()
-                .with_label(
-                    Label::primary(diagnostic.file, diagnostic.span)
-                        .with_message("cannot define function inside another function"),
-                )
-                .with_note("nested function definitions are not allowed in C; only function declarations are permitted inside functions"),
-        }
+impl IntoDiagnostic for ResolverIssue {
+    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+        let (msg, note) = match self {
+            ResolverIssue::ConflictingSymbol => (
+                "symbol conflicts with previous declaration",
+                "a symbol with this name already exists in the current scope",
+            ),
+            ResolverIssue::RedefinedFunction => (
+                "function redefined",
+                "this function already has a body; a function can only be defined once",
+            ),
+            ResolverIssue::RedeclaredVariable => (
+                "variable redeclared in same scope",
+                "a variable with this name already exists in the current scope",
+            ),
+            ResolverIssue::UndeclaredVariable => (
+                "variable not declared",
+                "no variable with this name exists in the current scope or any parent scope",
+            ),
+            ResolverIssue::UndeclaredFunction => (
+                "function not declared",
+                "no function with this name has been declared; functions must be declared before use",
+            ),
+            ResolverIssue::IllegalLocalStaticFunction => (
+                "static storage class not allowed on local function",
+                "function declarations inside other functions cannot use the 'static' storage class",
+            ),
+            ResolverIssue::IllegalLocalFunctionDefinition => (
+                "cannot define function inside another function",
+                "nested function definitions are not allowed in C; only function declarations are permitted inside functions",
+            ),
+        };
+        Diagnostic::error()
+            .with_label(Label::primary(file, span).with_message(msg))
+            .with_note(note)
     }
 }
 
@@ -372,19 +361,8 @@ impl From<ResolverDiagnostic> for Diagnostic {
 // ResolverResult
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub struct ResolverResult {
     pub symbol_count: usize,
-    pub diagnostics: Vec<ResolverDiagnostic>,
-}
-
-// ---------------------------------------------------------------------------
-// ResolverDiagnostic
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct ResolverDiagnostic {
-    pub span: Span,
-    pub file: FileId,
-    pub kind: ResolverDiagnosticKind,
+    pub issues: Vec<Issue<ResolverIssue>>,
 }

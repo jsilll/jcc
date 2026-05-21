@@ -176,12 +176,12 @@ impl CompileOptions {
         // Resolver, control flow analysis, and type checking
         let ast = r.ast;
         let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
-        check_pass(self, &mut files, "resolver", &r.diagnostics)?;
+        check_pass(self, &mut files, "resolver", &r.issues)?;
         let mut ctx = SemaCtx::new(&tys, r.symbol_count);
         let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
-        check_pass(self, &mut files, "control", &r.diagnostics)?;
+        check_pass(self, &mut files, "control", &r.issues)?;
         let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());
-        check_pass(self, &mut files, "typer", &r.diagnostics)?;
+        check_pass(self, &mut files, "typer", &r.issues)?;
         if self.stop_after == Some(Stage::Validate) {
             return Ok(());
         }

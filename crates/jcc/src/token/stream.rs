@@ -82,14 +82,11 @@ impl<'a> TokenStream<'a> {
 
     /// Consumes all pending newline tokens and advances the current line counter accordingly.
     fn consume_newlines(&mut self) {
-        loop {
-            match self.inner.peek() {
-                Some(Ok(token)) if token.kind == TokenKind::NewLine => {
-                    self.inner.next();
-                    self.line += 1;
-                }
-                _ => break,
-            }
+        while let Some(Ok(_)) = self
+            .inner
+            .next_if(|item| matches!(item, Ok(token) if token.kind == TokenKind::NewLine))
+        {
+            self.line += 1;
         }
     }
 }

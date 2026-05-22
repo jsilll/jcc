@@ -387,31 +387,3 @@ impl IntoDiagnostic for LexerIssue {
             .with_note(note)
     }
 }
-
-// ---------------------------------------------------------------------------
-// CleanLexer
-// ---------------------------------------------------------------------------
-
-#[derive(Clone)]
-pub struct CleanLexer<'a> {
-    inner: Lexer<'a>,
-}
-
-impl<'a> From<Lexer<'a>> for CleanLexer<'a> {
-    fn from(inner: Lexer<'a>) -> Self {
-        Self { inner }
-    }
-}
-
-impl<'a> Iterator for CleanLexer<'a> {
-    type Item = <Lexer<'a> as Iterator>::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.inner.next()? {
-                Ok(token) if token.kind == TokenKind::NewLine => continue,
-                item => return Some(item),
-            }
-        }
-    }
-}

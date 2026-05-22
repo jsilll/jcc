@@ -1,4 +1,5 @@
 pub mod lex;
+pub mod stream;
 
 use jcc_backend::codemap::span::Span;
 

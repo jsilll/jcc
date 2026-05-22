@@ -5,10 +5,7 @@ use crate::{
         ExprData, ExprKind, ExprSlice, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol,
         UnaryOp,
     },
-    token::{
-        lex::{CleanLexer, Lexer, LexerIssue},
-        Token, TokenKind,
-    },
+    token::{lex::LexerIssue, stream::TokenStream, Token, TokenKind},
 };
 
 use jcc_backend::{
@@ -20,7 +17,7 @@ use jcc_backend::{
     Ident, IdentInterner,
 };
 
-use std::{borrow::Cow, iter::Peekable};
+use std::borrow::Cow;
 
 // ---------------------------------------------------------------------------
 // Parser
@@ -32,7 +29,7 @@ pub struct Parser<'a, 'ctx> {
     /// The type context used for creating and interning types.
     tys: &'ctx TyCtx<'ctx>,
     /// The lexer that provides a stream of tokens.
-    lexer: Peekable<CleanLexer<'a>>,
+    lexer: TokenStream<'a>,
     /// The interner for identifier interning.
     interner: &'a mut IdentInterner,
     /// A temporary buffer for collecting type specifiers.
@@ -57,12 +54,12 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             tys,
             file,
             interner,
+            lexer: TokenStream::new(file),
             specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
             items_stack: Vec::with_capacity(16),
             result: ParserResult::new(file.id()),
-            lexer: <Lexer as Into<CleanLexer>>::into(Lexer::new(file)).peekable(),
         }
     }
 

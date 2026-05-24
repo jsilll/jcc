@@ -32,13 +32,19 @@ use crate::byte::BytePos;
 /// Spans are half-open ranges [start, end) of byte positions.
 /// They are cheap to copy and should be used liberally throughout
 /// your AST and IR structures.
-#[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Span {
     start: BytePos,
     end: BytePos,
 }
 
 impl Span {
+    /// A default span representing no source code location.
+    pub const DEFAULT: Self = Self {
+        start: BytePos(0),
+        end: BytePos(0),
+    };
+
     /// Creates a new span from a start and end position.
     ///
     /// Returns None if start > end.
@@ -251,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_default_span() {
-        let span = Span::default();
+        let span = Span::DEFAULT;
         assert!(span.is_empty());
         assert_eq!(span.start(), BytePos(0));
         assert_eq!(span.end(), BytePos(0));

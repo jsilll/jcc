@@ -5,7 +5,8 @@ use crate::{
         ExprData, ExprKind, ExprSlice, ForInit, Stmt, StmtData, StmtKind, StorageClass, Symbol,
         UnaryOp,
     },
-    token::{lex::LexerIssue, stream::TokenStream, Token, TokenKind},
+    prep::{stream::PrepStream, PrepIssue},
+    token::{Token, TokenKind},
 };
 
 use jcc_backend::{
@@ -28,20 +29,20 @@ pub struct Parser<'a, 'ctx> {
     file: &'a SourceFile,
     /// The type context used for creating and interning types.
     tys: &'ctx TyCtx<'ctx>,
-    /// The lexer that provides a stream of tokens.
-    lexer: TokenStream<'a>,
     /// The interner for identifier interning.
     interner: &'a mut IdentInterner,
-    /// A temporary buffer for collecting type specifiers.
-    specifiers: Vec<TokenKind>,
-    /// The result of the parsing process, containing the AST and diagnostics.
-    result: ParserResult<'ctx>,
+    /// Preprocessor stream with two-token lookahead.
+    stream: PrepStream<'a>,
     /// A stack used for building expression lists, like function arguments.
     expr_stack: Vec<Expr>,
     /// A stack used for building declaration lists, like function parameters.
     decl_stack: Vec<Decl>,
     /// A stack used for building block item lists, like function bodies.
-    items_stack: Vec<BlockItem>,
+    item_stack: Vec<BlockItem>,
+    /// A scratch buffer for collecting type specifiers.
+    specifiers: Vec<TokenKind>,
+    /// The result of the parsing process, containing the AST and diagnostics.
+    result: ParserResult<'ctx>,
 }
 
 impl<'a, 'ctx> Parser<'a, 'ctx> {
@@ -54,11 +55,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             tys,
             file,
             interner,
-            lexer: TokenStream::new(file),
+            stream: PrepStream::new(file),
             specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
-            items_stack: Vec::with_capacity(16),
+            item_stack: Vec::with_capacity(16),
             result: ParserResult::new(file.id()),
         }
     }
@@ -99,7 +100,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     fn parse_type(&mut self, span: Span) -> Ty<'ctx> {
         match self.specifiers.as_slice() {
             [] => {
-                self.result.parser_diagnostics.push(Issue::new(
+                self.result.parser_issues.push(Issue::new(
                     ParserIssue::MissingTypeSpecifier,
                     self.file.id(),
                     span,
@@ -115,7 +116,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.tys.double_ty
             }
             specs if specs.contains(&TokenKind::KwDouble) || specs.contains(&TokenKind::KwVoid) => {
-                self.result.parser_diagnostics.push(Issue::new(
+                self.result.parser_issues.push(Issue::new(
                     ParserIssue::InvalidTypeSpecifier,
                     self.file.id(),
                     span,
@@ -138,14 +139,14 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         | TokenKind::KwLong
                         | TokenKind::KwSigned
                         | TokenKind::KwUnsigned => {
-                            self.result.parser_diagnostics.push(Issue::new(
+                            self.result.parser_issues.push(Issue::new(
                                 ParserIssue::DuplicateTypeSpecifier,
                                 self.file.id(),
                                 span,
                             ));
                         }
                         _ => {
-                            self.result.parser_diagnostics.push(Issue::new(
+                            self.result.parser_issues.push(Issue::new(
                                 ParserIssue::InvalidTypeSpecifier,
                                 self.file.id(),
                                 span,
@@ -154,7 +155,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                     }
                 }
                 if has_signed && has_unsigned {
-                    self.result.parser_diagnostics.push(Issue::new(
+                    self.result.parser_issues.push(Issue::new(
                         ParserIssue::ConflictingTypeSpecifiers,
                         self.file.id(),
                         span,
@@ -203,7 +204,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
         let span = start_span.merge(end_span);
         if count > 1 {
-            self.result.parser_diagnostics.push(Issue::new(
+            self.result.parser_issues.push(Issue::new(
                 ParserIssue::MultipleStorageClasses,
                 self.file.id(),
                 span,
@@ -297,7 +298,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }))
             }
             _ => {
-                self.result.parser_diagnostics.push(Issue::new(
+                self.result.parser_issues.push(Issue::new(
                     ParserIssue::ExpectedToken(TokenKind::Semi),
                     self.file.id(),
                     token.span,
@@ -356,21 +357,21 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     }
 
     fn parse_body(&mut self) -> Block {
-        let base = self.items_stack.len();
+        let base = self.item_stack.len();
         while let Some(Token { kind, .. }) = self.peek() {
             match kind {
                 TokenKind::RBrace => break,
                 kind if kind.is_decl_start() => match self.parse_decl() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
-                    Some(decl) => self.items_stack.push(BlockItem::Decl(decl)),
+                    Some(decl) => self.item_stack.push(BlockItem::Decl(decl)),
                 },
                 _ => match self.parse_stmt() {
                     None => self.sync(TokenKind::Semi, TokenKind::RBrace),
-                    Some(expr) => self.items_stack.push(BlockItem::Stmt(expr)),
+                    Some(expr) => self.item_stack.push(BlockItem::Stmt(expr)),
                 },
             }
         }
-        self.result.ast.items.extend(self.items_stack.drain(base..))
+        self.result.ast.items.extend(self.item_stack.drain(base..))
     }
 
     fn parse_stmt(&mut self) -> Option<Stmt> {
@@ -535,17 +536,13 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }))
             }
             TokenKind::Identifier => {
-                let is_label = {
-                    let mut ahead = self.lexer.clone();
-                    ahead.next();
-                    matches!(
-                        ahead.next(),
-                        Some(Ok(Token {
-                            kind: TokenKind::Colon,
-                            ..
-                        }))
-                    )
-                };
+                let is_label = matches!(
+                    self.peek2(),
+                    Some(Token {
+                        kind: TokenKind::Colon,
+                        ..
+                    })
+                );
                 if is_label {
                     let (span, label) = self.eat_identifier()?;
                     self.eat(TokenKind::Colon)?;
@@ -775,7 +772,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }
             }
             _ => {
-                self.result.parser_diagnostics.push(Issue::new(
+                self.result.parser_issues.push(Issue::new(
                     ParserIssue::UnexpectedToken,
                     self.file.id(),
                     span,
@@ -854,12 +851,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     #[inline]
     fn next(&mut self) -> Option<Token> {
         loop {
-            match self.lexer.next() {
-                None => return None,
-                Some(Ok(token)) => return Some(token),
-                Some(Err(diag)) => {
-                    self.result.lexer_diagnostics.push(diag);
-                }
+            match self.stream.next()? {
+                Ok(token) => return Some(token),
+                Err(issue) => self.result.prep_issues.push(issue),
             }
         }
     }
@@ -867,13 +861,23 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     #[inline]
     fn peek(&mut self) -> Option<Token> {
         loop {
-            match self.lexer.peek() {
-                None => return None,
-                Some(Ok(token)) => return Some(*token),
-                Some(Err(diag)) => {
-                    self.result.lexer_diagnostics.push(diag.clone());
-                    self.lexer.next();
+            match self.stream.peek()? {
+                Ok(token) => return Some(*token),
+                Err(issue) => {
+                    self.result.prep_issues.push(issue.clone());
+                    self.stream.next();
                 }
+            }
+        }
+    }
+
+    #[inline]
+    fn peek2(&mut self) -> Option<Token> {
+        match self.stream.peek2()? {
+            Ok(token) => Some(*token),
+            Err(issue) => {
+                self.result.prep_issues.push(issue.clone());
+                None
             }
         }
     }
@@ -894,7 +898,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
     #[inline]
     fn peek_span(&mut self) -> Span {
-        self.peek().map(|t| t.span).unwrap_or_default()
+        self.peek().map(|t| t.span).unwrap()
     }
 
     #[inline]
@@ -902,7 +906,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if let Some(token) = self.peek() {
             Some(token)
         } else {
-            self.result.parser_diagnostics.push(Issue::new(
+            self.result.parser_issues.push(Issue::new(
                 ParserIssue::UnexpectedEof,
                 self.file.id(),
                 Span::single(self.file.end_pos()),
@@ -916,7 +920,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if token.kind == kind {
             self.next()
         } else {
-            self.result.parser_diagnostics.push(Issue::new(
+            self.result.parser_issues.push(Issue::new(
                 ParserIssue::ExpectedToken(kind),
                 self.file.id(),
                 token.span,
@@ -928,7 +932,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     #[inline]
     fn eat_some(&mut self) -> Option<Token> {
         self.next().or_else(|| {
-            self.result.parser_diagnostics.push(Issue::new(
+            self.result.parser_issues.push(Issue::new(
                 ParserIssue::UnexpectedEof,
                 self.file.id(),
                 Span::single(self.file.end_pos()),
@@ -947,7 +951,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 Some((span, symbol))
             }
             _ => {
-                self.result.parser_diagnostics.push(Issue::new(
+                self.result.parser_issues.push(Issue::new(
                     ParserIssue::ExpectedToken(TokenKind::Identifier),
                     self.file.id(),
                     token.span,
@@ -1084,16 +1088,16 @@ impl From<TokenKind> for Option<Precedence> {
 
 pub struct ParserResult<'ctx> {
     pub ast: Ast<'ctx>,
-    pub lexer_diagnostics: Vec<Issue<LexerIssue>>,
-    pub parser_diagnostics: Vec<Issue<ParserIssue>>,
+    pub prep_issues: Vec<Issue<PrepIssue>>,
+    pub parser_issues: Vec<Issue<ParserIssue>>,
 }
 
 impl ParserResult<'_> {
     pub fn new(file: FileId) -> Self {
         Self {
             ast: Ast::new(file),
-            lexer_diagnostics: Vec::new(),
-            parser_diagnostics: Vec::new(),
+            prep_issues: Vec::new(),
+            parser_issues: Vec::new(),
         }
     }
 }

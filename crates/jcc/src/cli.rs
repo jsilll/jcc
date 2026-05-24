@@ -132,40 +132,21 @@ impl CompileOptions {
 
 impl CompileOptions {
     pub fn run(&self, profiler: &mut Profiler) -> Result<()> {
-        let pp_path = self.path.with_extension("i");
-
-        profiler.time("Preprocessor (gcc -E)", || {
-            let out = std::process::Command::new("gcc")
-                .args(["-E", "-P"])
-                .arg(&self.path)
-                .arg("-o")
-                .arg(&pp_path)
-                .output()
-                .context("failed to invoke gcc -E")?;
-            if !out.status.success() {
-                if self.emit_options.diagnostics {
-                    eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-                }
-                return Err(anyhow::anyhow!("exiting due to preprocessor errors"));
-            }
-            Ok(())
-        })?;
-
         let mut files = SimpleFiles::new();
-        let fid = files
-            .add_file(&pp_path)
-            .context("failed to read preprocessed file")?;
-        let file = files.get(fid).context("internal: file not in db")?;
+        let file = files
+            .add_file(&self.path)
+            .context("failed to read source file")?;
+        let file = files.get(file).context("internal: file not in db")?;
 
-        // Lexing and parsing
+        // Lexing, preprocessing, and parsing
         let tys = TyCtx::new();
         let mut interner = IdentInterner::new();
         let r = profiler.time("Parser", || Parser::new(file, &tys, &mut interner).parse());
-        check_pass(self, &mut files, "lexer", &r.lexer_diagnostics)?;
+        check_pass(self, &mut files, "preprocessor", &r.prep_issues)?;
         if self.stop_after == Some(Stage::Lex) {
             return Ok(());
         }
-        check_pass(self, &mut files, "parser", &r.parser_diagnostics)?;
+        check_pass(self, &mut files, "parser", &r.parser_issues)?;
         if r.ast.root.is_empty() {
             return Err(anyhow::anyhow!("exiting due to empty parse tree"));
         }

@@ -7,7 +7,10 @@ use jcc_backend::codemap::{
     Diagnostic, IntoDiagnostic, Issue, Label,
 };
 
-use std::{iter::Peekable, str::CharIndices};
+use std::{
+    iter::{FusedIterator, Peekable},
+    str::CharIndices,
+};
 
 // ---------------------------------------------------------------------------
 // Lexer
@@ -21,6 +24,7 @@ pub struct Lexer<'a> {
     chars: Peekable<CharIndices<'a>>,
 }
 
+impl<'a> FusedIterator for Lexer<'a> {}
 impl<'a> Iterator for Lexer<'a> {
     type Item = Result<Token, Issue<LexerIssue>>;
 
@@ -33,7 +37,7 @@ impl<'a> Iterator for Lexer<'a> {
             let idx = self.chars.next()?.0;
             if self.line_start {
                 self.pos = BytePos::from(idx);
-                return Some(Ok(self.token(TokenKind::NewLine, 1)));
+                return Some(Ok(Token::new(TokenKind::NewLine, self.span(1))));
             }
         }
         let can_emit_hash = self.line_start;
@@ -43,7 +47,7 @@ impl<'a> Iterator for Lexer<'a> {
         Some(match c {
             c if c.is_ascii_digit() => self.number(false),
             c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
-            '#' if can_emit_hash => Ok(self.token(TokenKind::DirectiveHash, 1)),
+            '#' if can_emit_hash => Ok(Token::new(TokenKind::DirectiveHash, self.span(1))),
             '.' => match self.chars.peek() {
                 Some((_, c)) if c.is_ascii_digit() => self.number(true),
                 _ => Err(Issue::new(
@@ -52,17 +56,17 @@ impl<'a> Iterator for Lexer<'a> {
                     Span::single(self.pos),
                 )),
             },
-            ';' => Ok(self.token(TokenKind::Semi, 1)),
-            ',' => Ok(self.token(TokenKind::Comma, 1)),
-            ':' => Ok(self.token(TokenKind::Colon, 1)),
-            '~' => Ok(self.token(TokenKind::Tilde, 1)),
-            '(' => Ok(self.token(TokenKind::LParen, 1)),
-            '{' => Ok(self.token(TokenKind::LBrace, 1)),
-            '[' => Ok(self.token(TokenKind::LBrack, 1)),
-            ')' => Ok(self.token(TokenKind::RParen, 1)),
-            '}' => Ok(self.token(TokenKind::RBrace, 1)),
-            ']' => Ok(self.token(TokenKind::RBrack, 1)),
-            '?' => Ok(self.token(TokenKind::Question, 1)),
+            ';' => Ok(Token::new(TokenKind::Semi, self.span(1))),
+            ',' => Ok(Token::new(TokenKind::Comma, self.span(1))),
+            ':' => Ok(Token::new(TokenKind::Colon, self.span(1))),
+            '~' => Ok(Token::new(TokenKind::Tilde, self.span(1))),
+            '(' => Ok(Token::new(TokenKind::LParen, self.span(1))),
+            '{' => Ok(Token::new(TokenKind::LBrace, self.span(1))),
+            '[' => Ok(Token::new(TokenKind::LBrack, self.span(1))),
+            ')' => Ok(Token::new(TokenKind::RParen, self.span(1))),
+            '}' => Ok(Token::new(TokenKind::RBrace, self.span(1))),
+            ']' => Ok(Token::new(TokenKind::RBrack, self.span(1))),
+            '?' => Ok(Token::new(TokenKind::Question, self.span(1))),
             '=' => Ok(self.match1('=', TokenKind::EqEq, TokenKind::Eq)),
             '!' => Ok(self.match1('=', TokenKind::BangEq, TokenKind::Bang)),
             '*' => Ok(self.match1('=', TokenKind::StarEq, TokenKind::Star)),
@@ -125,11 +129,8 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline]
-    fn token(&mut self, kind: TokenKind, len: u32) -> Token {
-        Token {
-            kind,
-            span: Span::new(self.pos, self.pos + len).unwrap_or_default(),
-        }
+    fn span(&self, len: u32) -> Span {
+        Span::new(self.pos, self.pos + len).unwrap()
     }
 
     #[inline]
@@ -137,9 +138,9 @@ impl<'a> Lexer<'a> {
         match self.chars.peek() {
             Some((_, ch2)) if *ch2 == ch => {
                 self.chars.next();
-                self.token(kind, 2)
+                Token::new(kind, self.span(2))
             }
-            _ => self.token(fallback, 1),
+            _ => Token::new(fallback, self.span(1)),
         }
     }
 
@@ -161,7 +162,7 @@ impl<'a> Lexer<'a> {
             }
             _ => (fallback, 1),
         };
-        self.token(kind, len)
+        Token::new(kind, self.span(len))
     }
 
     #[inline]
@@ -175,13 +176,13 @@ impl<'a> Lexer<'a> {
         match self.chars.peek() {
             Some((_, c)) if *c == kind1.0 => {
                 self.chars.next();
-                self.token(kind1.1, 2)
+                Token::new(kind1.1, self.span(2))
             }
             Some((_, c)) if *c == kind2.0 => {
                 self.chars.next();
                 self.match1(kind3.0, kind3.1, kind2.1)
             }
-            _ => self.token(fallback, 1),
+            _ => Token::new(fallback, self.span(1)),
         }
     }
 
@@ -197,10 +198,7 @@ impl<'a> Lexer<'a> {
             .peek()
             .map(|(idx, _)| *idx as u32)
             .unwrap_or(self.file.source().len() as u32);
-        Token {
-            kind: TokenKind::CommentInline,
-            span: Span::new(self.pos, end).unwrap_or_default(),
-        }
+        Token::new(TokenKind::CommentInline, Span::new(self.pos, end).unwrap())
     }
 
     fn comment_block(&mut self) -> Result<Token, Issue<LexerIssue>> {
@@ -218,7 +216,7 @@ impl<'a> Lexer<'a> {
             .peek()
             .map(|(idx, _)| *idx as u32)
             .unwrap_or(self.file.source().len() as u32);
-        let span = Span::new(self.pos, end).unwrap_or_default();
+        let span = Span::new(self.pos, end).unwrap();
         if closed {
             Ok(Token {
                 span,
@@ -264,7 +262,7 @@ impl<'a> Lexer<'a> {
                     return Err(Issue::new(
                         LexerIssue::EmptyExponent,
                         self.file.id(),
-                        Span::new(self.pos, end).unwrap_or_default(),
+                        Span::new(self.pos, end).unwrap(),
                     ));
                 }
             }
@@ -306,7 +304,7 @@ impl<'a> Lexer<'a> {
                     return Err(Issue::new(
                         LexerIssue::InvalidNumberSuffix,
                         self.file.id(),
-                        Span::new(self.pos, end).unwrap_or_default(),
+                        Span::new(self.pos, end).unwrap(),
                     ));
                 }
                 end
@@ -315,7 +313,7 @@ impl<'a> Lexer<'a> {
 
         Ok(Token {
             kind,
-            span: Span::new(self.pos, end).unwrap_or_default(),
+            span: Span::new(self.pos, end).unwrap(),
         })
     }
 
@@ -327,7 +325,7 @@ impl<'a> Lexer<'a> {
             .get(self.pos.to_usize()..end.to_usize())
             .unwrap_or_default();
         Token {
-            span: Span::new(self.pos, end).unwrap_or_default(),
+            span: Span::new(self.pos, end).unwrap(),
             kind: TokenKind::from_keyword(ident).unwrap_or(TokenKind::Identifier),
         }
     }

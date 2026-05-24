@@ -13,6 +13,12 @@ pub struct Token {
     pub kind: TokenKind,
 }
 
+impl Token {
+    pub fn new(kind: TokenKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TokenKind
 // ---------------------------------------------------------------------------

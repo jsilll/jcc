@@ -2,7 +2,7 @@ use jcc_backend::codemap::file::SourceFile;
 
 use crate::token::{lex::Lexer, TokenKind};
 
-use std::iter::Peekable;
+use std::iter::{FusedIterator, Peekable};
 
 // ---------------------------------------------------------------------------
 // TokenStream
@@ -29,6 +29,7 @@ impl<'a> From<Lexer<'a>> for TokenStream<'a> {
     }
 }
 
+impl<'a> FusedIterator for TokenStream<'a> {}
 impl<'a> Iterator for TokenStream<'a> {
     type Item = <Lexer<'a> as Iterator>::Item;
 

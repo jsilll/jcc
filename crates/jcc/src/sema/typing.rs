@@ -76,8 +76,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     },
                 };
 
-                let info =
-                    &mut self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")];
+                let info = &mut self.ctx.symbols[data.name.resolved()];
                 let occupied = info.is_some();
                 let info =
                     info.get_or_insert(SymbolInfo::statik(data.ty, decl_is_global, decl_init));
@@ -125,8 +124,8 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
             DeclKind::Func { .. } => self.visit_func_decl(data),
             DeclKind::Var(init) => match data.storage {
                 None => {
-                    let _ = self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")]
-                        .insert(SymbolInfo::local(data.ty));
+                    let _ =
+                        self.ctx.symbols[data.name.resolved()].insert(SymbolInfo::local(data.ty));
                     if let Some(init) = init {
                         let ty = self.visit_expr(init);
                         if ty != data.ty {
@@ -138,7 +137,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     if let Some(init) = init {
                         self.emit(self.ast.expr[init].span, TypeIssue::ExternLocalInitialized);
                     }
-                    let info = self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")]
+                    let info = self.ctx.symbols[data.name.resolved()]
                         .get_or_insert(SymbolInfo::statik(data.ty, true, StaticValue::NoInit));
                     if info.ty != data.ty {
                         self.emit(data.span, TypeIssue::DeclarationTypeMismatch);
@@ -170,7 +169,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             }
                         }
                     };
-                    self.ctx.symbols[data.name.sema.get().expect("sema symbol not set")] =
+                    self.ctx.symbols[data.name.resolved()] =
                         Some(SymbolInfo::statik(data.ty, false, decl_init));
                 }
             },
@@ -180,8 +179,11 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     fn visit_func_decl(&mut self, decl: &DeclData<'ctx>) {
         if let DeclKind::Func { params, body } = decl.kind {
             let decl_is_global = !matches!(decl.storage, Some(StorageClass::Static));
-            let entry = self.ctx.symbols[decl.name.sema.get().expect("sema symbol not set")]
-                .get_or_insert(SymbolInfo::function(decl.ty, decl_is_global, false));
+            let entry = self.ctx.symbols[decl.name.resolved()].get_or_insert(SymbolInfo::function(
+                decl.ty,
+                decl_is_global,
+                false,
+            ));
 
             if entry.ty != decl.ty {
                 self.result
@@ -332,7 +334,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     }
                                 },
                             },
-                            _ => panic!("unexpected statement in switch case"),
+                            _ => unreachable!("switch case list must only contain case statements"),
                         });
                     self.switch_cases.clear();
                 }
@@ -490,7 +492,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 }
             }
             ExprKind::Var(name) => {
-                let ty = self.ctx.symbols[name.sema.get().expect("sema symbol not set")]
+                let ty = self.ctx.symbols[name.resolved()]
                     .expect("symbol info not found")
                     .ty;
                 if matches!(*ty, TyKind::Void | TyKind::Func { .. }) {
@@ -502,7 +504,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 self.ast.exprs[*args].iter().for_each(|arg| {
                     self.visit_expr(*arg);
                 });
-                let ty = self.ctx.symbols[name.sema.get().expect("sema symbol not set")]
+                let ty = self.ctx.symbols[name.resolved()]
                     .expect("symbol info not found")
                     .ty;
                 match *ty {
@@ -562,9 +564,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
 fn eval_constant(ast: &Ast, expr: Expr) -> Option<Constant> {
     match ast.expr[expr].kind {
         ExprKind::Const(value) => Some(value),
-        ExprKind::Cast { .. } => todo!("handle cast expressions"),
         ExprKind::Grouped(expr) => eval_constant(ast, expr),
         ExprKind::Var { .. }
+        | ExprKind::Cast { .. }
         | ExprKind::Unary { .. }
         | ExprKind::Binary { .. }
         | ExprKind::Ternary { .. }

@@ -631,72 +631,42 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         }
         match kind {
             TokenKind::NumLong => {
-                let n = self.file.slice(span).expect("expected span to be valid");
-                let n = &n[0..n.len() - 1]; // remove 'L' suffix
-                let n = n.parse::<i64>().expect("expected number to be valid");
-                Some(self.result.ast.expr.push(ExprData {
-                    span,
-                    ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(Constant::Long(n)),
-                }))
+                let text = self.file.slice(span).expect("expected span to be valid");
+                let text = &text[..text.len() - 1]; // remove 'L' suffix
+                let n: i64 = self.parse_literal_or_emit(text, span)?;
+                Some(self.push_const(Constant::Long(n), span))
             }
             TokenKind::NumULong => {
-                let n = self.file.slice(span).expect("expected span to be valid");
-                let n = &n[0..n.len() - 2]; // remove 'UL' suffix
-                let n = n.parse::<u64>().expect("expected number to be valid");
-                Some(self.result.ast.expr.push(ExprData {
-                    span,
-                    ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(Constant::ULong(n)),
-                }))
+                let text = self.file.slice(span).expect("expected span to be valid");
+                let text = &text[..text.len() - 2]; // remove 'UL' suffix
+                let n: u64 = self.parse_literal_or_emit(text, span)?;
+                Some(self.push_const(Constant::ULong(n), span))
             }
             TokenKind::NumInt => {
-                let n = self.file.slice(span).expect("expected span to be valid");
-                match n.parse::<i32>() {
-                    Ok(n) => Some(self.result.ast.expr.push(ExprData {
-                        span,
-                        ty: self.tys.void_ty.into(),
-                        kind: ExprKind::Const(Constant::Int(n)),
-                    })),
-                    Err(_) => {
-                        let n = n.parse::<i64>().expect("expected number to be valid");
-                        Some(self.result.ast.expr.push(ExprData {
-                            span,
-                            ty: self.tys.void_ty.into(),
-                            kind: ExprKind::Const(Constant::Long(n)),
-                        }))
-                    }
+                let text = self.file.slice(span).expect("expected span to be valid");
+                if let Ok(n) = text.parse::<i32>() {
+                    Some(self.push_const(Constant::Int(n), span))
+                } else {
+                    // Integer literal too large for i32 — promote to long per C semantics.
+                    let n: i64 = self.parse_literal_or_emit(text, span)?;
+                    Some(self.push_const(Constant::Long(n), span))
                 }
             }
             TokenKind::NumUInt => {
-                let n = self.file.slice(span).expect("expected span to be valid");
-                let n = &n[0..n.len() - 1]; // remove 'U' suffix
-                match n.parse::<u32>() {
-                    Ok(n) => Some(self.result.ast.expr.push(ExprData {
-                        span,
-                        ty: self.tys.void_ty.into(),
-                        kind: ExprKind::Const(Constant::UInt(n)),
-                    })),
-                    Err(_) => {
-                        let n = n.parse::<u64>().expect("expected number to be valid");
-                        Some(self.result.ast.expr.push(ExprData {
-                            span,
-                            ty: self.tys.void_ty.into(),
-                            kind: ExprKind::Const(Constant::ULong(n)),
-                        }))
-                    }
+                let text = self.file.slice(span).expect("expected span to be valid");
+                let text = &text[..text.len() - 1]; // remove 'U' suffix
+                if let Ok(n) = text.parse::<u32>() {
+                    Some(self.push_const(Constant::UInt(n), span))
+                } else {
+                    // Unsigned literal too large for u32 — promote to unsigned long.
+                    let n: u64 = self.parse_literal_or_emit(text, span)?;
+                    Some(self.push_const(Constant::ULong(n), span))
                 }
             }
             TokenKind::NumFloat => {
-                let n = self.file.slice(span).expect("expected span to be valid");
-                let n = n
-                    .parse::<f64>()
-                    .expect("expected floating-point number to be valid");
-                Some(self.result.ast.expr.push(ExprData {
-                    span,
-                    ty: self.tys.void_ty.into(),
-                    kind: ExprKind::Const(Constant::Double(n.to_bits())),
-                }))
+                let text = self.file.slice(span).expect("expected span to be valid");
+                let n: f64 = self.parse_literal_or_emit(text, span)?;
+                Some(self.push_const(Constant::Double(n.to_bits()), span))
             }
             TokenKind::Identifier => {
                 let name = self.intern_span(span);
@@ -811,6 +781,25 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
+    fn push_const(&mut self, constant: Constant, span: Span) -> Expr {
+        self.result.ast.expr.push(ExprData::new(
+            ExprKind::Const(constant),
+            span,
+            self.tys.void_ty,
+        ))
+    }
+
+    #[inline]
+    fn parse_literal_or_emit<T: std::str::FromStr>(&mut self, text: &str, span: Span) -> Option<T> {
+        text.parse().ok().or_else(|| {
+            self.result
+                .parser_issues
+                .push(Issue::new(ParserIssue::LiteralOverflow, span));
+            None
+        })
+    }
+
+    #[inline]
     fn intern_span(&mut self, span: Span) -> Ident {
         self.interner
             .intern(self.file.slice(span).expect("expected span to be valid"))
@@ -879,7 +868,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
     #[inline]
     fn peek_span(&mut self) -> Span {
-        self.peek().map(|t| t.span).unwrap()
+        self.peek()
+            .map(|t| t.span)
+            .unwrap_or_else(|| Span::single(self.file.last()))
     }
 
     #[inline]
@@ -1077,6 +1068,7 @@ pub struct ParserResult<'ctx> {
 pub enum ParserIssue {
     UnexpectedEof,
     UnexpectedToken,
+    LiteralOverflow,
     MissingTypeSpecifier,
     InvalidTypeSpecifier,
     DuplicateTypeSpecifier,
@@ -1095,6 +1087,10 @@ impl IntoDiagnostic for ParserIssue {
             ParserIssue::UnexpectedToken => (
                 "unexpected token".into(),
                 "this token doesn't fit the expected syntax at this location".into(),
+            ),
+            ParserIssue::LiteralOverflow => (
+                "literal value out of range".into(),
+                "this numeric literal is too large to be represented in its type".into(),
             ),
             ParserIssue::MissingTypeSpecifier => (
                 "missing type specifier".into(),

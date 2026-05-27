@@ -60,6 +60,26 @@ pub struct Symbol {
     pub sema: Cell<Option<sema::Symbol>>,
 }
 
+impl Symbol {
+    /// Returns the resolved semantic symbol.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the resolver has not run yet or did not resolve this symbol.
+    #[track_caller]
+    pub fn resolved(&self) -> sema::Symbol {
+        self.sema.get().expect("sema symbol not set")
+    }
+}
+
+/// SlicePool<BlockItem> encodes slice lengths as
+/// T::new(len) sentinel elements in its data vec.
+///
+/// The Decl variant is used here as a carrier —
+/// the sentinel is never exposed as a real BlockItem,
+/// so the choice of variant is arbitrary. index() is
+/// consistent across both variants since each delegates
+/// to its inner entity's index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockItem {
     /// A declaration.

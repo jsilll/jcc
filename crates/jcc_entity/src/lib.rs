@@ -4,11 +4,13 @@
 //! different entity types at compile time. This is particularly useful for a compiler
 //! IR where you have multiple interrelated entity types (instructions, blocks, etc.) that should not be confused.
 
+mod counter;
 mod primary;
 mod secondary;
 mod slice;
 mod sparse;
 
+pub use counter::EntityCounter;
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
 pub use slice::{EntitySlice, SlicePool};

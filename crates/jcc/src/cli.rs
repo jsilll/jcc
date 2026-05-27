@@ -158,7 +158,7 @@ impl CompileOptions {
         let ast = r.ast;
         let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
         check_pass(self, &mut db, "resolver", &r.issues)?;
-        let mut ctx = SemaCtx::new(&tys, r.symbol_count);
+        let mut ctx = SemaCtx::new(&tys, r.counter.len());
         let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
         check_pass(self, &mut db, "control", &r.issues)?;
         let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());

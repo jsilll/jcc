@@ -47,15 +47,18 @@ impl<'ctx> LoweringPass<'ctx> {
     pub fn build(mut self) -> Program {
         self.ast.root.iter().for_each(|decl| {
             let data = &self.ast.decl[*decl];
+            let sym = data.name.resolved();
             match data.kind {
                 ast::DeclKind::Var(_) => {
-                    let info = self.sema.symbols
-                        [data.name.sema.get().expect("sema symbol not set")]
-                    .expect("expected a sema symbol");
+                    let info = self.sema.symbols[sym].expect("expected a sema symbol");
 
                     match info.attr {
-                        Attribute::Local => panic!("unexpected local attribute"),
-                        Attribute::Function { .. } => panic!("unexpected function attribute"),
+                        Attribute::Local => {
+                            unreachable!("top-level variable cannot have local attribute")
+                        }
+                        Attribute::Function { .. } => {
+                            unreachable!("top-level variable cannot have function attribute")
+                        }
                         Attribute::Static { is_global, init } => {
                             self.get_or_make_global(
                                 &data.name,
@@ -71,10 +74,9 @@ impl<'ctx> LoweringPass<'ctx> {
                     }
                 }
                 ast::DeclKind::Func { params, body } => {
-                    let is_global = self.sema.symbols
-                        [data.name.sema.get().expect("sema symbol not set")]
-                    .expect("expected a sema symbol")
-                    .is_global();
+                    let is_global = self.sema.symbols[sym]
+                        .expect("expected a sema symbol")
+                        .is_global();
 
                     let func = self.get_or_make_function(&data.name, is_global, data.span);
                     self.builder.function = Some(func);
@@ -96,8 +98,7 @@ impl<'ctx> LoweringPass<'ctx> {
                                     Inst::param(param.ty.lower().0, idx as u32),
                                     param.span,
                                 );
-                                let sema = param.name.sema.get().expect("sema symbol not set");
-                                self.symbols[sema] = Some(SymbolEntry::Value(arg));
+                                self.symbols[param.name.resolved()] = Some(SymbolEntry::Value(arg));
                             });
 
                         self.ast.items[body].iter().for_each(|item| match item {
@@ -131,10 +132,12 @@ impl<'ctx> LoweringPass<'ctx> {
         match data.kind {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
-                let sema = data.name.sema.get().expect("sema symbol not set");
+                let sema = data.name.resolved();
                 let info = self.sema.symbols[sema].expect("expected a sema symbol");
                 match info.attr {
-                    Attribute::Function { .. } => panic!("unexpected function attribute"),
+                    Attribute::Function { .. } => {
+                        unreachable!("variable declaration cannot have function attribute")
+                    }
                     Attribute::Local => {
                         let alloca = self
                             .builder
@@ -426,12 +429,14 @@ impl<'ctx> LoweringPass<'ctx> {
             }
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
-                let info = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
-                    .expect("expected a sema symbol");
+                let sym = name.resolved();
+                let info = self.sema.symbols[sym].expect("expected a sema symbol");
                 match info.attr {
-                    Attribute::Function { .. } => todo!("handle function variables"),
+                    Attribute::Function { .. } => {
+                        unreachable!("function-as-variable should be caught by the type checker")
+                    }
                     Attribute::Local => {
-                        let ptr = self.get_value(name.sema.get().expect("sema symbol not set"));
+                        let ptr = self.get_value(sym);
                         match mode {
                             ExprMode::LValue => ptr,
                             ExprMode::RValue => {
@@ -440,7 +445,7 @@ impl<'ctx> LoweringPass<'ctx> {
                         }
                     }
                     Attribute::Static { .. } => {
-                        let var = self.get_global(name.sema.get().expect("sema symbol not set"));
+                        let var = self.get_global(sym);
                         let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
@@ -456,8 +461,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     .iter()
                     .map(|arg| self.visit_expr_rvalue(*arg))
                     .collect::<Vec<_>>();
-                let symbol = self.sema.symbols[name.sema.get().expect("sema symbol not set")]
-                    .expect("expected a sema symbol");
+                let symbol = self.sema.symbols[name.resolved()].expect("expected a sema symbol");
                 let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
                 let ty = symbol.ty.ret().unwrap().lower().0;
                 self.builder
@@ -946,14 +950,14 @@ impl<'ctx> LoweringPass<'ctx> {
     fn get_continue_block(&self, stmt: ast::Stmt) -> Block {
         match self.tracked.get(&stmt) {
             Some(TrackedBlock::BreakAndContinue(_, cont)) => *cont,
-            _ => panic!("expected a break block"),
+            _ => panic!("expected a continue block"),
         }
     }
 
     fn remove_case_block(&mut self, stmt: ast::Stmt) -> Block {
         match self.tracked.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
-            _ => panic!("expected a break block"),
+            _ => panic!("expected a case block"),
         }
     }
 
@@ -972,7 +976,7 @@ impl<'ctx> LoweringPass<'ctx> {
         is_global: bool,
         span: Span,
     ) -> Function {
-        let sym = name.sema.get().expect("sema symbol not set");
+        let sym = name.resolved();
         match self.symbols[sym] {
             Some(SymbolEntry::Function(f)) => f,
             None => {
@@ -984,12 +988,12 @@ impl<'ctx> LoweringPass<'ctx> {
                 self.symbols[sym] = Some(SymbolEntry::Function(f));
                 f
             }
-            _ => panic!("expected a function"),
+            _ => unreachable!("symbol was previously registered as a non-function"),
         }
     }
 
     fn get_or_make_global(&mut self, name: &ast::Symbol, mut global: GlobalData) -> Global {
-        let sym = name.sema.get().expect("sema symbol not set");
+        let sym = name.resolved();
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,
             None => {
@@ -1008,7 +1012,7 @@ impl<'ctx> LoweringPass<'ctx> {
                 self.symbols[sym] = Some(SymbolEntry::Global(v));
                 v
             }
-            _ => panic!("expected a static"),
+            _ => unreachable!("symbol was previously registered as a non-global"),
         }
     }
 }

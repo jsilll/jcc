@@ -11,7 +11,7 @@ use jcc_backend::{
     interner::symtab::EntitySymbolTable,
     Ident,
 };
-use jcc_entity::{EntityMap, EntityRef};
+use jcc_entity::{EntityCounter, EntityMap};
 
 // ---------------------------------------------------------------------------
 // ResolverPass
@@ -22,8 +22,6 @@ pub struct ResolverPass<'a, 'ctx> {
     ast: &'a Ast<'ctx>,
     /// The result of the name resolution
     result: ResolverResult,
-    /// The current symbol count
-    symbol_count: usize,
     /// The global symbols map
     globals: EntityMap<Ident, sema::Symbol>,
     /// The current scope symbol table
@@ -34,7 +32,6 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
     pub fn new(ast: &'a Ast<'ctx>) -> Self {
         Self {
             ast,
-            symbol_count: 1,
             globals: EntityMap::default(),
             result: ResolverResult::default(),
             scope: EntitySymbolTable::default(),
@@ -46,7 +43,6 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             .root
             .iter()
             .for_each(|decl| self.visit_file_scope_decl(*decl));
-        self.result.symbol_count = self.symbol_count;
         self.result
     }
 
@@ -240,11 +236,10 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
 
     #[inline]
     fn get_or_create_global_symbol(&mut self, name: &Symbol) -> sema::Symbol {
-        let symbol = self.globals.entry(name.name).or_insert_with(|| {
-            let symbol = sema::Symbol::new(self.symbol_count);
-            self.symbol_count += 1;
-            symbol
-        });
+        let symbol = self
+            .globals
+            .entry(name.name)
+            .or_insert_with(|| self.result.counter.push());
         name.sema.set(Some(*symbol));
         *symbol
     }
@@ -253,8 +248,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         let entry = if has_linkage {
             SymbolInfo::with_linkage(self.get_or_create_global_symbol(name))
         } else {
-            let symbol = sema::Symbol::new(self.symbol_count);
-            self.symbol_count += 1;
+            let symbol = self.result.counter.push();
             name.sema.set(Some(symbol));
             SymbolInfo::no_linkage(symbol)
         };
@@ -356,6 +350,6 @@ impl IntoDiagnostic for ResolverIssue {
 
 #[derive(Default)]
 pub struct ResolverResult {
-    pub symbol_count: usize,
     pub issues: Vec<Issue<ResolverIssue>>,
+    pub counter: EntityCounter<sema::Symbol>,
 }

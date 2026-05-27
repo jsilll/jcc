@@ -15,9 +15,17 @@
 //!
 //! # Core Concepts
 //!
+//! ## Global Address Space
+//!
+//! All source files share a single virtual u32 address space. Each file is allocated a
+//! unique, non-overlapping range. A [`Span`] therefore identifies both the file and the
+//! byte range within it.
+//!
+//! **Limit**: the total size of all source files must not exceed 4 GiB ([`u32::MAX`] bytes).
+//!
 //! ## Spans
 //!
-//! A [`Span`] represents a contiguous region in a source file using byte positions.
+//! A [`Span`] represents a contiguous region in the global address space using byte positions.
 //! Spans are half-open intervals: `[start, end)`.
 //!
 //! ## Files
@@ -43,25 +51,23 @@
 
 pub mod byte;
 pub mod file;
+pub mod simple;
 pub mod span;
 
+#[cfg(test)]
+pub mod testutil;
+
+#[cfg(feature = "color")]
 pub mod color;
 
 #[cfg(feature = "color")]
 use crate::color::ColorConfig;
-use crate::{
-    file::{FileId, SourceFile},
-    span::Span,
-};
+use crate::{byte::BytePos, file::SourceFile, span::Span};
 
 #[cfg(feature = "color")]
 use termcolor::WriteColor;
 
-use std::{
-    collections::HashMap,
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, io::Write};
 
 /// A line and column position in a source file.
 ///
@@ -90,103 +96,38 @@ pub struct Location<'a> {
     pub line_text: &'a str,
 }
 
-/// A collection of source files.
+/// A collection of source files, addressable by global byte position.
 ///
-/// This is the main interface for managing multiple source files
-/// and looking up location information for spans.
+/// This is the main interface for managing multiple source files and looking up
+/// location information for spans.
+///
+/// # Invariant for custom implementations
+///
+/// Every [`SourceFile`] returned by an implementation MUST have a unique,
+/// non-overlapping range `[file.base(), file.base() + file.source().len())` in
+/// the global address space. Violating this invariant produces incorrect diagnostic
+/// output. See [`SimpleFiles`] for a correct reference implementation.
 pub trait Files {
-    /// Gets a source file by its ID.
+    /// Returns the source file whose global address range contains `pos`.
     ///
-    /// Returns None if the file ID is invalid.
-    fn get(&self, file_id: FileId) -> Option<&SourceFile>;
+    /// Returns `None` if no file contains the given position (e.g., the position
+    /// falls in a sentinel gap or beyond all loaded files).
+    fn file_for_pos(&self, pos: BytePos) -> Option<&SourceFile>;
 
-    /// Gets the name of a file.
+    /// Gets the source text slice for a global span.
     ///
-    /// Returns None if the file ID is invalid.
-    fn name(&self, file_id: FileId) -> Option<&Path>;
+    /// Returns `None` if no file contains the span's start position or the span
+    /// is out of bounds within that file.
+    fn slice(&self, span: Span) -> Option<&str> {
+        self.file_for_pos(span.start())?.slice(span)
+    }
 
-    /// Gets the source text slice for a span in a specific file.
+    /// Gets a location for a global span.
     ///
-    /// Returns None if the file or span is invalid.
-    fn source(&self, file_id: FileId, span: Span) -> Option<&str>;
-
-    /// Gets a location for a span in a specific file.
-    ///
-    /// Returns None if the file or span is invalid.
-    fn location(&self, file_id: FileId, span: Span) -> Option<Location<'_>>;
-}
-
-/// A simple in-memory collection of source files.
-///
-/// This is the default implementation that stores all source files
-/// in memory. For more advanced use cases (e.g., lazy loading,
-/// virtual files, or integration with an IDE), implement the Files trait.
-#[derive(Debug, Default, Clone)]
-pub struct SimpleFiles {
-    /// The list of source files.
-    files: Vec<SourceFile>,
-}
-
-impl SimpleFiles {
-    /// Creates a new empty file collection.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns the number of files.
-    pub fn len(&self) -> usize {
-        self.files.len()
-    }
-
-    /// Returns true if there are no files.
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
-    }
-
-    /// Adds a file from source text with the given name.
-    pub fn add(&mut self, name: impl Into<PathBuf>, source: String) -> FileId {
-        let id = FileId::new(u32::try_from(self.files.len()).unwrap_or(u32::MAX));
-        let file = SourceFile::from_source(id, name, source);
-        self.files.push(file);
-        id
-    }
-
-    /// Adds a file from a path by reading it.
-    ///
-    /// # Errors
-    ///
-    /// If reading the file fails, an error is returned.
-    pub fn add_file(&mut self, path: impl AsRef<Path>) -> std::io::Result<FileId> {
-        let id = FileId::new(u32::try_from(self.files.len()).unwrap_or(u32::MAX));
-        let file = SourceFile::new(id, path)?;
-        self.files.push(file);
-        Ok(id)
-    }
-
-    /// Returns an iterator over all files.
-    pub fn iter(&self) -> impl Iterator<Item = (FileId, &SourceFile)> {
-        self.files
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (FileId::new(u32::try_from(i).unwrap_or(u32::MAX)), f))
-    }
-}
-
-impl Files for SimpleFiles {
-    fn get(&self, file: FileId) -> Option<&SourceFile> {
-        self.files.get(file.as_usize())
-    }
-
-    fn name(&self, file: FileId) -> Option<&Path> {
-        self.get(file).map(SourceFile::name)
-    }
-
-    fn source(&self, file: FileId, span: Span) -> Option<&str> {
-        self.get(file)?.slice(span)
-    }
-
-    fn location(&self, file: FileId, span: Span) -> Option<Location<'_>> {
-        self.get(file)?.location(span)
+    /// Returns `None` if no file contains the span's start position or the span
+    /// is out of bounds within that file.
+    fn location(&self, span: Span) -> Option<Location<'_>> {
+        self.file_for_pos(span.start())?.location(span)
     }
 }
 
@@ -226,13 +167,12 @@ pub enum LabelStyle {
 /// A label attached to a specific span in the source code.
 ///
 /// Labels provide context about why a particular piece of code
-/// is relevant to the diagnostic.
+/// is relevant to the diagnostic. The span must be a global span
+/// (allocated through a [`Files`] database).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
-    /// The span this label points to.
+    /// The global span this label points to.
     pub span: Span,
-    /// The file containing this label.
-    pub file: FileId,
     /// The style of this label (primary or secondary).
     pub style: LabelStyle,
     /// An optional message describing what's wrong with this span.
@@ -241,9 +181,8 @@ pub struct Label {
 
 impl Label {
     /// Creates a new primary label at the given span.
-    pub fn primary(file: FileId, span: Span) -> Self {
+    pub fn primary(span: Span) -> Self {
         Self {
-            file,
             span,
             message: None,
             style: LabelStyle::Primary,
@@ -251,9 +190,8 @@ impl Label {
     }
 
     /// Creates a new secondary label at the given span.
-    pub fn secondary(file: FileId, span: Span) -> Self {
+    pub fn secondary(span: Span) -> Self {
         Self {
-            file,
             span,
             message: None,
             style: LabelStyle::Secondary,
@@ -273,22 +211,23 @@ impl Label {
 /// It is independent of formatting concerns and is intended to be converted into a
 /// [`Diagnostic`] for display to the user.
 ///
+/// The span is a global span whose position implicitly encodes which file the
+/// issue originates from.
+///
 /// The generic parameter `K` represents the kind of issue.
 #[derive(Clone)]
 pub struct Issue<K> {
     /// The kind of the issue.
     pub kind: K,
-    /// The span associated with this issue.
+    /// The global span associated with this issue.
     pub span: Span,
-    /// The source file in which this issue occurred.
-    pub file: FileId,
 }
 
 impl<K> Issue<K> {
-    /// Creates a new issue of the given kind.
+    /// Creates a new issue of the given kind at the given global span.
     #[inline]
-    pub fn new(kind: K, file: FileId, span: Span) -> Self {
-        Self { kind, span, file }
+    pub fn new(kind: K, span: Span) -> Self {
+        Self { kind, span }
     }
 }
 
@@ -298,18 +237,14 @@ impl<K> Issue<K> {
 /// into structured diagnostic output.
 pub trait IntoDiagnostic {
     /// Converts this issue kind into a fully rendered [`Diagnostic`],
-    /// using the provided source location context.
-    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic;
+    /// using the provided global source span.
+    fn into_diagnostic(self, span: Span) -> Diagnostic;
 }
 
 impl<K: IntoDiagnostic> From<Issue<K>> for Diagnostic {
     /// Converts a semantic compiler [`Issue`] into a user-facing [`Diagnostic`].
-    ///
-    /// This bridges the gap between compiler analysis and diagnostic rendering.
-    /// The issue's kind is responsible for defining how it is displayed, while
-    /// this implementation supplies the associated source location context.
     fn from(issue: Issue<K>) -> Self {
-        issue.kind.into_diagnostic(issue.file, issue.span)
+        issue.kind.into_diagnostic(issue.span)
     }
 }
 
@@ -508,12 +443,13 @@ fn emit_diagnostic<F: Files>(
         write!(writer, "[{code}]")?;
     }
     writeln!(writer, ": {}", diagnostic.message)?;
-    for (file, labels) in group_labels(&diagnostic.labels) {
-        let name = files
-            .name(file)
-            .map_or_else(|| format!("{file:?}"), |p| p.display().to_string());
+    for (file, labels) in group_labels(files, &diagnostic.labels) {
+        let name = labels
+            .first()
+            .and_then(|l| files.file_for_pos(l.span.start()))
+            .map_or_else(|| format!("{file:?}"), |f| f.name().display().to_string());
         for label in labels {
-            if let Some(location) = files.location(file, label.span) {
+            if let Some(location) = files.location(label.span) {
                 emit_label(writer, &name, &location, label)?;
             }
         }
@@ -524,13 +460,18 @@ fn emit_diagnostic<F: Files>(
     Ok(())
 }
 
-/// Groups labels of a diagnostic.
-fn group_labels(labels: &[Label]) -> HashMap<FileId, Vec<&Label>> {
-    let mut file_labels: HashMap<FileId, Vec<&Label>> = HashMap::new();
+/// Groups labels by file (keyed by a pointer to the source file) and sorts each group by span start.
+pub fn group_labels<'a, F: Files>(
+    files: &F,
+    labels: &'a [Label],
+) -> HashMap<*const SourceFile, Vec<&'a Label>> {
+    let mut file_labels: HashMap<*const SourceFile, Vec<&'a Label>> = HashMap::new();
     for label in labels {
-        file_labels.entry(label.file).or_default().push(label);
+        if let Some(key) = files.file_for_pos(label.span.start()) {
+            file_labels.entry(key).or_default().push(label);
+        }
     }
-    for labels in &mut file_labels.values_mut() {
+    for labels in file_labels.values_mut() {
         labels.sort_by_key(|l| l.span.start());
     }
     file_labels
@@ -621,34 +562,7 @@ fn emit_label(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-
-    struct TestFiles {
-        files: SimpleFiles,
-        test_file: FileId,
-        example_file: FileId,
-        unicode_file: FileId,
-    }
-
-    fn create_test_files() -> TestFiles {
-        let mut files = SimpleFiles::new();
-        let test_file = files.add("test.rs", "let x = 5;".to_string());
-        let unicode_file = files.add("unicode.rs", "let café = \"☕\";".to_string());
-        let example_file = files.add(
-            "example.rs",
-            r#"fn main() {
-    let x = 5;
-    let y = x + "hello";
-    println!("{}", y);
-}"#
-            .to_string(),
-        );
-        TestFiles {
-            files,
-            test_file,
-            example_file,
-            unicode_file,
-        }
-    }
+    use crate::testutil::create_test_files;
 
     #[test]
     fn test_severity_ordering() {
@@ -680,7 +594,7 @@ mod tests {
         let diagnostic = Diagnostic::help()
             .with_message("this is a help message")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
+                Label::primary(files.span(files.test_file, 4, 5))
                     .with_message("consider changing this"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -701,8 +615,7 @@ help: this is a help message
         let diagnostic = Diagnostic::note()
             .with_message("this is a note message")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
-                    .with_message("just so you know"),
+                Label::primary(files.span(files.test_file, 4, 5)).with_message("just so you know"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
         let expected = "\
@@ -722,7 +635,7 @@ note: this is a note message
         let diagnostic = Diagnostic::error()
             .with_message("variable not found")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
+                Label::primary(files.span(files.test_file, 4, 5))
                     .with_message("not found in this scope"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -743,7 +656,7 @@ error: variable not found
         let diagnostic = Diagnostic::warning()
             .with_message("unused variable: `x`")
             .with_label(
-                Label::primary(files.example_file, Span::new(20u32, 21u32).unwrap())
+                Label::primary(files.span(files.example_file, 20, 21))
                     .with_message("help: if this is intentional, prefix with underscore: `_x`"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -765,7 +678,7 @@ warning: unused variable: `x`
             .with_code("E0425")
             .with_message("cannot find value `z` in this scope")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
+                Label::primary(files.span(files.test_file, 4, 5))
                     .with_message("not found in this scope"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -785,10 +698,7 @@ error[E0425]: cannot find value `z` in this scope
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("cannot borrow as mutable")
-            .with_label(Label::primary(
-                files.test_file,
-                Span::new(0u32, 3u32).unwrap(),
-            ))
+            .with_label(Label::primary(files.span(files.test_file, 0, 3)))
             .with_notes(vec![
                 "consider changing this to be mutable: `mut x`",
                 "see documentation on borrowing for more information",
@@ -828,7 +738,7 @@ warning: potential issue detected
         let diagnostic = Diagnostic::error()
             .with_message("expected expression")
             .with_label(
-                Label::primary(files.test_file, Span::new(3u32, 3u32).unwrap())
+                Label::primary(files.span(files.test_file, 3, 3))
                     .with_message("expected expression here"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -846,13 +756,9 @@ error: expected expression
     #[test]
     fn test_label_without_message() {
         let files = create_test_files();
-        let diagnostic =
-            Diagnostic::error()
-                .with_message("syntax error")
-                .with_label(Label::primary(
-                    files.test_file,
-                    Span::new(4u32, 5u32).unwrap(),
-                ));
+        let diagnostic = Diagnostic::error()
+            .with_message("syntax error")
+            .with_label(Label::primary(files.span(files.test_file, 4, 5)));
         let output = diagnostic.emit_to_string(&files.files).unwrap();
         let expected = "\
 error: syntax error
@@ -870,7 +776,7 @@ error: syntax error
         let diagnostic = Diagnostic::error()
             .with_message("invalid character in identifier")
             .with_label(
-                Label::primary(files.unicode_file, Span::new(4u32, 8u32).unwrap())
+                Label::primary(files.span(files.unicode_file, 4, 8))
                     .with_message("unexpected character"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -891,7 +797,7 @@ error: invalid character in identifier
         let diagnostic = Diagnostic::error()
             .with_message("missing semicolon")
             .with_label(
-                Label::primary(files.test_file, Span::new(9u32, 10u32).unwrap())
+                Label::primary(files.span(files.test_file, 9, 10))
                     .with_message("expected `;` here"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -912,7 +818,7 @@ error: missing semicolon
         let diagnostic = Diagnostic::error()
             .with_message("unclosed delimiter")
             .with_label(
-                Label::primary(files.example_file, Span::new(0u32, 74u32).unwrap())
+                Label::primary(files.span(files.example_file, 0, 74))
                     .with_message("function body not closed"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -940,8 +846,7 @@ error: unclosed delimiter
         let diagnostic = Diagnostic::note()
             .with_message("related information")
             .with_label(
-                Label::secondary(files.test_file, Span::new(4u32, 5u32).unwrap())
-                    .with_message("defined here"),
+                Label::secondary(files.span(files.test_file, 4, 5)).with_message("defined here"),
             );
         let output = diagnostic.emit_to_string(&files.files).unwrap();
         let expected = "\
@@ -961,9 +866,9 @@ note: related information
         let diagnostic = Diagnostic::error()
             .with_message("mismatched types")
             .with_labels(vec![
-                Label::primary(files.example_file, Span::new(37u32, 38u32).unwrap())
+                Label::primary(files.span(files.example_file, 37, 38))
                     .with_message("expected integer"),
-                Label::secondary(files.example_file, Span::new(43u32, 50u32).unwrap())
+                Label::secondary(files.span(files.example_file, 43, 50))
                     .with_message("this is a string"),
             ]);
         let output = diagnostic.emit_to_string(&files.files).unwrap();
@@ -990,9 +895,9 @@ error: mismatched types
             .with_code("E0308")
             .with_message("mismatched types")
             .with_labels(vec![
-                Label::primary(files.example_file, Span::new(37u32, 38u32).unwrap())
+                Label::primary(files.span(files.example_file, 37, 38))
                     .with_message("expected `i32`, found `&str`"),
-                Label::secondary(files.example_file, Span::new(20u32, 21u32).unwrap())
+                Label::secondary(files.span(files.example_file, 20, 21))
                     .with_message("`x` is defined here as `i32`"),
             ])
             .with_note("expected type `i32`")

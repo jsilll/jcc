@@ -10,11 +10,7 @@ use crate::{
 };
 
 use jcc_backend::{
-    codemap::{
-        file::{FileId, SourceFile},
-        span::Span,
-        Diagnostic, IntoDiagnostic, Issue, Label,
-    },
+    codemap::{file::SourceFile, span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
     Ident, IdentInterner,
 };
 
@@ -56,11 +52,11 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             file,
             interner,
             stream: PrepStream::new(file),
+            result: ParserResult::default(),
             specifiers: Vec::with_capacity(16),
             expr_stack: Vec::with_capacity(16),
             decl_stack: Vec::with_capacity(16),
             item_stack: Vec::with_capacity(16),
-            result: ParserResult::new(file.id()),
         }
     }
 
@@ -100,11 +96,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     fn parse_type(&mut self, span: Span) -> Ty<'ctx> {
         match self.specifiers.as_slice() {
             [] => {
-                self.result.parser_issues.push(Issue::new(
-                    ParserIssue::MissingTypeSpecifier,
-                    self.file.id(),
-                    span,
-                ));
+                self.result
+                    .parser_issues
+                    .push(Issue::new(ParserIssue::MissingTypeSpecifier, span));
                 self.tys.void_ty
             }
             [TokenKind::KwVoid] => {
@@ -116,11 +110,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 self.tys.double_ty
             }
             specs if specs.contains(&TokenKind::KwDouble) || specs.contains(&TokenKind::KwVoid) => {
-                self.result.parser_issues.push(Issue::new(
-                    ParserIssue::InvalidTypeSpecifier,
-                    self.file.id(),
-                    span,
-                ));
+                self.result
+                    .parser_issues
+                    .push(Issue::new(ParserIssue::InvalidTypeSpecifier, span));
                 self.specifiers.clear();
                 self.tys.void_ty
             }
@@ -139,27 +131,21 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                         | TokenKind::KwLong
                         | TokenKind::KwSigned
                         | TokenKind::KwUnsigned => {
-                            self.result.parser_issues.push(Issue::new(
-                                ParserIssue::DuplicateTypeSpecifier,
-                                self.file.id(),
-                                span,
-                            ));
+                            self.result
+                                .parser_issues
+                                .push(Issue::new(ParserIssue::DuplicateTypeSpecifier, span));
                         }
                         _ => {
-                            self.result.parser_issues.push(Issue::new(
-                                ParserIssue::InvalidTypeSpecifier,
-                                self.file.id(),
-                                span,
-                            ));
+                            self.result
+                                .parser_issues
+                                .push(Issue::new(ParserIssue::InvalidTypeSpecifier, span));
                         }
                     }
                 }
                 if has_signed && has_unsigned {
-                    self.result.parser_issues.push(Issue::new(
-                        ParserIssue::ConflictingTypeSpecifiers,
-                        self.file.id(),
-                        span,
-                    ));
+                    self.result
+                        .parser_issues
+                        .push(Issue::new(ParserIssue::ConflictingTypeSpecifiers, span));
                 }
                 self.specifiers.clear();
                 match (has_unsigned, has_long) {
@@ -204,11 +190,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
 
         let span = start_span.merge(end_span);
         if count > 1 {
-            self.result.parser_issues.push(Issue::new(
-                ParserIssue::MultipleStorageClasses,
-                self.file.id(),
-                span,
-            ));
+            self.result
+                .parser_issues
+                .push(Issue::new(ParserIssue::MultipleStorageClasses, span));
         }
 
         (self.parse_type(span), storage)
@@ -300,7 +284,6 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             _ => {
                 self.result.parser_issues.push(Issue::new(
                     ParserIssue::ExpectedToken(TokenKind::Semi),
-                    self.file.id(),
                     token.span,
                 ));
                 None
@@ -772,11 +755,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 }
             }
             _ => {
-                self.result.parser_issues.push(Issue::new(
-                    ParserIssue::UnexpectedToken,
-                    self.file.id(),
-                    span,
-                ));
+                self.result
+                    .parser_issues
+                    .push(Issue::new(ParserIssue::UnexpectedToken, span));
                 None
             }
         }
@@ -908,8 +889,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         } else {
             self.result.parser_issues.push(Issue::new(
                 ParserIssue::UnexpectedEof,
-                self.file.id(),
-                Span::single(self.file.end_pos()),
+                Span::single(self.file.last()),
             ));
             None
         }
@@ -920,11 +900,9 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         if token.kind == kind {
             self.next()
         } else {
-            self.result.parser_issues.push(Issue::new(
-                ParserIssue::ExpectedToken(kind),
-                self.file.id(),
-                token.span,
-            ));
+            self.result
+                .parser_issues
+                .push(Issue::new(ParserIssue::ExpectedToken(kind), token.span));
             None
         }
     }
@@ -934,8 +912,7 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
         self.next().or_else(|| {
             self.result.parser_issues.push(Issue::new(
                 ParserIssue::UnexpectedEof,
-                self.file.id(),
-                Span::single(self.file.end_pos()),
+                Span::single(self.file.last()),
             ));
             None
         })
@@ -953,7 +930,6 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
             _ => {
                 self.result.parser_issues.push(Issue::new(
                     ParserIssue::ExpectedToken(TokenKind::Identifier),
-                    self.file.id(),
                     token.span,
                 ));
                 None
@@ -1086,20 +1062,11 @@ impl From<TokenKind> for Option<Precedence> {
 // ParserResult
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
 pub struct ParserResult<'ctx> {
     pub ast: Ast<'ctx>,
     pub prep_issues: Vec<Issue<PrepIssue>>,
     pub parser_issues: Vec<Issue<ParserIssue>>,
-}
-
-impl ParserResult<'_> {
-    pub fn new(file: FileId) -> Self {
-        Self {
-            ast: Ast::new(file),
-            prep_issues: Vec::new(),
-            parser_issues: Vec::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,7 +1086,7 @@ pub enum ParserIssue {
 }
 
 impl IntoDiagnostic for ParserIssue {
-    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+    fn into_diagnostic(self, span: Span) -> Diagnostic {
         let (msg, note): (Cow<str>, Cow<str>) = match self {
             ParserIssue::UnexpectedEof => (
                 "unexpected end of file".into(),
@@ -1155,7 +1122,7 @@ impl IntoDiagnostic for ParserIssue {
             ),
         };
         Diagnostic::error()
-            .with_label(Label::primary(file, span).with_message(msg))
+            .with_label(Label::primary(span).with_message(msg))
             .with_note(note)
     }
 }

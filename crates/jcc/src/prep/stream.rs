@@ -53,12 +53,7 @@ impl<'a> PrepStream<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::TokenKind;
-    use jcc_backend::codemap::file::{FileId, SourceFile};
-
-    fn file(src: &str) -> SourceFile {
-        SourceFile::from_source(FileId::new(0), "<test>", format!("{src}\n"))
-    }
+    use crate::{testutil::file, token::TokenKind};
 
     #[test]
     fn peek_does_not_consume() {

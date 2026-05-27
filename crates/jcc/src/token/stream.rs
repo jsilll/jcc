@@ -99,12 +99,7 @@ impl<'a> TokenStream<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::lex::Lexer;
-    use jcc_backend::codemap::file::{FileId, SourceFile};
-
-    fn file(src: &str) -> SourceFile {
-        SourceFile::from_source(FileId::new(0), "<test>", format!("{src}\n"))
-    }
+    use crate::{testutil::file, token::lex::Lexer};
 
     fn kinds(src: &str) -> Vec<TokenKind> {
         let file = file(src);

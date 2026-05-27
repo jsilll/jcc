@@ -65,19 +65,11 @@ impl<'a> Preprocessor<'a> {
 
     fn read_ident_inline(&mut self, span: Span) -> Result<Option<&'a str>, Issue<PrepIssue>> {
         match self.stream.next_on_line() {
-            Some(Err(e)) => Err(Issue::new(PrepIssue::Lexer(e.kind), e.file, e.span)),
-            None => Err(Issue::new(
-                PrepIssue::ExpectedMacroName,
-                self.file.id(),
-                span,
-            )),
+            None => Err(Issue::new(PrepIssue::ExpectedMacroName, span)),
+            Some(Err(e)) => Err(Issue::new(PrepIssue::Lexer(e.kind), e.span)),
             Some(Ok(token)) => match token.kind {
                 TokenKind::Identifier => Ok(self.file.slice(token.span)),
-                _ => Err(Issue::new(
-                    PrepIssue::ExpectedMacroName,
-                    self.file.id(),
-                    token.span,
-                )),
+                _ => Err(Issue::new(PrepIssue::ExpectedMacroName, token.span)),
             },
         }
     }
@@ -86,7 +78,7 @@ impl<'a> Preprocessor<'a> {
         let span = match self.stream.next_on_line() {
             None => return Ok(()),
             Some(Ok(token)) => token.span,
-            Some(Err(e)) => return Err(Issue::new(PrepIssue::Lexer(e.kind), e.file, e.span)),
+            Some(Err(e)) => return Err(Issue::new(PrepIssue::Lexer(e.kind), e.span)),
         };
         let Some(keyword) = self.file.slice(span) else {
             return Ok(());
@@ -122,7 +114,7 @@ impl<'a> Preprocessor<'a> {
             "endif" => {
                 self.stream.skip_line();
                 if !self.stack.pop() {
-                    return Err(Issue::new(PrepIssue::UnmatchedEndif, self.file.id(), span));
+                    return Err(Issue::new(PrepIssue::UnmatchedEndif, span));
                 }
             }
             "else" => {
@@ -130,9 +122,7 @@ impl<'a> Preprocessor<'a> {
                 match self.stack.top() {
                     Some(CondState::False) => self.stack.set(CondState::True),
                     Some(_) => self.stack.set(CondState::Done),
-                    None => {
-                        return Err(Issue::new(PrepIssue::UnmatchedEndif, self.file.id(), span))
-                    }
+                    None => return Err(Issue::new(PrepIssue::UnmatchedEndif, span)),
                 }
             }
             "elif" => match self.stack.top() {
@@ -147,17 +137,13 @@ impl<'a> Preprocessor<'a> {
                 }
                 None => {
                     self.stream.skip_line();
-                    return Err(Issue::new(PrepIssue::UnmatchedEndif, self.file.id(), span));
+                    return Err(Issue::new(PrepIssue::UnmatchedEndif, span));
                 }
             },
             _ if self.stack.is_suppressed() => self.stream.skip_line(),
             "include" => {
                 self.stream.skip_line();
-                return Err(Issue::new(
-                    PrepIssue::IncludeNotSupported,
-                    self.file.id(),
-                    span,
-                ));
+                return Err(Issue::new(PrepIssue::IncludeNotSupported, span));
             }
             "undef" => {
                 let Some(name) = self.read_ident_inline(span)? else {
@@ -173,18 +159,14 @@ impl<'a> Preprocessor<'a> {
                 while let Some(item) = self.stream.next_on_line() {
                     match item {
                         Ok(token) => self.current.push(token),
-                        Err(e) => return Err(Issue::new(PrepIssue::Lexer(e.kind), e.file, e.span)),
+                        Err(e) => return Err(Issue::new(PrepIssue::Lexer(e.kind), e.span)),
                     }
                 }
                 self.macros.define(name, self.current.drain(..));
             }
             _ => {
                 self.stream.skip_line();
-                return Err(Issue::new(
-                    PrepIssue::UnknownDirective,
-                    self.file.id(),
-                    span,
-                ));
+                return Err(Issue::new(PrepIssue::UnknownDirective, span));
             }
         }
 
@@ -206,11 +188,7 @@ impl<'a> Iterator for Preprocessor<'a> {
                 }
                 None => match self.stream.next()? {
                     Err(issue) => {
-                        return Some(Err(Issue::new(
-                            PrepIssue::Lexer(issue.kind),
-                            issue.file,
-                            issue.span,
-                        )));
+                        return Some(Err(Issue::new(PrepIssue::Lexer(issue.kind), issue.span)));
                     }
                     Ok(token) => match token.kind {
                         TokenKind::CommentBlock | TokenKind::CommentInline => continue,
@@ -246,9 +224,9 @@ pub enum PrepIssue {
 }
 
 impl IntoDiagnostic for PrepIssue {
-    fn into_diagnostic(self, file: jcc_backend::codemap::file::FileId, span: Span) -> Diagnostic {
+    fn into_diagnostic(self, span: Span) -> Diagnostic {
         let (msg1, msg2, note) = match self {
-            PrepIssue::Lexer(issue) => return issue.into_diagnostic(file, span),
+            PrepIssue::Lexer(issue) => return issue.into_diagnostic(span),
             PrepIssue::UnmatchedEndif => ("unmatched `#endif` or `#else`", "no matching `#if`", None),
             PrepIssue::IncludeNotSupported => ("`#include` is not yet implemented", "`#include` is not supported", None),
             PrepIssue::ExpectedMacroName => ("expected an identifier after preprocessor directive", "expected a macro name here", None),
@@ -258,6 +236,6 @@ impl IntoDiagnostic for PrepIssue {
         Diagnostic::error()
             .with_notes(note)
             .with_message(msg1)
-            .with_label(Label::primary(file, span).with_message(msg2))
+            .with_label(Label::primary(span).with_message(msg2))
     }
 }

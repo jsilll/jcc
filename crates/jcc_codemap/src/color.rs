@@ -47,14 +47,11 @@
 //! The main cost is the additional function calls to set colors, which are negligible
 //! for typical diagnostic use cases.
 
-#[cfg(feature = "color")]
 use termcolor::{Color, ColorSpec, WriteColor};
 
-#[cfg(feature = "color")]
 use crate::{Diagnostic, Files, Label, Location};
 
 /// Configuration for colored diagnostic output.
-#[cfg(feature = "color")]
 #[derive(Debug, Clone)]
 pub struct ColorConfig {
     /// Color for error severity
@@ -73,7 +70,6 @@ pub struct ColorConfig {
     pub line_number: Color,
 }
 
-#[cfg(feature = "color")]
 impl Default for ColorConfig {
     fn default() -> Self {
         Self {
@@ -88,7 +84,6 @@ impl Default for ColorConfig {
     }
 }
 
-#[cfg(feature = "color")]
 struct ColorSpecConfig {
     /// Color specification for error severity
     error: ColorSpec,
@@ -133,7 +128,6 @@ impl From<&ColorConfig> for ColorSpecConfig {
 /// # Errors
 ///
 /// If writing to the writer fails, an error is returned.
-#[cfg(feature = "color")]
 pub fn emit_diagnostic_colored<F: Files, W: WriteColor>(
     files: &F,
     diagnostic: &Diagnostic,
@@ -155,12 +149,13 @@ pub fn emit_diagnostic_colored<F: Files, W: WriteColor>(
     }
     writer.reset()?;
     writeln!(writer, ": {}", diagnostic.message)?;
-    for (file, labels) in group_labels(&diagnostic.labels) {
-        let name = files
-            .name(file)
-            .map_or_else(|| format!("{file:?}"), |p| p.display().to_string());
+    for (file, labels) in group_labels(files, &diagnostic.labels) {
+        let name = labels
+            .first()
+            .and_then(|l| files.file_for_pos(l.span.start()))
+            .map_or_else(|| format!("{file:?}"), |f| f.name().display().to_string());
         for label in labels {
-            if let Some(location) = files.location(file, label.span) {
+            if let Some(location) = files.location(label.span) {
                 emit_label_colored(writer, &name, &location, label, &config)?;
             }
         }
@@ -179,7 +174,6 @@ pub fn emit_diagnostic_colored<F: Files, W: WriteColor>(
 /// # Errors
 ///
 /// If writing to the writer fails for any reason, an error is returned.
-#[cfg(feature = "color")]
 fn emit_label_colored<W: WriteColor>(
     writer: &mut W,
     file: &str,
@@ -302,7 +296,7 @@ fn emit_label_colored<W: WriteColor>(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::{file::FileId, span::Span, SimpleFiles};
+    use crate::{simple::SimpleFiles, testutil::create_test_files};
 
     use termcolor::{Color, ColorSpec, WriteColor};
 
@@ -360,34 +354,6 @@ mod tests {
         }
     }
 
-    struct TestFiles {
-        files: SimpleFiles,
-        test_file: FileId,
-        example_file: FileId,
-        unicode_file: FileId,
-    }
-
-    fn create_test_files() -> TestFiles {
-        let mut files = SimpleFiles::new();
-        let test_file = files.add("test.rs", "let x = 5;".to_string());
-        let unicode_file = files.add("unicode.rs", "let café = \"☕\";".to_string());
-        let example_file = files.add(
-            "example.rs",
-            r#"fn main() {
-    let x = 5;
-    let y = x + "hello";
-    println!("{}", y);
-}"#
-            .to_string(),
-        );
-        TestFiles {
-            files,
-            test_file,
-            example_file,
-            unicode_file,
-        }
-    }
-
     fn emit_colored_to_string(files: &SimpleFiles, diagnostic: &Diagnostic) -> String {
         let config = ColorConfig::default();
         let mut writer = MockWriter::default();
@@ -410,7 +376,7 @@ mod tests {
         let diagnostic = Diagnostic::help()
             .with_message("this is a help message")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
+                Label::primary(files.span(files.test_file, 4, 5))
                     .with_message("consider changing this"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -431,8 +397,7 @@ mod tests {
         let diagnostic = Diagnostic::note()
             .with_message("this is a note message")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
-                    .with_message("just so you know"),
+                Label::primary(files.span(files.test_file, 4, 5)).with_message("just so you know"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
         let expected = "\
@@ -452,7 +417,7 @@ mod tests {
         let diagnostic = Diagnostic::error()
             .with_message("variable not found")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
+                Label::primary(files.span(files.test_file, 4, 5))
                     .with_message("not found in this scope"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -473,7 +438,7 @@ mod tests {
         let diagnostic = Diagnostic::warning()
             .with_message("unused variable: `x`")
             .with_label(
-                Label::primary(files.example_file, Span::new(20u32, 21u32).unwrap())
+                Label::primary(files.span(files.example_file, 20, 21))
                     .with_message("help: if this is intentional, prefix with underscore: `_x`"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -495,7 +460,7 @@ mod tests {
             .with_code("E0425")
             .with_message("cannot find value `z` in this scope")
             .with_label(
-                Label::primary(files.test_file, Span::new(4u32, 5u32).unwrap())
+                Label::primary(files.span(files.test_file, 4, 5))
                     .with_message("not found in this scope"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -515,10 +480,7 @@ mod tests {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("cannot borrow as mutable")
-            .with_label(Label::primary(
-                files.test_file,
-                Span::new(0u32, 3u32).unwrap(),
-            ))
+            .with_label(Label::primary(files.span(files.test_file, 0, 3)))
             .with_note("consider changing this to be mutable: `mut x`")
             .with_note("see documentation on borrowing for more information");
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -556,7 +518,7 @@ mod tests {
         let diagnostic = Diagnostic::error()
             .with_message("expected expression")
             .with_label(
-                Label::primary(files.test_file, Span::new(3u32, 3u32).unwrap())
+                Label::primary(files.span(files.test_file, 3, 3))
                     .with_message("expected expression here"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -574,13 +536,9 @@ mod tests {
     #[test]
     fn test_label_without_message() {
         let files = create_test_files();
-        let diagnostic =
-            Diagnostic::error()
-                .with_message("syntax error")
-                .with_label(Label::primary(
-                    files.test_file,
-                    Span::new(4u32, 5u32).unwrap(),
-                ));
+        let diagnostic = Diagnostic::error()
+            .with_message("syntax error")
+            .with_label(Label::primary(files.span(files.test_file, 4, 5)));
         let output = emit_colored_to_string(&files.files, &diagnostic);
         let expected = "\
 [Red!]error[Reset]: syntax error
@@ -598,7 +556,7 @@ mod tests {
         let diagnostic = Diagnostic::error()
             .with_message("invalid character in identifier")
             .with_label(
-                Label::primary(files.unicode_file, Span::new(4u32, 8u32).unwrap())
+                Label::primary(files.span(files.unicode_file, 4, 8))
                     .with_message("unexpected character"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -619,7 +577,7 @@ mod tests {
         let diagnostic = Diagnostic::error()
             .with_message("missing semicolon")
             .with_label(
-                Label::primary(files.test_file, Span::new(9u32, 10u32).unwrap())
+                Label::primary(files.span(files.test_file, 9, 10))
                     .with_message("expected `;` here"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -640,7 +598,7 @@ mod tests {
         let diagnostic = Diagnostic::error()
             .with_message("unclosed delimiter")
             .with_label(
-                Label::primary(files.example_file, Span::new(0u32, 74u32).unwrap())
+                Label::primary(files.span(files.example_file, 0, 74))
                     .with_message("function body not closed"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -667,11 +625,9 @@ mod tests {
         let diagnostic = Diagnostic::note()
             .with_message("related information")
             .with_label(
-                Label::secondary(files.test_file, Span::new(4u32, 5u32).unwrap())
-                    .with_message("defined here"),
+                Label::secondary(files.span(files.test_file, 4, 5)).with_message("defined here"),
             );
         let output = emit_colored_to_string(&files.files, &diagnostic);
-        // Secondary labels usually use Cyan or Blue to distinguish from the primary color
         let expected = "\
 [Cyan!]note[Reset]: related information
   [Blue!]-->[Reset] test.rs:1:5
@@ -689,9 +645,9 @@ mod tests {
         let diagnostic = Diagnostic::error()
             .with_message("mismatched types")
             .with_labels(vec![
-                Label::primary(files.example_file, Span::new(37u32, 38u32).unwrap())
+                Label::primary(files.span(files.example_file, 37, 38))
                     .with_message("expected integer"),
-                Label::secondary(files.example_file, Span::new(43u32, 50u32).unwrap())
+                Label::secondary(files.span(files.example_file, 43, 50))
                     .with_message("this is a string"),
             ]);
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -718,9 +674,9 @@ mod tests {
             .with_code("E0308")
             .with_message("mismatched types")
             .with_labels(vec![
-                Label::primary(files.example_file, Span::new(37u32, 38u32).unwrap())
+                Label::primary(files.span(files.example_file, 37, 38))
                     .with_message("expected `i32`, found `&str`"),
-                Label::secondary(files.example_file, Span::new(20u32, 21u32).unwrap())
+                Label::secondary(files.span(files.example_file, 20, 21))
                     .with_message("`x` is defined here as `i32`"),
             ])
             .with_note("expected type `i32`")

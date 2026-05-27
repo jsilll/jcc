@@ -4,7 +4,7 @@ use crate::{
 };
 
 use jcc_backend::{
-    codemap::{file::FileId, span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
+    codemap::{span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
     Ident,
 };
 use jcc_entity::EntityMap;
@@ -55,11 +55,9 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         self.tracked_labels.values().for_each(|e| {
                             if let TrackedLabel::Unresolved(v) = e {
                                 v.iter().for_each(|(_, span)| {
-                                    self.result.issues.push(Issue::new(
-                                        ControlIssue::UndefinedLabel,
-                                        self.ast.file,
-                                        *span,
-                                    ));
+                                    self.result
+                                        .issues
+                                        .push(Issue::new(ControlIssue::UndefinedLabel, *span));
                                 });
                             }
                         });
@@ -127,11 +125,10 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                 Some(TrackedStmt::Loop(stmt)) | Some(TrackedStmt::Switch(stmt)) => {
                     target.set(Some(*stmt))
                 }
-                None => self.result.issues.push(Issue::new(
-                    ControlIssue::UndefinedLoopOrSwitch,
-                    self.ast.file,
-                    data.span,
-                )),
+                None => self
+                    .result
+                    .issues
+                    .push(Issue::new(ControlIssue::UndefinedLoopOrSwitch, data.span)),
             },
             StmtKind::Continue(target) => {
                 match self.tracked_stmts.iter().rev().find_map(|stmt| match stmt {
@@ -141,11 +138,10 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                     Some(stmt) => {
                         target.set(Some(stmt));
                     }
-                    None => self.result.issues.push(Issue::new(
-                        ControlIssue::UndefinedLoop,
-                        self.ast.file,
-                        data.span,
-                    )),
+                    None => self
+                        .result
+                        .issues
+                        .push(Issue::new(ControlIssue::UndefinedLoop, data.span)),
                 }
             }
             StmtKind::Case { stmt: inner, .. } => {
@@ -160,11 +156,10 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         .or_default()
                         .cases
                         .push(stmt),
-                    _ => self.result.issues.push(Issue::new(
-                        ControlIssue::CaseOutsideSwitch,
-                        self.ast.file,
-                        data.span,
-                    )),
+                    _ => self
+                        .result
+                        .issues
+                        .push(Issue::new(ControlIssue::CaseOutsideSwitch, data.span)),
                 }
                 self.visit_stmt(*inner);
             }
@@ -177,18 +172,16 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                         let switch = self.ctx.switches.entry(*switch_stmt).or_default();
                         match switch.default {
                             None => switch.default = Some(stmt),
-                            Some(_) => self.result.issues.push(Issue::new(
-                                ControlIssue::DuplicateDefault,
-                                self.ast.file,
-                                data.span,
-                            )),
+                            Some(_) => self
+                                .result
+                                .issues
+                                .push(Issue::new(ControlIssue::DuplicateDefault, data.span)),
                         }
                     }
-                    _ => self.result.issues.push(Issue::new(
-                        ControlIssue::CaseOutsideSwitch,
-                        self.ast.file,
-                        data.span,
-                    )),
+                    _ => self
+                        .result
+                        .issues
+                        .push(Issue::new(ControlIssue::CaseOutsideSwitch, data.span)),
                 }
                 self.visit_stmt(*inner);
             }
@@ -206,11 +199,9 @@ impl<'a, 'ctx> ControlPass<'a, 'ctx> {
                             }
                             TrackedLabel::Resolved(s) => {
                                 if stmt != *s {
-                                    self.result.issues.push(Issue::new(
-                                        ControlIssue::RedeclaredLabel,
-                                        self.ast.file,
-                                        data.span,
-                                    ));
+                                    self.result
+                                        .issues
+                                        .push(Issue::new(ControlIssue::RedeclaredLabel, data.span));
                                 }
                             }
                         }
@@ -257,7 +248,7 @@ pub enum ControlIssue {
 }
 
 impl IntoDiagnostic for ControlIssue {
-    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+    fn into_diagnostic(self, span: Span) -> Diagnostic {
         let (msg, note) = match self {
             ControlIssue::UndefinedLoop => (
                 "break/continue outside of loop",
@@ -285,7 +276,7 @@ impl IntoDiagnostic for ControlIssue {
             ),
         };
         Diagnostic::error()
-            .with_label(Label::primary(file, span).with_message(msg))
+            .with_label(Label::primary(span).with_message(msg))
             .with_note(note)
     }
 }

@@ -9,10 +9,7 @@ use crate::{
 };
 pub use ty::{Ty, TyKind};
 
-use jcc_backend::{
-    codemap::{file::FileId, span::Span},
-    Ident, IdentInterner,
-};
+use jcc_backend::{codemap::span::Span, Ident, IdentInterner};
 use jcc_entity::{entity_impl, EntityRef, EntitySlice, PrimaryMap, SlicePool};
 
 use std::cell::Cell;
@@ -36,8 +33,8 @@ pub struct Stmt(u32);
 entity_impl!(Stmt, "stmt");
 pub type Block = EntitySlice<BlockItem>;
 
+#[derive(Default)]
 pub struct Ast<'ctx> {
-    pub file: FileId,
     pub root: Vec<Decl>,
     pub decls: SlicePool<Decl>,
     pub exprs: SlicePool<Expr>,
@@ -48,23 +45,6 @@ pub struct Ast<'ctx> {
 }
 
 impl<'ctx> Ast<'ctx> {
-    pub fn new(file: FileId) -> Self {
-        Self::with_capacity(file, 256)
-    }
-
-    pub fn with_capacity(file: FileId, capacity: usize) -> Self {
-        Ast {
-            file,
-            root: Vec::with_capacity(capacity),
-            decls: SlicePool::with_capacity(capacity),
-            exprs: SlicePool::with_capacity(capacity),
-            items: SlicePool::with_capacity(capacity),
-            decl: PrimaryMap::with_capacity(capacity),
-            stmt: PrimaryMap::with_capacity(capacity),
-            expr: PrimaryMap::with_capacity(capacity),
-        }
-    }
-
     pub fn graphviz<'a>(&'a self, interner: &'a IdentInterner) -> AstGraphvizCtx<'a, 'ctx> {
         AstGraphvizCtx::new(self, interner)
     }

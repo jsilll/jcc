@@ -7,7 +7,7 @@ use crate::{
 };
 
 use jcc_backend::{
-    codemap::{color::ColorConfig, Diagnostic, Files, SimpleFiles},
+    codemap::{color::ColorConfig, simple::SimpleFiles, Diagnostic, Files},
     IdentInterner, TargetOs,
 };
 
@@ -132,21 +132,21 @@ impl CompileOptions {
 
 impl CompileOptions {
     pub fn run(&self, profiler: &mut Profiler) -> Result<()> {
-        let mut files = SimpleFiles::new();
-        let file = files
+        let mut db = SimpleFiles::new();
+        let file = db
             .add_file(&self.path)
             .context("failed to read source file")?;
-        let file = files.get(file).context("internal: file not in db")?;
+        let file = db.get(file).context("internal: file not in db")?;
 
         // Lexing, preprocessing, and parsing
         let tys = TyCtx::new();
         let mut interner = IdentInterner::new();
         let r = profiler.time("Parser", || Parser::new(file, &tys, &mut interner).parse());
-        check_pass(self, &mut files, "preprocessor", &r.prep_issues)?;
+        check_pass(self, &mut db, "preprocessor", &r.prep_issues)?;
         if self.stop_after == Some(Stage::Lex) {
             return Ok(());
         }
-        check_pass(self, &mut files, "parser", &r.parser_issues)?;
+        check_pass(self, &mut db, "parser", &r.parser_issues)?;
         if r.ast.root.is_empty() {
             return Err(anyhow::anyhow!("exiting due to empty parse tree"));
         }
@@ -157,12 +157,12 @@ impl CompileOptions {
         // Resolver, control flow analysis, and type checking
         let ast = r.ast;
         let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
-        check_pass(self, &mut files, "resolver", &r.issues)?;
+        check_pass(self, &mut db, "resolver", &r.issues)?;
         let mut ctx = SemaCtx::new(&tys, r.symbol_count);
         let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
-        check_pass(self, &mut files, "control", &r.issues)?;
+        check_pass(self, &mut db, "control", &r.issues)?;
         let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());
-        check_pass(self, &mut files, "typer", &r.issues)?;
+        check_pass(self, &mut db, "typer", &r.issues)?;
         if self.stop_after == Some(Stage::Validate) {
             return Ok(());
         }

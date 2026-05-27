@@ -7,7 +7,7 @@ use crate::{
 };
 
 use jcc_backend::{
-    codemap::{file::FileId, span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
+    codemap::{span::Span, Diagnostic, IntoDiagnostic, Issue, Label},
     interner::symtab::EntitySymbolTable,
     Ident,
 };
@@ -91,7 +91,6 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                 if let Some(StorageClass::Static) = data.storage {
                     self.result.issues.push(Issue::new(
                         ResolverIssue::IllegalLocalStaticFunction,
-                        self.ast.file,
                         data.span,
                     ));
                 }
@@ -99,7 +98,6 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                     Some(_) => {
                         self.result.issues.push(Issue::new(
                             ResolverIssue::IllegalLocalFunctionDefinition,
-                            self.ast.file,
                             data.span,
                         ));
                     }
@@ -110,11 +108,9 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
                             .insert(data.name.name, SymbolInfo::with_linkage(symbol))
                         {
                             if !prev.has_linkage {
-                                self.result.issues.push(Issue::new(
-                                    ResolverIssue::ConflictingSymbol,
-                                    self.ast.file,
-                                    data.span,
-                                ));
+                                self.result
+                                    .issues
+                                    .push(Issue::new(ResolverIssue::ConflictingSymbol, data.span));
                             }
                         }
                     }
@@ -218,20 +214,18 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             }
             ExprKind::Var(name) => match self.scope.get(&name.name) {
                 Some(entry) => name.sema.set(Some(entry.symbol)),
-                None => self.result.issues.push(Issue::new(
-                    ResolverIssue::UndeclaredVariable,
-                    self.ast.file,
-                    data.span,
-                )),
+                None => self
+                    .result
+                    .issues
+                    .push(Issue::new(ResolverIssue::UndeclaredVariable, data.span)),
             },
             ExprKind::Call { name, args } => {
                 match self.scope.get(&name.name) {
                     Some(entry) => name.sema.set(Some(entry.symbol)),
-                    None => self.result.issues.push(Issue::new(
-                        ResolverIssue::UndeclaredFunction,
-                        self.ast.file,
-                        data.span,
-                    )),
+                    None => self
+                        .result
+                        .issues
+                        .push(Issue::new(ResolverIssue::UndeclaredFunction, data.span)),
                 }
                 self.ast.exprs[*args]
                     .iter()
@@ -268,7 +262,6 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
             if !(entry.has_linkage && prev.has_linkage) {
                 self.result.issues.push(Issue::new(
                     ResolverIssue::ConflictingSymbol,
-                    self.ast.file,
                     self.ast.decl[decl].span,
                 ));
             }
@@ -320,7 +313,7 @@ pub enum ResolverIssue {
 }
 
 impl IntoDiagnostic for ResolverIssue {
-    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+    fn into_diagnostic(self, span: Span) -> Diagnostic {
         let (msg, note) = match self {
             ResolverIssue::ConflictingSymbol => (
                 "symbol conflicts with previous declaration",
@@ -352,7 +345,7 @@ impl IntoDiagnostic for ResolverIssue {
             ),
         };
         Diagnostic::error()
-            .with_label(Label::primary(file, span).with_message(msg))
+            .with_label(Label::primary(span).with_message(msg))
             .with_note(note)
     }
 }

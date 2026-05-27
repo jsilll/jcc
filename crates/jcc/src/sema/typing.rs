@@ -9,7 +9,7 @@ use crate::{
     sema::{Attribute, SemaCtx, StaticValue, SymbolInfo},
 };
 
-use jcc_backend::codemap::{file::FileId, span::Span, Diagnostic, IntoDiagnostic, Issue, Label};
+use jcc_backend::codemap::{span::Span, Diagnostic, IntoDiagnostic, Issue, Label};
 
 use std::collections::HashSet;
 
@@ -83,11 +83,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     info.get_or_insert(SymbolInfo::statik(data.ty, decl_is_global, decl_init));
 
                 if info.ty != data.ty {
-                    self.result.issues.push(Issue::new(
-                        TypeIssue::DeclarationTypeMismatch,
-                        self.ast.file,
-                        data.span,
-                    ));
+                    self.result
+                        .issues
+                        .push(Issue::new(TypeIssue::DeclarationTypeMismatch, data.span));
                 }
 
                 if let Attribute::Static {
@@ -100,7 +98,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     {
                         self.result.issues.push(Issue::new(
                             TypeIssue::DeclarationVisibilityMismatch,
-                            self.ast.file,
                             data.span,
                         ));
                     }
@@ -187,11 +184,9 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 .get_or_insert(SymbolInfo::function(decl.ty, decl_is_global, false));
 
             if entry.ty != decl.ty {
-                self.result.issues.push(Issue::new(
-                    TypeIssue::DeclarationTypeMismatch,
-                    self.ast.file,
-                    decl.span,
-                ));
+                self.result
+                    .issues
+                    .push(Issue::new(TypeIssue::DeclarationTypeMismatch, decl.span));
             }
 
             if let Attribute::Function {
@@ -202,7 +197,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                 if is_global && !decl_is_global {
                     self.result.issues.push(Issue::new(
                         TypeIssue::DeclarationVisibilityMismatch,
-                        self.ast.file,
                         decl.span,
                     ));
                 }
@@ -217,7 +211,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                     if self.ast.decl[*param].storage.is_some() {
                         self.result.issues.push(Issue::new(
                             TypeIssue::StorageClassesDisallowed,
-                            self.ast.file,
                             self.ast.decl[*param].span,
                         ));
                     }
@@ -293,7 +286,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                             if self.ast.decl[*decl].storage.is_some() {
                                 self.result.issues.push(Issue::new(
                                     TypeIssue::StorageClassesDisallowed,
-                                    self.ast.file,
                                     self.ast.decl[*decl].span,
                                 ));
                             }
@@ -320,7 +312,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                 None => {
                                     self.result.issues.push(Issue::new(
                                         TypeIssue::NotConstant,
-                                        self.ast.file,
                                         self.ast.expr[*expr].span,
                                     ));
                                 }
@@ -329,7 +320,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                         if !self.switch_cases.insert(val) {
                                             self.result.issues.push(Issue::new(
                                                 TypeIssue::DuplicateSwitchCase,
-                                                self.ast.file,
                                                 self.ast.expr[*expr].span,
                                             ));
                                         }
@@ -337,7 +327,6 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
                                     None => {
                                         self.result.issues.push(Issue::new(
                                             TypeIssue::ConstantOutOfRange,
-                                            self.ast.file,
                                             self.ast.expr[*expr].span,
                                         ));
                                     }
@@ -547,9 +536,7 @@ impl<'a, 'ctx> TypeChecker<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     fn emit(&mut self, span: Span, kind: TypeIssue) {
-        self.result
-            .issues
-            .push(Issue::new(kind, self.ast.file, span));
+        self.result.issues.push(Issue::new(kind, span));
     }
 
     fn assert_is_lvalue(&mut self, expr: Expr) -> bool {
@@ -610,7 +597,7 @@ pub enum TypeIssue {
 }
 
 impl IntoDiagnostic for TypeIssue {
-    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+    fn into_diagnostic(self, span: Span) -> Diagnostic {
         let (msg, note) = match self {
             TypeIssue::ConstantOutOfRange => (
                 "constant value is out of range for the target type",
@@ -678,7 +665,7 @@ impl IntoDiagnostic for TypeIssue {
             ),
         };
         Diagnostic::error()
-            .with_label(Label::primary(file, span).with_message(msg))
+            .with_label(Label::primary(span).with_message(msg))
             .with_note(note)
     }
 }

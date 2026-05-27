@@ -6,3 +6,6 @@ pub mod prep;
 pub mod profile;
 pub mod sema;
 pub mod token;
+
+#[cfg(test)]
+mod testutil;

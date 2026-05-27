@@ -1,10 +1,7 @@
 use super::{Token, TokenKind};
 
 use jcc_backend::codemap::{
-    byte::BytePos,
-    file::{FileId, SourceFile},
-    span::Span,
-    Diagnostic, IntoDiagnostic, Issue, Label,
+    file::SourceFile, span::Span, Diagnostic, IntoDiagnostic, Issue, Label,
 };
 
 use std::{
@@ -18,7 +15,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Lexer<'a> {
-    pos: BytePos,
+    pos: usize,
     line_start: bool,
     file: &'a SourceFile,
     chars: Peekable<CharIndices<'a>>,
@@ -36,14 +33,14 @@ impl<'a> Iterator for Lexer<'a> {
             self.line_start = *c == '\n';
             let idx = self.chars.next()?.0;
             if self.line_start {
-                self.pos = BytePos::from(idx);
+                self.pos = idx;
                 return Some(Ok(Token::new(TokenKind::NewLine, self.span(1))));
             }
         }
         let can_emit_hash = self.line_start;
         let (idx, c) = self.chars.next()?;
-        self.pos = BytePos::from(idx);
         self.line_start = false;
+        self.pos = idx;
         Some(match c {
             c if c.is_ascii_digit() => self.number(false),
             c if c.is_ascii_alphabetic() || c == '_' => Ok(self.word()),
@@ -52,8 +49,7 @@ impl<'a> Iterator for Lexer<'a> {
                 Some((_, c)) if c.is_ascii_digit() => self.number(true),
                 _ => Err(Issue::new(
                     LexerIssue::UnexpectedCharacter,
-                    self.file.id(),
-                    Span::single(self.pos),
+                    self.file.single(self.pos),
                 )),
             },
             ';' => Ok(Token::new(TokenKind::Semi, self.span(1))),
@@ -111,8 +107,7 @@ impl<'a> Iterator for Lexer<'a> {
             },
             _ => Err(Issue::new(
                 LexerIssue::UnexpectedCharacter,
-                self.file.id(),
-                Span::single(self.pos),
+                self.file.single(self.pos),
             )),
         })
     }
@@ -122,15 +117,16 @@ impl<'a> Lexer<'a> {
     pub fn new(file: &'a SourceFile) -> Self {
         Self {
             file,
+            pos: 0,
             line_start: true,
-            pos: BytePos::ZERO,
             chars: file.source().char_indices().peekable(),
         }
     }
 
+    /// Creates a global span of `len` bytes starting at the current position.
     #[inline]
-    fn span(&self, len: u32) -> Span {
-        Span::new(self.pos, self.pos + len).unwrap()
+    fn span(&self, len: usize) -> Span {
+        self.file.span(self.pos, self.pos + len).unwrap()
     }
 
     #[inline]
@@ -198,7 +194,10 @@ impl<'a> Lexer<'a> {
             .peek()
             .map(|(idx, _)| *idx as u32)
             .unwrap_or(self.file.source().len() as u32);
-        Token::new(TokenKind::CommentInline, Span::new(self.pos, end).unwrap())
+        Token::new(
+            TokenKind::CommentInline,
+            self.file.span(self.pos, end).unwrap(),
+        )
     }
 
     fn comment_block(&mut self) -> Result<Token, Issue<LexerIssue>> {
@@ -216,18 +215,14 @@ impl<'a> Lexer<'a> {
             .peek()
             .map(|(idx, _)| *idx as u32)
             .unwrap_or(self.file.source().len() as u32);
-        let span = Span::new(self.pos, end).unwrap();
+        let span = self.file.span(self.pos, end).unwrap();
         if closed {
             Ok(Token {
                 span,
                 kind: TokenKind::CommentBlock,
             })
         } else {
-            Err(Issue::new(
-                LexerIssue::UnclosedBlockComment,
-                self.file.id(),
-                span,
-            ))
+            Err(Issue::new(LexerIssue::UnclosedBlockComment, span))
         }
     }
 
@@ -257,12 +252,11 @@ impl<'a> Lexer<'a> {
                     let end = self
                         .chars
                         .peek()
-                        .map(|(idx, _)| *idx as u32)
-                        .unwrap_or(self.file.source().len() as u32);
+                        .map(|(idx, _)| *idx)
+                        .unwrap_or(self.file.source().len());
                     return Err(Issue::new(
                         LexerIssue::EmptyExponent,
-                        self.file.id(),
-                        Span::new(self.pos, end).unwrap(),
+                        self.file.span(self.pos, end).unwrap(),
                     ));
                 }
             }
@@ -297,41 +291,35 @@ impl<'a> Lexer<'a> {
         };
 
         let end = match self.chars.peek() {
-            None => self.file.source().len() as u32,
+            None => self.file.source().len(),
             Some((end, c)) => {
-                let end = *end as u32;
                 if c.is_ascii_alphanumeric() || *c == '_' || *c == '.' {
                     return Err(Issue::new(
                         LexerIssue::InvalidNumberSuffix,
-                        self.file.id(),
-                        Span::new(self.pos, end).unwrap(),
+                        self.file.span(self.pos, *end).unwrap(),
                     ));
                 }
-                end
+                *end
             }
         };
 
         Ok(Token {
             kind,
-            span: Span::new(self.pos, end).unwrap(),
+            span: self.file.span(self.pos, end).unwrap(),
         })
     }
 
     fn word(&mut self) -> Token {
         let end = self.next_while(|c| c.is_ascii_alphanumeric() || c == '_');
-        let ident = self
-            .file
-            .source()
-            .get(self.pos.to_usize()..end.to_usize())
-            .unwrap_or_default();
+        let ident = self.file.source().get(self.pos..end).unwrap_or_default();
         Token {
-            span: Span::new(self.pos, end).unwrap(),
+            span: self.file.span(self.pos, end).unwrap(),
             kind: TokenKind::from_keyword(ident).unwrap_or(TokenKind::Identifier),
         }
     }
 
     #[inline]
-    fn next_while<F>(&mut self, mut predicate: F) -> BytePos
+    fn next_while<F>(&mut self, mut predicate: F) -> usize
     where
         F: FnMut(char) -> bool,
     {
@@ -343,7 +331,7 @@ impl<'a> Lexer<'a> {
         }
         self.chars
             .peek()
-            .map(|(idx, _)| BytePos::from(*idx))
+            .map(|(idx, _)| *idx)
             .unwrap_or(self.pos + 1)
     }
 }
@@ -361,7 +349,7 @@ pub enum LexerIssue {
 }
 
 impl IntoDiagnostic for LexerIssue {
-    fn into_diagnostic(self, file: FileId, span: Span) -> Diagnostic {
+    fn into_diagnostic(self, span: Span) -> Diagnostic {
         let (msg, note) = match self {
             LexerIssue::EmptyExponent => (
                 "empty exponent",
@@ -381,7 +369,7 @@ impl IntoDiagnostic for LexerIssue {
             ),
         };
         Diagnostic::error()
-            .with_label(Label::primary(file, span).with_message(msg))
+            .with_label(Label::primary(span).with_message(msg))
             .with_note(note)
     }
 }

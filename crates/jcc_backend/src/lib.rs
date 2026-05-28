@@ -1,5 +1,6 @@
 pub mod infra;
 pub mod ir;
+pub mod x86_64;
 
 pub use jcc_codemap as codemap;
 pub use jcc_interner as interner;

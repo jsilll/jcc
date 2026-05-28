@@ -213,7 +213,7 @@ impl<'ctx> LoweringPass<'ctx> {
                 // Dead code between this goto and the next label must not be emitted
                 // into the just-terminated block. Start a fresh unreachable block to
                 // absorb it; no predecessor will ever jump to it.
-                let dead = self.builder.build_block("dead", data.span);
+                let dead = self.builder.build_block("goto.dead", data.span);
                 self.builder.block = Some(dead);
             }
             ast::StmtKind::Label { label, stmt: inner } => {

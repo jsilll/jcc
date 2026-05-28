@@ -8,6 +8,11 @@ use crate::{
 
 use jcc_backend::{
     codemap::{color::ColorConfig, simple::SimpleFiles, Diagnostic, Files},
+    ir::{
+        analysis::{cfg::ControlFlowGraph, dom::Dominance, liveness::Liveness, order::Order},
+        passes::mem2reg::Mem2Reg,
+    },
+    x86_64::{emit::emit_program, regalloc::allocate},
     IdentInterner, TargetOs,
 };
 
@@ -26,6 +31,8 @@ pub struct CompileOptions {
     pub libs: Vec<String>,
     pub stop_after: Option<Stage>,
     pub emit_options: EmitOptions,
+    /// Produce a .o object file instead of a final executable (-c flag).
+    pub object_only: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -54,6 +61,7 @@ impl CompileOptions {
             stop_after: None,
             libs: Vec::new(),
             emit_options: EmitOptions::default(),
+            object_only: false,
         }
     }
 
@@ -88,8 +96,9 @@ impl CompileOptions {
         let tacky = args.contains("--tacky");
         let codegen = args.contains("--codegen");
         let validate = args.contains("--validate");
-        let assembly = args.contains(["-c", "--no-link"]);
-        let stop_after = if assembly {
+        let object_only = args.contains(["-c", "--no-link"]);
+        let emit_asm_only = args.contains(["-S", "--assembly"]);
+        let stop_after = if emit_asm_only || object_only {
             Some(Stage::Assembly)
         } else if codegen {
             Some(Stage::Codegen)
@@ -126,6 +135,7 @@ impl CompileOptions {
             profile,
             stop_after,
             emit_options,
+            object_only,
         }))
     }
 }
@@ -172,7 +182,7 @@ impl CompileOptions {
         if self.emit_options.ast_graphviz {
             write_graphviz(&self.path, &ast, &interner)?;
         }
-        let ssa = profiler.time("Lower", || {
+        let mut ssa = profiler.time("Lower", || {
             LoweringPass::new(&ast, &ctx, &mut interner).build()
         });
         if self.emit_options.ir {
@@ -181,6 +191,75 @@ impl CompileOptions {
         if self.stop_after == Some(Stage::Tacky) {
             return Ok(());
         }
+
+        // IR analysis passes (block structure is immutable from here on).
+        let mut order = Order::new();
+        profiler.time("Order", || order.compute(&ssa));
+
+        let mut cfg = ControlFlowGraph::new();
+        profiler.time("CFG", || cfg.compute(&ssa, &order));
+
+        let mut dom = Dominance::new();
+        profiler.time("Dominance", || dom.compute(&ssa, &order, &cfg));
+
+        // mem2reg: promote stack allocations to SSA values.
+        profiler.time("Mem2Reg", || {
+            Mem2Reg::new().run(&mut ssa, &order, &cfg, &dom)
+        });
+
+        if self.stop_after == Some(Stage::Codegen) {
+            // Validate that register allocation succeeds without writing output.
+            for (_, func) in ssa.functions.iter() {
+                if let Some(entry) = func.entry {
+                    let liveness = Liveness::compute(entry, &ssa, &cfg, &order);
+                    let _ = allocate(entry, &ssa, &order, &liveness);
+                }
+            }
+            return Ok(());
+        }
+
+        // Emit x86-64 AT&T assembly.
+        let asm = profiler.time("Codegen", || emit_program(&ssa, &order, &interner));
+        let asm_path = self.path.with_extension("s");
+        std::fs::write(&asm_path, &asm)
+            .with_context(|| format!("failed to write {}", asm_path.display()))?;
+
+        if self.stop_after == Some(Stage::Assembly) && !self.object_only {
+            // -S / --assembly: leave the .s file on disk, done.
+            return Ok(());
+        }
+
+        if self.object_only {
+            // -c / --no-link: assemble to .o, remove .s, do not link.
+            let obj_path = self.path.with_extension("o");
+            let status = std::process::Command::new("gcc")
+                .arg("-c")
+                .arg(&asm_path)
+                .arg("-o")
+                .arg(&obj_path)
+                .status()
+                .context("failed to invoke gcc for assembly")?;
+            std::fs::remove_file(&asm_path).ok();
+            if !status.success() {
+                return Err(anyhow::anyhow!("assembly failed"));
+            }
+            return Ok(());
+        }
+
+        // Assemble and link using the system C compiler.
+        let output = self.path.with_extension("");
+        let mut cmd = std::process::Command::new("gcc");
+        cmd.arg("-o").arg(&output).arg(&asm_path);
+        for lib in &self.libs {
+            cmd.arg(format!("-l{lib}"));
+        }
+        let status = cmd.status().context("failed to invoke gcc for linking")?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("assembly/linking failed"));
+        }
+
+        // Remove the intermediate assembly file.
+        std::fs::remove_file(&asm_path).ok();
 
         Ok(())
     }

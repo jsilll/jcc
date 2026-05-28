@@ -1,4 +1,3 @@
-pub mod infra;
 pub mod ir;
 
 pub use jcc_codemap as codemap;

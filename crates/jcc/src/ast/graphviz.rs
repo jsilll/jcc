@@ -1,8 +1,6 @@
 use crate::ast::{Ast, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind};
 
-use jcc_backend::{infra::emitter::IndentedEmitter, IdentInterner};
-
-use std::fmt::Write;
+use jcc_backend::IdentInterner;
 
 // ---------------------------------------------------------------------------
 // AstGraphvizCtx
@@ -30,37 +28,34 @@ impl<'a, 'ctx> AstGraphvizCtx<'a, 'ctx> {
 // ---------------------------------------------------------------------------
 
 struct AstGraphvizEmitter<'a, 'ctx, W: std::fmt::Write> {
+    dst: W,
     counter: u32,
-    e: IndentedEmitter<W>,
     ctx: &'a AstGraphvizCtx<'a, 'ctx>,
 }
 
 impl<'a, 'ctx, W: std::fmt::Write> AstGraphvizEmitter<'a, 'ctx, W> {
-    fn new(ctx: &'a AstGraphvizCtx<'a, 'ctx>, output: W) -> Self {
+    fn new(ctx: &'a AstGraphvizCtx<'a, 'ctx>, dst: W) -> Self {
         Self {
+            dst,
             ctx,
             counter: 0,
-            e: IndentedEmitter::new(output),
         }
     }
 
     fn emit(mut self) -> std::fmt::Result {
-        writeln!(self.e, "digraph AST {{")?;
-        self.indented(|s| {
-            writeln!(s.e, "rankdir=TB;")?;
-            writeln!(
-                s.e,
-                "node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10];",
-            )?;
-            writeln!(s.e, "edge [fontname=\"Helvetica\", fontsize=9];")?;
-            s.emit_node("ast_root", "ASTRoot", Some(Color::LightBlue))?;
-            s.ctx.ast.root.iter().try_for_each(|decl| {
-                let id = s.emit_decl(*decl)?;
-                s.emit_edge("ast_root", &id, None)
-            })?;
-            Ok(())
+        writeln!(self.dst, "digraph AST {{")?;
+        writeln!(self.dst, "rankdir=TB;")?;
+        writeln!(
+            self.dst,
+            "node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize=10];",
+        )?;
+        writeln!(self.dst, "edge [fontname=\"Helvetica\", fontsize=9];")?;
+        self.emit_node("ast_root", "ASTRoot", Some(Color::LightBlue))?;
+        self.ctx.ast.root.iter().try_for_each(|decl| {
+            let id = self.emit_decl(*decl)?;
+            self.emit_edge("ast_root", &id, None)
         })?;
-        writeln!(self.e, "}}")
+        writeln!(self.dst, "}}")
     }
 
     fn emit_decl(&mut self, decl: Decl) -> Result<String, std::fmt::Error> {
@@ -336,17 +331,6 @@ impl<'a, 'ctx, W: std::fmt::Write> AstGraphvizEmitter<'a, 'ctx, W> {
     // ---------------------------------------------------------------------------
 
     #[inline]
-    fn indented<F>(&mut self, f: F) -> std::fmt::Result
-    where
-        F: FnOnce(&mut Self) -> std::fmt::Result,
-    {
-        self.e.indent();
-        let res = f(self);
-        self.e.unindent();
-        res
-    }
-
-    #[inline]
     fn fresh_aux_node_id(&mut self, hint: &str) -> String {
         let id = self.counter;
         self.counter += 1;
@@ -357,12 +341,12 @@ impl<'a, 'ctx, W: std::fmt::Write> AstGraphvizEmitter<'a, 'ctx, W> {
     fn emit_node(&mut self, id: &str, label: &str, color: Option<Color>) -> std::fmt::Result {
         match color {
             Some(color) => writeln!(
-                self.e,
+                self.dst,
                 "{id} [label=\"{label}\", fillcolor={}];",
                 color.as_str()
             ),
             None => writeln!(
-                self.e,
+                self.dst,
                 "{id} [label=\"{label}\", shape=plaintext, fillcolor=none];"
             ),
         }
@@ -371,8 +355,8 @@ impl<'a, 'ctx, W: std::fmt::Write> AstGraphvizEmitter<'a, 'ctx, W> {
     #[inline]
     fn emit_edge(&mut self, from_id: &str, to_id: &str, label: Option<&str>) -> std::fmt::Result {
         match label {
-            None => writeln!(self.e, "{from_id} -> {to_id};"),
-            Some(label) => writeln!(self.e, "{from_id} -> {to_id} [label=\"{label}\"];",),
+            None => writeln!(self.dst, "{from_id} -> {to_id};"),
+            Some(label) => writeln!(self.dst, "{from_id} -> {to_id} [label=\"{label}\"];",),
         }
     }
 
@@ -384,9 +368,9 @@ impl<'a, 'ctx, W: std::fmt::Write> AstGraphvizEmitter<'a, 'ctx, W> {
         label: Option<&str>,
     ) -> std::fmt::Result {
         match label {
-            None => writeln!(self.e, "{from_id} -> {to_id} [style=dotted];"),
+            None => writeln!(self.dst, "{from_id} -> {to_id} [style=dotted];"),
             Some(label) => writeln!(
-                self.e,
+                self.dst,
                 "{from_id} -> {to_id} [label=\"{label}\", style=dotted];"
             ),
         }

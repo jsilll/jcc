@@ -17,6 +17,9 @@ pub struct Builder<'a> {
     pub interner: &'a mut IdentInterner,
     pub block: Option<Block>,
     pub function: Option<Function>,
+    /// The block where alloca instructions are always placed (the function entry).
+    /// This ensures allocas remain reachable even when goto creates dead blocks.
+    pub alloca_block: Option<Block>,
 }
 
 impl<'a> Builder<'a> {
@@ -25,6 +28,7 @@ impl<'a> Builder<'a> {
             interner,
             block: None,
             function: None,
+            alloca_block: None,
             program: Program::default(),
         }
     }
@@ -66,6 +70,23 @@ impl<'a> Builder<'a> {
             idx: 0,
         };
         self.program.values.push(data)
+    }
+
+    /// Creates an alloca in the function's entry block so it stays reachable
+    /// even when the current block is dead (e.g., after a goto).
+    pub fn build_alloca(&mut self, inst: Inst, span: Span) -> Value {
+        let block = self
+            .alloca_block
+            .unwrap_or_else(|| self.block.expect("no current block"));
+        let idx = self.program.blocks[block].insts.len() as u32;
+        let value = self.program.values.push(ValueData {
+            idx,
+            inst,
+            span,
+            block,
+        });
+        self.program.blocks[block].insts.push(value);
+        value
     }
 
     /// Creates a new value in the current block.

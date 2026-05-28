@@ -92,20 +92,31 @@ fn collect_promotable_allocas(entry: Block, prog: &Program, order: &Order) -> Ve
                 Inst::Alloca { ty, .. } => {
                     candidates.push((val, ty));
                 }
+                // Params are treated as virtual allocas: the lowering uses them as
+                // pointers via Load/Store, and mem2reg promotes them like allocas.
+                Inst::Param { ty, .. } => {
+                    candidates.push((val, ty));
+                }
                 Inst::Store { ptr, value, .. } => {
-                    // ptr used as store destination: promotable if it's an alloca (don't mark)
-                    // value is the data being stored: if it's an alloca its address escapes
-                    if matches!(prog.values[value].inst, Inst::Alloca { .. }) {
+                    // ptr used as store destination: promotable if it's an alloca/param (don't mark)
+                    // value is the data being stored: if it's an alloca/param its address escapes
+                    if matches!(
+                        prog.values[value].inst,
+                        Inst::Alloca { .. } | Inst::Param { .. }
+                    ) {
                         non_promotable.insert(value);
                     }
                     let _ = ptr;
                 }
                 Inst::Load { .. } => {
-                    // ptr used as load source: promotable if it's an alloca (don't mark)
+                    // ptr used as load source: promotable if it's an alloca/param (don't mark)
                 }
                 inst => {
                     for used in inst_operands(&inst) {
-                        if matches!(prog.values[used].inst, Inst::Alloca { .. }) {
+                        if matches!(
+                            prog.values[used].inst,
+                            Inst::Alloca { .. } | Inst::Param { .. }
+                        ) {
                             non_promotable.insert(used);
                         }
                     }
@@ -276,6 +287,16 @@ fn rename_pass(
                                 }
                             }
                         }
+                        Inst::Param { .. } => {
+                            // Param is a virtual alloca pre-initialized with its own value.
+                            // Any Load(ptr=this_param) in the dominator subtree will see val.
+                            for (ai, &(alloca_val, _)) in allocas.iter().enumerate() {
+                                if alloca_val == val {
+                                    stacks[ai].push(Some(val));
+                                    break;
+                                }
+                            }
+                        }
                         Inst::Store { ptr, value, .. } => {
                             for (ai, &(alloca_val, _)) in allocas.iter().enumerate() {
                                 if ptr == alloca_val {
@@ -377,11 +398,13 @@ fn substitute_all(entry: Block, prog: &mut Program, order: &Order, rename: &Hash
 }
 
 fn r(val: Value, rename: &HashMap<usize, usize>) -> Value {
-    rename
-        .get(&val.index())
-        .copied()
-        .map(Value::new)
-        .unwrap_or(val)
+    // Follow the rename chain to its canonical end, so that multi-hop renames
+    // (e.g. load_c → load_a → const_1) resolve to the final value in one pass.
+    let mut idx = val.index();
+    while let Some(&next) = rename.get(&idx) {
+        idx = next;
+    }
+    Value::new(idx)
 }
 
 fn substitute_inst(inst: &Inst, rename: &HashMap<usize, usize>) -> Inst {

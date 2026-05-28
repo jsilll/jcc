@@ -84,6 +84,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     if body.is_some() {
                         let block = self.builder.build_block("entry", data.span);
                         self.builder.block = Some(block);
+                        self.builder.alloca_block = Some(block);
                     }
 
                     if let Some(body) = body {
@@ -121,6 +122,7 @@ impl<'ctx> LoweringPass<'ctx> {
                         }
                     }
                     self.builder.function = None;
+                    self.builder.alloca_block = None;
                 }
             }
         });
@@ -141,7 +143,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     Attribute::Local => {
                         let alloca = self
                             .builder
-                            .build_val(Inst::alloca(data.ty.lower().0, 0), data.span);
+                            .build_alloca(Inst::alloca(data.ty.lower().0, 0), data.span);
                         self.symbols[sema] = Some(SymbolEntry::Value(alloca));
                         if let Some(init) = init {
                             let value = self.visit_expr_rvalue(init);
@@ -208,6 +210,11 @@ impl<'ctx> LoweringPass<'ctx> {
                     data.span,
                 );
                 self.builder.terminate_block(Terminator::br(block));
+                // Dead code between this goto and the next label must not be emitted
+                // into the just-terminated block. Start a fresh unreachable block to
+                // absorb it; no predecessor will ever jump to it.
+                let dead = self.builder.build_block("dead", data.span);
+                self.builder.block = Some(dead);
             }
             ast::StmtKind::Label { label, stmt: inner } => {
                 let block = self.get_or_make_labeled(stmt, *label, data.span);
@@ -395,6 +402,10 @@ impl<'ctx> LoweringPass<'ctx> {
                     cases,
                     default_block.unwrap_or(cont_block),
                 ));
+                // Dead code between the switch dispatch and the first case/default
+                // must not be emitted into the terminated dispatch block.
+                let dead = self.builder.build_block("switch.dead", data.span);
+                self.builder.block = Some(dead);
 
                 self.visit_stmt(*body);
                 self.builder.terminate_block(Terminator::br(cont_block));
@@ -789,13 +800,15 @@ impl<'ctx> LoweringPass<'ctx> {
     fn build_icmp(&mut self, op: ICmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
-        self.builder.build_val(Inst::icmp(op, lhs, rhs), span)
+        let cmp = self.builder.build_val(Inst::icmp(op, lhs, rhs), span);
+        self.builder.build_val(Inst::zext(Ty::I32, cmp), span)
     }
 
     fn build_fcmp(&mut self, op: FCmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
-        self.builder.build_val(Inst::fcmp(op, lhs, rhs), span)
+        let cmp = self.builder.build_val(Inst::fcmp(op, lhs, rhs), span);
+        self.builder.build_val(Inst::zext(Ty::I32, cmp), span)
     }
 
     fn build_truthy(&mut self, cond: Expr, span: Span) -> Value {
@@ -997,15 +1010,19 @@ impl<'ctx> LoweringPass<'ctx> {
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,
             None => {
-                let name = match self.builder.function {
-                    Some(func) if !global.is_global => {
-                        let fname = self.builder.program.functions[func].name;
-                        let fname = self.builder.interner.lookup(fname);
-                        let name = self.builder.interner.lookup(name.name);
-                        let scoped = format!("{fname}.{name}");
-                        self.builder.interner.intern(&scoped)
-                    }
-                    _ => name.name,
+                let name = if !global.is_global {
+                    let name = self.builder.interner.lookup(name.name);
+                    let scoped = match self.builder.function {
+                        Some(func) => {
+                            let fname = self.builder.program.functions[func].name;
+                            let fname = self.builder.interner.lookup(fname);
+                            format!("{fname}.{name}.{}", sym.as_u32())
+                        }
+                        None => format!("{name}.{}", sym.as_u32()),
+                    };
+                    self.builder.interner.intern(&scoped)
+                } else {
+                    name.name
                 };
                 global.name = name;
                 let v = self.builder.program.globals.push(global);

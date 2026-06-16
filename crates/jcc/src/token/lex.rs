@@ -130,13 +130,13 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline]
-    fn match1(&mut self, ch: char, kind: TokenKind, fallback: TokenKind) -> Token {
+    fn match1(&mut self, ch: char, kind: TokenKind, fall: TokenKind) -> Token {
         match self.chars.peek() {
             Some((_, ch2)) if *ch2 == ch => {
                 self.chars.next();
                 Token::new(kind, self.span(2))
             }
-            _ => Token::new(fallback, self.span(1)),
+            _ => Token::new(fall, self.span(1)),
         }
     }
 
@@ -145,7 +145,7 @@ impl<'a> Lexer<'a> {
         &mut self,
         pair1: (char, TokenKind),
         pair2: (char, TokenKind),
-        fallback: TokenKind,
+        fall: TokenKind,
     ) -> Token {
         let (kind, len) = match self.chars.peek() {
             Some((_, c)) if *c == pair1.0 => {
@@ -156,7 +156,7 @@ impl<'a> Lexer<'a> {
                 self.chars.next();
                 (pair2.1, 2)
             }
-            _ => (fallback, 1),
+            _ => (fall, 1),
         };
         Token::new(kind, self.span(len))
     }
@@ -167,7 +167,7 @@ impl<'a> Lexer<'a> {
         kind1: (char, TokenKind),
         kind2: (char, TokenKind),
         kind3: (char, TokenKind),
-        fallback: TokenKind,
+        fall: TokenKind,
     ) -> Token {
         match self.chars.peek() {
             Some((_, c)) if *c == kind1.0 => {
@@ -178,7 +178,7 @@ impl<'a> Lexer<'a> {
                 self.chars.next();
                 self.match1(kind3.0, kind3.1, kind2.1)
             }
-            _ => Token::new(fallback, self.span(1)),
+            _ => Token::new(fall, self.span(1)),
         }
     }
 
@@ -332,7 +332,7 @@ impl<'a> Lexer<'a> {
         self.chars
             .peek()
             .map(|(idx, _)| *idx)
-            .unwrap_or(self.pos + 1)
+            .unwrap_or(self.file.source().len())
     }
 }
 

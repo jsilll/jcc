@@ -1,9 +1,13 @@
 pub mod analysis;
 pub mod builder;
 pub mod inst;
+pub mod parse;
 pub mod pretty;
 pub mod term;
 pub mod ty;
+
+#[cfg(test)]
+mod testutil;
 
 use jcc_codemap::span::Span;
 use jcc_entity::{entity_impl, EntitySet, PrimaryMap};

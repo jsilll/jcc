@@ -177,11 +177,23 @@ impl Span {
     pub fn shrink(self, amount: u32) -> Option<Self> {
         let start = self.start + amount;
         let end = BytePos(self.end.0.saturating_sub(amount));
-        if start.0 <= end.0 {
-            Some(Self { start, end })
-        } else {
-            None
-        }
+        Self::new(start, end)
+    }
+
+    /// Shrinks the span from the left by the given amount.
+    ///
+    /// Returns None if the resulting span would be invalid.
+    pub fn shrink_left(self, amount: u32) -> Option<Self> {
+        let start = self.start + amount;
+        Self::new(start, self.end)
+    }
+
+    /// Shrinks the span from the right by the given amount.
+    ///
+    /// Returns None if the resulting span would be invalid.
+    pub fn shrink_right(self, amount: u32) -> Option<Self> {
+        let end = BytePos(self.end.0.saturating_sub(amount));
+        Self::new(self.start, end)
     }
 }
 
@@ -516,6 +528,50 @@ mod tests {
         let span = Span::single(10u32);
         // Can't shrink a single-byte span
         assert!(span.shrink(1).is_none());
+    }
+
+    #[test]
+    fn test_shrink_left() {
+        let span = Span::new(10u32, 20u32).unwrap();
+        let shrunk = span.shrink_left(2).unwrap();
+        assert_eq!(shrunk.start(), BytePos(12));
+        assert_eq!(shrunk.end(), BytePos(20));
+    }
+
+    #[test]
+    fn test_shrink_left_too_much() {
+        let span = Span::new(10u32, 20u32).unwrap();
+        assert!(span.shrink_left(11).is_none());
+    }
+
+    #[test]
+    fn test_shrink_left_to_empty() {
+        let span = Span::new(10u32, 20u32).unwrap();
+        let shrunk = span.shrink_left(10).unwrap();
+        assert!(shrunk.is_empty());
+        assert_eq!(shrunk.start(), BytePos(20));
+    }
+
+    #[test]
+    fn test_shrink_right() {
+        let span = Span::new(10u32, 20u32).unwrap();
+        let shrunk = span.shrink_right(2).unwrap();
+        assert_eq!(shrunk.start(), BytePos(10));
+        assert_eq!(shrunk.end(), BytePos(18));
+    }
+
+    #[test]
+    fn test_shrink_right_too_much() {
+        let span = Span::new(10u32, 20u32).unwrap();
+        assert!(span.shrink_right(11).is_none());
+    }
+
+    #[test]
+    fn test_shrink_right_to_empty() {
+        let span = Span::new(10u32, 20u32).unwrap();
+        let shrunk = span.shrink_right(10).unwrap();
+        assert!(shrunk.is_empty());
+        assert_eq!(shrunk.end(), BytePos(10));
     }
 
     #[test]

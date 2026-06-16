@@ -781,12 +781,27 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
     // ---------------------------------------------------------------------------
 
     #[inline]
+    fn intern_span(&mut self, span: Span) -> Ident {
+        self.interner
+            .intern(self.file.slice(span).expect("expected span to be valid"))
+    }
+
+    #[inline]
     fn push_const(&mut self, constant: Constant, span: Span) -> Expr {
         self.result.ast.expr.push(ExprData::new(
             ExprKind::Const(constant),
             span,
             self.tys.void_ty,
         ))
+    }
+
+    #[inline]
+    fn build_func_type(&mut self, params_slice: DeclSlice, ret: Ty<'ctx>) -> Ty<'ctx> {
+        let mut params = Vec::with_capacity(self.result.ast.decls.len_of(params_slice));
+        self.result.ast.decls[params_slice].iter().for_each(|d| {
+            params.push(self.result.ast.decl[*d].ty);
+        });
+        self.tys.func(ret, params)
     }
 
     #[inline]
@@ -797,21 +812,6 @@ impl<'a, 'ctx> Parser<'a, 'ctx> {
                 .push(Issue::new(ParserIssue::LiteralOverflow, span));
             None
         })
-    }
-
-    #[inline]
-    fn intern_span(&mut self, span: Span) -> Ident {
-        self.interner
-            .intern(self.file.slice(span).expect("expected span to be valid"))
-    }
-
-    #[inline]
-    fn build_func_type(&mut self, params_slice: DeclSlice, ret: Ty<'ctx>) -> Ty<'ctx> {
-        let mut params = Vec::with_capacity(self.result.ast.decls.len_of(params_slice));
-        self.result.ast.decls[params_slice].iter().for_each(|d| {
-            params.push(self.result.ast.decl[*d].ty);
-        });
-        self.tys.func(ret, params)
     }
 
     // ---------------------------------------------------------------------------

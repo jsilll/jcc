@@ -195,7 +195,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_shadowing() {
+    fn shadowing() {
         let mut table = SymbolTable::new();
         table.insert("x".to_string(), 10);
 
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_updates_single_history_entry() {
+    fn multiple_updates_single_history_entry() {
         let mut table = SymbolTable::new();
         table.insert("x", 1);
 
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_scope() {
+    fn clear_scope() {
         let mut table = SymbolTable::new();
 
         table.insert("g", 0);

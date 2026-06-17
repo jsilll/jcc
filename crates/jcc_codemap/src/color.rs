@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn test_without_labels() {
+    fn without_labels() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error().with_message("compilation failed");
         let output = emit_colored_to_string(&files.files, &diagnostic);
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn test_help() {
+    fn help() {
         let files = create_test_files();
         let diagnostic = Diagnostic::help()
             .with_message("this is a help message")
@@ -392,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn test_note() {
+    fn note() {
         let files = create_test_files();
         let diagnostic = Diagnostic::note()
             .with_message("this is a note message")
@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error() {
+    fn error() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("variable not found")
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn test_warning() {
+    fn warning() {
         let files = create_test_files();
         let diagnostic = Diagnostic::warning()
             .with_message("unused variable: `x`")
@@ -454,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_code() {
+    fn with_code() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_code("E0425")
@@ -476,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_notes() {
+    fn with_notes() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("cannot borrow as mutable")
@@ -497,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_only_notes() {
+    fn with_only_notes() {
         let files = create_test_files();
         let diagnostic = Diagnostic::warning()
             .with_message("potential issue detected")
@@ -513,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_span() {
+    fn empty_span() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("expected expression")
@@ -534,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn test_label_without_message() {
+    fn label_without_message() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("syntax error")
@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unicode_handling() {
+    fn unicode_handling() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("invalid character in identifier")
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn test_label_at_end_of_line() {
+    fn label_at_end_of_line() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("missing semicolon")
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiline_span() {
+    fn multiline_span() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("unclosed delimiter")
@@ -620,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn test_secondary_label() {
+    fn secondary_label() {
         let files = create_test_files();
         let diagnostic = Diagnostic::note()
             .with_message("related information")
@@ -640,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_labels_same_file() {
+    fn multiple_labels_same_file() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_message("mismatched types")
@@ -668,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_diagnostic() {
+    fn complex_diagnostic() {
         let files = create_test_files();
         let diagnostic = Diagnostic::error()
             .with_code("E0308")

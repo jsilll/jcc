@@ -80,14 +80,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_defaults_and_constants() {
+    fn defaults_and_constants() {
         assert_eq!(BytePos::default(), BytePos(0));
         assert_eq!(BytePos::ZERO, BytePos(0));
         assert_eq!(BytePos::ZERO.to_u32(), 0);
     }
 
     #[test]
-    fn test_arithmetic_add_u32() {
+    fn arithmetic_add_u32() {
         let start = BytePos(10);
         let result = start + 5;
         assert_eq!(result, BytePos(15));
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arithmetic_sub_bytepos() {
+    fn arithmetic_sub_bytepos() {
         let end = BytePos(20);
         let start = BytePos(5);
         let diff = end - start;
@@ -104,14 +104,14 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "attempt to subtract with overflow")]
-    fn test_arithmetic_sub_underflow() {
+    fn arithmetic_sub_underflow() {
         let p1 = BytePos(10);
         let p2 = BytePos(20);
         let _ = p1 - p2;
     }
 
     #[test]
-    fn test_conversions_u32() {
+    fn conversions_u32() {
         let pos = BytePos::from(42u32);
         assert_eq!(pos.0, 42);
         assert_eq!(pos.to_u32(), 42);
@@ -119,14 +119,14 @@ mod tests {
     }
 
     #[test]
-    fn test_conversions_usize_safe() {
+    fn conversions_usize_safe() {
         let val: usize = 1024;
         let pos = BytePos::from(val);
         assert_eq!(pos.to_u32(), 1024);
     }
 
     #[test]
-    fn test_conversions_usize_saturating() {
+    fn conversions_usize_saturating() {
         let large_val = (u32::MAX as usize) + 100;
         let pos = BytePos::from(large_val);
         assert_eq!(pos, BytePos(u32::MAX));
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ordering() {
+    fn ordering() {
         let p1 = BytePos(10);
         let p2 = BytePos(20);
         let p3 = BytePos(10);
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_debug_formatting() {
+    fn debug_formatting() {
         let p = BytePos(123);
         assert_eq!(format!("{p:?}"), "BytePos(123)");
     }

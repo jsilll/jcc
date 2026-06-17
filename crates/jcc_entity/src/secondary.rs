@@ -326,28 +326,28 @@ mod tests {
     entity_impl!(TestEntity, "test_entity");
 
     #[test]
-    fn test_secondary_map_new() {
+    fn secondary_map_new() {
         let map: SecondaryMap<TestEntity, i32> = SecondaryMap::new();
         assert_eq!(map[TestEntity::new(0)], 0);
         assert_eq!(map[TestEntity::new(100)], 0);
     }
 
     #[test]
-    fn test_secondary_map_default() {
+    fn secondary_map_default() {
         let map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         assert_eq!(map[TestEntity::new(0)], 0);
         assert_eq!(map[TestEntity::new(100)], 0);
     }
 
     #[test]
-    fn test_secondary_map_with_default() {
+    fn secondary_map_with_default() {
         let map: SecondaryMap<TestEntity, i32> = SecondaryMap::with_default(42);
         assert_eq!(map[TestEntity::new(0)], 42);
         assert_eq!(map[TestEntity::new(100)], 42);
     }
 
     #[test]
-    fn test_secondary_map_get() {
+    fn secondary_map_get() {
         let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         map[TestEntity::new(0)] = 10;
         map[TestEntity::new(2)] = 20;
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_secondary_map_get_mut() {
+    fn secondary_map_get_mut() {
         let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         map[TestEntity::new(0)] = 10;
         map[TestEntity::new(2)] = 20;
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn test_secondary_map_index() {
+    fn secondary_map_index() {
         let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         map[TestEntity::new(0)] = 10;
         map[TestEntity::new(2)] = 20;
@@ -384,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn test_secondary_map_iteration() {
+    fn secondary_map_iteration() {
         let mut map: SecondaryMap<TestEntity, i32> = SecondaryMap::default();
         map[TestEntity::new(0)] = 10;
         map[TestEntity::new(1)] = 20;
@@ -398,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn test_secondary_map_from_iter() {
+    fn secondary_map_from_iter() {
         let items = vec![
             (TestEntity::new(0), 10),
             (TestEntity::new(2), 20),

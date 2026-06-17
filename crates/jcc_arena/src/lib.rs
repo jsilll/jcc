@@ -220,7 +220,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_zst() {
+    fn zst() {
         struct Zst;
         let arena = Arena::new();
         let _a = arena.alloc(Zst).unwrap();
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_alloc() {
+    fn basic_alloc() {
         let arena = Arena::new();
         let a = arena.alloc(10).unwrap();
         let b = arena.alloc(20).unwrap();
@@ -240,14 +240,14 @@ mod tests {
     }
 
     #[test]
-    fn test_alloc_slice_basic() {
+    fn alloc_slice_basic() {
         let arena = Arena::new();
         let slice = arena.alloc_extend(vec![1, 2, 3]).unwrap();
         assert_eq!(slice, &[1, 2, 3]);
     }
 
     #[test]
-    fn test_persistence_across_chunks() {
+    fn persistence_across_chunks() {
         let arena = Arena::with_capacity(2);
         let a = arena.alloc(1).unwrap();
         let b = arena.alloc(2).unwrap();
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alloc_extend_overflow_handling() {
+    fn alloc_extend_overflow_handling() {
         struct LyingIter {
             val: i32,
             count: i32,

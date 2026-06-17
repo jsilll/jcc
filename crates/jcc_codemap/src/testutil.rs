@@ -19,8 +19,16 @@ pub struct TestFiles {
 
 impl TestFiles {
     /// Returns a [`Span`] within `id` covering bytes `start..end`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the file ID is invalid or the range is out of bounds.
     pub fn span(&self, id: FileId, start: u32, end: u32) -> Span {
-        self.files.get(id).unwrap().span(start, end).unwrap()
+        self.files
+            .get(id)
+            .expect("invalid file id")
+            .span(start, end)
+            .expect("invalid span range")
     }
 }
 

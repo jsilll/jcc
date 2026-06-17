@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_identity_and_deduplication() {
+    fn identity_and_deduplication() {
         let arena = InternArena::new();
         let v1 = arena.intern(SimpleValue(42)).unwrap();
         let v2 = arena.intern(SimpleValue(42)).unwrap();
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_vectors_deduplication() {
+    fn empty_vectors_deduplication() {
         let ctx = TyCtx::new();
         let arr1 = ctx.arrow(vec![]);
         let arr2 = ctx.arrow(vec![]);
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn test_recursive_structures() {
+    fn recursive_structures() {
         let ctx = TyCtx::new();
         let int = ctx.int();
 
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stress_reallocation() {
+    fn stress_reallocation() {
         let arena = InternArena::new();
 
         let mut refs = Vec::new();

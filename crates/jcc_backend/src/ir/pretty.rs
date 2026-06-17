@@ -187,7 +187,7 @@ impl<'a, W: std::fmt::Write> ProgramPrettyEmitter<'a, W> {
             NameMode::Resolved(interner) => {
                 let data = &self.program.blocks[handle];
                 let name = interner.get(data.name).unwrap_or(INVALID_IDENT);
-                write!(&mut self.out, "{}.{}", name, handle.as_u32())
+                write!(&mut self.out, "{name}")
             }
         }
     }

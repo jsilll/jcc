@@ -1,6 +1,9 @@
 use jcc_codemap::span::Span;
 
-use crate::ir::{inst::{BinaryOp, FCmpOp, ICmpOp}, ty::Ty};
+use crate::ir::{
+    inst::{BinaryOp, FCmpOp, ICmpOp},
+    ty::Ty,
+};
 
 // ---------------------------------------------------------------------------
 // Token

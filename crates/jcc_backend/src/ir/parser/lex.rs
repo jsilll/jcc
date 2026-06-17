@@ -1,4 +1,4 @@
-use crate::ir::parse::token::{Token, TokenKind};
+use crate::ir::parser::token::{Token, TokenKind};
 
 use jcc_codemap::{file::SourceFile, span::Span, Diagnostic, IntoDiagnostic, Issue, Label};
 

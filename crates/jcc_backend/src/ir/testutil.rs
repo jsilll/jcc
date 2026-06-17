@@ -1,5 +1,5 @@
 use crate::{
-    ir::parse::parse::{Parser, ParserResult},
+    ir::parser::parse::{Parser, ParserResult},
     IdentInterner,
 };
 

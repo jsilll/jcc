@@ -1,7 +1,7 @@
 pub mod analysis;
 pub mod builder;
 pub mod inst;
-pub mod parse;
+pub mod parser;
 pub mod pretty;
 pub mod term;
 pub mod ty;

@@ -1,7 +1,7 @@
 use jcc_codemap::span::Span;
 
 use crate::ir::{
-    inst::{BinaryOp, FCmpOp, ICmpOp},
+    inst::{BinaryOp, FCmpOp, ICmpOp, UnaryOp},
     ty::Ty,
 };
 
@@ -338,6 +338,19 @@ impl std::fmt::Display for TokenKind {
     }
 }
 
+impl TryFrom<TokenKind> for UnaryOp {
+    type Error = ();
+
+    fn try_from(value: TokenKind) -> Result<Self, Self::Error> {
+        match value {
+            TokenKind::Not => Ok(Self::Not),
+            TokenKind::Neg => Ok(Self::Neg),
+            TokenKind::FNeg => Ok(Self::FNeg),
+            _ => Err(()),
+        }
+    }
+}
+
 impl TryFrom<TokenKind> for Ty {
     type Error = ();
 
@@ -430,8 +443,8 @@ impl TryFrom<TokenKind> for BinaryOp {
 impl TokenKind {
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Self::Define => "@define",
-            Self::Global => "@global",
+            Self::Define => "define",
+            Self::Global => "global",
 
             Self::Call => "call",
             Self::ICall => "icall",
@@ -465,7 +478,7 @@ impl TokenKind {
             Self::Store => "store",
             Self::Gep => "gep",
             Self::Align => "align",
-            Self::GlobalAddr => "global.addrof",
+            Self::GlobalAddr => "global.addr",
 
             Self::And => "and",
             Self::Or => "or",

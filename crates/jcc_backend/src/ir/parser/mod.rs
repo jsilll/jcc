@@ -25,7 +25,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn parse_null_pointer() {
         check(
             r#"
@@ -39,7 +38,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn parse_switch() {
         check(
             r#"
@@ -67,7 +65,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn parse_compute() {
         check(
             r#"
@@ -96,7 +93,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn parse_abs() {
         check(
             r#"
@@ -130,7 +126,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn parse_globals_and_calls() {
         check(
             r#"

@@ -37,7 +37,7 @@ pub struct Parser<'a, 'ctx> {
     item_stack: Vec<BlockItem>,
     /// A scratch buffer for collecting type specifiers.
     specifiers: Vec<TokenKind>,
-    /// The result of the parsing process, containing the AST and diagnostics.
+    /// The result of the parsing process, containing the AST and issues.
     result: ParserResult<'ctx>,
 }
 

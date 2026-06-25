@@ -6,99 +6,206 @@ use crate::{
         inst::Inst,
         term::Terminator,
         ty::Ty,
-        Block, BlockData, Function, Program, Value, ValueData,
+        Block, BlockData, Function, FunctionData, Global, GlobalData, Program, Value, ValueData,
     },
     Ident, IdentInterner,
 };
 
-pub struct Builder<'a> {
-    pub program: Program,
-    pub interner: &'a mut IdentInterner,
-    pub block: Option<Block>,
-    pub function: Option<Function>,
+pub struct ProgramBuilder<'a> {
+    /// The program being built.
+    prog: Program,
+    /// The interner for identifier interning.
+    itrn: &'a mut IdentInterner,
+    /// A stack of block targets.
+    stack: Vec<Targets>,
+    /// The state for the function being built.
+    state: Option<FunctionState>,
 }
 
-impl<'a> Builder<'a> {
-    pub fn new(interner: &'a mut IdentInterner) -> Self {
+impl<'a> ProgramBuilder<'a> {
+    pub fn new(itrn: &'a mut IdentInterner) -> Self {
         Self {
-            interner,
-            block: None,
-            function: None,
-            program: Program::default(),
+            itrn,
+            state: None,
+            stack: Vec::new(),
+            prog: Program::default(),
         }
     }
 
     pub fn finish(self) -> Program {
-        let mut order = Order::new();
+        let mut ord = Order::new();
         let mut dom = Dominance::new();
         let mut cfg = ControlFlowGraph::new();
-
-        order.compute(&self.program);
-        cfg.compute(&self.program, &order);
-        dom.compute(&self.program, &order, &cfg);
-
-        self.program
+        ord.compute(&self.prog);
+        cfg.compute(&self.prog, &ord);
+        dom.compute(&self.prog, &ord, &cfg);
+        self.prog
     }
 
-    /// Pushes a value into the current block.
-    pub fn push(&mut self, value: Value) {
-        if let Some(block) = self.block {
-            let block_data = &mut self.program.blocks[block];
-            let idx = block_data.insts.len() as u32;
-            block_data.insts.push(value);
+    // -------------------------------------------------------------------
+    // Function Scope
+    // -------------------------------------------------------------------
 
-            let value = &mut self.program.values[value];
-            value.idx = idx;
-            value.block = block;
-        }
+    #[inline]
+    pub fn exit_function(&mut self) {
+        self.state = None
     }
 
-    /// Builds a phi node but doesn't insert it into the current block.
+    pub fn enter_function(&mut self, function: Function) {
+        assert!(
+            self.state.is_none(),
+            "enter_function needs to be called on a cleared state"
+        );
+        let entry = self.build_block("entry", self.prog.functions[function].span);
+        self.prog.functions[function].entry = Some(entry);
+        self.state = Some(FunctionState {
+            entry,
+            function,
+            block: entry,
+        })
+    }
+
+    // -------------------------------------------------------------------
+    // Targets Scope
+    // -------------------------------------------------------------------
+
+    pub fn pop_targets(&mut self) {
+        self.stack.pop();
+    }
+
+    pub fn top_targets(&mut self) -> Option<Targets> {
+        self.stack.last().copied()
+    }
+
+    pub fn push_switch(&mut self, break_target: Block) {
+        let continue_target = self
+            .stack
+            .last()
+            .map_or(break_target, |t| t.continue_target);
+        self.push_loop(break_target, continue_target);
+    }
+
+    pub fn push_loop(&mut self, break_target: Block, continue_target: Block) {
+        self.stack.push(Targets {
+            break_target,
+            continue_target,
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // Blocks
+    // -------------------------------------------------------------------
+
+    pub fn seal_and_move_to(&mut self, term: Terminator, next: Block) {
+        let st = self.state.as_mut().expect("state should be valid");
+
+        self.prog.blocks[st.block].term = term;
+        st.block = next;
+    }
+
+    pub fn seal_with_dead(&mut self, term: Terminator, name: &str, span: Span) {
+        let next = self.build_block(name, span);
+        self.seal_and_move_to(term, next);
+    }
+
+    // -------------------------------------------------------------------
+    // Builders
+    // -------------------------------------------------------------------
+
+    #[inline]
+    pub fn build_block(&mut self, name: &str, span: Span) -> Block {
+        let name = self.itrn.intern(name);
+        self.build_block_ident(name, span)
+    }
+
+    #[inline]
+    pub fn build_function(&mut self, data: FunctionData) -> Function {
+        self.prog.functions.push(data)
+    }
+
+    #[inline]
+    pub fn build_block_ident(&mut self, name: Ident, span: Span) -> Block {
+        self.prog.blocks.push(BlockData::new(name, span))
+    }
+
+    pub fn push_val(&mut self, value: Value) {
+        let st = self.state.as_ref().expect("state should be valid");
+
+        let data = &mut self.prog.blocks[st.block];
+        let idx = data.insts.len() as u32;
+        data.insts.push(value);
+
+        let value = &mut self.prog.values[value];
+        value.block = st.block;
+        value.idx = idx;
+    }
+
     pub fn build_phi(&mut self, ty: Ty, span: Span) -> Value {
-        let inst = Inst::phi(ty);
-        let block = self.block.expect("no current block");
-        let data = ValueData {
-            inst,
+        let st = self.state.as_ref().unwrap();
+
+        self.prog.values.push(ValueData {
             span,
-            block,
             idx: 0,
-        };
-        self.program.values.push(data)
+            block: st.block,
+            inst: Inst::phi(ty),
+        })
     }
 
-    /// Creates a new value in the current block.
     pub fn build_val(&mut self, inst: Inst, span: Span) -> Value {
-        let block = self.block.expect("no current block");
-        let idx = self.program.blocks[block].insts.len() as u32;
-        let value = self.program.values.push(ValueData {
+        let st = self.state.as_ref().expect("state should be valid");
+
+        let idx = self.prog.blocks[st.block].insts.len() as u32;
+        let value = self.prog.values.push(ValueData {
             idx,
             inst,
             span,
-            block,
+            block: st.block,
         });
-        self.program.blocks[block].insts.push(value);
+
+        self.prog.blocks[st.block].insts.push(value);
         value
     }
 
-    /// Sets the terminator for the current block.
-    pub fn terminate_block(&mut self, term: Terminator) {
-        let block = self.block.expect("no current block");
-        if self.program.blocks[block].term == Terminator::Unreachable {
-            self.program.blocks[block].term = term;
+    pub fn build_alloca(&mut self, ty: Ty, align: u32, span: Span) -> Value {
+        let st = self.state.as_ref().expect("state should be valid");
+
+        let idx = self.prog.blocks[st.entry].insts.len() as u32;
+        let value = self.prog.values.push(ValueData {
+            idx,
+            span,
+            block: st.entry,
+            inst: Inst::alloca(ty, align),
+        });
+
+        self.prog.blocks[st.entry].insts.push(value);
+        value
+    }
+
+    pub fn build_global(&mut self, idx: u32, mut data: GlobalData) -> Global {
+        if !data.is_global {
+            if let Some(st) = &self.state {
+                let name = self.itrn.lookup(data.name);
+                let fname = self.itrn.lookup(self.prog.functions[st.function].name);
+                data.name = self.itrn.intern(&format!("{fname}.{name}.{idx}"));
+            }
         }
-    }
 
-    /// Builds a new block in the current function.
-    pub fn build_block(&mut self, name: &str, span: Span) -> Block {
-        let sym = self.interner.intern(name);
-        self.build_block_sym(sym, span)
+        self.prog.globals.push(data)
     }
+}
 
-    /// Builds a new block in the current function.
-    pub fn build_block_sym(&mut self, name: Ident, span: Span) -> Block {
-        let function = self.function.expect("no current function");
-        let block = self.program.blocks.push(BlockData::new(name, span));
-        self.program.functions[function].entry.get_or_insert(block);
-        block
-    }
+// -------------------------------------------------------------------
+// Auxiliary Structures
+// -------------------------------------------------------------------
+
+struct FunctionState {
+    block: Block,
+    entry: Block,
+    function: Function,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Targets {
+    pub break_target: Block,
+    pub continue_target: Block,
 }

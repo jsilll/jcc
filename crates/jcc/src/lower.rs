@@ -6,7 +6,7 @@ use crate::{
 use jcc_backend::{
     codemap::span::Span,
     ir::{
-        builder::Builder,
+        builder::ProgramBuilder,
         inst::{BinaryOp, FCmpOp, ICmpOp, Inst, UnaryOp},
         term::Terminator,
         ty::Ty,
@@ -17,8 +17,8 @@ use jcc_backend::{
 use jcc_entity::{EntityMap, SecondaryMap};
 
 pub struct LoweringPass<'ctx> {
-    // The SSA builder
-    builder: Builder<'ctx>,
+    /// The SSA builder
+    bld: ProgramBuilder<'ctx>,
     /// The AST being compiled
     ast: &'ctx ast::Ast<'ctx>,
     /// The semantic analysis context
@@ -39,7 +39,7 @@ impl<'ctx> LoweringPass<'ctx> {
             ast,
             sema,
             tracked: EntityMap::default(),
-            builder: Builder::new(interner),
+            bld: ProgramBuilder::new(interner),
             symbols: SecondaryMap::with_capacity(sema.symbols.len()),
         }
     }
@@ -78,26 +78,25 @@ impl<'ctx> LoweringPass<'ctx> {
                         .expect("expected a sema symbol")
                         .is_global();
 
-                    let func = self.get_or_make_function(&data.name, is_global, data.span);
-                    self.builder.function = Some(func);
-
-                    if body.is_some() {
-                        let block = self.builder.build_block("entry", data.span);
-                        self.builder.block = Some(block);
-                    }
+                    let func = self.get_or_make_function(
+                        data.name.resolved(),
+                        FunctionData::new(data.name.name, is_global, data.span),
+                    );
 
                     if let Some(body) = body {
                         self.tracked.clear();
+                        self.bld.exit_function();
+                        self.bld.enter_function(func);
 
                         self.ast.decls[params]
                             .iter()
                             .enumerate()
                             .for_each(|(idx, param)| {
+                                let idx = idx as u32;
                                 let param = &self.ast.decl[*param];
-                                let arg = self.builder.build_val(
-                                    Inst::param(param.ty.lower().0, idx as u32),
-                                    param.span,
-                                );
+                                let arg = self
+                                    .bld
+                                    .build_val(Inst::param(param.ty.lower().0, idx), param.span);
                                 self.symbols[param.name.resolved()] = Some(SymbolEntry::Value(arg));
                             });
 
@@ -114,17 +113,19 @@ impl<'ctx> LoweringPass<'ctx> {
                         };
 
                         if append_return {
-                            let val = self
-                                .builder
-                                .build_val(Inst::constant(Ty::I32, 0), data.span);
-                            self.builder.terminate_block(Terminator::ret(Some(val)));
+                            let val = self.bld.build_val(Inst::constant(Ty::I32, 0), data.span);
+                            self.bld.seal_with_dead(
+                                Terminator::ret(Some(val)),
+                                "return.dead",
+                                data.span,
+                            );
                         }
                     }
-                    self.builder.function = None;
                 }
             }
         });
-        self.builder.finish()
+
+        self.bld.finish()
     }
 
     fn visit_decl(&mut self, decl: ast::Decl) {
@@ -139,14 +140,11 @@ impl<'ctx> LoweringPass<'ctx> {
                         unreachable!("variable declaration cannot have function attribute")
                     }
                     Attribute::Local => {
-                        let alloca = self
-                            .builder
-                            .build_val(Inst::alloca(data.ty.lower().0, 0), data.span);
+                        let alloca = self.bld.build_alloca(data.ty.lower().0, 0, data.span);
                         self.symbols[sema] = Some(SymbolEntry::Value(alloca));
                         if let Some(init) = init {
                             let value = self.visit_expr_rvalue(init);
-                            self.builder
-                                .build_val(Inst::store(alloca, value, 0), data.span);
+                            self.bld.build_val(Inst::store(alloca, value, 0), data.span);
                         }
                     }
                     Attribute::Static { is_global, init } => {
@@ -175,28 +173,38 @@ impl<'ctx> LoweringPass<'ctx> {
             }
             ast::StmtKind::Default(inner) => {
                 let block = self.remove_case_block(stmt);
-
-                // === Default Block ===
-                self.builder.block = Some(block);
+                self.bld.seal_and_move_to(Terminator::br(block), block);
                 self.visit_stmt(*inner);
             }
             ast::StmtKind::Return(expr) => {
-                let val = self.visit_expr_rvalue(*expr);
-                self.builder.terminate_block(Terminator::ret(Some(val)));
+                let term = Terminator::ret(Some(self.visit_expr_rvalue(*expr)));
+                self.bld.seal_with_dead(term, "return.dead", data.span);
             }
             ast::StmtKind::Break(target) => {
-                let block = self.get_break_block(target.get().expect("break block not set"));
-                self.builder.terminate_block(Terminator::br(block));
+                debug_assert!(target.get().is_some());
+                let term = Terminator::br(self.bld.top_targets().unwrap().break_target);
+                self.bld.seal_with_dead(term, "break.dead", data.span);
             }
             ast::StmtKind::Continue(target) => {
-                let block = self.get_continue_block(target.get().expect("continue block not set"));
-                self.builder.terminate_block(Terminator::br(block));
+                debug_assert!(target.get().is_some());
+                let term = Terminator::br(self.bld.top_targets().unwrap().continue_target);
+                self.bld.seal_with_dead(term, "continue.dead", data.span);
             }
             ast::StmtKind::Compound(items) => {
                 self.ast.items[*items].iter().for_each(|item| match item {
                     ast::BlockItem::Decl(decl) => self.visit_decl(*decl),
                     ast::BlockItem::Stmt(stmt) => self.visit_stmt(*stmt),
                 });
+            }
+            ast::StmtKind::Case { stmt: inner, .. } => {
+                let block = self.remove_case_block(stmt);
+                self.bld.seal_and_move_to(Terminator::br(block), block);
+                self.visit_stmt(*inner);
+            }
+            ast::StmtKind::Label { label, stmt: inner } => {
+                let block = self.get_or_make_labeled(stmt, *label, data.span);
+                self.bld.seal_and_move_to(Terminator::br(block), block);
+                self.visit_stmt(*inner);
             }
             ast::StmtKind::Goto {
                 label,
@@ -207,103 +215,77 @@ impl<'ctx> LoweringPass<'ctx> {
                     *label,
                     data.span,
                 );
-                self.builder.terminate_block(Terminator::br(block));
-            }
-            ast::StmtKind::Label { label, stmt: inner } => {
-                let block = self.get_or_make_labeled(stmt, *label, data.span);
-                self.builder.terminate_block(Terminator::br(block));
-
-                // === Labeled Block ===
-                self.builder.block = Some(block);
-                self.visit_stmt(*inner);
-            }
-            ast::StmtKind::Case { stmt: inner, .. } => {
-                let block = self.remove_case_block(stmt);
-
-                // === Previous Block ===
-                self.builder.terminate_block(Terminator::br(block));
-
-                // === Case Block ===
-                self.builder.block = Some(block);
-                self.visit_stmt(*inner);
+                self.bld
+                    .seal_with_dead(Terminator::br(block), "goto.dead", data.span);
             }
             ast::StmtKind::If {
                 cond,
                 then,
                 otherwise,
             } => {
-                let then_block = self.builder.build_block("if.then", data.span);
-                let cont_block = self.builder.build_block("if.cont", data.span);
-                let else_block = otherwise.map(|_| self.builder.build_block("if.else", data.span));
+                let then_block = self.bld.build_block("if.then", data.span);
+                let cont_block = self.bld.build_block("if.cont", data.span);
+                let else_block = otherwise.map(|_| self.bld.build_block("if.else", data.span));
                 let false_target = else_block.unwrap_or(cont_block);
 
                 let cond = self.build_truthy(*cond, data.span);
-                self.builder
-                    .terminate_block(Terminator::cond_br(cond, then_block, false_target));
+                self.bld.seal_and_move_to(
+                    Terminator::cond_br(cond, then_block, false_target),
+                    then_block,
+                );
 
-                // === Then Block ===
-                self.builder.block = Some(then_block);
                 self.visit_stmt(*then);
-                self.builder.terminate_block(Terminator::br(cont_block));
+                self.bld
+                    .seal_and_move_to(Terminator::br(cont_block), else_block.unwrap_or(cont_block));
 
-                if let (Some(otherwise), Some(else_block)) = (otherwise, else_block) {
-                    // === Else Block ===
-                    self.builder.block = Some(else_block);
+                if let Some(otherwise) = otherwise {
                     self.visit_stmt(*otherwise);
-                    self.builder.terminate_block(Terminator::br(cont_block));
+                    self.bld
+                        .seal_and_move_to(Terminator::br(cont_block), cont_block);
                 }
-
-                // === Merge Block ===
-                self.builder.block = Some(cont_block);
             }
             ast::StmtKind::While { cond, body } => {
-                let cond_block = self.builder.build_block("while.cond", data.span);
-                let body_block = self.builder.build_block("while.body", data.span);
-                let cont_block = self.builder.build_block("while.cont", data.span);
+                let cond_block = self.bld.build_block("while.cond", data.span);
+                let body_block = self.bld.build_block("while.body", data.span);
+                let cont_block = self.bld.build_block("while.cont", data.span);
 
-                self.tracked
-                    .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cond_block));
+                self.bld.push_loop(cont_block, cond_block);
+                self.bld
+                    .seal_and_move_to(Terminator::br(cond_block), cond_block);
 
-                self.builder.terminate_block(Terminator::br(cond_block));
-
-                // === Cond Block ===
-                self.builder.block = Some(cond_block);
                 let cond = self.build_truthy(*cond, data.span);
-                self.builder
-                    .terminate_block(Terminator::cond_br(cond, body_block, cont_block));
+                self.bld.seal_and_move_to(
+                    Terminator::cond_br(cond, body_block, cont_block),
+                    body_block,
+                );
 
-                // === Body Block ===
-                self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder.terminate_block(Terminator::br(cond_block));
+                self.bld.pop_targets();
 
-                // === Merge Block ===
-                self.builder.block = Some(cont_block);
+                self.bld
+                    .seal_and_move_to(Terminator::br(cond_block), cont_block);
             }
             ast::StmtKind::DoWhile { body, cond } => {
-                let body_block = self.builder.build_block("do.body", data.span);
-                let cond_block = self.builder.build_block("do.cond", data.span);
-                let cont_block = self.builder.build_block("do.cont", data.span);
+                let body_block = self.bld.build_block("do.body", data.span);
+                let cond_block = self.bld.build_block("do.cond", data.span);
+                let cont_block = self.bld.build_block("do.cont", data.span);
 
-                self.tracked
-                    .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cond_block));
+                self.bld.push_loop(cont_block, cond_block);
 
-                // === Jump to Body Block ===
-                self.builder.terminate_block(Terminator::br(body_block));
+                self.bld
+                    .seal_and_move_to(Terminator::br(body_block), body_block);
 
-                // === Body Block ===
-                self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder.terminate_block(Terminator::br(cond_block));
+                self.bld.pop_targets();
 
-                // === Cond Block ===
-                self.builder.block = Some(cond_block);
+                self.bld
+                    .seal_and_move_to(Terminator::br(cond_block), cond_block);
+
                 let cond = self.build_truthy(*cond, data.span);
-                self.builder
-                    .terminate_block(Terminator::cond_br(cond, body_block, cont_block));
-
-                // === Merge Block ===
-                self.builder.block = Some(cont_block);
+                self.bld.seal_and_move_to(
+                    Terminator::cond_br(cond, body_block, cont_block),
+                    cont_block,
+                );
             }
             ast::StmtKind::For {
                 init,
@@ -311,18 +293,14 @@ impl<'ctx> LoweringPass<'ctx> {
                 step,
                 body,
             } => {
-                let body_block = self.builder.build_block("for.body", data.span);
-                let exit_block = self.builder.build_block("for.exit", data.span);
-                let cond_block = cond.map(|_| self.builder.build_block("for.cond", data.span));
-                let step_block = step.map(|_| self.builder.build_block("for.step", data.span));
+                let body_block = self.bld.build_block("for.body", data.span);
+                let exit_block = self.bld.build_block("for.exit", data.span);
+                let cond_block = cond.map(|_| self.bld.build_block("for.cond", data.span));
+                let step_block = step.map(|_| self.bld.build_block("for.step", data.span));
                 let after_body_target = step_block.or(cond_block).unwrap_or(body_block);
 
-                self.tracked.insert(
-                    stmt,
-                    TrackedBlock::BreakAndContinue(exit_block, after_body_target),
-                );
+                self.bld.push_loop(exit_block, after_body_target);
 
-                // === Initializer ===
                 if let Some(init) = init {
                     match init {
                         ast::ForInit::VarDecl(decl) => self.visit_decl(*decl),
@@ -331,76 +309,70 @@ impl<'ctx> LoweringPass<'ctx> {
                         }
                     }
                 }
-                self.builder
-                    .terminate_block(Terminator::br(cond_block.unwrap_or(body_block)));
+                self.bld.seal_and_move_to(
+                    Terminator::br(cond_block.unwrap_or(body_block)),
+                    cond_block.unwrap_or(body_block),
+                );
 
-                // === Condition Block ===
-                if let (Some(cond), Some(cond_block)) = (cond, cond_block) {
-                    self.builder.block = Some(cond_block);
+                if let Some(cond) = cond {
                     let cond = self.build_truthy(*cond, data.span);
-                    self.builder
-                        .terminate_block(Terminator::cond_br(cond, body_block, exit_block));
+                    self.bld.seal_and_move_to(
+                        Terminator::cond_br(cond, body_block, exit_block),
+                        step_block.unwrap_or(body_block),
+                    );
                 }
 
-                // === Step Block ===
-                if let (Some(step), Some(step_block)) = (step, step_block) {
-                    self.builder.block = Some(step_block);
+                if let Some(step) = step {
                     self.visit_expr_rvalue(*step);
-                    self.builder
-                        .terminate_block(Terminator::br(cond_block.unwrap_or(body_block)));
+                    self.bld.seal_and_move_to(
+                        Terminator::br(cond_block.unwrap_or(body_block)),
+                        body_block,
+                    );
                 }
 
-                // === Body Block ===
-                self.builder.block = Some(body_block);
                 self.visit_stmt(*body);
-                self.builder
-                    .terminate_block(Terminator::br(after_body_target));
+                self.bld.pop_targets();
 
-                // === Merge Block ===
-                self.builder.block = Some(exit_block);
+                self.bld
+                    .seal_and_move_to(Terminator::br(after_body_target), exit_block);
             }
             ast::StmtKind::Switch { cond, body } => {
                 let mut cases = Vec::new();
                 let mut default_block = None;
                 if let Some(switch) = self.sema.switches.get(&stmt) {
                     cases.reserve(switch.cases.len());
-                    switch.cases.iter().for_each(|inner_ref| {
-                        let inner = &self.ast.stmt[*inner_ref];
-                        if let ast::StmtKind::Case { expr, .. } = inner.kind {
+                    switch.cases.iter().for_each(|case| {
+                        let data = &self.ast.stmt[*case];
+                        if let ast::StmtKind::Case { expr, .. } = data.kind {
                             if let ast::ExprKind::Const(c) = self.ast.expr[expr].kind {
-                                let case_block =
-                                    self.builder.build_block("switch.case", inner.span);
-                                self.tracked
-                                    .insert(*inner_ref, TrackedBlock::Case(case_block));
-                                cases.push((c.lower().0, case_block));
+                                let block = self.bld.build_block("switch.case", data.span);
+                                self.tracked.insert(*case, TrackedBlock::Case(block));
+                                cases.push((c.lower().0, block));
                             }
                         }
                     });
                     if let Some(inner) = switch.default {
                         let block = self
-                            .builder
+                            .bld
                             .build_block("switch.default", self.ast.stmt[inner].span);
                         self.tracked.insert(inner, TrackedBlock::Case(block));
                         default_block = Some(block);
                     }
                 }
 
-                let cont_block = self.builder.build_block("switch.cont", data.span);
-                self.tracked
-                    .insert(stmt, TrackedBlock::BreakAndContinue(cont_block, cont_block));
-
+                let cont_block = self.bld.build_block("switch.cont", data.span);
+                self.bld.push_switch(cont_block);
                 let cond_val = self.visit_expr_rvalue(*cond);
-                self.builder.terminate_block(Terminator::switch(
-                    cond_val,
-                    cases,
-                    default_block.unwrap_or(cont_block),
-                ));
-
+                self.bld.seal_with_dead(
+                    Terminator::switch(cond_val, cases, default_block.unwrap_or(cont_block)),
+                    "switch.dead",
+                    data.span,
+                );
                 self.visit_stmt(*body);
-                self.builder.terminate_block(Terminator::br(cont_block));
+                self.bld.pop_targets();
 
-                // === Merge Block ===
-                self.builder.block = Some(cont_block);
+                self.bld
+                    .seal_and_move_to(Terminator::br(cont_block), cont_block);
             }
         }
     }
@@ -420,7 +392,7 @@ impl<'ctx> LoweringPass<'ctx> {
             ast::ExprKind::Grouped(expr) => self.visit_expr_inner(*expr, mode),
             ast::ExprKind::Const(c) => {
                 let (c, ty) = c.lower();
-                self.builder.build_val(Inst::constant(ty, c), expr.span)
+                self.bld.build_val(Inst::constant(ty, c), expr.span)
             }
             ast::ExprKind::Cast { expr: inner, .. } => {
                 let from_ty = self.ast.expr[*inner].ty.get();
@@ -439,19 +411,15 @@ impl<'ctx> LoweringPass<'ctx> {
                         let ptr = self.get_value(sym);
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => {
-                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
-                            }
+                            ExprMode::RValue => self.bld.build_val(Inst::load(ty, ptr, 0), span),
                         }
                     }
                     Attribute::Static { .. } => {
                         let var = self.get_global(sym);
-                        let ptr = self.builder.build_val(Inst::global_addr(var), expr.span);
+                        let ptr = self.bld.build_val(Inst::global_addr(var), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
-                            ExprMode::RValue => {
-                                self.builder.build_val(Inst::load(ty, ptr, 0), span)
-                            }
+                            ExprMode::RValue => self.bld.build_val(Inst::load(ty, ptr, 0), span),
                         }
                     }
                 }
@@ -462,10 +430,10 @@ impl<'ctx> LoweringPass<'ctx> {
                     .map(|arg| self.visit_expr_rvalue(*arg))
                     .collect::<Vec<_>>();
                 let symbol = self.sema.symbols[name.resolved()].expect("expected a sema symbol");
-                let func = self.get_or_make_function(name, symbol.is_global(), expr.span);
+                let data = FunctionData::new(name.name, symbol.is_global(), expr.span);
+                let func = self.get_or_make_function(name.resolved(), data);
                 let ty = symbol.ty.ret().unwrap().lower().0;
-                self.builder
-                    .build_val(Inst::call(ty, func, args), expr.span)
+                self.bld.build_val(Inst::call(ty, func, args), expr.span)
             }
             ast::ExprKind::Unary { op, expr: inner } => {
                 let inner_ty = self.ast.expr[*inner].ty.get().lower().0;
@@ -486,11 +454,11 @@ impl<'ctx> LoweringPass<'ctx> {
                 };
                 match op {
                     ast::UnaryOp::PreInc | ast::UnaryOp::PreDec => {
-                        let one = self.builder.build_val(one, expr.span);
+                        let one = self.bld.build_val(one, expr.span);
                         self.build_inc_dec(*inner, add_or_sub, one, expr.span).1
                     }
                     ast::UnaryOp::PostInc | ast::UnaryOp::PostDec => {
-                        let one = self.builder.build_val(one, expr.span);
+                        let one = self.bld.build_val(one, expr.span);
                         self.build_inc_dec(*inner, add_or_sub, one, expr.span).0
                     }
                     ast::UnaryOp::Neg => {
@@ -504,11 +472,11 @@ impl<'ctx> LoweringPass<'ctx> {
                     ast::UnaryOp::BitNot => self.build_unary(ty, UnaryOp::Not, *inner, expr.span),
                     ast::UnaryOp::LogNot => {
                         let inner = self.build_truthy(*inner, expr.span);
-                        let zero = self.builder.build_val(Inst::constant(Ty::I1, 0), expr.span);
+                        let zero = self.bld.build_val(Inst::constant(Ty::I1, 0), expr.span);
                         let cmp = self
-                            .builder
+                            .bld
                             .build_val(Inst::icmp(ICmpOp::Eq, inner, zero), expr.span);
-                        self.builder.build_val(Inst::zext(Ty::I32, cmp), expr.span)
+                        self.bld.build_val(Inst::zext(Ty::I32, cmp), expr.span)
                     }
                 }
             }
@@ -641,7 +609,7 @@ impl<'ctx> LoweringPass<'ctx> {
                         } else {
                             BinaryOp::Shr
                         };
-                        self.builder
+                        self.bld
                             .build_val(Inst::binary(op, ty, lhs, rhs), expr.span)
                     }
                     ast::BinaryOp::BitShlAssign | ast::BinaryOp::BitShrAssign => {
@@ -659,9 +627,9 @@ impl<'ctx> LoweringPass<'ctx> {
                             BinaryOp::Shr
                         };
                         let inst = self
-                            .builder
+                            .bld
                             .build_val(Inst::binary(op, ty, lhs, rhs), expr.span);
-                        self.builder.build_val(Inst::store(ptr, inst, 0), expr.span);
+                        self.bld.build_val(Inst::store(ptr, inst, 0), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
                             ExprMode::RValue => inst,
@@ -670,7 +638,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     ast::BinaryOp::Assign => {
                         let lhs = self.visit_expr_lvalue(*lhs);
                         let rhs = self.visit_expr_rvalue(*rhs);
-                        self.builder.build_val(Inst::store(lhs, rhs, 0), expr.span);
+                        self.bld.build_val(Inst::store(lhs, rhs, 0), expr.span);
                         match mode {
                             ExprMode::LValue => lhs,
                             ExprMode::RValue => rhs,
@@ -735,12 +703,11 @@ impl<'ctx> LoweringPass<'ctx> {
                         let rhs = self.build_cast(rhs, rhs_ty, common, expr.span);
 
                         let value = self
-                            .builder
+                            .bld
                             .build_val(Inst::binary(op, common.lower().0, lhs, rhs), expr.span);
                         let value = self.build_cast(value, common, lhs_ty, expr.span);
 
-                        self.builder
-                            .build_val(Inst::store(ptr, value, 0), expr.span);
+                        self.bld.build_val(Inst::store(ptr, value, 0), expr.span);
                         match mode {
                             ExprMode::LValue => ptr,
                             ExprMode::RValue => value,
@@ -749,33 +716,29 @@ impl<'ctx> LoweringPass<'ctx> {
                 }
             }
             ast::ExprKind::Ternary { cond, then, other } => {
-                let then_block = self.builder.build_block("tern.then", expr.span);
-                let else_block = self.builder.build_block("tern.else", expr.span);
-                let cont_block = self.builder.build_block("tern.cont", expr.span);
+                let then_block = self.bld.build_block("tern.then", expr.span);
+                let else_block = self.bld.build_block("tern.else", expr.span);
+                let cont_block = self.bld.build_block("tern.cont", expr.span);
 
-                let phi = self.builder.build_phi(ty, expr.span);
+                let phi = self.bld.build_phi(ty, expr.span);
 
                 let cond = self.build_truthy(*cond, expr.span);
-                self.builder
-                    .terminate_block(Terminator::cond_br(cond, then_block, else_block));
+                self.bld.seal_and_move_to(
+                    Terminator::cond_br(cond, then_block, else_block),
+                    else_block,
+                );
 
-                // === Then Block ===
-                self.builder.block = Some(then_block);
                 let then_val = self.visit_expr_rvalue(*then);
-                self.builder
-                    .build_val(Inst::upsilon(phi, then_val), expr.span);
-                self.builder.terminate_block(Terminator::br(cont_block));
+                self.bld.build_val(Inst::upsilon(phi, then_val), expr.span);
+                self.bld
+                    .seal_and_move_to(Terminator::br(cont_block), else_block);
 
-                // === Else Block ===
-                self.builder.block = Some(else_block);
                 let else_val = self.visit_expr_rvalue(*other);
-                self.builder
-                    .build_val(Inst::upsilon(phi, else_val), expr.span);
-                self.builder.terminate_block(Terminator::br(cont_block));
+                self.bld.build_val(Inst::upsilon(phi, else_val), expr.span);
+                self.bld
+                    .seal_and_move_to(Terminator::br(cont_block), cont_block);
 
-                // === Merge Block ===
-                self.builder.block = Some(cont_block);
-                self.builder.push(phi);
+                self.bld.push_val(phi);
                 phi
             }
         }
@@ -783,19 +746,19 @@ impl<'ctx> LoweringPass<'ctx> {
 
     fn build_unary(&mut self, ty: Ty, op: UnaryOp, expr: ast::Expr, span: Span) -> Value {
         let val = self.visit_expr_rvalue(expr);
-        self.builder.build_val(Inst::unary(op, ty, val), span)
+        self.bld.build_val(Inst::unary(op, ty, val), span)
     }
 
     fn build_icmp(&mut self, op: ICmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
-        self.builder.build_val(Inst::icmp(op, lhs, rhs), span)
+        self.bld.build_val(Inst::icmp(op, lhs, rhs), span)
     }
 
     fn build_fcmp(&mut self, op: FCmpOp, lhs: ast::Expr, rhs: ast::Expr, span: Span) -> Value {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
-        self.builder.build_val(Inst::fcmp(op, lhs, rhs), span)
+        self.bld.build_val(Inst::fcmp(op, lhs, rhs), span)
     }
 
     fn build_truthy(&mut self, cond: Expr, span: Span) -> Value {
@@ -804,14 +767,12 @@ impl<'ctx> LoweringPass<'ctx> {
         match ty {
             Ty::I1 => val,
             Ty::F32 | Ty::F64 => {
-                let zero = self.builder.build_val(Inst::constant(ty, 0), span);
-                self.builder
-                    .build_val(Inst::fcmp(FCmpOp::Une, val, zero), span)
+                let zero = self.bld.build_val(Inst::constant(ty, 0), span);
+                self.bld.build_val(Inst::fcmp(FCmpOp::Une, val, zero), span)
             }
             _ => {
-                let zero = self.builder.build_val(Inst::constant(ty, 0), span);
-                self.builder
-                    .build_val(Inst::icmp(ICmpOp::Ne, val, zero), span)
+                let zero = self.bld.build_val(Inst::constant(ty, 0), span);
+                self.bld.build_val(Inst::icmp(ICmpOp::Ne, val, zero), span)
             }
         }
     }
@@ -826,7 +787,7 @@ impl<'ctx> LoweringPass<'ctx> {
     ) -> Value {
         let lhs = self.visit_expr_rvalue(lhs);
         let rhs = self.visit_expr_rvalue(rhs);
-        self.builder.build_val(Inst::binary(op, ty, lhs, rhs), span)
+        self.bld.build_val(Inst::binary(op, ty, lhs, rhs), span)
     }
 
     fn build_inc_dec(
@@ -838,9 +799,9 @@ impl<'ctx> LoweringPass<'ctx> {
     ) -> (Value, Value) {
         let ty = self.ast.expr[expr].ty.get().lower().0;
         let ptr = self.visit_expr_lvalue(expr);
-        let old = self.builder.build_val(Inst::load(ty, ptr, 0), span);
-        let new = self.builder.build_val(Inst::binary(op, ty, old, one), span);
-        self.builder.build_val(Inst::store(ptr, new, 0), span);
+        let old = self.bld.build_val(Inst::load(ty, ptr, 0), span);
+        let new = self.bld.build_val(Inst::binary(op, ty, old, one), span);
+        self.bld.build_val(Inst::store(ptr, new, 0), span);
         (old, new)
     }
 
@@ -848,30 +809,30 @@ impl<'ctx> LoweringPass<'ctx> {
         let (to, to_signed) = to.lower();
         let (from, from_signed) = from.lower();
         match (from, to) {
-            (Ty::F32, Ty::F64) => self.builder.build_val(Inst::fext(to, expr), span),
-            (Ty::F64, Ty::F32) => self.builder.build_val(Inst::ftrunc(to, expr), span),
+            (Ty::F32, Ty::F64) => self.bld.build_val(Inst::fext(to, expr), span),
+            (Ty::F64, Ty::F32) => self.bld.build_val(Inst::ftrunc(to, expr), span),
             (Ty::F32 | Ty::F64, _) => {
                 if to_signed {
-                    self.builder.build_val(Inst::fp_to_si(to, expr), span)
+                    self.bld.build_val(Inst::fp_to_si(to, expr), span)
                 } else {
-                    self.builder.build_val(Inst::fp_to_ui(to, expr), span)
+                    self.bld.build_val(Inst::fp_to_ui(to, expr), span)
                 }
             }
             (_, Ty::F32 | Ty::F64) => {
                 if from_signed {
-                    self.builder.build_val(Inst::si_to_fp(to, expr), span)
+                    self.bld.build_val(Inst::si_to_fp(to, expr), span)
                 } else {
-                    self.builder.build_val(Inst::ui_to_fp(to, expr), span)
+                    self.bld.build_val(Inst::ui_to_fp(to, expr), span)
                 }
             }
             _ => match from.size_bytes().cmp(&to.size_bytes()) {
                 std::cmp::Ordering::Equal => expr,
-                std::cmp::Ordering::Greater => self.builder.build_val(Inst::trunc(to, expr), span),
+                std::cmp::Ordering::Greater => self.bld.build_val(Inst::trunc(to, expr), span),
                 std::cmp::Ordering::Less => {
                     if from_signed {
-                        self.builder.build_val(Inst::sext(to, expr), span)
+                        self.bld.build_val(Inst::sext(to, expr), span)
                     } else {
-                        self.builder.build_val(Inst::zext(to, expr), span)
+                        self.bld.build_val(Inst::zext(to, expr), span)
                     }
                 }
             },
@@ -885,40 +846,34 @@ impl<'ctx> LoweringPass<'ctx> {
         rhs: ast::Expr,
         span: Span,
     ) -> Value {
-        let rhs_block = self
-            .builder
-            .build_block(if is_or { "or" } else { "and" }, span);
+        let rhs_block = self.bld.build_block(if is_or { "or" } else { "and" }, span);
         let cont_block = self
-            .builder
+            .bld
             .build_block(if is_or { "or.cont" } else { "and.cont" }, span);
 
-        let phi = self.builder.build_phi(Ty::I32, span);
+        let phi = self.bld.build_phi(Ty::I32, span);
 
-        // === LHS Block ===
         let lhs = self.build_truthy(lhs, span);
         let short_circuit_val = self
-            .builder
+            .bld
             .build_val(Inst::constant(Ty::I32, if is_or { 1 } else { 0 }), span);
-        self.builder
+        self.bld
             .build_val(Inst::upsilon(phi, short_circuit_val), span);
         let (then_block, else_block) = if is_or {
             (cont_block, rhs_block)
         } else {
             (rhs_block, cont_block)
         };
-        self.builder
-            .terminate_block(Terminator::cond_br(lhs, then_block, else_block));
+        self.bld
+            .seal_and_move_to(Terminator::cond_br(lhs, then_block, else_block), rhs_block);
 
-        // === RHS Block ===
-        self.builder.block = Some(rhs_block);
         let rhs = self.build_truthy(rhs, span);
-        let extended = self.builder.build_val(Inst::zext(Ty::I32, rhs), span);
-        self.builder.build_val(Inst::upsilon(phi, extended), span);
-        self.builder.terminate_block(Terminator::br(cont_block));
+        let extended = self.bld.build_val(Inst::zext(Ty::I32, rhs), span);
+        self.bld.build_val(Inst::upsilon(phi, extended), span);
+        self.bld
+            .seal_and_move_to(Terminator::br(cont_block), cont_block);
 
-        // === Merge Block ===
-        self.builder.block = Some(cont_block);
-        self.builder.push(phi);
+        self.bld.push_val(phi);
         phi
     }
 
@@ -940,20 +895,6 @@ impl<'ctx> LoweringPass<'ctx> {
         }
     }
 
-    fn get_break_block(&self, stmt: ast::Stmt) -> Block {
-        match self.tracked.get(&stmt) {
-            Some(TrackedBlock::BreakAndContinue(brk, _)) => *brk,
-            _ => panic!("expected a break block"),
-        }
-    }
-
-    fn get_continue_block(&self, stmt: ast::Stmt) -> Block {
-        match self.tracked.get(&stmt) {
-            Some(TrackedBlock::BreakAndContinue(_, cont)) => *cont,
-            _ => panic!("expected a continue block"),
-        }
-    }
-
     fn remove_case_block(&mut self, stmt: ast::Stmt) -> Block {
         match self.tracked.remove(&stmt) {
             Some(TrackedBlock::Case(c)) => c,
@@ -965,54 +906,33 @@ impl<'ctx> LoweringPass<'ctx> {
         if let Some(TrackedBlock::Label(l)) = self.tracked.get(&stmt) {
             return *l;
         }
-        let block = self.builder.build_block_sym(name, span);
+        let block = self.bld.build_block_ident(name, span);
         self.tracked.insert(stmt, TrackedBlock::Label(block));
         block
     }
 
-    fn get_or_make_function(
-        &mut self,
-        name: &ast::Symbol,
-        is_global: bool,
-        span: Span,
-    ) -> Function {
-        let sym = name.resolved();
-        match self.symbols[sym] {
-            Some(SymbolEntry::Function(f)) => f,
-            None => {
-                let f = self
-                    .builder
-                    .program
-                    .functions
-                    .push(FunctionData::new(name.name, is_global, span));
-                self.symbols[sym] = Some(SymbolEntry::Function(f));
-                f
-            }
-            _ => unreachable!("symbol was previously registered as a non-function"),
-        }
-    }
-
-    fn get_or_make_global(&mut self, name: &ast::Symbol, mut global: GlobalData) -> Global {
+    fn get_or_make_global(&mut self, name: &ast::Symbol, global: GlobalData) -> Global {
         let sym = name.resolved();
         match self.symbols[sym] {
             Some(SymbolEntry::Global(v)) => v,
             None => {
-                let name = match self.builder.function {
-                    Some(func) if !global.is_global => {
-                        let fname = self.builder.program.functions[func].name;
-                        let fname = self.builder.interner.lookup(fname);
-                        let name = self.builder.interner.lookup(name.name);
-                        let scoped = format!("{fname}.{name}");
-                        self.builder.interner.intern(&scoped)
-                    }
-                    _ => name.name,
-                };
-                global.name = name;
-                let v = self.builder.program.globals.push(global);
+                let v = self.bld.build_global(sym.as_u32(), global);
                 self.symbols[sym] = Some(SymbolEntry::Global(v));
                 v
             }
             _ => unreachable!("symbol was previously registered as a non-global"),
+        }
+    }
+
+    fn get_or_make_function(&mut self, sym: sema::Symbol, data: FunctionData) -> Function {
+        match self.symbols[sym] {
+            Some(SymbolEntry::Function(f)) => f,
+            None => {
+                let f = self.bld.build_function(data);
+                self.symbols[sym] = Some(SymbolEntry::Function(f));
+                f
+            }
+            _ => unreachable!("symbol was previously registered as a non-function"),
         }
     }
 }
@@ -1031,7 +951,6 @@ enum ExprMode {
 pub enum TrackedBlock {
     Case(Block),
     Label(Block),
-    BreakAndContinue(Block, Block),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

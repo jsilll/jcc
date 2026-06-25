@@ -16,6 +16,7 @@ impl ControlFlowGraph {
 
     pub fn compute(&mut self, prog: &Program, order: &Order) {
         self.pool.clear();
+
         for data in prog.functions.values() {
             if let Some(entry) = data.entry {
                 // Compute degree of each block.
@@ -37,7 +38,8 @@ impl ControlFlowGraph {
                         let idx = self.in_degree[succ] - 1;
 
                         self.in_degree[succ] = idx;
-                        self.pool[self.preds[succ]][idx as usize] = block;
+                        let slice = self.preds[succ];
+                        self.pool[slice][idx as usize] = block;
                     }
                 }
             }

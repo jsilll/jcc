@@ -11,10 +11,6 @@ pub struct Order {
 }
 
 impl Order {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn rpo_idx(&self, block: Block) -> u32 {
         self.rpo_idx[block]
     }

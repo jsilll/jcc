@@ -10,7 +10,7 @@ pub struct ControlFlowGraph {
 }
 
 impl ControlFlowGraph {
-    pub fn preds(&self, block: Block) -> impl IntoIterator<Item = Block> + '_ {
+    pub fn preds(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
         self.pool[self.preds[block]].iter().copied()
     }
 

@@ -86,13 +86,23 @@ impl<T: SentinelValue> PackedOption<T> {
     }
 
     /// Unwrap a packed `Some` value or panic.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the packed option is a `None` value.
     #[track_caller]
+    #[allow(clippy::unwrap_used)]
     pub fn unwrap(self) -> T {
         self.expand().unwrap()
     }
 
     /// Unwrap a packed `Some` value or panic with a message.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the packed option is a `None` value.
     #[track_caller]
+    #[allow(clippy::expect_used)]
     pub fn expect(self, msg: &str) -> T {
         self.expand().expect(msg)
     }

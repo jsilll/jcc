@@ -30,7 +30,7 @@ return_self_not_must_use = "allow"
 similar_names = "allow"
 
 dbg_macro = "warn"
-expect_used = "allow"
+expect_used = "warn"
 panic = "warn"
 todo = "warn"
 undocumented_unsafe_blocks = "warn"

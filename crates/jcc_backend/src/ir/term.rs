@@ -137,10 +137,10 @@ impl<'a> Iterator for Successors<'a> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Successors::Empty => None,
-            Successors::One(block) => block.take(),
-            Successors::Two { first, second } => first.take().or_else(|| second.take()),
-            Successors::Switch { cases, default } => {
+            Self::Empty => None,
+            Self::One(block) => block.take(),
+            Self::Two { first, second } => first.take().or_else(|| second.take()),
+            Self::Switch { cases, default } => {
                 cases.next().map(|(_, b)| *b).or_else(|| default.take())
             }
         }
@@ -151,10 +151,10 @@ impl<'a> DoubleEndedIterator for Successors<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         match self {
-            Successors::Empty => None,
-            Successors::One(block) => block.take(),
-            Successors::Two { first, second } => second.take().or_else(|| first.take()),
-            Successors::Switch { cases, default } => default
+            Self::Empty => None,
+            Self::One(block) => block.take(),
+            Self::Two { first, second } => second.take().or_else(|| first.take()),
+            Self::Switch { cases, default } => default
                 .take()
                 .or_else(|| cases.next_back().map(|(_, b)| *b)),
         }

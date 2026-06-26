@@ -29,13 +29,18 @@ impl Dominance {
         self.idom[block].expand()
     }
 
-    /// Returns an iterator over the children of the given block in the dominator tree.
+    /// Returns the dominated children of `block`.
     pub fn children(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
         let slice = self.children[block];
         self.children_pool[slice].iter().copied()
     }
 
-    /// Returns an iterator over the blocks in the dominance frontier of the given block.
+    /// Returns the dominance frontier of `block`.
+    ///
+    /// ## Notes 
+    /// 
+    /// - The iterator may contain duplicate blocks. 
+    /// - Consumers requiring set semantics are expected to deduplicate.
     pub fn frontier(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
         let slice = self.frontier[block];
         self.frontier_pool[slice].iter().copied()
@@ -44,6 +49,9 @@ impl Dominance {
     /// Computes the dominance relation, the dominator tree, and
     /// the dominance frontiers for all functions in the program.
     pub fn compute(&mut self, prog: &Program, ord: &Order, cfg: &ControlFlowGraph) {
+        self.idom.clear();
+        self.children.clear();
+        self.frontier.clear();
         self.children_pool.clear();
         self.frontier_pool.clear();
 
@@ -204,28 +212,24 @@ mod tests {
 
     use jcc_codemap::simple::SimpleFiles;
 
-    fn setup(input: &str) -> (Vec<Block>, Dominance) {
+    fn setup(input: &str) -> Dominance {
         let mut db = SimpleFiles::new();
         let mut interner = IdentInterner::new();
         let ir = parse_ir(&mut db, &mut interner, input);
         check_parse(&mut db, &ir).unwrap_or_else(|report| panic!("{report}"));
-
         let prog = &ir.program;
         let mut ord = Order::default();
         let mut dom = Dominance::default();
         let mut cfg = ControlFlowGraph::default();
-
         ord.compute(prog);
         cfg.compute(prog, &ord);
         dom.compute(prog, &ord, &cfg);
-
-        let entry = prog.functions.values().next().unwrap().entry.unwrap();
-        (ord.rpo(entry).into_iter().collect(), dom)
+        dom
     }
 
     #[test]
     fn simple() {
-        let (rpo, dom) = setup(
+        let dom = setup(
             r#"
             define @classify {
             bb0:
@@ -244,17 +248,15 @@ mod tests {
         "#,
         );
 
-        assert_eq!(rpo.len(), 4);
-
-        assert!(dom.frontier(rpo[0]).eq([]));
-        assert!(dom.frontier(rpo[1]).eq([rpo[3]]));
-        assert!(dom.frontier(rpo[2]).eq([rpo[3]]));
-        assert!(dom.frontier(rpo[3]).eq([]));
+        assert!(dom.frontier(Block::from_u32(0)).eq([]));
+        assert!(dom.frontier(Block::from_u32(1)).eq([Block::from_u32(3)]));
+        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(3)]));
+        assert!(dom.frontier(Block::from_u32(3)).eq([]));
     }
 
     #[test]
     fn looped() {
-        let (rpo, dom) = setup(
+        let dom = setup(
             r#"
             define @loop {
             bb0:
@@ -280,13 +282,50 @@ mod tests {
         "#,
         );
 
-        assert_eq!(rpo.len(), 6);
+        assert!(dom.frontier(Block::from_u32(0)).eq([]));
+        assert!(dom.frontier(Block::from_u32(1)).eq([Block::from_u32(1)]));
+        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(4)]));
+        assert!(dom.frontier(Block::from_u32(3)).eq([Block::from_u32(4)]));
+        assert!(dom.frontier(Block::from_u32(4)).eq([Block::from_u32(1)]));
+        assert!(dom.frontier(Block::from_u32(5)).eq([]));
+    }
 
-        assert!(dom.frontier(rpo[0]).eq([]));
-        assert!(dom.frontier(rpo[1]).eq([rpo[1]]));
-        assert!(dom.frontier(rpo[2]).eq([rpo[4]]));
-        assert!(dom.frontier(rpo[3]).eq([rpo[4]]));
-        assert!(dom.frontier(rpo[4]).eq([rpo[1]]));
-        assert!(dom.frontier(rpo[5]).eq([]));
+    #[test]
+    fn non_dominating_diamond() {
+        let dom = setup(
+            r#"
+        define @diamond {
+        bb0:
+          %0 = param i1 #0
+          br i1 %0, bb1, bb2
+
+        bb1:
+          %1 = param i1 #1
+          br i1 %1, bb3, bb4
+
+        bb2:
+          br bb5
+
+        bb3:
+          br bb5
+
+        bb4:
+          br bb5
+
+        bb5:
+          ret void
+        }
+    "#,
+        );
+
+        // Note: For now the frontier() API does provide set semantics
+        let special = [Block::from_u32(5), Block::from_u32(5)];
+
+        assert!(dom.frontier(Block::from_u32(0)).eq([]));
+        assert!(dom.frontier(Block::from_u32(1)).eq(special));
+        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(5)]));
+        assert!(dom.frontier(Block::from_u32(3)).eq([Block::from_u32(5)]));
+        assert!(dom.frontier(Block::from_u32(4)).eq([Block::from_u32(5)]));
+        assert!(dom.frontier(Block::from_u32(5)).eq([]));
     }
 }

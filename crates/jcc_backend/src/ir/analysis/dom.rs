@@ -37,9 +37,9 @@ impl Dominance {
 
     /// Returns the dominance frontier of `block`.
     ///
-    /// ## Notes 
-    /// 
-    /// - The iterator may contain duplicate blocks. 
+    /// ## Notes
+    ///
+    /// - The iterator may contain duplicate blocks.
     /// - Consumers requiring set semantics are expected to deduplicate.
     pub fn frontier(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
         let slice = self.frontier[block];

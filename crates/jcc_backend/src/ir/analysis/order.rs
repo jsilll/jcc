@@ -16,7 +16,7 @@ impl Order {
     }
 
     pub fn rpo(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
-        self.pool[self.rpo[block]].iter().copied().into_iter()
+        self.pool[self.rpo[block]].iter().copied()
     }
 
     pub fn compute(&mut self, prog: &Program) {

@@ -318,7 +318,7 @@ mod tests {
     "#,
         );
 
-        // Note: For now the frontier() API does provide set semantics
+        // Note: For now the frontier() API does not provide set semantics
         let special = [Block::from_u32(5), Block::from_u32(5)];
 
         assert!(dom.frontier(Block::from_u32(0)).eq([]));

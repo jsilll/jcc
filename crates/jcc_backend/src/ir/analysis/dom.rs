@@ -3,117 +3,329 @@ use crate::ir::{
     Block, Program,
 };
 
-use jcc_entity::{EntitySlice, SecondaryMap, SlicePool};
+use jcc_entity::{EntitySlice, PackedOption, SecondaryMap, SlicePool};
 
 #[derive(Default)]
 pub struct Dominance {
-    pool: SlicePool<Block>,
+    /// A temporary map for storing node degrees.
     degree: SecondaryMap<Block, u32>,
-    idom: SecondaryMap<Block, Option<Block>>,
+    /// The immediate dominator (idom) of each block.
+    idom: SecondaryMap<Block, PackedOption<Block>>,
+
+    /// A pool of blocks storing dominator tree children.
+    children_pool: SlicePool<Block>,
+    /// Maps each block to a slice of its children in the dominator tree.
     children: SecondaryMap<Block, EntitySlice<Block>>,
+
+    /// A pool of blocks storing dominance frontiers.
+    frontier_pool: SlicePool<Block>,
+    /// Maps each block to a slice of blocks in its dominance frontier.
+    frontier: SecondaryMap<Block, EntitySlice<Block>>,
 }
 
 impl Dominance {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+    /// Returns the immediate dominator of the given block, if it has one.
     pub fn idom(&self, block: Block) -> Option<Block> {
-        self.idom[block]
+        self.idom[block].expand()
     }
 
-    pub fn dominates(&self, a: Block, b: Block) -> bool {
-        if a == b {
-            return true;
-        }
-        let mut b = b;
-        while let Some(idom) = self.idom[b] {
-            if idom == a {
-                return true;
-            }
-            b = idom;
-        }
-        false
+    /// Returns the dominated children of `block`.
+    pub fn children(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
+        let slice = self.children[block];
+        self.children_pool[slice].iter().copied()
     }
 
-    pub fn children(&self, block: Block) -> impl IntoIterator<Item = Block> + '_ {
-        self.pool[self.children[block]].iter().copied()
+    /// Returns the dominance frontier of `block`.
+    ///
+    /// ## Notes
+    ///
+    /// - The iterator may contain duplicate blocks.
+    /// - Consumers requiring set semantics are expected to deduplicate.
+    pub fn frontier(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
+        let slice = self.frontier[block];
+        self.frontier_pool[slice].iter().copied()
     }
 
-    pub fn intersect(&self, mut a: Block, mut b: Block, order: &Order) -> Block {
-        while a != b {
-            while order.rpo_idx(a) > order.rpo_idx(b) {
-                a = self.idom[a].expect("block has no idom");
-            }
-            while order.rpo_idx(b) > order.rpo_idx(a) {
-                b = self.idom[b].expect("block has no idom");
-            }
-        }
-        a
-    }
+    /// Computes the dominance relation, the dominator tree, and
+    /// the dominance frontiers for all functions in the program.
+    pub fn compute(&mut self, prog: &Program, ord: &Order, cfg: &ControlFlowGraph) {
+        self.idom.clear();
+        self.children.clear();
+        self.frontier.clear();
+        self.children_pool.clear();
+        self.frontier_pool.clear();
 
-    pub fn compute(&mut self, prog: &Program, order: &Order, cfg: &ControlFlowGraph) {
         for (_, data) in prog.functions.iter() {
-            if let Some(entry) = data.entry {
-                self.idom[entry] = Some(entry);
-                let mut changed = true;
-                while changed {
-                    changed = false;
+            let Some(entry) = data.entry else {
+                continue;
+            };
 
-                    for block in order.rpo(entry) {
-                        if let Some(mut dom) = cfg
-                            .preds(block)
-                            .into_iter()
-                            .find(|pred| self.idom[*pred].is_some())
-                        {
-                            for pred in cfg.preds(block) {
-                                if pred == dom || self.idom[pred].is_none() {
-                                    continue;
-                                }
-                                let mut pred = pred;
-                                while pred != dom {
-                                    while order.rpo_idx(pred) > order.rpo_idx(dom) {
-                                        pred = self.idom[pred].expect("block has no idom");
-                                    }
-                                    while order.rpo_idx(dom) > order.rpo_idx(pred) {
-                                        dom = self.idom[dom].expect("block has no idom");
-                                    }
-                                }
-                            }
-                            if self.idom[block] != Some(dom) {
-                                changed = true;
-                                self.idom[block] = Some(dom);
-                            }
+            let mut changed = true;
+            self.idom[entry] = entry.into();
+
+            while changed {
+                changed = false;
+
+                for block in ord.rpo(entry) {
+                    let Some(mut dom) = cfg
+                        .preds(block)
+                        .into_iter()
+                        .find(|pred| self.idom(*pred).is_some())
+                    else {
+                        continue;
+                    };
+
+                    for pred in cfg.preds(block) {
+                        if pred == dom || self.idom[pred].is_none() {
+                            continue;
                         }
+                        dom = self.intersect(dom, pred, ord);
                     }
-                }
 
-                // Compute the degree of each block.
-                for block in order.rpo(entry) {
-                    if let Some(idom) = self.idom(block) {
-                        if block != idom {
-                            self.degree[idom] += 1;
-                        }
-                    }
-                }
-
-                // Allocate space for children of each block.
-                for block in order.rpo(entry) {
-                    let degree = self.degree[block] as usize;
-                    self.children[block] = self.pool.extend(std::iter::repeat_n(block, degree));
-                }
-
-                // Fill children of each block.
-                for block in order.rpo(entry) {
-                    if let Some(idom) = self.idom(block) {
-                        if block != idom {
-                            let idx = (self.degree[idom] - 1) as usize;
-                            self.pool[self.children[idom]][idx] = block;
-                            self.degree[idom] = idx as u32;
-                        }
+                    if self.idom[block] != dom.into() {
+                        self.idom[block] = dom.into();
+                        changed = true;
                     }
                 }
             }
+
+            self.compute_children(entry, ord);
+            self.compute_frontier(entry, ord, cfg);
         }
+    }
+
+    fn compute_children(&mut self, entry: Block, ord: &Order) {
+        debug_assert!(ord.rpo(entry).all(|b| self.degree[b] == 0));
+
+        // Count children.
+        for block in ord.rpo(entry) {
+            if let Some(idom) = self.idom(block) {
+                if block != idom {
+                    self.degree[idom] += 1;
+                }
+            }
+        }
+
+        // Allocate slices.
+        for block in ord.rpo(entry) {
+            let degree = self.degree[block] as usize;
+            self.children[block] = self
+                .children_pool
+                .extend(std::iter::repeat_n(block, degree));
+        }
+
+        // Fill slices.
+        //
+        // Reuse `degree` as a reverse insertion cursor.
+        for block in ord.rpo(entry) {
+            if let Some(idom) = self.idom(block) {
+                if block != idom {
+                    let idx = self.degree[idom] - 1;
+
+                    self.degree[idom] = idx;
+                    let slice = self.children[idom];
+                    self.children_pool[slice][idx as usize] = block;
+                }
+            }
+        }
+    }
+
+    fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &ControlFlowGraph) {
+        debug_assert!(ord.rpo(entry).all(|b| self.degree[b] == 0));
+
+        // Count frontier size.
+        for block in ord.rpo(entry) {
+            if cfg.preds(block).nth(1).is_none() {
+                continue;
+            };
+            self.walk_frontier(block, cfg, |this, runner| {
+                this.degree[runner] += 1;
+            });
+        }
+
+        // Allocate slices.
+        for block in ord.rpo(entry) {
+            let degree = self.degree[block] as usize;
+            self.frontier[block] = self
+                .frontier_pool
+                .extend(std::iter::repeat_n(block, degree));
+        }
+
+        // Fill slices.
+        //
+        // Reuse `degree` as a reverse insertion cursor.
+        for block in ord.rpo(entry) {
+            if cfg.preds(block).nth(1).is_none() {
+                continue;
+            };
+            self.walk_frontier(block, cfg, |this, runner| {
+                let idx = this.degree[runner] - 1;
+
+                this.degree[runner] = idx;
+                let slice = this.frontier[runner];
+                this.frontier_pool[slice][idx as usize] = block;
+            });
+        }
+    }
+
+    fn walk_frontier(
+        &mut self,
+        block: Block,
+        cfg: &ControlFlowGraph,
+        mut visit: impl FnMut(&mut Self, Block),
+    ) {
+        let Some(idom) = self.idom(block) else {
+            return;
+        };
+        for mut runner in cfg.preds(block) {
+            while idom != runner {
+                let Some(next) = self.idom(runner) else {
+                    break;
+                };
+                visit(self, runner);
+                runner = next;
+            }
+        }
+    }
+
+    fn intersect(&self, mut lhs: Block, mut rhs: Block, ord: &Order) -> Block {
+        while lhs != rhs {
+            while ord.rpo_idx(lhs) > ord.rpo_idx(rhs) {
+                lhs = self.idom(lhs).expect("block has no idom");
+            }
+            while ord.rpo_idx(rhs) > ord.rpo_idx(lhs) {
+                rhs = self.idom(rhs).expect("block has no idom");
+            }
+        }
+        lhs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::{
+        ir::testutil::{check_parse, parse_ir},
+        IdentInterner,
+    };
+
+    use jcc_codemap::simple::SimpleFiles;
+
+    fn setup(input: &str) -> Dominance {
+        let mut db = SimpleFiles::new();
+        let mut interner = IdentInterner::new();
+        let ir = parse_ir(&mut db, &mut interner, input);
+        check_parse(&mut db, &ir).unwrap_or_else(|report| panic!("{report}"));
+        let prog = &ir.program;
+        let mut ord = Order::default();
+        let mut dom = Dominance::default();
+        let mut cfg = ControlFlowGraph::default();
+        ord.compute(prog);
+        cfg.compute(prog, &ord);
+        dom.compute(prog, &ord, &cfg);
+        dom
+    }
+
+    #[test]
+    fn simple() {
+        let dom = setup(
+            r#"
+            define @classify {
+            bb0:
+              %0 = param i1 #0
+              br i1 %0, bb1, bb2
+
+            bb1:
+              br bb3
+
+            bb2:
+              br bb3
+
+            bb3:
+              ret void
+            }
+        "#,
+        );
+
+        assert!(dom.frontier(Block::from_u32(0)).eq([]));
+        assert!(dom.frontier(Block::from_u32(1)).eq([Block::from_u32(3)]));
+        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(3)]));
+        assert!(dom.frontier(Block::from_u32(3)).eq([]));
+    }
+
+    #[test]
+    fn looped() {
+        let dom = setup(
+            r#"
+            define @loop {
+            bb0:
+              br bb1
+
+            bb1:
+              %0 = param i1 #0
+              br i1 %0, bb2, bb3
+
+            bb2:
+              br bb4
+
+            bb3:
+              br bb4
+
+            bb4:
+              %1 = param i1 #1
+              br i1 %1, bb1, bb5
+
+            bb5:
+              ret void
+            }
+        "#,
+        );
+
+        assert!(dom.frontier(Block::from_u32(0)).eq([]));
+        assert!(dom.frontier(Block::from_u32(1)).eq([Block::from_u32(1)]));
+        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(4)]));
+        assert!(dom.frontier(Block::from_u32(3)).eq([Block::from_u32(4)]));
+        assert!(dom.frontier(Block::from_u32(4)).eq([Block::from_u32(1)]));
+        assert!(dom.frontier(Block::from_u32(5)).eq([]));
+    }
+
+    #[test]
+    fn non_dominating_diamond() {
+        let dom = setup(
+            r#"
+        define @diamond {
+        bb0:
+          %0 = param i1 #0
+          br i1 %0, bb1, bb2
+
+        bb1:
+          %1 = param i1 #1
+          br i1 %1, bb3, bb4
+
+        bb2:
+          br bb5
+
+        bb3:
+          br bb5
+
+        bb4:
+          br bb5
+
+        bb5:
+          ret void
+        }
+    "#,
+        );
+
+        // Note: For now the frontier() API does not provide set semantics
+        let special = [Block::from_u32(5), Block::from_u32(5)];
+
+        assert!(dom.frontier(Block::from_u32(0)).eq([]));
+        assert!(dom.frontier(Block::from_u32(1)).eq(special));
+        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(5)]));
+        assert!(dom.frontier(Block::from_u32(3)).eq([Block::from_u32(5)]));
+        assert!(dom.frontier(Block::from_u32(4)).eq([Block::from_u32(5)]));
+        assert!(dom.frontier(Block::from_u32(5)).eq([]));
     }
 }

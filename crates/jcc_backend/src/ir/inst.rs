@@ -1,5 +1,7 @@
 use crate::ir::{ty::Ty, Function, Global, Value};
 
+use std::iter::FusedIterator;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     /// Bitwise NOT
@@ -434,28 +436,180 @@ impl Inst {
             Inst::Alloca { .. } => Ty::Ptr,
             Inst::GetElementPtr { .. } => Ty::Ptr,
 
-            Inst::Binary { ty, .. }
-            | Inst::Bitcast { to: ty, .. }
+            Inst::ConstNull(ty)
             | Inst::Call { ty, .. }
+            | Inst::Load { ty, .. }
             | Inst::Const { ty, .. }
-            | Inst::ConstNull(ty)
+            | Inst::Param { ty, .. }
+            | Inst::Unary { ty, .. }
+            | Inst::Binary { ty, .. }
+            | Inst::Select { ty, .. }
+            | Inst::ZExt { to: ty, .. }
+            | Inst::SExt { to: ty, .. }
             | Inst::FExt { to: ty, .. }
+            | Inst::Trunc { to: ty, .. }
+            | Inst::FTrunc { to: ty, .. }
             | Inst::FpToSi { to: ty, .. }
             | Inst::FpToUi { to: ty, .. }
-            | Inst::FTrunc { to: ty, .. }
+            | Inst::SiToFp { to: ty, .. }
+            | Inst::UiToFp { to: ty, .. }
+            | Inst::Bitcast { to: ty, .. }
             | Inst::IndirectCall { ty, .. }
             | Inst::IntToPtr { to: ty, .. }
-            | Inst::Load { ty, .. }
-            | Inst::Param { ty, .. }
             | Inst::PtrToInt { to: ty, .. }
-            | Inst::Select { ty, .. }
-            | Inst::SExt { to: ty, .. }
-            | Inst::SiToFp { to: ty, .. }
-            | Inst::Trunc { to: ty, .. }
-            | Inst::UiToFp { to: ty, .. }
-            | Inst::Unary { ty, .. }
-            | Inst::ZExt { to: ty, .. }
             | Inst::Phi(ty) => *ty,
+        }
+    }
+
+    /// Returns the operands used by this instruction.
+    ///
+    /// Instructions that do not use any operands return `Operands::Empty`.
+    pub fn operands(&self) -> Operands<'_> {
+        match self {
+            Inst::Noop
+            | Inst::Phi(_)
+            | Inst::ConstNull(_)
+            | Inst::GlobalAddr(_)
+            | Inst::Const { .. }
+            | Inst::Param { .. }
+            | Inst::Alloca { .. } => Operands::Empty,
+
+            Inst::Call { args, .. } => Operands::Slice(args.iter()),
+
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => Operands::Three {
+                first: Some(*cond),
+                second: Some(*then_val),
+                third: Some(*else_val),
+            },
+
+            Inst::IndirectCall {
+                ptr, args: rest, ..
+            }
+            | Inst::GetElementPtr {
+                ptr, indices: rest, ..
+            } => Operands::OneAndSlice {
+                first: Some(*ptr),
+                rest: rest.iter(),
+            },
+
+            Inst::ICmp {
+                lhs: fst, rhs: snd, ..
+            }
+            | Inst::FCmp {
+                lhs: fst, rhs: snd, ..
+            }
+            | Inst::Store {
+                ptr: fst,
+                value: snd,
+                ..
+            }
+            | Inst::Upsilon {
+                phi: fst,
+                value: snd,
+                ..
+            }
+            | Inst::Binary {
+                lhs: fst, rhs: snd, ..
+            } => Operands::Two {
+                first: Some(*fst),
+                second: Some(*snd),
+            },
+
+            Inst::ZExt { value, .. }
+            | Inst::SExt { value, .. }
+            | Inst::FExt { value, .. }
+            | Inst::Trunc { value, .. }
+            | Inst::FTrunc { value, .. }
+            | Inst::FpToSi { value, .. }
+            | Inst::FpToUi { value, .. }
+            | Inst::SiToFp { value, .. }
+            | Inst::UiToFp { value, .. }
+            | Inst::Bitcast { value, .. }
+            | Inst::IntToPtr { value, .. }
+            | Inst::PtrToInt { value, .. }
+            | Inst::Unary { operand: value, .. }
+            | Inst::Load { ptr: value, .. } => Operands::One(Some(*value)),
+        }
+    }
+
+    /// Returns a mutable iterator over the operands used by this instruction.
+    ///
+    /// Instructions that do not use any operands return `OperandsMut::Empty`.
+    pub fn operands_mut(&mut self) -> OperandsMut<'_> {
+        match self {
+            Inst::Noop
+            | Inst::Phi(_)
+            | Inst::ConstNull(_)
+            | Inst::GlobalAddr(_)
+            | Inst::Const { .. }
+            | Inst::Param { .. }
+            | Inst::Alloca { .. } => OperandsMut::Empty,
+
+            Inst::Call { args, .. } => OperandsMut::Slice(args.iter_mut()),
+
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => OperandsMut::Three {
+                first: Some(cond),
+                second: Some(then_val),
+                third: Some(else_val),
+            },
+
+            Inst::IndirectCall {
+                ptr, args: rest, ..
+            }
+            | Inst::GetElementPtr {
+                ptr, indices: rest, ..
+            } => OperandsMut::OneAndSlice {
+                first: Some(ptr),
+                rest: rest.iter_mut(),
+            },
+
+            Inst::ICmp {
+                lhs: fst, rhs: snd, ..
+            }
+            | Inst::FCmp {
+                lhs: fst, rhs: snd, ..
+            }
+            | Inst::Store {
+                ptr: fst,
+                value: snd,
+                ..
+            }
+            | Inst::Upsilon {
+                phi: fst,
+                value: snd,
+                ..
+            }
+            | Inst::Binary {
+                lhs: fst, rhs: snd, ..
+            } => OperandsMut::Two {
+                first: Some(fst),
+                second: Some(snd),
+            },
+
+            Inst::ZExt { value, .. }
+            | Inst::SExt { value, .. }
+            | Inst::FExt { value, .. }
+            | Inst::Trunc { value, .. }
+            | Inst::FTrunc { value, .. }
+            | Inst::FpToSi { value, .. }
+            | Inst::FpToUi { value, .. }
+            | Inst::SiToFp { value, .. }
+            | Inst::UiToFp { value, .. }
+            | Inst::Bitcast { value, .. }
+            | Inst::IntToPtr { value, .. }
+            | Inst::PtrToInt { value, .. }
+            | Inst::Unary { operand: value, .. }
+            | Inst::Load { ptr: value, .. } => OperandsMut::One(Some(value)),
         }
     }
 }
@@ -611,6 +765,124 @@ impl std::fmt::Display for Inst {
             Inst::IndirectCall { ty, ptr, args } => {
                 write!(f, "call_indirect {} {}({})", ty, ptr, CommaSep(args))
             }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// Operands
+// -----------------------------------------------------------------------
+
+pub enum Operands<'a> {
+    /// No operands.
+    Empty,
+
+    /// One operand.
+    One(Option<Value>),
+
+    /// A slice of operands.
+    Slice(std::slice::Iter<'a, Value>),
+
+    /// One operands and a slice.
+    OneAndSlice {
+        first: Option<Value>,
+        rest: std::slice::Iter<'a, Value>,
+    },
+
+    /// Two operands.
+    Two {
+        first: Option<Value>,
+        second: Option<Value>,
+    },
+
+    /// Three operands.
+    Three {
+        first: Option<Value>,
+        second: Option<Value>,
+        third: Option<Value>,
+    },
+}
+
+impl<'a> FusedIterator for Operands<'a> {}
+
+impl<'a> Iterator for Operands<'a> {
+    type Item = Value;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Empty => None,
+            Self::One(value) => value.take(),
+            Self::Slice(iter) => iter.next().copied(),
+            Self::Two { first, second } => first.take().or_else(|| second.take()),
+            Self::OneAndSlice { first, rest } => first.take().or_else(|| rest.next().copied()),
+            Self::Three {
+                first,
+                second,
+                third,
+            } => first
+                .take()
+                .or_else(|| second.take())
+                .or_else(|| third.take()),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// OperandsMut
+// -----------------------------------------------------------------------
+
+pub enum OperandsMut<'a> {
+    /// No operands.
+    Empty,
+
+    /// One operand.
+    One(Option<&'a mut Value>),
+
+    /// A slice of operands.
+    Slice(std::slice::IterMut<'a, Value>),
+
+    /// One operands and a slice.
+    OneAndSlice {
+        first: Option<&'a mut Value>,
+        rest: std::slice::IterMut<'a, Value>,
+    },
+
+    /// Two operands.
+    Two {
+        first: Option<&'a mut Value>,
+        second: Option<&'a mut Value>,
+    },
+
+    /// Three operands.
+    Three {
+        first: Option<&'a mut Value>,
+        second: Option<&'a mut Value>,
+        third: Option<&'a mut Value>,
+    },
+}
+
+impl<'a> FusedIterator for OperandsMut<'a> {}
+
+impl<'a> Iterator for OperandsMut<'a> {
+    type Item = &'a mut Value;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Empty => None,
+            Self::One(value) => value.take(),
+            Self::Slice(iter) => iter.next(),
+            Self::Two { first, second } => first.take().or_else(|| second.take()),
+            Self::OneAndSlice { first, rest } => first.take().or_else(|| rest.next()),
+            Self::Three {
+                first,
+                second,
+                third,
+            } => first
+                .take()
+                .or_else(|| second.take())
+                .or_else(|| third.take()),
         }
     }
 }

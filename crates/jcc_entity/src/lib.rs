@@ -5,12 +5,14 @@
 //! IR where you have multiple interrelated entity types (instructions, blocks, etc.) that should not be confused.
 
 mod counter;
+mod option;
 mod primary;
 mod secondary;
 mod slice;
 mod sparse;
 
 pub use counter::EntityCounter;
+pub use option::{PackedOption, SentinelValue};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
 pub use slice::{EntitySlice, SlicePool};
@@ -59,12 +61,16 @@ macro_rules! entity_impl {
     ($entity:ident) => {
         impl $crate::IdentityHashable for $entity {}
 
+        impl $crate::SentinelValue for $entity {
+            const SENTINEL: Self = Self(u32::MAX);
+        }
+
         impl $crate::EntityRef for $entity {
             #[inline]
             fn new(index: usize) -> Self {
                 debug_assert!(index < (u32::MAX as usize));
                 #[allow(clippy::cast_possible_truncation)]
-                $entity(index as u32)
+                Self(index as u32)
             }
 
             #[inline]
@@ -79,7 +85,7 @@ macro_rules! entity_impl {
             #[allow(dead_code, unreachable_pub, reason = "macro-generated code")]
             pub const fn from_u32(x: u32) -> Self {
                 debug_assert!(x < u32::MAX);
-                $entity(x)
+                Self(x)
             }
 
             /// Return the underlying index value as a `u32`.

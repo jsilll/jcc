@@ -33,9 +33,9 @@ impl<'a> ProgramBuilder<'a> {
     }
 
     pub fn finish(self) -> Program {
-        let mut ord = Order::new();
-        let mut dom = Dominance::new();
-        let mut cfg = ControlFlowGraph::new();
+        let mut ord = Order::default();
+        let mut dom = Dominance::default();
+        let mut cfg = ControlFlowGraph::default();
         ord.compute(&self.prog);
         cfg.compute(&self.prog, &ord);
         dom.compute(&self.prog, &ord, &cfg);

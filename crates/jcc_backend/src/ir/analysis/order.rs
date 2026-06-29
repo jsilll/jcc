@@ -161,15 +161,13 @@ mod tests {
         "#,
         );
 
-        assert!(ord.rpo(Block::from_u32(0)).eq([
-            Block::from_u32(0),
-            Block::from_u32(1),
-        ]));
+        assert!(ord
+            .rpo(Block::from_u32(0))
+            .eq([Block::from_u32(0), Block::from_u32(1),]));
 
-        assert!(ord.rpo(Block::from_u32(2)).eq([
-            Block::from_u32(2),
-            Block::from_u32(3),
-        ]));
+        assert!(ord
+            .rpo(Block::from_u32(2))
+            .eq([Block::from_u32(2), Block::from_u32(3),]));
 
         assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
         assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);

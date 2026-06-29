@@ -3,14 +3,19 @@ use crate::ir::{
     Block, Program,
 };
 
-use jcc_entity::{EntitySlice, PackedOption, SecondaryMap, SlicePool};
+use jcc_entity::{
+    slice::{bucket::BucketBuilder, EntitySlice, SlicePool},
+    PackedOption, SecondaryMap,
+};
+
+type IDomMap = SecondaryMap<Block, PackedOption<Block>>;
 
 #[derive(Default)]
 pub struct Dominance {
+    /// The immediate dominator of each block.
+    idom: IDomMap,
     /// A temporary map for storing node degrees.
     degree: SecondaryMap<Block, u32>,
-    /// The immediate dominator (idom) of each block.
-    idom: SecondaryMap<Block, PackedOption<Block>>,
 
     /// A pool of blocks storing dominator tree children.
     children_pool: SlicePool<Block>,
@@ -95,36 +100,23 @@ impl Dominance {
     }
 
     fn compute_children(&mut self, entry: Block, ord: &Order) {
-        debug_assert!(ord.rpo(entry).all(|b| self.degree[b] == 0));
-
-        // Count children.
+        let mut counting = BucketBuilder::new(
+            &mut self.children_pool,
+            &mut self.degree,
+            &mut self.children,
+        );
         for block in ord.rpo(entry) {
-            if let Some(idom) = self.idom(block) {
+            if let Some(idom) = self.idom[block].expand() {
                 if block != idom {
-                    self.degree[idom] += 1;
+                    counting.bump(idom);
                 }
             }
         }
-
-        // Allocate slices.
+        let mut filling = counting.reserve(ord.rpo(entry));
         for block in ord.rpo(entry) {
-            let degree = self.degree[block] as usize;
-            self.children[block] = self
-                .children_pool
-                .extend(std::iter::repeat_n(block, degree));
-        }
-
-        // Fill slices.
-        //
-        // Reuse `degree` as a reverse insertion cursor.
-        for block in ord.rpo(entry) {
-            if let Some(idom) = self.idom(block) {
+            if let Some(idom) = self.idom[block].expand() {
                 if block != idom {
-                    let idx = self.degree[idom] - 1;
-
-                    self.degree[idom] = idx;
-                    let slice = self.children[idom];
-                    self.children_pool[slice][idx as usize] = block;
+                    filling.push(idom, block);
                 }
             }
         }
@@ -132,57 +124,45 @@ impl Dominance {
 
     fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &ControlFlowGraph) {
         debug_assert!(ord.rpo(entry).all(|b| self.degree[b] == 0));
-
-        // Count frontier size.
+        let mut counting = BucketBuilder::new(
+            &mut self.frontier_pool,
+            &mut self.degree,
+            &mut self.frontier,
+        );
         for block in ord.rpo(entry) {
             if cfg.preds(block).nth(1).is_none() {
                 continue;
             };
-            self.walk_frontier(block, cfg, |this, runner| {
-                this.degree[runner] += 1;
+            Self::walk_frontier(block, &self.idom, cfg, |runner| {
+                counting.bump(runner);
             });
         }
-
-        // Allocate slices.
-        for block in ord.rpo(entry) {
-            let degree = self.degree[block] as usize;
-            self.frontier[block] = self
-                .frontier_pool
-                .extend(std::iter::repeat_n(block, degree));
-        }
-
-        // Fill slices.
-        //
-        // Reuse `degree` as a reverse insertion cursor.
+        let mut filling = counting.reserve(ord.rpo(entry));
         for block in ord.rpo(entry) {
             if cfg.preds(block).nth(1).is_none() {
                 continue;
             };
-            self.walk_frontier(block, cfg, |this, runner| {
-                let idx = this.degree[runner] - 1;
-
-                this.degree[runner] = idx;
-                let slice = this.frontier[runner];
-                this.frontier_pool[slice][idx as usize] = block;
+            Self::walk_frontier(block, &self.idom, cfg, |runner| {
+                filling.push(runner, block);
             });
         }
     }
 
     fn walk_frontier(
-        &mut self,
         block: Block,
+        idom: &IDomMap,
         cfg: &ControlFlowGraph,
-        mut visit: impl FnMut(&mut Self, Block),
+        mut visit: impl FnMut(Block),
     ) {
-        let Some(idom) = self.idom(block) else {
+        let Some(dom) = idom[block].expand() else {
             return;
         };
         for mut runner in cfg.preds(block) {
-            while idom != runner {
-                let Some(next) = self.idom(runner) else {
+            while dom != runner {
+                let Some(next) = idom[runner].expand() else {
                     break;
                 };
-                visit(self, runner);
+                visit(runner);
                 runner = next;
             }
         }

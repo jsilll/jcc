@@ -1,6 +1,9 @@
 use crate::ir::{analysis::order::Order, Block, Program};
 
-use jcc_entity::{EntitySlice, SecondaryMap, SlicePool};
+use jcc_entity::{
+    slice::{bucket::BucketBuilder, EntitySlice, SlicePool},
+    SecondaryMap,
+};
 
 #[derive(Default)]
 pub struct ControlFlowGraph {
@@ -20,32 +23,22 @@ impl ControlFlowGraph {
         self.pool[self.preds[block]].iter().copied()
     }
 
-    pub fn compute(&mut self, prog: &Program, order: &Order) {
+    pub fn compute(&mut self, prog: &Program, ord: &Order) {
         self.pool.clear();
 
         for data in prog.functions.values() {
             if let Some(entry) = data.entry {
-                // Compute degree of each block.
-                for block in order.rpo(entry) {
+                let mut counting =
+                    BucketBuilder::new(&mut self.pool, &mut self.in_degree, &mut self.preds);
+                for block in ord.rpo(entry) {
                     for succ in prog.blocks[block].term.successors() {
-                        self.in_degree[succ] += 1;
+                        counting.bump(succ);
                     }
                 }
-
-                // Allocate space for predecessors of each block.
-                for block in order.rpo(entry) {
-                    let degree = self.in_degree[block] as usize;
-                    self.preds[block] = self.pool.extend(std::iter::repeat_n(block, degree));
-                }
-
-                // Fill predecessors of each block.
-                for block in order.rpo(entry) {
+                let mut filling = counting.reserve(ord.rpo(entry));
+                for block in ord.rpo(entry) {
                     for succ in prog.blocks[block].term.successors() {
-                        let idx = self.in_degree[succ] - 1;
-
-                        self.in_degree[succ] = idx;
-                        let slice = self.preds[succ];
-                        self.pool[slice][idx as usize] = block;
+                        filling.push(succ, block);
                     }
                 }
             }

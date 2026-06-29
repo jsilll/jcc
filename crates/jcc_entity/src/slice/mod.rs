@@ -1,14 +1,38 @@
+pub mod bucket;
+
 use crate::EntityRef;
 
 use std::marker::PhantomData;
 
 /// A handle to a slice of entities stored in a `SlicePool`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub struct EntitySlice<T>(u32, PhantomData<T>);
 
 impl<T> Default for EntitySlice<T> {
     fn default() -> Self {
         Self(0, PhantomData)
+    }
+}
+
+impl<T> Copy for EntitySlice<T> {}
+
+impl<T> Clone for EntitySlice<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Eq for EntitySlice<T> {}
+
+impl<T> PartialEq for EntitySlice<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> std::hash::Hash for EntitySlice<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }
 

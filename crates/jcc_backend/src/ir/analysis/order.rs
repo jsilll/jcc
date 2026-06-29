@@ -1,4 +1,4 @@
-use jcc_entity::{EntitySlice, SecondaryMap, SlicePool};
+use jcc_entity::{SecondaryMap, slice::{EntitySlice, SlicePool}};
 
 use crate::ir::{Block, Program};
 

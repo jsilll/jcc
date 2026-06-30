@@ -10,7 +10,11 @@ use crate::{
 pub use ty::{Ty, TyKind};
 
 use jcc_backend::{codemap::span::Span, Ident, IdentInterner};
-use jcc_entity::{EntityRef, PrimaryMap, entity_impl, slice::{EntitySlice, SlicePool}};
+use jcc_entity::{
+    entity_impl,
+    slice::{EntitySlice, SlicePool},
+    EntityRef, PrimaryMap,
+};
 
 use std::cell::Cell;
 

@@ -82,11 +82,11 @@ pub struct BucketBuilder<'a, K: EntityRef, V, Phase> {
     _phase: PhantomData<Phase>,
 }
 
-impl<'a, K: EntityRef, V: EntityRef> BucketBuilder<'a, K, V, Filling> {
+impl<K: EntityRef, V: EntityRef> BucketBuilder<'_, K, V, Filling> {
     /// Push one value into `key`'s slice, filling back-to-front.
     ///
     /// ## Panics
-    /// 
+    ///
     /// Panics in debug if you push more values than were counted.
     pub fn push(&mut self, key: K, value: V) {
         debug_assert!(self.counts[key] > 0);
@@ -103,7 +103,7 @@ impl<'a, K: EntityRef, V: EntityRef> BucketBuilder<'a, K, V, Counting> {
         self.counts[key] += 1;
     }
 
-    /// Allocates storage for every non-empty bucket 
+    /// Allocates storage for every non-empty bucket
     /// and transitions the builder into the filling phase.
     pub fn allocate(self) -> BucketBuilder<'a, K, V, Filling> {
         let needed: u32 = self.counts.values().sum();

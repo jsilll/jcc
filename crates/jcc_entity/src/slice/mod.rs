@@ -1,14 +1,57 @@
+//! Immutable pools of entity slices.
+//!
+//! This module provides [`SlicePool`], a compact arena for storing many
+//! variable-length slices of entities, and [`EntitySlice`], a lightweight handle
+//! used to reference them.
+//!
+//! Slices are packed contiguously into a single backing `Vec<T>`. Each allocation
+//! is stored as a length header followed immediately by its elements:
+//!
+//! ```text
+//! [ length | elem0 | elem1 | ... | elemN-1 ]
+//!            ^
+//!            EntitySlice points here
+//! ```
+//!
+//! Empty slices are represented by a distinguished null handle rather than being
+//! stored in the pool. Slices remain valid until the pool is cleared, and can be
+//! mutated in place but cannot be resized.
+
+pub mod bucket;
+
 use crate::EntityRef;
 
 use std::marker::PhantomData;
 
 /// A handle to a slice of entities stored in a `SlicePool`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub struct EntitySlice<T>(u32, PhantomData<T>);
 
 impl<T> Default for EntitySlice<T> {
     fn default() -> Self {
         Self(0, PhantomData)
+    }
+}
+
+impl<T> Copy for EntitySlice<T> {}
+
+impl<T> Clone for EntitySlice<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Eq for EntitySlice<T> {}
+
+impl<T> PartialEq for EntitySlice<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> std::hash::Hash for EntitySlice<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }
 

@@ -1,4 +1,7 @@
-use jcc_entity::{EntitySlice, SecondaryMap, SlicePool};
+use jcc_entity::{
+    slice::{EntitySlice, SlicePool},
+    SecondaryMap,
+};
 
 use crate::ir::{Block, Program};
 
@@ -6,13 +9,13 @@ use crate::ir::{Block, Program};
 pub struct Order {
     scratch: Vec<Block>,
     pool: SlicePool<Block>,
-    rpo_idx: SecondaryMap<Block, u32>,
+    idx: SecondaryMap<Block, u32>,
     rpo: SecondaryMap<Block, EntitySlice<Block>>,
 }
 
 impl Order {
     pub fn rpo_idx(&self, block: Block) -> u32 {
-        self.rpo_idx[block]
+        self.idx[block]
     }
 
     pub fn rpo(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
@@ -25,7 +28,7 @@ impl Order {
             self.scratch.extend(data.blocks_post(prog));
             let rpo = self.pool.extend(self.scratch.iter().rev().copied());
             for (idx, block) in self.scratch.drain(..).rev().enumerate() {
-                self.rpo_idx[block] = idx as u32;
+                self.idx[block] = idx as u32;
                 self.rpo[block] = rpo;
             }
         }

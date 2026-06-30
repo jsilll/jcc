@@ -3,22 +3,23 @@ use crate::ir::{
     Block, Program,
 };
 
-use jcc_entity::{EntitySlice, PackedOption, SecondaryMap, SlicePool};
+use jcc_entity::{
+    slice::{bucket::BucketScratch, EntitySlice, SlicePool},
+    PackedOption, SecondaryMap,
+};
+
+type IDomMap = SecondaryMap<Block, PackedOption<Block>>;
 
 #[derive(Default)]
 pub struct Dominance {
-    /// A temporary map for storing node degrees.
-    degree: SecondaryMap<Block, u32>,
-    /// The immediate dominator (idom) of each block.
-    idom: SecondaryMap<Block, PackedOption<Block>>,
-
+    /// The immediate dominator of each block.
+    idom: IDomMap,
     /// A pool of blocks storing dominator tree children.
-    children_pool: SlicePool<Block>,
+    pool: SlicePool<Block>,
+    /// A scratch map for the bucket builders.
+    scratch: BucketScratch<Block>,
     /// Maps each block to a slice of its children in the dominator tree.
     children: SecondaryMap<Block, EntitySlice<Block>>,
-
-    /// A pool of blocks storing dominance frontiers.
-    frontier_pool: SlicePool<Block>,
     /// Maps each block to a slice of blocks in its dominance frontier.
     frontier: SecondaryMap<Block, EntitySlice<Block>>,
 }
@@ -32,7 +33,7 @@ impl Dominance {
     /// Returns the dominated children of `block`.
     pub fn children(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
         let slice = self.children[block];
-        self.children_pool[slice].iter().copied()
+        self.pool[slice].iter().copied()
     }
 
     /// Returns the dominance frontier of `block`.
@@ -43,17 +44,16 @@ impl Dominance {
     /// - Consumers requiring set semantics are expected to deduplicate.
     pub fn frontier(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
         let slice = self.frontier[block];
-        self.frontier_pool[slice].iter().copied()
+        self.pool[slice].iter().copied()
     }
 
     /// Computes the dominance relation, the dominator tree, and
     /// the dominance frontiers for all functions in the program.
     pub fn compute(&mut self, prog: &Program, ord: &Order, cfg: &ControlFlowGraph) {
         self.idom.clear();
+        self.pool.clear();
         self.children.clear();
         self.frontier.clear();
-        self.children_pool.clear();
-        self.frontier_pool.clear();
 
         for (_, data) in prog.functions.iter() {
             let Some(entry) = data.entry else {
@@ -95,94 +95,60 @@ impl Dominance {
     }
 
     fn compute_children(&mut self, entry: Block, ord: &Order) {
-        debug_assert!(ord.rpo(entry).all(|b| self.degree[b] == 0));
-
-        // Count children.
+        let mut b = self.scratch.builder(&mut self.pool, &mut self.children);
         for block in ord.rpo(entry) {
-            if let Some(idom) = self.idom(block) {
+            if let Some(idom) = self.idom[block].expand() {
                 if block != idom {
-                    self.degree[idom] += 1;
+                    b.bump(idom);
                 }
             }
         }
-
-        // Allocate slices.
+        let mut b = b.allocate();
         for block in ord.rpo(entry) {
-            let degree = self.degree[block] as usize;
-            self.children[block] = self
-                .children_pool
-                .extend(std::iter::repeat_n(block, degree));
-        }
-
-        // Fill slices.
-        //
-        // Reuse `degree` as a reverse insertion cursor.
-        for block in ord.rpo(entry) {
-            if let Some(idom) = self.idom(block) {
+            if let Some(idom) = self.idom[block].expand() {
                 if block != idom {
-                    let idx = self.degree[idom] - 1;
-
-                    self.degree[idom] = idx;
-                    let slice = self.children[idom];
-                    self.children_pool[slice][idx as usize] = block;
+                    b.push(idom, block);
                 }
             }
         }
     }
 
     fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &ControlFlowGraph) {
-        debug_assert!(ord.rpo(entry).all(|b| self.degree[b] == 0));
-
-        // Count frontier size.
+        let mut b = self.scratch.builder(&mut self.pool, &mut self.frontier);
         for block in ord.rpo(entry) {
             if cfg.preds(block).nth(1).is_none() {
                 continue;
             };
-            self.walk_frontier(block, cfg, |this, runner| {
-                this.degree[runner] += 1;
+            Self::walk_frontier(block, &self.idom, cfg, |runner| {
+                b.bump(runner);
             });
         }
-
-        // Allocate slices.
-        for block in ord.rpo(entry) {
-            let degree = self.degree[block] as usize;
-            self.frontier[block] = self
-                .frontier_pool
-                .extend(std::iter::repeat_n(block, degree));
-        }
-
-        // Fill slices.
-        //
-        // Reuse `degree` as a reverse insertion cursor.
+        let mut b = b.allocate();
         for block in ord.rpo(entry) {
             if cfg.preds(block).nth(1).is_none() {
                 continue;
             };
-            self.walk_frontier(block, cfg, |this, runner| {
-                let idx = this.degree[runner] - 1;
-
-                this.degree[runner] = idx;
-                let slice = this.frontier[runner];
-                this.frontier_pool[slice][idx as usize] = block;
+            Self::walk_frontier(block, &self.idom, cfg, |runner| {
+                b.push(runner, block);
             });
         }
     }
 
     fn walk_frontier(
-        &mut self,
         block: Block,
+        idom: &IDomMap,
         cfg: &ControlFlowGraph,
-        mut visit: impl FnMut(&mut Self, Block),
+        mut visit: impl FnMut(Block),
     ) {
-        let Some(idom) = self.idom(block) else {
+        let Some(dom) = idom[block].expand() else {
             return;
         };
         for mut runner in cfg.preds(block) {
-            while idom != runner {
-                let Some(next) = self.idom(runner) else {
+            while dom != runner {
+                let Some(next) = idom[runner].expand() else {
                     break;
                 };
-                visit(self, runner);
+                visit(runner);
                 runner = next;
             }
         }

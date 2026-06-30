@@ -8,14 +8,14 @@ mod counter;
 mod option;
 mod primary;
 mod secondary;
-mod slice;
 mod sparse;
+
+pub mod slice;
 
 pub use counter::EntityCounter;
 pub use option::{PackedOption, SentinelValue};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
-pub use slice::{EntitySlice, SlicePool};
 pub use sparse::{map::SparseMap, set::SparseSet};
 
 pub use jcc_identity::BuildIdentityHasher as BuildEntityHasher;

@@ -13,14 +13,14 @@ pub struct ControlFlowGraph {
 }
 
 impl ControlFlowGraph {
-    /// Returns one item for every incoming CFG edge.
+    /// Returns one block for every incoming CFG edge.
     ///
     /// ## Notes
     ///
     /// If multiple edges originate from the same predecessor
     /// (e.g. a `switch` with repeated destinations), the predecessor appears multiple times.
-    pub fn preds(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
-        self.pool[self.slices[block]].iter().copied()
+    pub fn preds(&self, block: Block) -> &[Block] {
+        &self.pool[self.slices[block]]
     }
 
     pub fn compute(&mut self, prog: &Program, ord: &Order) {
@@ -29,13 +29,13 @@ impl ControlFlowGraph {
         for data in prog.functions.values() {
             if let Some(entry) = data.entry {
                 let mut b = self.scratch.builder(&mut self.pool, &mut self.slices);
-                for block in ord.rpo(entry) {
+                for &block in ord.rpo(entry) {
                     for succ in prog.blocks[block].term.successors() {
                         b.bump(succ);
                     }
                 }
                 let mut b = b.allocate();
-                for block in ord.rpo(entry) {
+                for &block in ord.rpo(entry) {
                     for succ in prog.blocks[block].term.successors() {
                         b.push(succ, block);
                     }
@@ -84,9 +84,9 @@ mod tests {
         "#,
         );
 
-        assert!(cfg.preds(Block::from_u32(0)).eq([]));
-        assert!(cfg.preds(Block::from_u32(1)).eq([Block::from_u32(0)]));
-        assert!(cfg.preds(Block::from_u32(2)).eq([Block::from_u32(1)]));
+        assert_eq!(cfg.preds(Block::from_u32(0)), []);
+        assert_eq!(cfg.preds(Block::from_u32(1)), [Block::from_u32(0)]);
+        assert_eq!(cfg.preds(Block::from_u32(2)), [Block::from_u32(1)]);
     }
 
     #[test]
@@ -107,12 +107,13 @@ mod tests {
         "#,
         );
 
-        assert!(cfg.preds(Block::from_u32(0)).eq([]));
-        assert!(cfg.preds(Block::from_u32(1)).eq([Block::from_u32(0)]));
-        assert!(cfg.preds(Block::from_u32(2)).eq([Block::from_u32(0)]));
-        assert!(cfg
-            .preds(Block::from_u32(3))
-            .eq([Block::from_u32(1), Block::from_u32(2)]));
+        assert_eq!(cfg.preds(Block::from_u32(0)), []);
+        assert_eq!(cfg.preds(Block::from_u32(1)), [Block::from_u32(0)]);
+        assert_eq!(cfg.preds(Block::from_u32(2)), [Block::from_u32(0)]);
+        assert_eq!(
+            cfg.preds(Block::from_u32(3)),
+            [Block::from_u32(1), Block::from_u32(2)]
+        );
     }
 
     #[test]
@@ -133,12 +134,13 @@ mod tests {
         "#,
         );
 
-        assert!(cfg.preds(Block::from_u32(0)).eq([]));
-        assert!(cfg
-            .preds(Block::from_u32(1))
-            .eq([Block::from_u32(2), Block::from_u32(0)]));
-        assert!(cfg.preds(Block::from_u32(2)).eq([Block::from_u32(1)]));
-        assert!(cfg.preds(Block::from_u32(3)).eq([Block::from_u32(1)]));
+        assert_eq!(cfg.preds(Block::from_u32(0)), []);
+        assert_eq!(
+            cfg.preds(Block::from_u32(1)),
+            [Block::from_u32(2), Block::from_u32(0)]
+        );
+        assert_eq!(cfg.preds(Block::from_u32(2)), [Block::from_u32(1)]);
+        assert_eq!(cfg.preds(Block::from_u32(3)), [Block::from_u32(1)]);
     }
 
     #[test]
@@ -159,10 +161,10 @@ mod tests {
         "#,
         );
 
-        assert!(cfg.preds(Block::from_u32(0)).eq([]));
-        assert!(cfg.preds(Block::from_u32(1)).eq([Block::from_u32(0)]));
-        assert!(cfg.preds(Block::from_u32(2)).eq([Block::from_u32(0)]));
-        assert!(cfg.preds(Block::from_u32(3)).eq([Block::from_u32(0)]));
+        assert_eq!(cfg.preds(Block::from_u32(0)), []);
+        assert_eq!(cfg.preds(Block::from_u32(1)), [Block::from_u32(0)]);
+        assert_eq!(cfg.preds(Block::from_u32(2)), [Block::from_u32(0)]);
+        assert_eq!(cfg.preds(Block::from_u32(3)), [Block::from_u32(0)]);
     }
 
     #[test]
@@ -181,10 +183,11 @@ mod tests {
         "#,
         );
 
-        assert!(cfg.preds(Block::from_u32(0)).eq([]));
-        assert!(cfg
-            .preds(Block::from_u32(1))
-            .eq([Block::from_u32(0), Block::from_u32(0)]));
-        assert!(cfg.preds(Block::from_u32(2)).eq([Block::from_u32(0)]));
+        assert_eq!(cfg.preds(Block::from_u32(0)), []);
+        assert_eq!(
+            cfg.preds(Block::from_u32(1)),
+            [Block::from_u32(0), Block::from_u32(0)]
+        );
+        assert_eq!(cfg.preds(Block::from_u32(2)), [Block::from_u32(0)]);
     }
 }

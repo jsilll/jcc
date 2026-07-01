@@ -31,20 +31,19 @@ impl Dominance {
     }
 
     /// Returns the dominated children of `block`.
-    pub fn children(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
+    pub fn children(&self, block: Block) -> &[Block] {
         let slice = self.children[block];
-        self.pool[slice].iter().copied()
+        &self.pool[slice]
     }
 
     /// Returns the dominance frontier of `block`.
     ///
     /// ## Notes
     ///
-    /// - The iterator may contain duplicate blocks.
     /// - Consumers requiring set semantics are expected to deduplicate.
-    pub fn frontier(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
+    pub fn frontier(&self, block: Block) -> &[Block] {
         let slice = self.frontier[block];
-        self.pool[slice].iter().copied()
+        &self.pool[slice]
     }
 
     /// Computes the dominance relation, the dominator tree, and
@@ -66,16 +65,17 @@ impl Dominance {
             while changed {
                 changed = false;
 
-                for block in ord.rpo(entry) {
+                for &block in ord.rpo(entry) {
                     let Some(mut dom) = cfg
                         .preds(block)
-                        .into_iter()
+                        .iter()
+                        .copied()
                         .find(|pred| self.idom(*pred).is_some())
                     else {
                         continue;
                     };
 
-                    for pred in cfg.preds(block) {
+                    for &pred in cfg.preds(block) {
                         if pred == dom || self.idom[pred].is_none() {
                             continue;
                         }
@@ -96,7 +96,7 @@ impl Dominance {
 
     fn compute_children(&mut self, entry: Block, ord: &Order) {
         let mut b = self.scratch.builder(&mut self.pool, &mut self.children);
-        for block in ord.rpo(entry) {
+        for &block in ord.rpo(entry) {
             if let Some(idom) = self.idom[block].expand() {
                 if block != idom {
                     b.bump(idom);
@@ -104,7 +104,7 @@ impl Dominance {
             }
         }
         let mut b = b.allocate();
-        for block in ord.rpo(entry) {
+        for &block in ord.rpo(entry) {
             if let Some(idom) = self.idom[block].expand() {
                 if block != idom {
                     b.push(idom, block);
@@ -115,8 +115,8 @@ impl Dominance {
 
     fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &ControlFlowGraph) {
         let mut b = self.scratch.builder(&mut self.pool, &mut self.frontier);
-        for block in ord.rpo(entry) {
-            if cfg.preds(block).nth(1).is_none() {
+        for &block in ord.rpo(entry) {
+            if cfg.preds(block).iter().nth(1).is_none() {
                 continue;
             };
             Self::walk_frontier(block, &self.idom, cfg, |runner| {
@@ -124,8 +124,8 @@ impl Dominance {
             });
         }
         let mut b = b.allocate();
-        for block in ord.rpo(entry) {
-            if cfg.preds(block).nth(1).is_none() {
+        for &block in ord.rpo(entry) {
+            if cfg.preds(block).iter().nth(1).is_none() {
                 continue;
             };
             Self::walk_frontier(block, &self.idom, cfg, |runner| {
@@ -143,7 +143,7 @@ impl Dominance {
         let Some(dom) = idom[block].expand() else {
             return;
         };
-        for mut runner in cfg.preds(block) {
+        for mut runner in cfg.preds(block).iter().copied() {
             while dom != runner {
                 let Some(next) = idom[runner].expand() else {
                     break;
@@ -214,10 +214,10 @@ mod tests {
         "#,
         );
 
-        assert!(dom.frontier(Block::from_u32(0)).eq([]));
-        assert!(dom.frontier(Block::from_u32(1)).eq([Block::from_u32(3)]));
-        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(3)]));
-        assert!(dom.frontier(Block::from_u32(3)).eq([]));
+        assert_eq!(dom.frontier(Block::from_u32(0)), []);
+        assert_eq!(dom.frontier(Block::from_u32(1)), [Block::from_u32(3)]);
+        assert_eq!(dom.frontier(Block::from_u32(2)), [Block::from_u32(3)]);
+        assert_eq!(dom.frontier(Block::from_u32(3)), []);
     }
 
     #[test]
@@ -248,12 +248,12 @@ mod tests {
         "#,
         );
 
-        assert!(dom.frontier(Block::from_u32(0)).eq([]));
-        assert!(dom.frontier(Block::from_u32(1)).eq([Block::from_u32(1)]));
-        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(4)]));
-        assert!(dom.frontier(Block::from_u32(3)).eq([Block::from_u32(4)]));
-        assert!(dom.frontier(Block::from_u32(4)).eq([Block::from_u32(1)]));
-        assert!(dom.frontier(Block::from_u32(5)).eq([]));
+        assert_eq!(dom.frontier(Block::from_u32(0)), []);
+        assert_eq!(dom.frontier(Block::from_u32(1)), [Block::from_u32(1)]);
+        assert_eq!(dom.frontier(Block::from_u32(2)), [Block::from_u32(4)]);
+        assert_eq!(dom.frontier(Block::from_u32(3)), [Block::from_u32(4)]);
+        assert_eq!(dom.frontier(Block::from_u32(4)), [Block::from_u32(1)]);
+        assert_eq!(dom.frontier(Block::from_u32(5)), []);
     }
 
     #[test]
@@ -287,11 +287,11 @@ mod tests {
         // Note: For now the frontier() API does not provide set semantics
         let special = [Block::from_u32(5), Block::from_u32(5)];
 
-        assert!(dom.frontier(Block::from_u32(0)).eq([]));
-        assert!(dom.frontier(Block::from_u32(1)).eq(special));
-        assert!(dom.frontier(Block::from_u32(2)).eq([Block::from_u32(5)]));
-        assert!(dom.frontier(Block::from_u32(3)).eq([Block::from_u32(5)]));
-        assert!(dom.frontier(Block::from_u32(4)).eq([Block::from_u32(5)]));
-        assert!(dom.frontier(Block::from_u32(5)).eq([]));
+        assert_eq!(dom.frontier(Block::from_u32(0)), []);
+        assert_eq!(dom.frontier(Block::from_u32(1)), special);
+        assert_eq!(dom.frontier(Block::from_u32(2)), [Block::from_u32(5)]);
+        assert_eq!(dom.frontier(Block::from_u32(3)), [Block::from_u32(5)]);
+        assert_eq!(dom.frontier(Block::from_u32(4)), [Block::from_u32(5)]);
+        assert_eq!(dom.frontier(Block::from_u32(5)), []);
     }
 }

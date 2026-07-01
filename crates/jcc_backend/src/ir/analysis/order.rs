@@ -18,8 +18,8 @@ impl Order {
         self.idx[block]
     }
 
-    pub fn rpo(&self, block: Block) -> impl Iterator<Item = Block> + '_ {
-        self.pool[self.rpo[block]].iter().copied()
+    pub fn rpo(&self, block: Block) -> &[Block] {
+        &self.pool[self.rpo[block]]
     }
 
     pub fn compute(&mut self, prog: &Program) {
@@ -71,11 +71,11 @@ mod tests {
         "#,
         );
 
-        assert!(ord.rpo(Block::from_u32(0)).eq([
+        assert_eq!(ord.rpo(Block::from_u32(0)), [
             Block::from_u32(0),
             Block::from_u32(1),
             Block::from_u32(2)
-        ]));
+        ]);
 
         assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
         assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);
@@ -100,12 +100,12 @@ mod tests {
         "#,
         );
 
-        assert!(ord.rpo(Block::from_u32(0)).eq([
+        assert_eq!(ord.rpo(Block::from_u32(0)), [
             Block::from_u32(0),
             Block::from_u32(2),
             Block::from_u32(1),
             Block::from_u32(3),
-        ]));
+        ]);
 
         assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
         assert_eq!(ord.rpo_idx(Block::from_u32(2)), 1);
@@ -131,12 +131,12 @@ mod tests {
         "#,
         );
 
-        assert!(ord.rpo(Block::from_u32(0)).eq([
+        assert_eq!(ord.rpo(Block::from_u32(0)), [
             Block::from_u32(0),
             Block::from_u32(1),
             Block::from_u32(3),
             Block::from_u32(2),
-        ]));
+        ]);
 
         assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
         assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);
@@ -164,13 +164,8 @@ mod tests {
         "#,
         );
 
-        assert!(ord
-            .rpo(Block::from_u32(0))
-            .eq([Block::from_u32(0), Block::from_u32(1),]));
-
-        assert!(ord
-            .rpo(Block::from_u32(2))
-            .eq([Block::from_u32(2), Block::from_u32(3),]));
+        assert_eq!(ord.rpo(Block::from_u32(0)), [Block::from_u32(0), Block::from_u32(1)]);
+        assert_eq!(ord.rpo(Block::from_u32(2)), [Block::from_u32(2), Block::from_u32(3)]);
 
         assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
         assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);

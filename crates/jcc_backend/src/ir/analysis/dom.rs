@@ -116,7 +116,7 @@ impl Dominance {
     fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &ControlFlowGraph) {
         let mut b = self.scratch.builder(&mut self.pool, &mut self.frontier);
         for &block in ord.rpo(entry) {
-            if cfg.preds(block).iter().nth(1).is_none() {
+            if cfg.preds(block).get(1).is_none() {
                 continue;
             };
             Self::walk_frontier(block, &self.idom, cfg, |runner| {
@@ -125,7 +125,7 @@ impl Dominance {
         }
         let mut b = b.allocate();
         for &block in ord.rpo(entry) {
-            if cfg.preds(block).iter().nth(1).is_none() {
+            if cfg.preds(block).get(1).is_none() {
                 continue;
             };
             Self::walk_frontier(block, &self.idom, cfg, |runner| {

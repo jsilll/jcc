@@ -124,3 +124,133 @@ impl<'a, K: EntityRef, V: EntityRef> BucketBuilder<'a, K, V, Counting> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{entity_impl, slice::SlicePool, SecondaryMap};
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestKey(u32);
+    entity_impl!(TestKey, "test_key");
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestValue(u32);
+    entity_impl!(TestValue, "test_value");
+
+    fn setup() -> (
+        SlicePool<TestValue>,
+        SecondaryMap<TestKey, EntitySlice<TestValue>>,
+        BucketScratch<TestKey>,
+    ) {
+        (
+            SlicePool::default(),
+            SecondaryMap::default(),
+            BucketScratch::default(),
+        )
+    }
+
+    #[test]
+    fn empty() {
+        let (mut pool, mut slices, mut scratch) = setup();
+
+        let key = TestKey::new(5);
+        scratch.builder(&mut pool, &mut slices).allocate();
+        assert_eq!(pool[slices[key]].len(), 0);
+    }
+
+    #[test]
+    fn allocates_correct_sizes() {
+        let (mut pool, mut slices, mut scratch) = setup();
+
+        let k0 = TestKey::new(0);
+        let k1 = TestKey::new(1);
+        let k2 = TestKey::new(2);
+
+        let mut builder = scratch.builder(&mut pool, &mut slices);
+
+        builder.bump(k0);
+        builder.bump(k0);
+        builder.bump(k2);
+
+        builder.allocate();
+
+        assert_eq!(pool[slices[k0]].len(), 2);
+        assert_eq!(pool[slices[k2]].len(), 1);
+        assert_eq!(pool[slices[k1]].len(), 0);
+    }
+
+    #[test]
+    fn single_bucket() {
+        let (mut pool, mut slices, mut scratch) = setup();
+
+        let key = TestKey::new(0);
+
+        let mut builder = scratch.builder(&mut pool, &mut slices);
+
+        builder.bump(key);
+        builder.bump(key);
+        builder.bump(key);
+
+        let mut builder = builder.allocate();
+
+        builder.push(key, TestValue::new(10));
+        builder.push(key, TestValue::new(20));
+        builder.push(key, TestValue::new(30));
+
+        assert_eq!(
+            &pool[slices[key]],
+            &[TestValue::new(30), TestValue::new(20), TestValue::new(10),]
+        );
+    }
+
+    #[test]
+    fn multiple_buckets() {
+        let (mut pool, mut slices, mut scratch) = setup();
+
+        let k0 = TestKey::new(0);
+        let k1 = TestKey::new(1);
+
+        let mut builder = scratch.builder(&mut pool, &mut slices);
+
+        builder.bump(k0);
+        builder.bump(k1);
+        builder.bump(k0);
+
+        let mut builder = builder.allocate();
+
+        builder.push(k0, TestValue::new(1));
+        builder.push(k1, TestValue::new(2));
+        builder.push(k0, TestValue::new(3));
+
+        assert_eq!(&pool[slices[k0]], &[TestValue::new(3), TestValue::new(1)]);
+        assert_eq!(&pool[slices[k1]], &[TestValue::new(2)]);
+    }
+
+    #[test]
+    fn scratch_can_be_reused() {
+        let (mut pool, mut slices, mut scratch) = setup();
+
+        let k0 = TestKey::new(0);
+        let k1 = TestKey::new(1);
+
+        {
+            let mut builder = scratch.builder(&mut pool, &mut slices);
+            builder.bump(k0);
+            let mut builder = builder.allocate();
+            builder.push(k0, TestValue::new(1));
+        }
+
+        {
+            let mut builder = scratch.builder(&mut pool, &mut slices);
+            builder.bump(k1);
+            builder.bump(k1);
+            let mut builder = builder.allocate();
+            builder.push(k1, TestValue::new(2));
+            builder.push(k1, TestValue::new(3));
+        }
+
+        assert_eq!(&pool[slices[k0]], &[TestValue::new(1)]);
+        assert_eq!(&pool[slices[k1]], &[TestValue::new(3), TestValue::new(2)]);
+    }
+}

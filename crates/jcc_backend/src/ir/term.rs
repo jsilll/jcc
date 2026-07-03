@@ -74,7 +74,7 @@ impl Terminator {
     }
 
     /// Returns a mutable iterator to the operands of this terminator.
-    pub fn operand_mut(&mut self) -> impl Iterator<Item = &mut Value> {
+    pub fn operands_mut(&mut self) -> impl Iterator<Item = &mut Value> {
         match self {
             Terminator::Ret(Some(v)) => Some(v),
             Terminator::CondBr { cond, .. } => Some(cond),

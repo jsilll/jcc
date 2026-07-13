@@ -33,6 +33,9 @@ pub trait BitSetStorage:
     + std::ops::Shl<u8, Output = Self>
     + std::ops::Shr<u8, Output = Self>
 {
+    /// The capacity of the set.
+    const CAPACITY: u8;
+
     /// Count the number of set bits.
     fn count_ones(self) -> u8;
 
@@ -46,6 +49,16 @@ pub trait BitSetStorage:
 macro_rules! impl_bitset {
     ( $int:ty ) => {
         impl BitSetStorage for $int {
+            #[allow(clippy::cast_possible_truncation)]
+            const CAPACITY: u8 = {
+                let cap = std::mem::size_of::<$int>() * 8;
+                assert!(
+                    cap <= u8::MAX as usize,
+                    "The bit count exceeds a u8 container"
+                );
+                cap as u8
+            };
+
             #[inline]
             fn count_ones(self) -> u8 {
                 u8::try_from(self.count_ones()).unwrap()
@@ -126,14 +139,14 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
         let mut snd = 0;
-        for idx in 0..Self::capacity() {
+        for idx in 0..T::CAPACITY {
             if self.contains(idx) {
                 write!(f, "{idx}")?;
                 snd = idx + 1;
                 break;
             }
         }
-        for idx in snd..Self::capacity() {
+        for idx in snd..T::CAPACITY {
             if self.contains(idx) {
                 write!(f, ", {idx}")?;
             }
@@ -154,7 +167,7 @@ where
         {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let mut l = f.debug_list();
-                for i in 0..BitSet::<T>::capacity() {
+                for i in 0..T::CAPACITY {
                     if self.0.contains(i) {
                         l.entry(&i);
                     }
@@ -178,20 +191,6 @@ where
         Self(T::from(0))
     }
 
-    /// Returns maximum number of items that can be stored.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the size of `T` is greater than [`u8::MAX`].
-    #[inline]
-    #[allow(clippy::expect_used)]
-    pub fn capacity() -> u8 {
-        u8::try_from(size_of::<T>())
-            .expect("BitSet storage type exceeds u8::MAX bytes")
-            .checked_mul(8)
-            .expect("BitSet capacity exceeds u8::MAX")
-    }
-
     /// Returns the number of items in the set.
     #[inline]
     pub fn len(&self) -> u8 {
@@ -211,7 +210,7 @@ where
             None
         } else {
             let lz = self.0.leading_zeros();
-            Some(Self::capacity() - lz - 1)
+            Some(T::CAPACITY - lz - 1)
         }
     }
 
@@ -232,7 +231,7 @@ where
     /// Panics if `idx` is out of bounds.
     #[inline]
     pub fn contains(&self, idx: u8) -> bool {
-        assert!(idx < Self::capacity());
+        assert!(idx < T::CAPACITY, "index out of bounds");
         (self.0 & (T::from(1) << idx)) != T::from(0)
     }
 
@@ -271,6 +270,7 @@ where
     /// Inserts item `idx` into the set.
     ///
     /// Returns whether the item was newly inserted.
+    #[inline]
     pub fn insert(&mut self, idx: u8) -> bool {
         let is_new = !self.contains(idx);
         self.0 = self.0 | (T::from(1) << idx);
@@ -324,7 +324,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::BitSet;
+    use crate::{BitSet, BitSetStorage};
 
     #[test]
     #[should_panic]
@@ -344,11 +344,11 @@ mod tests {
 
     #[test]
     fn capacity() {
-        assert_eq!(BitSet::<u8>::capacity(), 8);
-        assert_eq!(BitSet::<u16>::capacity(), 16);
-        assert_eq!(BitSet::<u32>::capacity(), 32);
-        assert_eq!(BitSet::<u64>::capacity(), 64);
-        assert_eq!(BitSet::<u128>::capacity(), 128);
+        assert_eq!(<u8 as BitSetStorage>::CAPACITY, 8);
+        assert_eq!(<u16 as BitSetStorage>::CAPACITY, 16);
+        assert_eq!(<u32 as BitSetStorage>::CAPACITY, 32);
+        assert_eq!(<u64 as BitSetStorage>::CAPACITY, 64);
+        assert_eq!(<u128 as BitSetStorage>::CAPACITY, 128);
     }
 
     #[test]
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn boundaries() {
         let mut set = BitSet::<u8>::new();
-        let max = BitSet::<u8>::capacity() - 1;
+        let max = <u8 as BitSetStorage>::CAPACITY - 1;
         set.insert(0);
         set.insert(max);
         assert!(set.contains(0));

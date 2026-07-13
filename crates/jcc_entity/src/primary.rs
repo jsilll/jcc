@@ -25,6 +25,16 @@ impl<K: EntityRef, V> Default for PrimaryMap<K, V> {
     }
 }
 
+impl<K: EntityRef, V: Default> PrimaryMap<K, V> {
+    /// Adds a new default-initialized entity to the map and returns its reference.
+    #[inline]
+    pub fn push_default(&mut self) -> K {
+        let k = K::new(self.data.len());
+        self.data.push(V::default());
+        k
+    }
+}
+
 impl<K: EntityRef, V> PrimaryMap<K, V> {
     /// Creates a new, empty `PrimaryMap`.
     #[inline]

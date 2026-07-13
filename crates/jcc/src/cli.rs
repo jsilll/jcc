@@ -156,9 +156,9 @@ impl CompileOptions {
 
         // Resolver, control flow analysis, and type checking
         let ast = r.ast;
-        let r = profiler.time("Resolver", || ResolverPass::new(&ast).check());
+        let mut ctx = SemaCtx::new(&tys);
+        let r = profiler.time("Resolver", || ResolverPass::new(&ast, &mut ctx).check());
         check_pass(self, &mut db, "resolver", &r.issues)?;
-        let mut ctx = SemaCtx::new(&tys, r.counter.len());
         let r = profiler.time("Control", || ControlPass::new(&ast, &mut ctx).check());
         check_pass(self, &mut db, "control", &r.issues)?;
         let r = profiler.time("Typer", || TypeChecker::new(&ast, &mut ctx).check());

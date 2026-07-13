@@ -3,7 +3,7 @@ use crate::{
         Ast, BlockItem, Decl, DeclKind, Expr, ExprKind, ForInit, Stmt, StmtKind, StorageClass,
         Symbol,
     },
-    sema,
+    sema::{self, SemaCtx},
 };
 
 use jcc_backend::{
@@ -11,7 +11,7 @@ use jcc_backend::{
     interner::symtab::EntitySymbolTable,
     Ident,
 };
-use jcc_entity::{EntityCounter, EntityMap};
+use jcc_entity::EntityMap;
 
 // ---------------------------------------------------------------------------
 // ResolverPass
@@ -20,6 +20,8 @@ use jcc_entity::{EntityCounter, EntityMap};
 pub struct ResolverPass<'a, 'ctx> {
     /// The AST being analyzed
     ast: &'a Ast<'ctx>,
+    /// The semantic analysis context
+    ctx: &'a mut SemaCtx<'ctx>,
     /// The result of the name resolution
     result: ResolverResult,
     /// The global symbols map
@@ -29,9 +31,10 @@ pub struct ResolverPass<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
-    pub fn new(ast: &'a Ast<'ctx>) -> Self {
+    pub fn new(ast: &'a Ast<'ctx>, ctx: &'a mut SemaCtx<'ctx>) -> Self {
         Self {
             ast,
+            ctx,
             globals: EntityMap::default(),
             result: ResolverResult::default(),
             scope: EntitySymbolTable::default(),
@@ -239,7 +242,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         let symbol = self
             .globals
             .entry(name.name)
-            .or_insert_with(|| self.result.counter.push());
+            .or_insert_with(|| self.ctx.symbols.push_default());
         name.sema.set(Some(*symbol));
         *symbol
     }
@@ -248,7 +251,7 @@ impl<'a, 'ctx> ResolverPass<'a, 'ctx> {
         let entry = if has_linkage {
             SymbolInfo::with_linkage(self.get_or_create_global_symbol(name))
         } else {
-            let symbol = self.result.counter.push();
+            let symbol = self.ctx.symbols.push_default();
             name.sema.set(Some(symbol));
             SymbolInfo::no_linkage(symbol)
         };
@@ -351,5 +354,4 @@ impl IntoDiagnostic for ResolverIssue {
 #[derive(Default)]
 pub struct ResolverResult {
     pub issues: Vec<Issue<ResolverIssue>>,
-    pub counter: EntityCounter<sema::Symbol>,
 }

@@ -8,7 +8,7 @@ use crate::ast::{
     Stmt,
 };
 
-use jcc_entity::{entity_impl, EntityMap, SecondaryMap};
+use jcc_entity::{entity_impl, EntityMap, PrimaryMap};
 
 // ---------------------------------------------------------------------------
 // SemaCtx
@@ -21,15 +21,15 @@ entity_impl!(Symbol, "symbol");
 pub struct SemaCtx<'ctx> {
     pub ty: &'ctx TyCtx<'ctx>,
     pub switches: EntityMap<Stmt, SwitchCases>,
-    pub symbols: SecondaryMap<Symbol, Option<SymbolInfo<'ctx>>>,
+    pub symbols: PrimaryMap<Symbol, Option<SymbolInfo<'ctx>>>,
 }
 
 impl<'ctx> SemaCtx<'ctx> {
-    pub fn new(ty: &'ctx TyCtx<'ctx>, capacity: usize) -> Self {
+    pub fn new(ty: &'ctx TyCtx<'ctx>) -> Self {
         Self {
             ty,
+            symbols: PrimaryMap::new(),
             switches: EntityMap::default(),
-            symbols: SecondaryMap::with_capacity(capacity),
         }
     }
 }

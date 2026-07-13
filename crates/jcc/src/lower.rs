@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, Expr},
+    ast::{self, Ast, Expr},
     sema::{self, Attribute, SemaCtx},
 };
 
@@ -20,9 +20,9 @@ pub struct LoweringPass<'ctx> {
     /// The SSA builder
     bld: ProgramBuilder<'ctx>,
     /// The AST being compiled
-    ast: &'ctx ast::Ast<'ctx>,
+    ast: &'ctx Ast<'ctx>,
     /// The semantic analysis context
-    sema: &'ctx SemaCtx<'ctx>,
+    ctx: &'ctx SemaCtx<'ctx>,
     /// Blocks tracked for statements
     tracked: EntityMap<ast::Stmt, TrackedBlock>,
     /// Mapping from semantic symbols to SSA symbols
@@ -31,16 +31,16 @@ pub struct LoweringPass<'ctx> {
 
 impl<'ctx> LoweringPass<'ctx> {
     pub fn new(
-        ast: &'ctx ast::Ast<'ctx>,
-        sema: &'ctx SemaCtx<'ctx>,
+        ast: &'ctx Ast<'ctx>,
+        ctx: &'ctx SemaCtx<'ctx>,
         interner: &'ctx mut IdentInterner,
     ) -> Self {
         Self {
             ast,
-            sema,
+            ctx,
             tracked: EntityMap::default(),
             bld: ProgramBuilder::new(interner),
-            symbols: SecondaryMap::with_capacity(sema.symbols.len()),
+            symbols: SecondaryMap::with_capacity(ctx.symbols.len()),
         }
     }
 
@@ -50,7 +50,7 @@ impl<'ctx> LoweringPass<'ctx> {
             let sym = data.name.resolved();
             match data.kind {
                 ast::DeclKind::Var(_) => {
-                    let info = self.sema.symbols[sym].expect("expected a sema symbol");
+                    let info = self.ctx.symbols[sym].expect("expected a sema symbol");
 
                     match info.attr {
                         Attribute::Local => {
@@ -74,7 +74,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     }
                 }
                 ast::DeclKind::Func { params, body } => {
-                    let is_global = self.sema.symbols[sym]
+                    let is_global = self.ctx.symbols[sym]
                         .expect("expected a sema symbol")
                         .is_global();
 
@@ -134,7 +134,7 @@ impl<'ctx> LoweringPass<'ctx> {
             ast::DeclKind::Func { .. } => {}
             ast::DeclKind::Var(init) => {
                 let sema = data.name.resolved();
-                let info = self.sema.symbols[sema].expect("expected a sema symbol");
+                let info = self.ctx.symbols[sema].expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => {
                         unreachable!("variable declaration cannot have function attribute")
@@ -339,7 +339,7 @@ impl<'ctx> LoweringPass<'ctx> {
             ast::StmtKind::Switch { cond, body } => {
                 let mut cases = Vec::new();
                 let mut default_block = None;
-                if let Some(switch) = self.sema.switches.get(&stmt) {
+                if let Some(switch) = self.ctx.switches.get(&stmt) {
                     cases.reserve(switch.cases.len());
                     switch.cases.iter().for_each(|case| {
                         let data = &self.ast.stmt[*case];
@@ -402,7 +402,7 @@ impl<'ctx> LoweringPass<'ctx> {
             ast::ExprKind::Var(name) => {
                 let span = expr.span;
                 let sym = name.resolved();
-                let info = self.sema.symbols[sym].expect("expected a sema symbol");
+                let info = self.ctx.symbols[sym].expect("expected a sema symbol");
                 match info.attr {
                     Attribute::Function { .. } => {
                         unreachable!("function-as-variable should be caught by the type checker")
@@ -429,7 +429,7 @@ impl<'ctx> LoweringPass<'ctx> {
                     .iter()
                     .map(|arg| self.visit_expr_rvalue(*arg))
                     .collect::<Vec<_>>();
-                let symbol = self.sema.symbols[name.resolved()].expect("expected a sema symbol");
+                let symbol = self.ctx.symbols[name.resolved()].expect("expected a sema symbol");
                 let data = FunctionData::new(name.name, symbol.is_global(), expr.span);
                 let func = self.get_or_make_function(name.resolved(), data);
                 let ty = symbol.ty.ret().unwrap().lower().0;

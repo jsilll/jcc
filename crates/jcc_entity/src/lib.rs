@@ -4,7 +4,6 @@
 //! different entity types at compile time. This is particularly useful for a compiler
 //! IR where you have multiple interrelated entity types (instructions, blocks, etc.) that should not be confused.
 
-mod counter;
 mod option;
 mod primary;
 mod secondary;
@@ -12,7 +11,6 @@ mod sparse;
 
 pub mod slice;
 
-pub use counter::EntityCounter;
 pub use option::{PackedOption, SentinelValue};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;

@@ -10,6 +10,7 @@ repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
 
 [dependencies]
+jcc_bitset = { path = "../jcc_bitset" }
 jcc_identity = { path = "../jcc_identity" }
 
 [lints.rust]

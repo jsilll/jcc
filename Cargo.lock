@@ -51,6 +51,7 @@ dependencies = [
 name = "jcc_entity"
 version = "0.1.0"
 dependencies = [
+ "jcc_bitset",
  "jcc_identity",
 ]
 

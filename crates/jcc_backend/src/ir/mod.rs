@@ -124,7 +124,7 @@ impl FunctionData {
         BlocksPreIter {
             prog,
             stack,
-            seen: EntitySet::default(),
+            seen: EntitySet::new(),
         }
     }
 
@@ -139,7 +139,7 @@ impl FunctionData {
         BlocksPostIter {
             prog,
             stack,
-            seen: EntitySet::default(),
+            seen: EntitySet::new(),
         }
     }
 }

@@ -144,7 +144,7 @@ impl<T: BitStorage> BitSet<T> {
         was_present
     }
 
-    /// Remove all items from the bitset.
+    /// Removes all items from the bitset.
     #[inline]
     pub fn clear(&mut self) {
         let Some(max) = self.max() else { return };

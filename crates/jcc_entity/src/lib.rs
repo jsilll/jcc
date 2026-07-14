@@ -7,6 +7,7 @@
 mod option;
 mod primary;
 mod secondary;
+mod set;
 mod sparse;
 
 pub mod slice;
@@ -14,6 +15,7 @@ pub mod slice;
 pub use option::{PackedOption, SentinelValue};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
+pub use set::EntitySet;
 pub use sparse::{map::SparseMap, set::SparseSet};
 
 pub use jcc_identity::BuildIdentityHasher as BuildEntityHasher;
@@ -21,9 +23,6 @@ pub use jcc_identity::IdentityHashable;
 
 /// A [`HashMap`](std::collections::HashMap) using identity hashing for [`IdentityHashable`] keys.
 pub type EntityMap<K, V> = jcc_identity::IntMap<K, V>;
-
-/// A [`HashSet`](std::collections::HashSet) using identity hashing for [`IdentityHashable`] keys.
-pub type EntitySet<K> = jcc_identity::IntSet<K>;
 
 /// Trait for types that can be used as entity references.
 pub trait EntityRef: Copy + Eq + IdentityHashable {

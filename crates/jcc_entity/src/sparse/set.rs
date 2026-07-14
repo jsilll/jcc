@@ -23,18 +23,12 @@ use crate::{EntityRef, SecondaryMap};
 ///
 /// Unlike an order-preserving set, removing a key may reorder entries because
 /// removal is implemented with a swap-with-last strategy.
-pub struct SparseSet<K>
-where
-    K: EntityRef,
-{
+pub struct SparseSet<K: EntityRef> {
     dense: Vec<K>,
     sparse: SecondaryMap<K, u32>,
 }
 
-impl<K> Default for SparseSet<K>
-where
-    K: EntityRef,
-{
+impl<K: EntityRef> Default for SparseSet<K> {
     fn default() -> Self {
         Self {
             dense: Vec::new(),
@@ -43,10 +37,7 @@ where
     }
 }
 
-impl<K> SparseSet<K>
-where
-    K: EntityRef,
-{
+impl<K: EntityRef> SparseSet<K> {
     /// Create a new empty set.
     pub fn new() -> Self {
         Self::default()
@@ -78,7 +69,7 @@ where
         self.dense.iter().copied()
     }
 
-    /// Return `true` if the set contains the specified key.
+    /// Returns `true` if the set contains the specified key.
     pub fn contains(&self, key: K) -> bool {
         if let Some(idx) = self.sparse.get(key).copied() {
             if let Some(k) = self.dense.get(idx as usize) {
@@ -118,9 +109,7 @@ where
         false
     }
 
-    /// Remove a key from the set and return it.
-    ///
-    /// If the set did not have this key present, `None` is returned.
+    /// Removes a key from the set and returns `true` if it was present.
     pub fn remove(&mut self, key: K) -> bool {
         if let Some(idx) = self.sparse.get(key).copied() {
             let idx_usize = idx as usize;

@@ -4,9 +4,10 @@ members = [
     "crates/jcc",
     "crates/jcc_args",
     "crates/jcc_arena",
+    "crates/jcc_entity",
+    "crates/jcc_bitset",
     "crates/jcc_backend",
     "crates/jcc_codemap",
-    "crates/jcc_entity",
     "crates/jcc_identity",
-    "crates/jcc_interner",
+    "crates/jcc_interner", 
 ]

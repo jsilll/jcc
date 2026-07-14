@@ -1,17 +1,13 @@
 [package]
-name = "jcc_entity"
+name = "jcc_bitset"
 version = "0.1.0"
-edition = "2021"
-description = "Entity-based indexing data structures for compiler intermediate representations"
-keywords = ["entity", "index", "compiler", "data-structures", "arena"]
-categories = ["data-structures", "compilers"]
+edition = "2024"
+description = "A bitset implementation, providing a compact and efficient way to represent sets of indices."
+keywords = ["bitset", "set", "compact", "efficient"]
+categories = ["data-structures", "collections"]
 license = "MIT"
 repository = "https://github.com/jsilll/jcc"
 readme = "README.md"
-
-[dependencies]
-jcc_bitset = { path = "../jcc_bitset" }
-jcc_identity = { path = "../jcc_identity" }
 
 [lints.rust]
 unsafe_code = "warn"

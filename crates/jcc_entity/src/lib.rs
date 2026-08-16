@@ -10,6 +10,7 @@ mod secondary;
 mod set;
 mod sparse;
 
+pub mod list;
 pub mod slice;
 
 pub use option::{PackedOption, SentinelValue};

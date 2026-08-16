@@ -46,6 +46,11 @@ mod tests {
         IdentInterner,
     };
 
+    const BB0: Block = Block::from_u32(0);
+    const BB1: Block = Block::from_u32(1);
+    const BB2: Block = Block::from_u32(2);
+    const BB3: Block = Block::from_u32(3);
+
     fn setup(input: &str) -> Order {
         let mut db = SimpleFiles::new();
         let mut interner = IdentInterner::new();
@@ -71,14 +76,10 @@ mod tests {
         "#,
         );
 
-        assert_eq!(
-            ord.rpo(Block::from_u32(0)),
-            [Block::from_u32(0), Block::from_u32(1), Block::from_u32(2)]
-        );
-
-        assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
-        assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);
-        assert_eq!(ord.rpo_idx(Block::from_u32(2)), 2);
+        assert_eq!(ord.rpo(BB0), [BB0, BB1, BB2]);
+        assert_eq!(ord.rpo_idx(BB0), 0);
+        assert_eq!(ord.rpo_idx(BB1), 1);
+        assert_eq!(ord.rpo_idx(BB2), 2);
     }
 
     #[test]
@@ -99,20 +100,11 @@ mod tests {
         "#,
         );
 
-        assert_eq!(
-            ord.rpo(Block::from_u32(0)),
-            [
-                Block::from_u32(0),
-                Block::from_u32(2),
-                Block::from_u32(1),
-                Block::from_u32(3),
-            ]
-        );
-
-        assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
-        assert_eq!(ord.rpo_idx(Block::from_u32(2)), 1);
-        assert_eq!(ord.rpo_idx(Block::from_u32(1)), 2);
-        assert_eq!(ord.rpo_idx(Block::from_u32(3)), 3);
+        assert_eq!(ord.rpo(BB0), [BB0, BB2, BB1, BB3,]);
+        assert_eq!(ord.rpo_idx(BB0), 0);
+        assert_eq!(ord.rpo_idx(BB2), 1);
+        assert_eq!(ord.rpo_idx(BB1), 2);
+        assert_eq!(ord.rpo_idx(BB3), 3);
     }
 
     #[test]
@@ -133,20 +125,11 @@ mod tests {
         "#,
         );
 
-        assert_eq!(
-            ord.rpo(Block::from_u32(0)),
-            [
-                Block::from_u32(0),
-                Block::from_u32(1),
-                Block::from_u32(3),
-                Block::from_u32(2),
-            ]
-        );
-
-        assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
-        assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);
-        assert_eq!(ord.rpo_idx(Block::from_u32(3)), 2);
-        assert_eq!(ord.rpo_idx(Block::from_u32(2)), 3);
+        assert_eq!(ord.rpo(BB0), [BB0, BB1, BB3, BB2,]);
+        assert_eq!(ord.rpo_idx(BB0), 0);
+        assert_eq!(ord.rpo_idx(BB1), 1);
+        assert_eq!(ord.rpo_idx(BB3), 2);
+        assert_eq!(ord.rpo_idx(BB2), 3);
     }
 
     #[test]
@@ -169,18 +152,11 @@ mod tests {
         "#,
         );
 
-        assert_eq!(
-            ord.rpo(Block::from_u32(0)),
-            [Block::from_u32(0), Block::from_u32(1)]
-        );
-        assert_eq!(
-            ord.rpo(Block::from_u32(2)),
-            [Block::from_u32(2), Block::from_u32(3)]
-        );
-
-        assert_eq!(ord.rpo_idx(Block::from_u32(0)), 0);
-        assert_eq!(ord.rpo_idx(Block::from_u32(1)), 1);
-        assert_eq!(ord.rpo_idx(Block::from_u32(2)), 0);
-        assert_eq!(ord.rpo_idx(Block::from_u32(3)), 1);
+        assert_eq!(ord.rpo(BB0), [BB0, BB1]);
+        assert_eq!(ord.rpo(BB2), [BB2, BB3]);
+        assert_eq!(ord.rpo_idx(BB0), 0);
+        assert_eq!(ord.rpo_idx(BB1), 1);
+        assert_eq!(ord.rpo_idx(BB2), 0);
+        assert_eq!(ord.rpo_idx(BB3), 1);
     }
 }

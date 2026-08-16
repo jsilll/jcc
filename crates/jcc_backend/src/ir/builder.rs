@@ -2,7 +2,7 @@ use jcc_codemap::span::Span;
 
 use crate::{
     ir::{
-        analysis::{cfg::ControlFlowGraph, dom::Dominance, order::Order},
+        analysis::{cfg::Control, dom::Dominance, order::Order},
         inst::Inst,
         term::Terminator,
         ty::Ty,
@@ -35,7 +35,7 @@ impl<'a> ProgramBuilder<'a> {
     pub fn finish(self) -> Program {
         let mut ord = Order::default();
         let mut dom = Dominance::default();
-        let mut cfg = ControlFlowGraph::default();
+        let mut cfg = Control::default();
         ord.compute(&self.prog);
         cfg.compute(&self.prog, &ord);
         dom.compute(&self.prog, &ord, &cfg);

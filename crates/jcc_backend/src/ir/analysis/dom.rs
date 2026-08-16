@@ -1,5 +1,5 @@
 use crate::ir::{
-    analysis::{cfg::ControlFlowGraph, order::Order},
+    analysis::{cfg::Control, order::Order},
     Block, Program,
 };
 
@@ -48,7 +48,7 @@ impl Dominance {
 
     /// Computes the dominance relation, the dominator tree, and
     /// the dominance frontiers for all functions in the program.
-    pub fn compute(&mut self, prog: &Program, ord: &Order, cfg: &ControlFlowGraph) {
+    pub fn compute(&mut self, prog: &Program, ord: &Order, cfg: &Control) {
         self.idom.clear();
         self.pool.clear();
         self.children.clear();
@@ -113,7 +113,7 @@ impl Dominance {
         }
     }
 
-    fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &ControlFlowGraph) {
+    fn compute_frontier(&mut self, entry: Block, ord: &Order, cfg: &Control) {
         let mut b = self.scratch.builder(&mut self.pool, &mut self.frontier);
         for &block in ord.rpo(entry) {
             if cfg.preds(block).get(1).is_none() {
@@ -134,12 +134,7 @@ impl Dominance {
         }
     }
 
-    fn walk_frontier(
-        block: Block,
-        idom: &IDomMap,
-        cfg: &ControlFlowGraph,
-        mut visit: impl FnMut(Block),
-    ) {
+    fn walk_frontier(block: Block, idom: &IDomMap, cfg: &Control, mut visit: impl FnMut(Block)) {
         let Some(dom) = idom[block].expand() else {
             return;
         };
@@ -178,6 +173,13 @@ mod tests {
 
     use jcc_codemap::simple::SimpleFiles;
 
+    const BB0: Block = Block::from_u32(0);
+    const BB1: Block = Block::from_u32(1);
+    const BB2: Block = Block::from_u32(2);
+    const BB3: Block = Block::from_u32(3);
+    const BB4: Block = Block::from_u32(4);
+    const BB5: Block = Block::from_u32(5);
+
     fn setup(input: &str) -> Dominance {
         let mut db = SimpleFiles::new();
         let mut interner = IdentInterner::new();
@@ -186,7 +188,7 @@ mod tests {
         let prog = &ir.program;
         let mut ord = Order::default();
         let mut dom = Dominance::default();
-        let mut cfg = ControlFlowGraph::default();
+        let mut cfg = Control::default();
         ord.compute(prog);
         cfg.compute(prog, &ord);
         dom.compute(prog, &ord, &cfg);
@@ -214,10 +216,10 @@ mod tests {
         "#,
         );
 
-        assert_eq!(dom.frontier(Block::from_u32(0)), []);
-        assert_eq!(dom.frontier(Block::from_u32(1)), [Block::from_u32(3)]);
-        assert_eq!(dom.frontier(Block::from_u32(2)), [Block::from_u32(3)]);
-        assert_eq!(dom.frontier(Block::from_u32(3)), []);
+        assert_eq!(dom.frontier(BB0), []);
+        assert_eq!(dom.frontier(BB1), [BB3]);
+        assert_eq!(dom.frontier(BB2), [BB3]);
+        assert_eq!(dom.frontier(BB3), []);
     }
 
     #[test]
@@ -248,12 +250,12 @@ mod tests {
         "#,
         );
 
-        assert_eq!(dom.frontier(Block::from_u32(0)), []);
-        assert_eq!(dom.frontier(Block::from_u32(1)), [Block::from_u32(1)]);
-        assert_eq!(dom.frontier(Block::from_u32(2)), [Block::from_u32(4)]);
-        assert_eq!(dom.frontier(Block::from_u32(3)), [Block::from_u32(4)]);
-        assert_eq!(dom.frontier(Block::from_u32(4)), [Block::from_u32(1)]);
-        assert_eq!(dom.frontier(Block::from_u32(5)), []);
+        assert_eq!(dom.frontier(BB0), []);
+        assert_eq!(dom.frontier(BB1), [BB1]);
+        assert_eq!(dom.frontier(BB2), [BB4]);
+        assert_eq!(dom.frontier(BB3), [BB4]);
+        assert_eq!(dom.frontier(BB4), [BB1]);
+        assert_eq!(dom.frontier(BB5), []);
     }
 
     #[test]
@@ -285,13 +287,13 @@ mod tests {
         );
 
         // Note: For now the frontier() API does not provide set semantics
-        let special = [Block::from_u32(5), Block::from_u32(5)];
+        let special = [BB5, BB5];
 
-        assert_eq!(dom.frontier(Block::from_u32(0)), []);
-        assert_eq!(dom.frontier(Block::from_u32(1)), special);
-        assert_eq!(dom.frontier(Block::from_u32(2)), [Block::from_u32(5)]);
-        assert_eq!(dom.frontier(Block::from_u32(3)), [Block::from_u32(5)]);
-        assert_eq!(dom.frontier(Block::from_u32(4)), [Block::from_u32(5)]);
-        assert_eq!(dom.frontier(Block::from_u32(5)), []);
+        assert_eq!(dom.frontier(BB0), []);
+        assert_eq!(dom.frontier(BB1), special);
+        assert_eq!(dom.frontier(BB2), [BB5]);
+        assert_eq!(dom.frontier(BB3), [BB5]);
+        assert_eq!(dom.frontier(BB4), [BB5]);
+        assert_eq!(dom.frontier(BB5), []);
     }
 }

@@ -261,7 +261,7 @@ impl<'ctx> Parser<'ctx> {
                 }
 
                 self.expect(TokenKind::RBrack);
-                let cases = self.cases_stack.drain(..).collect();
+                let cases = std::mem::take(&mut self.cases_stack);
 
                 Terminator::Switch {
                     value,
@@ -319,6 +319,11 @@ impl<'ctx> Parser<'ctx> {
                         self.advance();
                         let ty = self.parse_ty()?;
                         Some(Inst::ConstNull(ty))
+                    }
+                    TokenKind::Undef => {
+                        self.advance();
+                        let ty = self.parse_ty()?;
+                        Some(Inst::Undef(ty))
                     }
                     TokenKind::Phi => {
                         self.advance();
@@ -421,7 +426,7 @@ impl<'ctx> Parser<'ctx> {
                             self.indices_stack.push(val);
                         }
 
-                        let indices = self.indices_stack.drain(..).collect();
+                        let indices = std::mem::take(&mut self.indices_stack);
                         Some(Inst::GetElementPtr { ty, ptr, indices })
                     }
                     TokenKind::Select => {
@@ -564,7 +569,7 @@ impl<'ctx> Parser<'ctx> {
             }
         }
         self.expect(TokenKind::RParen);
-        self.args_stack.drain(..).collect()
+        std::mem::take(&mut self.args_stack)
     }
 
     #[inline]

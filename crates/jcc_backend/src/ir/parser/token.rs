@@ -98,6 +98,8 @@ pub enum TokenKind {
     False,
     /// The `const` keyword.
     Const,
+    /// The `undef` keyword.
+    Undef,
     /// The `zeroinitializer` keyword.
     ZeroInitializer,
 
@@ -471,6 +473,7 @@ impl TokenKind {
             Self::True => "true",
             Self::False => "false",
             Self::Const => "const",
+            Self::Undef => "undef",
             Self::ZeroInitializer => "zeroinitializer",
 
             Self::Alloca => "alloca",
@@ -599,6 +602,7 @@ impl TokenKind {
             "true" => Some(Self::True),
             "false" => Some(Self::False),
             "const" => Some(Self::Const),
+            "undef" => Some(Self::Undef),
             "zeroinitializer" => Some(Self::ZeroInitializer),
 
             "alloca" => Some(Self::Alloca),

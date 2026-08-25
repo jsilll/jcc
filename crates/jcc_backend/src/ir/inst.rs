@@ -127,6 +127,9 @@ pub enum Inst {
     /// into the `phi` node located in the successor block.
     Upsilon { phi: Value, value: Value },
 
+    /// An undefined value of the specified type.
+    Undef(Ty),
+
     /// Null constant pointer.
     ConstNull(Ty),
 
@@ -257,6 +260,11 @@ impl Inst {
     /// Creates an assignment to a Phi node in a successor block.
     pub fn upsilon(phi: Value, value: Value) -> Self {
         Self::Upsilon { phi, value }
+    }
+
+    /// Creates an undefined value of the specified type.
+    pub fn undef(ty: Ty) -> Self {
+        Self::Undef(ty)
     }
 
     /// Creates a null constant pointer of the specified type.
@@ -436,7 +444,8 @@ impl Inst {
             Inst::Alloca { .. } => Ty::Ptr,
             Inst::GetElementPtr { .. } => Ty::Ptr,
 
-            Inst::ConstNull(ty)
+            Inst::Undef(ty)
+            | Inst::ConstNull(ty)
             | Inst::Call { ty, .. }
             | Inst::Load { ty, .. }
             | Inst::Const { ty, .. }
@@ -468,6 +477,7 @@ impl Inst {
         match self {
             Inst::Noop
             | Inst::Phi(_)
+            | Inst::Undef(_)
             | Inst::ConstNull(_)
             | Inst::GlobalAddr(_)
             | Inst::Const { .. }
@@ -544,6 +554,7 @@ impl Inst {
         match self {
             Inst::Noop
             | Inst::Phi(_)
+            | Inst::Undef(_)
             | Inst::ConstNull(_)
             | Inst::GlobalAddr(_)
             | Inst::Const { .. }
@@ -712,6 +723,7 @@ impl std::fmt::Display for Inst {
         match self {
             Inst::Noop => write!(f, "noop"),
             Inst::Phi(ty) => write!(f, "phi {}", ty),
+            Inst::Undef(ty) => write!(f, "undef {}", ty),
             Inst::ConstNull(ty) => write!(f, "null {}", ty),
             Inst::GlobalAddr(g) => write!(f, "global.addr {}", g),
             Inst::Const { ty, value } => write!(f, "const {} {}", ty, value),

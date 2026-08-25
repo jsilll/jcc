@@ -25,6 +25,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_undef() {
+        check(
+            r#"
+                define @undef {
+                bb0:
+                  %1 = undef i32
+                  ret %0
+                }
+            "#,
+        );
+    }
+
+    #[test]
     fn parse_null_pointer() {
         check(
             r#"

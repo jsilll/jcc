@@ -320,6 +320,11 @@ impl<'ctx> Parser<'ctx> {
                         let ty = self.parse_ty()?;
                         Some(Inst::ConstNull(ty))
                     }
+                    TokenKind::Undef => {
+                        self.advance();
+                        let ty = self.parse_ty()?;
+                        Some(Inst::Undef(ty))
+                    }
                     TokenKind::Phi => {
                         self.advance();
                         let ty = self.parse_ty()?;

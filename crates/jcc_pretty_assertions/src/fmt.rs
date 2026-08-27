@@ -2,10 +2,10 @@ use crate::diff::DiffOp;
 
 use termcolor::{Color, ColorSpec, WriteColor};
 
-pub fn diff(buf: &mut dyn WriteColor, left: &str, right: &str) -> std::io::Result<()> {
+pub(crate) fn diff(buf: &mut dyn WriteColor, lhs: &str, rhs: &str) -> std::io::Result<()> {
     let mut spec = ColorSpec::new();
-    let llines: Vec<&str> = left.lines().collect();
-    let rlines: Vec<&str> = right.lines().collect();
+    let llines: Vec<&str> = lhs.lines().collect();
+    let rlines: Vec<&str> = rhs.lines().collect();
     let diff = crate::diff::diff(&llines, &rlines);
     spec.set_bold(true);
     buf.set_color(&spec)?;
@@ -14,19 +14,19 @@ pub fn diff(buf: &mut dyn WriteColor, left: &str, right: &str) -> std::io::Resul
         match op {
             DiffOp::Equal(line) => {
                 buf.reset()?;
-                writeln!(buf, " {}", line)?;
+                writeln!(buf, " {line}")?;
             }
             DiffOp::Delete(line) => {
                 spec.clear();
                 spec.set_fg(Some(Color::Red));
                 buf.set_color(&spec)?;
-                writeln!(buf, "-{}", line)?;
+                writeln!(buf, "-{line}")?;
             }
             DiffOp::Insert(line) => {
                 spec.clear();
                 spec.set_fg(Some(Color::Green));
                 buf.set_color(&spec)?;
-                writeln!(buf, "+{}", line)?;
+                writeln!(buf, "+{line}")?;
             }
         }
     }

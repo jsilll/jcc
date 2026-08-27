@@ -1,18 +1,18 @@
 #[derive(Debug, PartialEq, Eq)]
-pub enum DiffOp<T> {
+pub(crate) enum DiffOp<T> {
     Equal(T),
     Delete(T),
     Insert(T),
 }
 
-pub fn diff<T: PartialEq + Copy>(l: &[T], r: &[T]) -> Vec<DiffOp<T>> {
-    let n = l.len();
-    let m = r.len();
+pub(crate) fn diff<T: PartialEq + Copy>(lhs: &[T], rhs: &[T]) -> Vec<DiffOp<T>> {
+    let n = lhs.len();
+    let m = rhs.len();
     let idx = |i, j| i * (m + 1) + j;
     let mut dp = vec![0; (n + 1) * (m + 1)];
     for i in 0..n {
         for j in 0..m {
-            if l[i] == r[j] {
+            if lhs[i] == rhs[j] {
                 dp[idx(i + 1, j + 1)] = dp[idx(i, j)] + 1;
             } else {
                 let lval = dp[idx(i + 1, j)];
@@ -25,24 +25,24 @@ pub fn diff<T: PartialEq + Copy>(l: &[T], r: &[T]) -> Vec<DiffOp<T>> {
     let mut j = m;
     let mut diff = Vec::with_capacity(std::cmp::max(n, m));
     while i > 0 && j > 0 {
-        if l[i - 1] == r[j - 1] {
-            diff.push(DiffOp::Equal(l[i - 1]));
+        if lhs[i - 1] == rhs[j - 1] {
+            diff.push(DiffOp::Equal(lhs[i - 1]));
             i -= 1;
             j -= 1;
         } else if dp[idx(i - 1, j)] <= dp[idx(i, j - 1)] {
-            diff.push(DiffOp::Insert(r[j - 1]));
+            diff.push(DiffOp::Insert(rhs[j - 1]));
             j -= 1;
         } else {
-            diff.push(DiffOp::Delete(l[i - 1]));
+            diff.push(DiffOp::Delete(lhs[i - 1]));
             i -= 1;
         }
     }
     while i > 0 {
-        diff.push(DiffOp::Delete(l[i - 1]));
+        diff.push(DiffOp::Delete(lhs[i - 1]));
         i -= 1;
     }
     while j > 0 {
-        diff.push(DiffOp::Insert(r[j - 1]));
+        diff.push(DiffOp::Insert(rhs[j - 1]));
         j -= 1;
     }
     diff.reverse();
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn substution() {
+    fn substitution() {
         let l = &[1, 2, 3];
         let r = &[1, 4, 3];
         assert_eq!(diff(l, r), [Equal(1), Delete(2), Insert(4), Equal(3)]);

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-pub fn unescape_debug_str(s: &str) -> Cow<'_, str> {
+pub(crate) fn unescape_debug_str(s: &str) -> Cow<'_, str> {
     match s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
         None => Cow::Borrowed(s),
         Some(s) if !s.contains('\\') => Cow::Borrowed(s),
@@ -8,22 +8,21 @@ pub fn unescape_debug_str(s: &str) -> Cow<'_, str> {
             let mut chars = s.chars();
             let mut res = String::with_capacity(s.len());
             while let Some(c) = chars.next() {
-                if c != '\\' {
-                    res.push(c);
-                } else {
+                if c == '\\' {
                     match chars.next() {
-                        None => res.push('\\'),
+                        None | Some('\\') => res.push('\\'),
                         Some('"') => res.push('"'),
                         Some('n') => res.push('\n'),
                         Some('r') => res.push('\r'),
                         Some('t') => res.push('\t'),
                         Some('0') => res.push('\0'),
-                        Some('\\') => res.push('\\'),
                         Some(c) => {
                             res.push('\\');
                             res.push(c);
                         }
                     }
+                } else {
+                    res.push(c);
                 }
             }
             Cow::Owned(res)

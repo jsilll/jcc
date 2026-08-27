@@ -34,6 +34,7 @@ dependencies = [
  "jcc_codemap",
  "jcc_entity",
  "jcc_interner",
+ "jcc_pretty_assertions",
 ]
 
 [[package]]
@@ -64,6 +65,13 @@ name = "jcc_interner"
 version = "0.1.0"
 dependencies = [
  "jcc_entity",
+]
+
+[[package]]
+name = "jcc_pretty_assertions"
+version = "0.1.0"
+dependencies = [
+ "termcolor",
 ]
 
 [[package]]

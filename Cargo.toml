@@ -10,4 +10,5 @@ members = [
     "crates/jcc_codemap",
     "crates/jcc_identity",
     "crates/jcc_interner", 
+    "crates/jcc_pretty_assertions", 
 ]

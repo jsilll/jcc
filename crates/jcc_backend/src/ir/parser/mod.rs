@@ -21,7 +21,7 @@ mod tests {
         check_parse(&mut db, &ir2).unwrap_or_else(|report| panic!("{report}"));
 
         let str2 = ir2.program.pretty(&interner).to_string();
-        assert_eq!(str1, str2);
+        jcc_pretty_assertions::assert_eq!(str1, str2);
     }
 
     #[test]

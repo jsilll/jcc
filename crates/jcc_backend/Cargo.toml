@@ -13,3 +13,6 @@ readme = "README.md"
 jcc_entity = { path = "../jcc_entity" }
 jcc_codemap = { path = "../jcc_codemap", features = ["color"] }
 jcc_interner = { path = "../jcc_interner", features = ["entity"] }
+
+[dev-dependencies]
+jcc_pretty_assertions = { path = "../jcc_pretty_assertions" }

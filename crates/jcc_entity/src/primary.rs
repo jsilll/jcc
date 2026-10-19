@@ -11,6 +11,7 @@ use crate::EntityRef;
 ///
 /// There should only be a single `PrimaryMap` instance for a given `EntityRef` type, otherwise
 /// conflicting references will be created. Using unknown keys for indexing will cause a panic.
+#[derive(Clone, PartialEq, Eq)]
 pub struct PrimaryMap<K: EntityRef, V> {
     data: Vec<V>,
     phantom: PhantomData<K>,

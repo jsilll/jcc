@@ -2,11 +2,8 @@ use jcc_codemap::span::Span;
 
 use crate::{
     ir::{
-        analysis::{cfg::Control, dom::Dominance, order::Order},
-        inst::Inst,
-        term::Terminator,
-        ty::Ty,
-        Block, BlockData, Function, FunctionData, Global, GlobalData, Program, Value, ValueData,
+        inst::Inst, term::Terminator, ty::Ty, Block, BlockData, Function, FunctionData, Global,
+        GlobalData, Program, Value, ValueData,
     },
     Ident, IdentInterner,
 };
@@ -33,12 +30,6 @@ impl<'a> ProgramBuilder<'a> {
     }
 
     pub fn finish(self) -> Program {
-        let mut ord = Order::default();
-        let mut dom = Dominance::default();
-        let mut cfg = Control::default();
-        ord.compute(&self.prog);
-        cfg.compute(&self.prog, &ord);
-        dom.compute(&self.prog, &ord, &cfg);
         self.prog
     }
 

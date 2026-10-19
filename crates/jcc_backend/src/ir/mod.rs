@@ -38,7 +38,7 @@ entity_impl!(Global, "@global");
 pub struct Function(u32);
 entity_impl!(Function, "@function");
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Program {
     pub values: PrimaryMap<Value, ValueData>,
     pub blocks: PrimaryMap<Block, BlockData>,

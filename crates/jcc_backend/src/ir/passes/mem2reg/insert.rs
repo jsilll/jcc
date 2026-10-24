@@ -11,7 +11,7 @@ pub struct Insert {
     seen: EntitySet<Block>,
     has_phi: EntitySet<Block>,
     phi_blocks: SparseSet<Block>,
-    phi_to_alloca: SecondaryMap<Value, PackedOption<Value>>,
+    phi2alloca: SecondaryMap<Value, PackedOption<Value>>,
 }
 
 impl Insert {
@@ -21,8 +21,8 @@ impl Insert {
     }
 
     /// Returns a mapping of newly inserted phis to the allocas they correspond to.
-    pub fn phi_to_alloca(&self) -> &SecondaryMap<Value, PackedOption<Value>> {
-        &self.phi_to_alloca
+    pub fn phi2alloca(&self) -> &SecondaryMap<Value, PackedOption<Value>> {
+        &self.phi2alloca
     }
 
     /// Runs the phi insertion pass on the given program.
@@ -32,7 +32,7 @@ impl Insert {
         let stores = collect.stores();
 
         self.phi_blocks.clear();
-        self.phi_to_alloca.clear();
+        self.phi2alloca.clear();
         for (alloca, ty) in promo.entries() {
             if !loaded.contains(*alloca) {
                 continue;
@@ -69,7 +69,7 @@ impl Insert {
                             inst: Inst::Phi(*ty),
                             span: program.values[*alloca].span,
                         });
-                        self.phi_to_alloca[phi] = (*alloca).into();
+                        self.phi2alloca[phi] = (*alloca).into();
                         program.blocks[child].insts.push(phi);
                         self.phi_blocks.insert(child);
                         if self.seen.insert(child) {

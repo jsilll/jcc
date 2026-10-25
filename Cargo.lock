@@ -31,6 +31,7 @@ version = "0.1.0"
 name = "jcc_backend"
 version = "0.1.0"
 dependencies = [
+ "jcc_bitset",
  "jcc_codemap",
  "jcc_entity",
  "jcc_interner",
@@ -53,12 +54,8 @@ name = "jcc_entity"
 version = "0.1.0"
 dependencies = [
  "jcc_bitset",
- "jcc_identity",
+ "rustc-hash",
 ]
-
-[[package]]
-name = "jcc_identity"
-version = "0.1.0"
 
 [[package]]
 name = "jcc_interner"
@@ -73,6 +70,12 @@ version = "0.1.0"
 dependencies = [
  "termcolor",
 ]
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
 name = "termcolor"

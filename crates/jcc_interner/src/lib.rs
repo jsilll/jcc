@@ -65,9 +65,6 @@ impl<M> Symbol<M> {
 }
 
 #[cfg(feature = "entity")]
-impl<M> jcc_entity::IdentityHashable for Symbol<M> {}
-
-#[cfg(feature = "entity")]
 impl<M> jcc_entity::EntityRef for Symbol<M> {
     #[inline]
     fn new(index: usize) -> Self {

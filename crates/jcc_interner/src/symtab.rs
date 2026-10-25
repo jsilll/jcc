@@ -22,9 +22,9 @@ use std::{
     hash::{BuildHasher, Hash},
 };
 
-/// A [`SymbolTable`] using identity hashing for [`jcc_entity::IdentityHashable`] keys.
+/// A [`SymbolTable`] that uses the Fx hashing algorithm.
 #[cfg(feature = "entity")]
-pub type EntitySymbolTable<S, V> = SymbolTable<S, V, jcc_entity::BuildEntityHasher<S>>;
+pub type EntitySymbolTable<S, V> = SymbolTable<S, V, jcc_entity::FxBuildHasher>;
 
 /// Holds the value and the version at which it was last modified.
 #[derive(Debug, Clone)]

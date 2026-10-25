@@ -19,14 +19,14 @@ pub use secondary::SecondaryMap;
 pub use set::EntitySet;
 pub use sparse::{map::SparseMap, set::SparseSet};
 
-pub use jcc_identity::BuildIdentityHasher as BuildEntityHasher;
-pub use jcc_identity::IdentityHashable;
+/// Re-export the `FxBuildHasher`
+pub use rustc_hash::FxBuildHasher;
 
-/// A [`HashMap`](std::collections::HashMap) using identity hashing for [`IdentityHashable`] keys.
-pub type EntityMap<K, V> = jcc_identity::IntMap<K, V>;
+/// A [`HashMap`](std::collections::HashMap) that uses the Fx hashing algorithm.
+pub type EntityMap<K, V> = rustc_hash::FxHashMap<K, V>;
 
 /// Trait for types that can be used as entity references.
-pub trait EntityRef: Copy + Eq + IdentityHashable {
+pub trait EntityRef: Copy + Eq {
     /// Create a new entity reference
     fn new(index: usize) -> Self;
     /// Get the index of the entity to index the array
@@ -57,8 +57,6 @@ macro_rules! entity_impl {
     };
 
     ($entity:ident) => {
-        impl $crate::IdentityHashable for $entity {}
-
         impl $crate::SentinelValue for $entity {
             const SENTINEL: Self = Self(u32::MAX);
         }

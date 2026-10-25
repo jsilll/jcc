@@ -8,7 +8,6 @@ members = [
     "crates/jcc_bitset",
     "crates/jcc_backend",
     "crates/jcc_codemap",
-    "crates/jcc_identity",
     "crates/jcc_interner", 
     "crates/jcc_pretty_assertions", 
 ]

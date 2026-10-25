@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod builder;
 pub mod inst;
 pub mod parser;
+pub mod passes;
 pub mod pretty;
 pub mod term;
 pub mod ty;
@@ -38,7 +39,7 @@ entity_impl!(Global, "@global");
 pub struct Function(u32);
 entity_impl!(Function, "@function");
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Program {
     pub values: PrimaryMap<Value, ValueData>,
     pub blocks: PrimaryMap<Block, BlockData>,

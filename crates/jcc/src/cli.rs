@@ -8,6 +8,10 @@ use crate::{
 
 use jcc_backend::{
     codemap::{color::ColorConfig, simple::SimpleFiles, Diagnostic, Files},
+    ir::{
+        analysis::{cfg::Control, dom::Dominance, order::Order},
+        passes::mem2reg::Mem2Reg,
+    },
     IdentInterner, TargetOs,
 };
 
@@ -172,9 +176,22 @@ impl CompileOptions {
         if self.emit_options.ast_graphviz {
             write_graphviz(&self.path, &ast, &interner)?;
         }
-        let ssa = profiler.time("Lower", || {
+        let mut ssa = profiler.time("Lower", || {
             LoweringPass::new(&ast, &ctx, &mut interner).build()
         });
+
+        let mut ord = Order::default();
+        profiler.time("Order", || ord.compute(&ssa));
+
+        let mut cfg = Control::default();
+        profiler.time("CFG", || cfg.compute(&ssa, &ord));
+
+        let mut dom = Dominance::default();
+        profiler.time("Dominance", || dom.compute(&ssa, &ord, &cfg));
+
+        let mut m2r = Mem2Reg::default();
+        profiler.time("Mem2Reg", || m2r.run(&mut ssa, &ord, &cfg, &dom));
+
         if self.emit_options.ir {
             println!("{}", ssa.pretty(&interner));
         }

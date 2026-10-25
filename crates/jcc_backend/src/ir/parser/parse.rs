@@ -283,15 +283,27 @@ impl<'ctx> Parser<'ctx> {
     fn parse_inst(&mut self, block: Block) {
         let value = self.parse_value_def();
         let span = self.peek_span();
-        if let (Some(value), Some(inst)) = (value, self.parse_inst_body()) {
-            let data = &mut self.result.program.values[value];
-            let idx = self.result.program.blocks[block].insts.len();
-            data.inst = inst;
-            data.span = span;
-            data.block = block;
-            data.idx = idx as u32;
-            self.result.program.blocks[block].insts.push(value);
-        }
+        let Some(inst) = self.parse_inst_body() else {
+            return;
+        };
+        let idx = self.result.program.blocks[block].insts.len() as u32;
+        let value = match value {
+            None => self.result.program.values.push(ValueData {
+                idx,
+                span,
+                inst,
+                block,
+            }),
+            Some(value) => {
+                let data = &mut self.result.program.values[value];
+                data.idx = idx;
+                data.inst = inst;
+                data.span = span;
+                data.block = block;
+                value
+            }
+        };
+        self.result.program.blocks[block].insts.push(value);
     }
 
     fn parse_inst_body(&mut self) -> Option<Inst> {

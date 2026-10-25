@@ -619,8 +619,8 @@ impl Inst {
             | Inst::Bitcast { value, .. }
             | Inst::IntToPtr { value, .. }
             | Inst::PtrToInt { value, .. }
-            | Inst::Unary { operand: value, .. }
-            | Inst::Load { ptr: value, .. } => OperandsMut::One(Some(value)),
+            | Inst::Load { ptr: value, .. }
+            | Inst::Unary { operand: value, .. } => OperandsMut::One(Some(value)),
         }
     }
 }

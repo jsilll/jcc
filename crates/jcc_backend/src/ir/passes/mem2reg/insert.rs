@@ -38,7 +38,7 @@ impl Insert {
                 continue;
             }
 
-            // Fast path: 
+            // Fast path:
             // If the alloca was never stored to, or has only a single store block
             // whose dominance frontier is empty (e.g. entry block), no phi can ever be needed.
             let mut iter = stores.iter(*alloca);

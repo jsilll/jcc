@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn straight() {
         assert_ir(
-r#"
+            r#"
 define @straight {
 bb0:
   %0 = alloca i32, align 4
@@ -84,7 +84,7 @@ bb0:
     #[test]
     fn diamond() {
         assert_ir(
-r#"
+            r#"
 define @diamond {
 bb0:
   %0 = alloca i32, align 4
@@ -108,7 +108,7 @@ bb3:
   ret %8
 }
 "#,
-r#"
+            r#"
 define @diamond {
 bb0:
   %1 = param i1 #0
@@ -136,7 +136,7 @@ bb2:
     #[test]
     fn never_loaded() {
         assert_ir(
-r#"
+            r#"
 define @dead {
 bb0:
   %0 = alloca i32, align 4
@@ -145,7 +145,7 @@ bb0:
   ret void
 }
 "#,
-r#"
+            r#"
 define @dead {
 bb0:
   %1 = const i32 42
@@ -158,7 +158,7 @@ bb0:
     #[test]
     fn escaped() {
         assert_ir(
-r#"
+            r#"
 define @escaped {
 bb0:
   %0 = alloca i32, align 4
@@ -167,7 +167,7 @@ bb0:
   ret void
 }
 "#,
-r#"
+            r#"
 define @escaped {
 bb0:
   %0 = alloca i32, align 4
@@ -182,7 +182,7 @@ bb0:
     #[test]
     fn undef() {
         assert_ir(
-r#"
+            r#"
 define @undef {
 bb0:
   %0 = alloca ptr, align 8

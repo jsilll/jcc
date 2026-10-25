@@ -619,7 +619,7 @@ impl Inst {
             | Inst::Bitcast { value, .. }
             | Inst::IntToPtr { value, .. }
             | Inst::PtrToInt { value, .. }
-            | Inst::Load { ptr: value, .. } 
+            | Inst::Load { ptr: value, .. }
             | Inst::Unary { operand: value, .. } => OperandsMut::One(Some(value)),
         }
     }

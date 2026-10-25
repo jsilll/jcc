@@ -30,7 +30,7 @@ impl Dominance {
         self.idom[block].expand()
     }
 
-    /// Returns the dominated children of `block`.
+    /// Returns the immediate children of `block` in the dominator tree.
     pub fn children(&self, block: Block) -> &[Block] {
         let slice = self.children[block];
         &self.pool[slice]

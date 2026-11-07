@@ -123,7 +123,7 @@ mod tests {
     const E3: TestEntity = TestEntity(100);
 
     #[test]
-    fn new_map_is_empty() {
+    fn empty() {
         let map = LocalMap::<TestEntity>::new();
         assert!(map.is_empty());
         assert_eq!(map.len(), 0);

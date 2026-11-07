@@ -4,6 +4,7 @@
 //! different entity types at compile time. This is particularly useful for a compiler
 //! IR where you have multiple interrelated entity types (instructions, blocks, etc.) that should not be confused.
 
+mod local;
 mod option;
 mod primary;
 mod secondary;
@@ -13,6 +14,7 @@ mod sparse;
 pub mod list;
 pub mod slice;
 
+pub use local::{Local, LocalMap};
 pub use option::{PackedOption, SentinelValue};
 pub use primary::PrimaryMap;
 pub use secondary::SecondaryMap;
@@ -26,7 +28,7 @@ pub use rustc_hash::FxBuildHasher;
 pub type EntityMap<K, V> = rustc_hash::FxHashMap<K, V>;
 
 /// Trait for types that can be used as entity references.
-pub trait EntityRef: Copy + Eq {
+pub trait EntityRef: Copy + Eq + std::hash::Hash {
     /// Create a new entity reference
     fn new(index: usize) -> Self;
     /// Get the index of the entity to index the array

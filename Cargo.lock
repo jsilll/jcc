@@ -31,7 +31,6 @@ version = "0.1.0"
 name = "jcc_backend"
 version = "0.1.0"
 dependencies = [
- "jcc_bitset",
  "jcc_codemap",
  "jcc_entity",
  "jcc_interner",

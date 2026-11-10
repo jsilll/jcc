@@ -11,8 +11,13 @@ readme = "README.md"
 
 [dependencies]
 jcc_entity = { path = "../jcc_entity" }
+jcc_bitset = { path = "../jcc_bitset" }
 jcc_codemap = { path = "../jcc_codemap", features = ["color"] }
 jcc_interner = { path = "../jcc_interner", features = ["entity"] }
 
 [dev-dependencies]
 jcc_pretty_assertions = { path = "../jcc_pretty_assertions" }
+
+[[bench]]
+name = "liveness"
+harness = false

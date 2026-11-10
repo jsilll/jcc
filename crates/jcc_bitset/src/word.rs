@@ -214,6 +214,64 @@ impl<T: BitStorage> BitWord<T> {
     }
 }
 
+impl<T: BitStorage> std::ops::Not for BitWord<T> {
+    type Output = Self;
+
+    #[inline]
+    fn not(self) -> Self {
+        Self(!self.0)
+    }
+}
+
+
+impl<T: BitStorage> std::ops::BitOr for BitWord<T> {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl<T: BitStorage> std::ops::BitAnd for BitWord<T> {
+    type Output = Self;
+
+    #[inline]
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl<T: BitStorage> std::ops::BitXor for BitWord<T> {
+    type Output = Self;
+
+    #[inline]
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        Self(self.0 ^ rhs.0)
+    }
+}
+
+impl<T: BitStorage> std::ops::BitOrAssign for BitWord<T> {
+    #[inline]
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 | rhs.0;
+    }
+}
+
+impl<T: BitStorage> std::ops::BitAndAssign for BitWord<T> {
+    #[inline]
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 = self.0 & rhs.0;
+    }
+}
+
+impl<T: BitStorage> std::ops::BitXorAssign for BitWord<T> {
+    #[inline]
+    fn bitxor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 ^ rhs.0;
+    }
+}
+
 /// An iterator over the items in a [`BitWord`].
 pub struct Iter<T> {
     word: BitWord<T>,

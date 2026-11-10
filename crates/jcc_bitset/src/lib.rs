@@ -10,6 +10,7 @@
 //!    than can fit into a single primitive type, utilizing internal heap allocations
 //!    to grow as needed.
 
+pub mod matrix;
 pub mod set;
 pub mod word;
 
@@ -27,6 +28,7 @@ pub trait BitStorage:
     + std::ops::Not<Output = Self>
     + std::ops::BitOr<Output = Self>
     + std::ops::BitAnd<Output = Self>
+    + std::ops::BitXor<Output = Self>
     + std::ops::Shl<u8, Output = Self>
     + std::ops::Shr<u8, Output = Self>
 {
